@@ -1,0 +1,142 @@
+<template>
+  <tool-shell
+    title="大小写转换"
+    desc="英文大小写互转，多种风格实时预览"
+    icon="case"
+    color="#722ED1"
+    back-path="/tools/text"
+  >
+    <template #toolbar>
+      <button class="tool-btn is-primary" @click="copy(output)">
+        <i class="el-icon-document-copy"></i>
+        复制结果
+      </button>
+      <button class="tool-btn is-danger" @click="input = ''">
+        <i class="el-icon-delete"></i>
+        清空
+      </button>
+    </template>
+
+    <div class="split-pane is-vertical">
+      <div class="pane" style="flex: 1">
+        <div class="pane-header">
+          <span class="pane-dot is-input"></span>
+          <span class="pane-title">输入文本</span>
+        </div>
+        <div class="pane-body">
+          <code-editor
+            v-model="input"
+            mode="text/plain"
+            :fold="false"
+            placeholder="输入英文文本…"
+          />
+        </div>
+      </div>
+      <div class="ul-results">
+        <div
+          v-for="r in results"
+          :key="r.label"
+          class="ul-item"
+          @click="copy(r.value)"
+          :title="r.value ? '点击复制' : ''"
+        >
+          <div class="ul-label">{{ r.label }}</div>
+          <div class="ul-value mono">{{ r.value || '—' }}</div>
+        </div>
+      </div>
+    </div>
+
+    <template #status>
+      <span class="status-dot"></span>
+      <span>{{ input.length }} 字符 · 点击卡片复制</span>
+      <span class="status-right">{{ wordCount }} 个单词</span>
+    </template>
+  </tool-shell>
+</template>
+
+<script>
+import ToolShell from '@/components/tool/ToolShell.vue'
+import CodeEditor from '@/components/tool/CodeEditor.vue'
+
+export default {
+  name: 'TextUplowercase',
+  components: { ToolShell, CodeEditor },
+  data() {
+    return {
+      input: 'The quick brown fox jumps over the lazy dog'
+    }
+  },
+  computed: {
+    wordCount() {
+      return (this.input.trim().match(/\S+/g) || []).length
+    },
+    results() {
+      const t = this.input
+      const capitalize = s => s.replace(/\b\w/g, c => c.toUpperCase())
+      return [
+        { label: '全大写 UPPER', value: t.toUpperCase() },
+        { label: '全小写 lower', value: t.toLowerCase() },
+        { label: '首字母大写 Capitalize', value: capitalize(t.toLowerCase()) },
+        { label: '句首大写 Sentence', value: t.toLowerCase().replace(/(^\s*\w|[.!?]\s+\w)/g, c => c.toUpperCase()) },
+        { label: '反转大小写 sWAP', value: [...t].map(c => c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()).join('') }
+      ]
+    }
+  },
+  methods: {
+    copy(t) {
+      if (!t) return
+      navigator.clipboard.writeText(t).then(() => {
+        this.$message({ message: '已复制', type: 'success', duration: 1200 })
+      })
+    }
+  }
+}
+</script>
+
+<style lang="scss" scoped>
+.ul-results {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 10px;
+}
+
+.ul-item {
+  padding: 10px 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.15s ease;
+
+  &:hover {
+    border-color: rgba(var(--primary-color-rgb), 0.4);
+
+    .ul-value {
+      color: var(--primary-color);
+    }
+  }
+}
+
+.ul-label {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.ul-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.5;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: color 0.15s ease;
+}
+</style>

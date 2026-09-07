@@ -1,0 +1,241 @@
+<template>
+  <tool-shell
+    title="图片格式转换"
+    desc="批量转换 PNG / JPEG / WEBP 格式"
+    icon="arrows"
+    color="#EB2F96"
+    back-path="/tools/image"
+  >
+    <template #toolbar>
+      <div class="tool-seg">
+        <div
+          v-for="f in formats"
+          :key="f.value"
+          class="tool-seg-item"
+          :class="{ active: target === f.value }"
+          @click="target = f.value"
+        >
+          {{ f.label }}
+        </div>
+      </div>
+      <button class="tool-btn is-primary" :disabled="!items.length" @click="convertAll">
+        <i class="el-icon-refresh"></i>
+        转换
+      </button>
+      <button class="tool-btn" :disabled="!items.filter(i => i.out).length" @click="downloadAll">
+        <i class="el-icon-download"></i>
+        下载全部
+      </button>
+      <button class="tool-btn is-danger" :disabled="!items.length" @click="items = []">
+        <i class="el-icon-delete"></i>
+        清空
+      </button>
+    </template>
+
+    <div class="fc-body">
+      <image-drop compact multiple @change="onFiles" />
+      <div v-for="(item, i) in items" :key="i" class="fc-item">
+        <img :src="item.url" alt="" />
+        <div class="fc-info">
+          <span class="fc-name">{{ item.name }}</span>
+          <span class="fc-size">
+            {{ formatSize(item.size) }}
+            <template v-if="item.out"> → {{ formatSize(item.outSize) }}</template>
+          </span>
+          <span v-if="item.error" class="fc-err">{{ item.error }}</span>
+        </div>
+        <button v-if="item.out" class="tool-btn" @click="downloadOne(item)">
+          <i class="el-icon-download"></i>
+          {{ item.outExt }}
+        </button>
+        <button class="fc-remove" @click="removeItem(i)">
+          <i class="el-icon-close"></i>
+        </button>
+      </div>
+    </div>
+
+    <template #status>
+      <span class="status-dot"></span>
+      <span>{{ items.length }} 张图片 · 目标 {{ target.toUpperCase() }}</span>
+      <span class="status-right" v-if="doneCount">{{ doneCount }}/{{ items.length }} 已转换</span>
+    </template>
+  </tool-shell>
+</template>
+
+<script>
+import ToolShell from '@/components/tool/ToolShell.vue'
+import ImageDrop from '@/components/tool/ImageDrop.vue'
+import { formatSize, loadImage, drawToCanvas, downloadDataUrl, baseName } from '@/utils/image'
+
+export default {
+  name: 'ImageFormatConvert',
+  components: { ToolShell, ImageDrop },
+  data() {
+    return {
+      target: 'png',
+      formats: [
+        { label: 'PNG', value: 'png' },
+        { label: 'JPEG', value: 'jpeg' },
+        { label: 'WEBP', value: 'webp' }
+      ],
+      items: []
+    }
+  },
+  computed: {
+    doneCount() {
+      return this.items.filter(i => i.out).length
+    }
+  },
+  methods: {
+    formatSize,
+    onFiles(files) {
+      files.forEach(f => {
+        this.items.push({
+          file: f,
+          name: f.name,
+          size: f.size,
+          url: URL.createObjectURL(f),
+          out: '',
+          outSize: 0,
+          outExt: '',
+          error: ''
+        })
+      })
+    },
+    async convertAll() {
+      for (const item of this.items) {
+        if (item.out) continue
+        try {
+          const { img, url } = await loadImage(item.file)
+          const canvas = drawToCanvas(img)
+          const mime = 'image/' + this.target
+          // JPEG 需要白底（透明通道会变黑）
+          if (this.target === 'jpeg') {
+            const c2 = document.createElement('canvas')
+            c2.width = canvas.width
+            c2.height = canvas.height
+            const ctx = c2.getContext('2d')
+            ctx.fillStyle = '#fff'
+            ctx.fillRect(0, 0, c2.width, c2.height)
+            ctx.drawImage(canvas, 0, 0)
+            canvas.width = c2.width
+            canvas.getContext('2d').drawImage(c2, 0, 0)
+          }
+          item.out = canvas.toDataURL(mime, 0.92)
+          item.outSize = Math.round(item.out.length * 0.75)
+          item.outExt = '.' + this.target
+          URL.revokeObjectURL(url)
+        } catch (e) {
+          item.error = e.message
+        }
+      }
+    },
+    downloadOne(item) {
+      downloadDataUrl(baseName(item.name) + '.' + this.target, item.out)
+    },
+    downloadAll() {
+      this.items.filter(i => i.out).forEach((item, i) => {
+        setTimeout(() => this.downloadOne(item), i * 250)
+      })
+    },
+    removeItem(i) {
+      URL.revokeObjectURL(this.items[i].url)
+      this.items.splice(i, 1)
+    }
+  }
+}
+</script>
+
+<style lang="scss" scoped>
+.fc-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-content: flex-start;
+  overflow-y: auto;
+  -webkit-app-region: no-drag;
+}
+
+.fc-item {
+  position: relative;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.16s ease;
+
+  &:hover {
+    border-color: rgba(var(--primary-color-rgb), 0.35);
+
+    .fc-remove {
+      opacity: 1;
+    }
+  }
+
+  img {
+    width: 100%;
+    height: 130px;
+    object-fit: cover;
+    background: var(--search-bg);
+  }
+}
+
+.fc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.fc-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.fc-size {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.fc-err {
+  font-size: 11px;
+  color: #F54A45;
+}
+
+.fc-item .tool-btn {
+  margin: 0 10px 10px;
+  justify-content: center;
+}
+
+.fc-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+
+  &:hover {
+    background: rgba(245, 74, 69, 0.85);
+  }
+}
+</style>

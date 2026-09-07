@@ -1,0 +1,157 @@
+/* ============================================================
+   全局动效系统（「去死板」动态化方案）
+   - 路由页面过渡：淡入 + 上浮
+   - 卡片入场编排 stagger：.stagger-item + inline animation-delay
+   - 按钮/分段控件按压态
+   - 复制图标变形反馈：i.is-copied（由 main.js 点击委托驱动）
+   - 卡片 hover 图标微动
+   - 时钟秒跳变：.tick-*
+   - 「减弱动态效果」总开关：html.reduce-motion 下关闭装饰性动效
+   ============================================================ */
+
+/* ============ 路由页面过渡（淡入 + 上浮） ============ */
+.page-enter-active {
+  transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.25, 0.8, 0.3, 1);
+}
+
+.page-leave-active {
+  transition: opacity 0.14s ease;
+}
+
+.page-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-leave-to {
+  opacity: 0;
+}
+
+/* ============ 卡片入场编排（stagger） ============ */
+@keyframes motion-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.stagger-item {
+  animation: motion-card-in 0.36s cubic-bezier(0.25, 0.8, 0.3, 1) backwards;
+}
+
+/* ============ 按钮按压态（缩放反馈） ============ */
+.segmented-item:active,
+.settings-nav-item:active,
+.fav-tab:active,
+.tool-seg .tool-seg-item:active {
+  transform: scale(0.96);
+}
+
+/* ============ 复制图标变形反馈 ============ */
+@keyframes motion-copy-pop {
+  0% {
+    transform: scale(0.4) rotate(-12deg);
+  }
+  55% {
+    transform: scale(1.25) rotate(4deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+i.is-copied {
+  color: #52C41A !important;
+  animation: motion-copy-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ============ 卡片 hover 图标微动 ============ */
+.card-icon-wrap,
+.tile-avatar,
+.fav-card .card-avatar {
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.tool-card:hover .card-icon-wrap,
+.tool-tile:hover .tile-avatar,
+.fav-card:hover .card-avatar {
+  transform: scale(1.1);
+}
+
+/* ============ 时钟秒跳变（数字向上弹入） ============ */
+/* 用 animation 而非 transition：key 变化时元素重建即播放，
+   避免新旧秒数短暂共存导致的横向闪动。
+   弹跳曲线带来的微抖动不够稳重，改为平滑缓出（无回弹） */
+@keyframes motion-tick-in {
+  from {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tick-in {
+  display: inline-block;
+  animation: motion-tick-in 0.32s cubic-bezier(0.25, 0.8, 0.3, 1);
+}
+
+/* ============ 减弱动态效果（总开关） ============ */
+html.reduce-motion {
+  /* 关闭入场编排 */
+  .stagger-item {
+    animation: none;
+  }
+
+  /* 路由过渡改为纯淡入（无位移） */
+  .page-enter {
+    transform: none;
+  }
+
+  /* 指示器不做滑动动画，直接就位 */
+  .nav-indicator {
+    transition: opacity 0.15s ease !important;
+  }
+
+  /* 关闭 hover 图标微动 / 按压缩放等装饰性反馈 */
+  .card-icon-wrap,
+  .tile-avatar,
+  .fav-card .card-avatar {
+    transition: none;
+  }
+
+  .tool-card:hover .card-icon-wrap,
+  .tool-tile:hover .tile-avatar,
+  .fav-card:hover .card-avatar {
+    transform: none;
+  }
+
+  .segmented-item:active,
+  .settings-nav-item:active,
+  .fav-tab:active,
+  .tool-seg .tool-seg-item:active {
+    transform: none;
+  }
+
+  /* 秒跳变 / 复制变形关闭 */
+  .tick-in {
+    animation: none;
+  }
+
+  i.is-copied {
+    animation: none;
+  }
+
+  /* 基金页：入场淡入与涨跌闪烁关闭（数字滚动由组件 JS 层直接跳变） */
+  .fp-enter,
+  .is-flash-up,
+  .is-flash-down {
+    animation: none;
+  }
+}

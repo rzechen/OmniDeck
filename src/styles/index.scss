@@ -1,0 +1,118 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  color: $text-primary;
+  -webkit-font-smoothing: antialiased;
+}
+
+// 滚动条样式（跟随明暗主题）
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(0, 0, 0, 0.15));
+  border-radius: 3px;
+
+  &:hover {
+    background: var(--scrollbar-thumb-hover, rgba(0, 0, 0, 0.25));
+  }
+}
+
+// 通用过渡
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+// 工具提示
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.25s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+// 页面容器（紧凑布局，首页/设置页等左右间距统一由此控制）
+// 内容区整体 no-drag：保证点击页面任意空白处可让输入框失焦（原生 blur）
+// 窗口拖动请使用顶部栏 / 侧边栏空白区域
+.page-container {
+  padding: 14px 16px;
+  height: 100%;
+  overflow-y: auto;
+  -webkit-app-region: no-drag;
+}
+
+// 全局弹层（MessageBox / Dialog / Message / 各类 popper 均挂载于 body 下，
+// 不在上面的 drag 容器内）。Electron 合成拖动区域时，未显式声明 no-drag 的
+// 弹层会被下层 drag 区域"透视"吞掉鼠标事件，导致按钮点击 / 点击遮罩关闭失效，
+// 因此必须全局显式恢复为 no-drag。
+.el-message-box__wrapper,
+.el-dialog__wrapper,
+.el-message-box,
+.el-dialog,
+.el-message,
+.el-notification,
+.v-modal,
+.el-select-dropdown,
+.el-picker-panel,
+.el-dropdown-menu,
+.el-popover,
+.el-tooltip__popper {
+  -webkit-app-region: no-drag;
+}
+
+// 全局提示 Message 置于所有自定义弹层（z-index: 3100）之上：
+// Element 的 Message 内联 z-index 从 2000 起算，低于自定义遮罩会被遮挡
+.el-message {
+  z-index: 9998 !important;
+}
+
+// 空状态
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: $text-secondary;
+
+  .empty-icon {
+    font-size: 56px;
+    margin-bottom: 16px;
+    color: #C0C4CC;
+  }
+
+  .empty-title {
+    font-size: 16px;
+    margin-bottom: 8px;
+    color: $text-primary;
+  }
+
+  .empty-desc {
+    font-size: 13px;
+  }
+}

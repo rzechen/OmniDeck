@@ -1,0 +1,44 @@
+// 全局 SCSS 变量：均由 CSS 变量驱动（定义与浅/深两套取值见 styles/theme.scss）
+// 注意：值为 var() 的变量不能用于 SCSS 颜色函数（lighten/darken 等）
+
+// 主题色
+$primary-color: var(--primary-color, #3366FF);
+$primary-light: var(--primary-color-hover, #5C85FF);
+$primary-dark: var(--primary-color-active, #2952CC);
+
+// 侧边栏
+$sidebar-bg: var(--sidebar-bg, #F0F0F2);
+$sidebar-item-hover: var(--sidebar-item-hover, rgba(0, 0, 0, 0.06));
+$sidebar-item-active: var(--sidebar-item-active, rgba(51, 102, 255, 0.12));
+$sidebar-divider: var(--sidebar-divider, rgba(0, 0, 0, 0.06));
+
+// 内容区
+$content-bg: var(--content-bg, #FBFCFD);
+$card-bg: var(--card-bg, #FFFFFF);
+$topbar-bg: var(--topbar-bg, rgba(255, 255, 255, 0.72));
+$search-bg: var(--search-bg, rgba(0, 0, 0, 0.04));
+$search-bg-hover: var(--search-bg-hover, rgba(0, 0, 0, 0.07));
+
+// 文字
+$text-primary: var(--text-primary, #1A1A1F);
+$text-secondary: var(--text-secondary, #73737D);
+$text-sidebar: var(--text-sidebar, #55555F);
+$text-sidebar-active: var(--text-sidebar-active, #1A1A1F);
+
+// 边框
+$border-color: var(--border-color, #E6E6EB);
+
+// 尺寸（紧凑布局）
+$sidebar-width: 210px;
+$sidebar-collapsed-width: 56px;
+$topbar-height: 44px;
+
+// 圆角
+$radius-sm: 6px;
+$radius-base: 8px;
+$radius-lg: 12px;
+
+// 阴影
+$shadow-sm: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+$shadow-base: var(--shadow-base, 0 2px 8px rgba(0, 0, 0, 0.06));
+$shadow-lg: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.12));
