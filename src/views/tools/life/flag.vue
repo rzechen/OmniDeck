@@ -21,7 +21,7 @@
       </div>
 
       <!-- 国家卡片网格：点击复制国旗 Emoji -->
-      <div class="flag-grid">
+      <div class="flag-grid" :class="{ 'is-empty': !filtered.length }">
         <div
           v-for="(c, i) in filtered"
           :key="i"
@@ -412,6 +412,11 @@ export default {
   gap: 10px;
   align-content: start;
   -webkit-app-region: no-drag;
+
+  /* 空状态：网格区域整体垂直居中 */
+  &.is-empty {
+    align-content: center;
+  }
 }
 
 /* 单个国旗卡片：hover 上浮 + 主题色描边 */
@@ -460,7 +465,6 @@ export default {
   grid-column: 1 / -1;
   text-align: center;
   color: var(--text-secondary);
-  padding: 30px 0;
   font-size: 12px;
 }
 </style>

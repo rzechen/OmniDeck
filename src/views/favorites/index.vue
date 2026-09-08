@@ -1182,7 +1182,7 @@ export default {
   height: 32px;
   padding: 0 10px 0 11px;
   background: $card-bg;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   cursor: pointer;
   max-width: 260px;
@@ -1295,12 +1295,14 @@ export default {
 
 // ===== 搜索无匹配提示 =====
 .section-empty {
-  padding: 16px;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px dashed var(--border-color);
   border-radius: $radius-base;
   font-size: 12px;
   color: $text-secondary;
-  text-align: center;
 }
 
 // ===== Tab 空状态（居中大区块） =====

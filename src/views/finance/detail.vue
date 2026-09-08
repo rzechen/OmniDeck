@@ -1401,8 +1401,10 @@ export default {
 }
 
 .fd-nav-empty {
-  padding: 20px;
-  text-align: center;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
   color: var(--text-secondary);
 }

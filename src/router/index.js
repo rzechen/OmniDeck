@@ -607,6 +607,14 @@ const router = new VueRouter({
   routes
 })
 
+// 记录 deck 主界面最后所在页面：从 OmniBuddy「返回 OmniDeck」时
+// 回到进入前的页面（而非固定回首页）
+router.afterEach((to) => {
+  if (!to.path.startsWith('/omnibuddy')) {
+    router.lastDeckPath = to.path
+  }
+})
+
 // 空闲时预取工具页分包：消除点击卡片进入工具页时的
 // 分包下载/解析阻塞（表现为"卡一下再闪一下"）
 // 逐个错峰预取，避免与首屏渲染争抢资源；失败静默（不影响正常导航）

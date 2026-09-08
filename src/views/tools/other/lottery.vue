@@ -548,11 +548,14 @@ export default {
   flex: 1;
   overflow-y: auto;
   padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .lot-winner {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 7px;
   padding: 4px 6px;
   border-radius: 7px;
@@ -578,8 +581,11 @@ export default {
 }
 
 .lot-winners-empty {
-  padding: 14px 0;
-  text-align: center;
+  flex: 1;
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
   color: #999;
 }

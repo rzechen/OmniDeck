@@ -208,7 +208,7 @@
 
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!loadError }"></span>
-      <span>{{ positions.length }} 只持仓 · 60s 自动刷新 · {{ marketStatus.label }}</span>
+      <span>{{ positions.length }} 只持仓 · 交易时段 60s 自动刷新 · {{ marketStatus.label }}</span>
       <span v-if="loadError" class="status-err">{{ loadError }}</span>
       <span class="status-right">数据源：新浪财经 / 东方财富 · 红涨绿跌</span>
     </template>
@@ -410,6 +410,10 @@ export default {
     },
     /* ============ 倒计时按钮文案 ============ */
     cdText() {
+      // 非交易时段：显示市场状态，不倒数
+      if (this.marketStatus.type !== 'open' && this.cdState === 'counting') {
+        return this.marketStatus.label
+      }
       if (this.cdState === 'refreshing') return '刷新中...'
       if (this.cdState === 'success') return '获取成功'
       if (this.cdState === 'fail') return '获取失败'
@@ -419,6 +423,7 @@ export default {
       if (!this.positions.length) return '添加持仓后开始获取估值'
       if (this.cdState === 'refreshing') return '正在获取最新估值…'
       if (this.cdState === 'success') return '估值已更新'
+      if (this.marketStatus.type !== 'open') return this.marketStatus.label + '，开盘后自动恢复刷新'
       return '点击立即刷新 · ' + this.cdSec + 's 后自动刷新'
     }
   },
@@ -471,6 +476,8 @@ export default {
     onTick() {
       // 每秒更新市场状态（跨时段边界时自动切换）
       this.marketStatus = calcMarketStatus()
+      // 非交易时段（未开盘/午休/收盘/非交易日）：暂停倒数，开盘后从当前秒数继续
+      if (this.marketStatus.type !== 'open') return
       if (this.cdState === 'counting') {
         this.cdSec--
         if (this.cdSec <= 0) {

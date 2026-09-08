@@ -587,6 +587,9 @@ export default {
 }
 
 .cron-next-empty {
+  min-height: 88px;
+  display: flex;
+  align-items: center;
   font-size: 12px;
   color: var(--text-secondary);
 }

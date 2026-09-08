@@ -1,10 +1,11 @@
 <template>
   <div id="app">
     <!-- 主界面 ↔ OmniBuddy 视图切换：整页淡入过渡 -->
+    <!-- 不用 keep-alive：顶层缓存 Layout 会让内部 router-view 的
+         过渡/缓存状态在视图切换时被中断（表现为返回 deck 后内容
+         停留在旧页面、与侧边栏高亮不一致），改为每次全新构建 -->
     <transition name="view-swap" mode="out-in">
-      <keep-alive>
-        <router-view />
-      </keep-alive>
+      <router-view />
     </transition>
     <!-- OmniBuddy 快速唤起浮窗（全局 ⌘J） -->
     <buddy-spotlight />

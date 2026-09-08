@@ -15,14 +15,12 @@
         @keydown.enter.exact.prevent="onSend"
       ></textarea>
 
-      <!-- 底部工具栏：左扩展 + 右发送 -->
+      <!-- 底部工具栏：左扩展（工作空间/模型选择等经插槽注入） + 右发送 -->
       <div class="bc-toolbar">
         <div class="bc-tools">
+          <slot name="tools"></slot>
           <button class="bc-tool-btn" title="附件（规划中）" @click="todoHint">
             <i class="el-icon-circle-plus-outline"></i>
-          </button>
-          <button class="bc-tool-btn" title="语音输入（规划中）" @click="todoHint">
-            <i class="el-icon-microphone"></i>
           </button>
         </div>
 
@@ -86,12 +84,12 @@ export default {
       if (!this.canSend) return
       this.$emit('send', this.value)
     },
-    // 高度自适应：清零后按 scrollHeight 恢复，封顶 160px
+    // 高度自适应：清零后按 scrollHeight 恢复，封顶 220px
     autoResize() {
       const ta = this.$refs.ta
       if (!ta) return
       ta.style.height = 'auto'
-      ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'
+      ta.style.height = Math.max(68, Math.min(ta.scrollHeight, 220)) + 'px'
     },
     todoHint() {
       this.$message.info('该能力规划中，敬请期待')

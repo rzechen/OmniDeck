@@ -5,15 +5,32 @@
       <aside class="ob-settings-nav">
         <div
           class="ob-nav-item"
-          :class="{ active: true }"
+          :class="{ active: activeTab === 'provider' }"
+          @click="activeTab = 'provider'"
         >
           <i class="el-icon-cpu"></i>
           <span>模型供应商</span>
         </div>
+        <div
+          class="ob-nav-item"
+          :class="{ active: activeTab === 'extensions' }"
+          @click="switchTab('extensions')"
+        >
+          <i class="el-icon-magic-stick"></i>
+          <span>Agent 扩展</span>
+        </div>
+        <div
+          class="ob-nav-item"
+          :class="{ active: activeTab === 'skills' }"
+          @click="switchTab('skills')"
+        >
+          <i class="el-icon-collection-tag"></i>
+          <span>Skills</span>
+        </div>
       </aside>
 
       <!-- 右侧：供应商列表 -->
-      <section class="ob-settings-body">
+      <section v-if="activeTab === 'provider'" class="ob-settings-body">
         <header class="ob-section-header">
           <div class="ob-header-row">
             <div>
@@ -71,6 +88,169 @@
                 <i class="el-icon-edit"></i>
               </span>
               <span class="ob-item-action danger" title="删除" @click="removeProvider(p)">
+                <i class="el-icon-delete"></i>
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧：Agent 扩展管理 -->
+      <section v-if="activeTab === 'extensions'" class="ob-settings-body">
+        <header class="ob-section-header">
+          <div class="ob-header-row">
+            <div>
+              <h2 class="ob-section-title">Agent 扩展</h2>
+              <p class="ob-section-desc">
+                安装 pi 社区扩展包增强 Agent 能力（MCP、联网、子代理等），安装后新会话生效
+              </p>
+            </div>
+          </div>
+        </header>
+
+        <!-- 安装入口 -->
+        <div class="ob-ext-install">
+          <el-input
+            v-model="extInstallName"
+            size="small"
+            clearable
+            placeholder="输入包名，如 pi-web-access"
+            @keyup.enter.native="installExt"
+          />
+          <el-button
+            size="small"
+            round
+            type="primary"
+            icon="el-icon-download"
+            :loading="extInstalling"
+            :disabled="!extInstallName.trim()"
+            @click="installExt"
+          >安装</el-button>
+        </div>
+
+        <!-- 沙箱执行开关 -->
+        <div class="ob-sandbox-box">
+          <div class="ob-sandbox-head">
+            <div class="ob-sandbox-title">
+              <i class="el-icon-lock"></i>
+              沙箱执行
+            </div>
+            <el-switch
+              :value="sandboxEnabled"
+              @change="toggleSandbox"
+            />
+          </div>
+          <p class="ob-sandbox-desc">
+            开启后 Agent 的命令执行将在 OS 级沙箱中运行（macOS: sandbox-exec）：网络仅限白名单域名，
+            仅工作目录与 /tmp 可写，敏感文件（.env/.pem 等）禁止读写。新会话生效。
+          </p>
+        </div>
+
+        <!-- 推荐快捷安装 -->
+        <div v-if="!extList.length && !extLoading" class="ob-ext-recommend">
+          <div class="ob-ext-recommend-title">推荐扩展</div>
+          <div class="ob-ext-recommend-grid">
+            <div v-for="r in recommendedExts" :key="r.pkg" class="ob-ext-card">
+              <div class="ob-ext-card-head">
+                <i :class="r.icon"></i>
+                <span>{{ r.name }}</span>
+                <el-tag size="mini" effect="plain">{{ r.tag }}</el-tag>
+              </div>
+              <p class="ob-ext-card-desc">{{ r.desc }}</p>
+              <el-button
+                size="mini"
+                round
+                type="primary"
+                plain
+                :loading="extInstalling && extInstallName === r.pkg"
+                @click="quickInstall(r.pkg)"
+              >安装</el-button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 已安装列表 -->
+        <div v-else class="ob-list">
+          <div v-if="extLoading" class="ob-ext-loading">
+            <i class="el-icon-loading"></i> 加载中…
+          </div>
+          <template v-else-if="extList.length">
+            <div
+              v-for="pkg in extList"
+              :key="pkg"
+              class="ob-list-item ob-ext-item"
+            >
+              <span class="ob-item-logo logo-custom">
+                <i class="el-icon-magic-stick"></i>
+              </span>
+              <div class="ob-item-info">
+                <div class="ob-item-name">{{ pkg }}</div>
+                <div class="ob-item-meta">已安装 · 新会话自动加载</div>
+              </div>
+            </div>
+          </template>
+          <div v-else class="ob-ext-loading">
+            暂未安装任何扩展包
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧：Skills 管理 -->
+      <section v-if="activeTab === 'skills'" class="ob-settings-body">
+        <header class="ob-section-header">
+          <div class="ob-header-row">
+            <div>
+              <h2 class="ob-section-title">Skills</h2>
+              <p class="ob-section-desc">
+                为 Agent 定义可复用的技能手册（SKILL.md），Agent 按需渐进加载；社区 skill 包可经「Agent 扩展」页安装
+              </p>
+            </div>
+            <el-button
+              size="small"
+              round
+              type="primary"
+              icon="el-icon-plus"
+              @click="openSkillCreate"
+            >新建 Skill</el-button>
+          </div>
+        </header>
+
+        <!-- 空状态 -->
+        <div v-if="!skillList.length && !skillLoading" class="ob-empty">
+          <div class="ob-empty-icon">
+            <i class="el-icon-collection-tag"></i>
+          </div>
+          <div class="ob-empty-title">暂无 Skill</div>
+          <div class="ob-empty-desc">新建一个 Skill，让 Agent 掌握特定任务的操作手册</div>
+          <el-button
+            size="small"
+            round
+            type="primary"
+            icon="el-icon-plus"
+            @click="openSkillCreate"
+          >新建 Skill</el-button>
+        </div>
+
+        <!-- Skill 列表 -->
+        <div v-else class="ob-list">
+          <div v-if="skillLoading" class="ob-ext-loading">
+            <i class="el-icon-loading"></i> 加载中…
+          </div>
+          <div
+            v-for="s in skillList"
+            v-else
+            :key="s.dir"
+            class="ob-list-item ob-ext-item"
+          >
+            <span class="ob-item-logo logo-custom">
+              <i class="el-icon-document"></i>
+            </span>
+            <div class="ob-item-info">
+              <div class="ob-item-name">{{ s.name }}</div>
+              <div class="ob-item-meta">{{ s.description || '（无描述）' }}</div>
+            </div>
+            <div class="ob-item-actions ob-item-actions-always">
+              <span class="ob-item-action danger" title="删除" @click="removeSkill(s)">
                 <i class="el-icon-delete"></i>
               </span>
             </div>
@@ -158,6 +338,55 @@
         </div>
       </div>
     </transition>
+
+    <!-- 新建 Skill 弹窗 -->
+    <transition name="ob-modal">
+      <div v-if="skillDialogVisible" class="ob-overlay" @click.self="skillDialogVisible = false">
+        <div class="ob-dialog ob-dialog-skill">
+          <header class="ob-dialog-header">
+            <h3 class="ob-dialog-title">新建 Skill</h3>
+            <i class="el-icon-close ob-dialog-close" @click="skillDialogVisible = false"></i>
+          </header>
+
+          <div class="ob-dialog-body">
+            <div class="ob-field">
+              <label class="ob-field-label">名称 <span class="ob-field-required">*</span></label>
+              <el-input
+                v-model="skillForm.name"
+                size="small"
+                clearable
+                placeholder="字母、数字、连字符，如 pdf-report"
+                maxlength="64"
+              />
+            </div>
+            <div class="ob-field">
+              <label class="ob-field-label">描述 <span class="ob-field-required">*</span></label>
+              <el-input
+                v-model="skillForm.description"
+                size="small"
+                clearable
+                placeholder="一句话说明何时使用该技能（Agent 依据它判断是否加载）"
+                maxlength="200"
+              />
+            </div>
+            <div class="ob-field">
+              <label class="ob-field-label">内容（Markdown 指令手册）</label>
+              <el-input
+                v-model="skillForm.content"
+                type="textarea"
+                :rows="8"
+                placeholder="# 操作指南&#10;&#10;告诉 Agent 执行该类任务时的步骤、规范与注意事项…"
+              />
+            </div>
+          </div>
+
+          <footer class="ob-dialog-footer">
+            <el-button size="small" round @click="skillDialogVisible = false">取消</el-button>
+            <el-button size="small" round type="primary" @click="saveSkill">创建</el-button>
+          </footer>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -172,6 +401,8 @@ export default {
   name: 'OmniBuddySettings',
   data() {
     return {
+      // 当前设置分类：provider 模型供应商 / extensions Agent 扩展
+      activeTab: 'provider',
       list: [],
       dialogVisible: false,
       editingId: null,
@@ -189,13 +420,153 @@ export default {
         model: ''
       },
       // 保存前的连接测试状态
-      testing: false
+      testing: false,
+      // ===== 沙箱执行 =====
+      sandboxEnabled: false,
+      // ===== Skills 管理 =====
+      skillList: [],
+      skillLoading: false,
+      skillDialogVisible: false,
+      skillForm: { name: '', description: '', content: '' },
+      // ===== Agent 扩展管理 =====
+      extList: [],
+      extLoading: false,
+      extInstallName: '',
+      extInstalling: false,
+      // 推荐的 pi 社区扩展包（快捷安装）
+      recommendedExts: [
+        { pkg: 'pi-web-access', name: '联网访问', tag: 'Web', icon: 'el-icon-link', desc: '网页抓取与联网搜索，回答实时性问题' },
+        { pkg: 'pi-mcp-adapter', name: 'MCP 适配器', tag: 'MCP', icon: 'el-icon-connection', desc: '接入标准 MCP Server，复用 MCP 生态工具' },
+        { pkg: 'pi-subagents', name: '子代理', tag: 'Agent', icon: 'el-icon-user', desc: '并行子代理协作，处理复杂多步任务' },
+        { pkg: 'pi-memory', name: '长期记忆', tag: 'Memory', icon: 'el-icon-notebook-2', desc: '跨会话记忆：偏好/决策/日志，Markdown 存储可随时查看编辑' }
+      ]
     }
   },
   created() {
     this.load()
   },
   methods: {
+    // 切换到扩展页时加载已安装列表与沙箱开关
+    switchTab(tab) {
+      this.activeTab = tab
+      if (tab === 'extensions') {
+        this.loadExtensions()
+        this.loadSandbox()
+      }
+      if (tab === 'skills') this.loadSkills()
+    },
+    // ===== 沙箱执行 =====
+    async loadSandbox() {
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api) return
+      try {
+        const config = await api.getSandbox()
+        this.sandboxEnabled = !!(config && config.enabled)
+      } catch (e) {
+        this.sandboxEnabled = false
+      }
+    },
+    async toggleSandbox(enabled) {
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api) {
+        this.$message.error('沙箱设置仅桌面端可用')
+        return
+      }
+      try {
+        const config = await api.setSandboxEnabled(enabled)
+        this.sandboxEnabled = !!(config && config.enabled)
+        this.$message.success(enabled ? '沙箱已开启，新会话生效' : '沙箱已关闭，新会话生效')
+      } catch (e) {
+        this.$message.error('设置失败：' + (e && e.message ? e.message : '未知错误'))
+      }
+    },
+    // ===== Skills 管理 =====
+    async loadSkills() {
+      this.skillLoading = true
+      try {
+        const api = window.electronAPI && window.electronAPI.omnibuddy
+        const res = api ? await api.listSkills() : []
+        this.skillList = Array.isArray(res) ? res : []
+      } catch (e) {
+        this.skillList = []
+      }
+      this.skillLoading = false
+    },
+    openSkillCreate() {
+      this.skillForm = { name: '', description: '', content: '' }
+      this.skillDialogVisible = true
+    },
+    async saveSkill() {
+      const name = this.skillForm.name.trim()
+      const description = this.skillForm.description.trim()
+      if (!name || !description) {
+        this.$message.warning('请填写名称与描述')
+        return
+      }
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api) {
+        this.$message.error('Skills 管理仅桌面端可用')
+        return
+      }
+      const res = await api.createSkill({ name, description, content: this.skillForm.content })
+      if (res && res.ok) {
+        this.skillDialogVisible = false
+        this.$message.success('Skill 已创建，新会话生效')
+        this.loadSkills()
+      } else {
+        this.$message.error((res && res.error) || '创建失败')
+      }
+    },
+    removeSkill(s) {
+      this.$confirm('确定删除 Skill「' + s.name + '」吗？', '删除 Skill', {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(async () => {
+        const api = window.electronAPI && window.electronAPI.omnibuddy
+        const res = await api.deleteSkill(s.dir)
+        if (res && res.ok) {
+          this.$message.success('已删除')
+          this.loadSkills()
+        } else {
+          this.$message.error((res && res.error) || '删除失败')
+        }
+      }).catch(() => {})
+    },
+    async loadExtensions() {
+      this.extLoading = true
+      try {
+        const api = window.electronAPI && window.electronAPI.omnibuddy
+        const res = api ? await api.listExtensions() : []
+        this.extList = Array.isArray(res) ? res : []
+      } catch (e) {
+        this.extList = []
+      }
+      this.extLoading = false
+    },
+    quickInstall(pkg) {
+      this.extInstallName = pkg
+      this.installExt()
+    },
+    async installExt() {
+      const pkg = this.extInstallName.trim()
+      if (!pkg || this.extInstalling) return
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api) {
+        this.$message.error('扩展管理仅桌面端可用')
+        return
+      }
+      this.extInstalling = true
+      try {
+        await api.installExtension(pkg)
+        this.$message.success('「' + pkg + '」安装成功，新会话生效')
+        this.extInstallName = ''
+        this.loadExtensions()
+      } catch (e) {
+        this.$message.error('安装失败：' + (e && e.message ? e.message : '未知错误'))
+      }
+      this.extInstalling = false
+    },
     load() {
       const saved = getItem('aiProviderList', [])
       let list = Array.isArray(saved) ? saved : []
@@ -626,6 +997,125 @@ $ob-accent: #722ED1;
     background: rgba(245, 34, 45, 0.1);
     color: #F5222D;
   }
+}
+
+/* ===== Agent 扩展管理 ===== */
+.ob-ext-install {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  max-width: 420px;
+
+  .el-input {
+    flex: 1;
+  }
+}
+
+.ob-ext-recommend-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: $text-primary;
+  margin-bottom: 10px;
+}
+
+.ob-ext-recommend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.ob-ext-card {
+  padding: 14px;
+  background: $card-bg;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-lg;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.15s ease;
+
+  &:hover {
+    border-color: rgba(114, 46, 209, 0.4);
+    box-shadow: $shadow-sm;
+  }
+}
+
+.ob-ext-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: $text-primary;
+
+  i {
+    font-size: 15px;
+    color: $ob-accent;
+  }
+}
+
+.ob-ext-card-desc {
+  font-size: 11.5px;
+  color: $text-secondary;
+  line-height: 1.6;
+  flex: 1;
+}
+
+.ob-ext-loading {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: $text-secondary;
+}
+
+.ob-ext-item {
+  cursor: default;
+}
+
+/* 删除按钮常显（Skills 列表行无点击语义） */
+.ob-item-actions-always {
+  opacity: 1;
+}
+
+/* ===== 沙箱执行开关 ===== */
+.ob-sandbox-box {
+  padding: 13px 15px;
+  margin-bottom: 14px;
+  background: $card-bg;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-lg;
+}
+
+.ob-sandbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ob-sandbox-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: $text-primary;
+
+  i {
+    font-size: 15px;
+    color: $ob-accent;
+  }
+}
+
+.ob-sandbox-desc {
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: $text-secondary;
+  line-height: 1.7;
+}
+
+/* ===== Skill 新建弹窗（略宽，容纳 textarea） ===== */
+.ob-dialog-skill {
+  width: 520px;
 }
 
 /* ===== 新建/编辑弹窗（应用级遮罩：覆盖整个窗口含侧边栏） ===== */

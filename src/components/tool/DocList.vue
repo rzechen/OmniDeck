@@ -14,7 +14,7 @@
     </div>
     <!-- 表格 -->
     <div class="doc-table-wrap">
-      <table class="doc-table">
+      <table class="doc-table" :class="{ 'is-empty': !filtered.length }">
         <thead>
           <tr>
             <th v-for="c in columns" :key="c.key">{{ c.title }}</th>
@@ -154,6 +154,11 @@ export default {
   font-size: 12.5px;
   border-collapse: collapse;
 
+  /* 空状态：表格撑满容器，空行拉伸后 td 内容默认垂直居中 */
+  &.is-empty {
+    height: 100%;
+  }
+
   th {
     position: sticky;
     top: 0;
@@ -211,6 +216,5 @@ export default {
 .doc-empty {
   text-align: center;
   color: var(--text-secondary);
-  padding: 30px 0 !important;
 }
 </style>

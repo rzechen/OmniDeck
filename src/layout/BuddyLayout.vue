@@ -75,18 +75,38 @@
           </div>
         </div>
 
-        <!-- 对话列表 -->
+        <!-- 对话列表（主进程 JSONL 持久化） -->
         <div class="buddy-section">
           <div v-show="!sidebarCollapsed" class="buddy-section-title">对话列表</div>
+          <div v-if="!visibleChats.length" v-show="!sidebarCollapsed" class="buddy-chat-empty">
+            暂无对话
+          </div>
           <div
-            v-for="n in 6"
-            :key="'ch' + n"
+            v-for="c in visibleChats"
+            :key="c.id"
             class="buddy-chat"
-            :class="{ active: n === 1 }"
-            @click="onSelectChat(n)"
+            :class="{ active: c.id === activeChatId }"
+            :title="sidebarCollapsed ? c.title : ''"
+            @click="onSelectChat(c.id)"
           >
-            <i class="el-icon-chat-dot-round"></i>
-            <span v-show="!sidebarCollapsed" class="ob-sk-line" :style="{ width: (40 + (n * 13) % 44) + '%' }"></span>
+            <i :class="c.branch ? 'el-icon-share' : 'el-icon-chat-dot-round'" :style="c.branch ? 'color: var(--ob-accent, #722ED1)' : ''"></i>
+            <span v-show="!sidebarCollapsed" class="buddy-chat-name">{{ c.title }}</span>
+            <span
+              v-show="!sidebarCollapsed"
+              class="buddy-chat-actions"
+              @click.stop
+            >
+              <i
+                class="el-icon-edit"
+                title="重命名"
+                @click.stop="renameChat(c)"
+              ></i>
+              <i
+                class="el-icon-delete"
+                title="删除对话"
+                @click.stop="confirmDeleteChat(c)"
+              ></i>
+            </span>
           </div>
         </div>
       </div>
@@ -277,14 +297,11 @@ export default {
       spaceForm: { name: '', desc: '', icon: 'star' },
       // 必填字段失焦校验的错误提示
       spaceErrors: { name: '', desc: '' },
-      // 对话骨架数据（对话能力接入后替换为 IndexedDB 真实数据）
-      demoChats: [
-        { id: 1, name: 'JSON 结构怎么嵌套三层', snippet: '…把 user.address.city 解析成嵌套对象，可以这样…' },
-        { id: 2, name: '周报润色', snippet: '…本周完成了工具页迁移与动效优化…' },
-        { id: 3, name: '正则匹配手机号', snippet: '…/^1[3-9]\d{9}$/ 可以匹配大陆手机号…' },
-        { id: 4, name: 'SQL 优化建议', snippet: '…给 where 条件的字段加索引，避免全表扫描…' },
-        { id: 5, name: '帮我写个折半查找', snippet: '…while (low <= high) { const mid = …' }
-      ]
+      // 会话列表（主进程 JSONL 持久化，按更新时间倒序）
+      chats: [],
+      // 顶栏搜索：query -> 结果缓存（主进程搜索，防抖执行）
+      searchCache: {},
+      searchTimer: null
     }
   },
   computed: {
@@ -294,17 +311,38 @@ export default {
     toggleLeft() {
       return this.sidebarCollapsed ? '46px' : '200px'
     },
-    // 顶栏搜索：匹配对话名称或内容（当前为骨架数据）
+    // 当前激活会话 id（由对话页路由 query.s 驱动）
+    activeChatId() {
+      return this.$route.query.s || ''
+    },
+    // 当前空间下的对话
+    visibleChats() {
+      return this.chats.filter(c => c.spaceId === this.activeSpaceId)
+    },
+    // 顶栏搜索：主进程跨会话搜索（标题 + 内容）
     searchResults() {
-      const q = this.searchQuery.trim().toLowerCase()
+      const q = this.searchQuery.trim()
       if (!q) return []
-      return this.demoChats.filter(c =>
-        c.name.toLowerCase().includes(q) || c.snippet.toLowerCase().includes(q)
-      )
+      return this.searchCache[q] || []
+    }
+  },
+  watch: {
+    searchQuery(q) {
+      this.runSearch(q)
+    },
+    // 切换空间时记住（对话页新建会话时取用）
+    activeSpaceId(id) {
+      setItem('buddyActiveSpaceId', id)
     }
   },
   created() {
     this.loadSpaces()
+    this.loadChats()
+    // 对话页创建/更新会话后刷新列表
+    this.$root.$on('omnibuddy:sessions-changed', this.loadChats)
+  },
+  beforeDestroy() {
+    this.$root.$off('omnibuddy:sessions-changed', this.loadChats)
   },
   methods: {
     // ===== 空间管理 =====
@@ -324,6 +362,7 @@ export default {
       if (!this.spaces.some(s => s.id === this.activeSpaceId)) {
         this.activeSpaceId = this.spaces[0].id
       }
+      setItem('buddyActiveSpaceId', this.activeSpaceId)
     },
     saveSpaces() {
       setItem('buddySpaces', this.spaces)
@@ -397,7 +436,11 @@ export default {
           cancelButtonText: '取消',
           type: 'warning'
         }
-      ).then(() => {
+      ).then(async () => {
+        // 同步删除该空间下的全部会话（主进程 JSONL 数据）
+        const api = this.buddyApi()
+        if (api) await api.deleteSessionsBySpace(sp.id)
+        this.chats = this.chats.filter(c => c.spaceId !== sp.id)
         this.spaces = this.spaces.filter(s => s.id !== sp.id)
         if (this.activeSpaceId === sp.id && this.spaces.length) {
           this.activeSpaceId = this.spaces[0].id
@@ -406,10 +449,70 @@ export default {
         this.$message.success('空间已删除')
       }).catch(() => {})
     },
+    // ===== 会话（对话）管理 =====
+    // preload API（浏览器环境无 electronAPI 时返回空实现）
+    buddyApi() {
+      return (window.electronAPI && window.electronAPI.omnibuddy) || null
+    },
+    async loadChats() {
+      const api = this.buddyApi()
+      if (!api) {
+        this.chats = []
+        return
+      }
+      this.chats = await api.listSessions()
+      // 搜索缓存失效
+      this.searchCache = {}
+    },
+    // 顶栏搜索：主进程跨会话搜索（防抖 + 简易缓存）
+    runSearch(q) {
+      const api = this.buddyApi()
+      if (!api) return
+      const query = q.trim()
+      if (!query) return
+      if (this.searchCache[query] !== undefined) return
+      clearTimeout(this.searchTimer)
+      this.searchTimer = setTimeout(async () => {
+        const results = await api.searchSessions(query)
+        // 结果映射为搜索下拉所需字段（name/snippet → 展示，onSelectChat 用 id）
+        this.$set(this.searchCache, query, results.map(r => ({ id: r.id, name: r.name, snippet: r.snippet })))
+      }, 200)
+    },
+    renameChat(c) {
+      this.$prompt('请输入新的对话名称', '重命名对话', {
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        inputValue: c.title
+      }).then(async ({ value }) => {
+        const title = String(value || '').trim()
+        if (!title || title === c.title) return
+        const api = this.buddyApi()
+        if (api) await api.renameSession({ id: c.id, title })
+        c.title = title
+      }).catch(() => {})
+    },
+    confirmDeleteChat(c) {
+      this.$confirm('删除后该对话的记录将一并移除，确定删除吗？', '删除对话', {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(async () => {
+        const api = this.buddyApi()
+        if (api) await api.deleteSession(c.id)
+        this.chats = this.chats.filter(x => x.id !== c.id)
+        // 删除的是当前打开的会话 → 回到空会话页
+        if (this.activeChatId === c.id && !this.isSettings) {
+          this.$router.push('/omnibuddy')
+        }
+        this.$message.success('已删除')
+      }).catch(() => {})
+    },
     // ===== 导航 =====
+    // 返回进入 OmniBuddy 前所在的 deck 页面（无记录时回首页）
     goMain() {
-      if (this.$route.path !== '/home') {
-        this.$router.push('/home')
+      const target = this.$router.lastDeckPath || '/home'
+      if (this.$route.path !== target) {
+        this.$router.push(target)
       }
     },
     goSettings() {
@@ -418,13 +521,16 @@ export default {
       }
     },
     onNewChat() {
-      // 跳转对话页（当前若在设置页则回到对话主区）
-      if (this.$route.name !== 'OmniBuddy') {
+      // 回到空会话页（发送首条消息时自动创建会话）
+      if (this.$route.path !== '/omnibuddy' || this.activeChatId) {
         this.$router.push('/omnibuddy')
       }
     },
-    onSelectChat() {
-      this.$message.info('对话能力规划中，敬请期待')
+    onSelectChat(id) {
+      // 打开对应会话（搜索下拉与对话列表共用）
+      if (this.$route.name !== 'OmniBuddy' || this.activeChatId !== id) {
+        this.$router.push({ path: '/omnibuddy', query: { s: id } })
+      }
     },
     // 延迟失焦：给下拉项的 mousedown 留出响应时间
     onSearchBlur() {
@@ -671,14 +777,6 @@ $buddy-sidebar-collapsed-w: 52px;
   opacity: 0.4;
 }
 
-/* 对话项骨架 */
-.ob-sk-line {
-  display: inline-block;
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, rgba(114, 46, 209, 0.14), rgba(114, 46, 209, 0.06));
-}
-
 .buddy-space-add {
   display: flex;
   align-items: center;
@@ -715,22 +813,71 @@ $buddy-sidebar-collapsed-w: 52px;
   transition: all 0.15s ease;
   margin-bottom: 1px;
 
-  i {
+  > i {
     font-size: 13px;
     color: $text-secondary;
     flex-shrink: 0;
   }
 
+  .buddy-chat-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   &:hover {
     background: $sidebar-item-hover;
     color: $text-primary;
+
+    .buddy-chat-actions {
+      opacity: 1;
+    }
   }
 
   &.active {
     background: rgba(114, 46, 209, 0.1);
 
-    i {
+    > i {
       color: $ob-accent;
+    }
+  }
+}
+
+/* 对话空态 */
+.buddy-chat-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: $text-secondary;
+}
+
+/* 对话行内操作：hover 浮现（重命名/删除） */
+.buddy-chat-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+
+  i {
+    font-size: 12px;
+    color: $text-secondary;
+    padding: 3px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+      background: rgba(114, 46, 209, 0.12);
+      color: $ob-accent;
+    }
+
+    &.el-icon-delete:hover {
+      background: rgba(245, 34, 45, 0.12);
+      color: #F5222D;
     }
   }
 }
