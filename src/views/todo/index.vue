@@ -918,7 +918,8 @@ export default {
 .cal-cell {
   position: relative;
   border-radius: 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1113,12 +1114,16 @@ export default {
 .almanac-bar {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  justify-content: center;
+  gap: 10px;
   margin-top: 10px;
-  padding: 10px 12px;
+  padding: 16px 14px;
   border-radius: $radius-base;
   background: $search-bg;
   border: 1px solid var(--border-color);
+  flex: 1;
+  min-height: 118px;
+  max-height: 170px;
   flex-shrink: 0;
 }
 

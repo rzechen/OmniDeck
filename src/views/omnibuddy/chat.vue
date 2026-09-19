@@ -1,198 +1,118 @@
 <template>
-  <div class="ob-chat" :class="{ 'with-panel': wsPanelOpen }">
-    <!-- 对话列（主体 + 输入区），与工作区面板横向并排 -->
+  <div class="ob-chat">
+    <!-- 对话列（主体 + 输入区） -->
     <div class="ob-main-col">
-    <!-- 对话主体 -->
-    <div ref="body" class="ob-body">
-      <!-- 空会话欢迎占位 -->
-      <div v-if="!sessionId || !messages.length" class="ob-placeholder">
-        <div class="ob-icon">
-          <svg-icon icon-class="buddy" class="ob-svg" />
-        </div>
-        <div class="ob-hi">有什么可以帮您？</div>
-        <div class="ob-desc">{{ welcomeDesc }}</div>
-      </div>
+      <!-- 对话主体 -->
+      <div ref="body" class="ob-body">
+        <!-- 空会话欢迎占位 -->
+        <chat-placeholder v-if="!sessionId || !messages.length" :mode="mode" @set-mode="setMode" />
 
-      <!-- 消息列表 -->
-      <div v-else class="ob-messages">
-        <template v-for="(m, i) in messages">
-          <!-- 用户 / 助手消息 -->
-          <div
-            v-if="m.role === 'user' || m.role === 'assistant'"
-            :key="(m.id || i) + '-msg'"
-            class="ob-msg"
-            :class="m.role"
-          >
-            <div class="ob-msg-avatar">
-              <svg-icon v-if="m.role === 'assistant'" icon-class="buddy" class="ob-msg-svg" />
-              <i v-else class="el-icon-user-solid"></i>
-            </div>
-            <div class="ob-msg-bubble">
-              <div
-                v-if="m.role === 'assistant'"
-                class="ob-md"
-                v-html="renderMarkdown(m.content)"
-              ></div>
-              <template v-else>{{ m.content }}</template>
-              <span v-if="streaming && m.role === 'assistant' && m.streaming" class="ob-cursor"></span>
-              <!-- 用户消息 hover：回退重发 / 创建分支 -->
-              <div v-if="m.role === 'user' && !streaming && m.id" class="ob-msg-actions">
-                <span class="ob-msg-action" title="丢弃此消息及之后的记录，重新提问" @click="truncateAt(m)">
-                  <i class="el-icon-refresh-left"></i> 重新提问
-                </span>
-                <span class="ob-msg-action" title="以此为分叉点创建分支会话（当前会话保留）" @click="branchAt(m)">
-                  <i class="el-icon-share"></i> 创建分支
-                </span>
-              </div>
-            </div>
-          </div>
+        <!-- 消息列表 -->
+        <div v-else class="ob-messages">
+          <template v-for="(m, i) in messages">
+            <message-bubble
+              v-if="m.role === 'user' || m.role === 'assistant'"
+              :key="(m.id || i) + '-msg'"
+              :message="m"
+              :streaming="streaming"
+              @truncate="truncateAt(m)"
+              @branch="branchAt(m)"
+            />
 
-          <!-- 工具调用卡片 -->
-          <div v-else-if="m.role === 'tool'" :key="(m.id || i) + '-tool'" class="ob-tool-card" :class="{ error: m.isError }">
-            <div class="ob-tool-head" @click="m._open = !m._open">
-              <i :class="m.status === 'running' ? 'el-icon-loading' : (m.isError ? 'el-icon-warning-outline' : 'el-icon-s-tools')"></i>
-              <span class="ob-tool-name">{{ m.toolName }}</span>
-              <span v-if="m.status === 'running'" class="ob-tool-status running">执行中…</span>
-              <i class="el-icon-arrow-down ob-tool-arrow" :class="{ open: m._open }"></i>
-            </div>
-            <div v-if="m._open" class="ob-tool-detail">
-              <div v-if="m.args" class="ob-tool-block">
-                <div class="ob-tool-label">参数</div>
-                <pre class="ob-tool-pre">{{ formatJson(m.args) }}</pre>
-              </div>
-              <div v-if="m.result" class="ob-tool-block">
-                <div class="ob-tool-label">{{ m.isError ? '错误' : '结果' }}</div>
-                <pre class="ob-tool-pre">{{ m.result }}</pre>
-              </div>
-            </div>
-          </div>
+            <ask-user-card
+              v-else-if="m.role === 'ask_user'"
+              :key="(m.id || i) + '-ask'"
+              :message="m"
+              @answer="answerAsk"
+            />
 
-          <!-- ask_user 提问表单 -->
-          <div v-else-if="m.role === 'ask_user'" :key="(m.id || i) + '-ask'" class="ob-ask-card">
-            <div class="ob-ask-question">
-              <svg-icon icon-class="buddy" class="ob-ask-icon" />
-              <span>{{ m.question }}</span>
-            </div>
-            <div v-if="m.answered || m.answer" class="ob-ask-answer">
-              <i class="el-icon-user-solid"></i>
-              {{ m.answer || '（未作答）' }}
-            </div>
-            <div v-else class="ob-ask-form">
-              <el-button
-                v-for="opt in m.options"
-                :key="opt"
-                size="mini"
-                round
-                @click="answerAsk(m, opt)"
-              >{{ opt }}</el-button>
-              <el-input
-                v-model="m._input"
-                size="mini"
-                class="ob-ask-input"
-                placeholder="或输入回答…"
-                @keyup.enter.native="answerAsk(m, m._input)"
-              >
-                <el-button slot="append" icon="el-icon-position" @click="answerAsk(m, m._input)"></el-button>
-              </el-input>
-            </div>
-          </div>
-
-          <!-- todo 任务清单卡片 -->
-          <div v-else-if="m.role === 'todo'" :key="(m.id || i) + '-todo'" class="ob-todo-card">
-            <div class="ob-todo-title"><i class="el-icon-finished"></i> 任务清单</div>
-            <div
-              v-for="(t, ti) in m.todos"
-              :key="ti"
-              class="ob-todo-item"
-              :class="t.status"
-            >
-              <i :class="todoIcon(t.status)"></i>
-              <span class="ob-todo-text">{{ t.content }}</span>
-              <span v-if="t.status === 'in_progress'" class="ob-todo-tag">进行中</span>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
-
-    <!-- 底部：输入框（工作空间/模型选择内嵌于对话框工具栏） -->
-    <div class="ob-composer">
-      <div class="ob-composer-inner">
-        <buddy-composer v-model="draft" @send="send">
-          <template slot="tools">
-            <!-- 工作空间选择（发送前必须选定） -->
-            <el-dropdown trigger="click" @command="onSelectWorkspace">
-              <span class="ob-inline-chip" :class="{ warn: !currentWorkspaceId }" :title="currentWorkspace ? currentWorkspace.path : ''">
-                <i class="el-icon-folder-opened"></i>
-                {{ currentWorkspace ? currentWorkspace.name : '选择工作空间' }}
-                <i class="el-icon-arrow-down"></i>
-              </span>
-              <el-dropdown-menu slot="dropdown">
-                <el-dropdown-item
-                  v-for="w in workspaces"
-                  :key="w.id"
-                  :command="w.id"
-                >
-                  {{ w.name }}
-                  <i v-if="currentWorkspaceId === w.id" class="el-icon-check ob-provider-check"></i>
-                </el-dropdown-item>
-                <el-dropdown-item command="__add" divided icon="el-icon-plus">添加本地目录…</el-dropdown-item>
-                <el-dropdown-item
-                  v-if="currentWorkspace && !currentWorkspace.isDefault"
-                  command="__remove"
-                  icon="el-icon-delete"
-                >移除当前工作空间</el-dropdown-item>
-              </el-dropdown-menu>
-            </el-dropdown>
-
-            <!-- 模型选择 -->
-            <el-dropdown trigger="click" @command="onSelectProvider">
-              <span class="ob-inline-chip">
-                <i class="el-icon-cpu"></i>
-                {{ currentProvider ? currentProvider.model : '未配置模型' }}
-                <i class="el-icon-arrow-down"></i>
-              </span>
-              <el-dropdown-menu slot="dropdown">
-                <el-dropdown-item
-                  v-for="p in providers"
-                  :key="p.id"
-                  :command="p.id"
-                >
-                  {{ p.name }} · {{ p.model }}
-                  <i v-if="currentProviderId === p.id" class="el-icon-check ob-provider-check"></i>
-                </el-dropdown-item>
-                <el-dropdown-item command="__settings" divided icon="el-icon-setting">管理供应商</el-dropdown-item>
-              </el-dropdown-menu>
-            </el-dropdown>
-
-            <button
-              v-if="streaming"
-              class="ob-stop-btn"
-              title="停止生成"
-              @click="interrupt"
-            >
-              <i class="el-icon-video-pause"></i>
-              停止生成
-            </button>
+            <todo-card
+              v-else-if="m.role === 'todo'"
+              :key="(m.id || i) + '-todo'"
+              :todos="m.todos"
+            />
           </template>
-        </buddy-composer>
+        </div>
       </div>
-    </div>
+
+      <!-- 底部：输入框（空间/模型选择内嵌于对话框工具栏） -->
+      <div class="ob-composer">
+        <div class="ob-composer-inner">
+          <buddy-composer v-model="draft" :streaming="streaming" @send="send" @stop="interrupt">
+            <template slot="tools">
+              <!-- 对话模式标识（对话开始后锁定显示；空会话时由欢迎页大胶囊切换） -->
+              <div v-if="!canSwitchMode" class="ob-mode-pill locked">
+                <button
+                  type="button"
+                  :class="{ active: mode === 'work' }"
+                  :disabled="true"
+                  :title="mode === 'coding' ? 'Coding 模式（对话开始后锁定）' : '工作模式（对话开始后锁定）'"
+                >{{ mode === 'coding' ? 'Coding' : '工作' }}</button>
+              </div>
+
+              <!-- 空间选择（空间需已关联本地目录） -->
+              <composer-picker
+                picker-key="space"
+                :active-key="openSelect"
+                :model-value="currentSpaceId"
+                trigger-icon="folder"
+                :trigger-label="currentSpace ? currentSpace.name : '选择空间'"
+                :trigger-title="currentSpace ? currentSpace.dir : ''"
+                :warn="!currentSpaceId"
+                panel-title="空间"
+                :items="spaceItems"
+                empty-title="暂无空间"
+                empty-desc="请在左侧新建空间并关联本地目录"
+                @toggle="toggleSelect('space')"
+                @select="onSelectSpace"
+              >
+                <template v-if="currentSpace && !currentSpace.dir" slot="footer">
+                  <div class="ob-pop-item ob-pop-footer-item" @click="onSelectSpace('__edit')">
+                    <span class="ob-pop-ico"><svg-icon icon-class="folder-add" /></span>
+                    <span class="ob-pop-text">关联本地目录…</span>
+                  </div>
+                </template>
+              </composer-picker>
+
+              <!-- 模型选择 -->
+              <composer-picker
+                picker-key="provider"
+                :active-key="openSelect"
+                :model-value="currentProviderId"
+                trigger-icon="cpu"
+                :trigger-label="currentProvider ? currentProvider.model : '选择模型'"
+                :trigger-title="currentProvider ? currentProvider.name : ''"
+                :warn="!currentProviderId"
+                panel-title="模型"
+                :items="providerItems"
+                empty-title="暂无可用模型"
+                empty-desc="请先在设置中添加模型供应商"
+                @toggle="toggleSelect('provider')"
+                @select="onSelectProvider"
+              />
+            </template>
+          </buddy-composer>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
 import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
-import MarkdownIt from 'markdown-it'
-import { getItem } from '@/utils/db'
+import ChatPlaceholder from '@/components/buddy/chat/ChatPlaceholder.vue'
+import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
+import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
+import TodoCard from '@/components/buddy/chat/TodoCard.vue'
+import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
+import { getItem, setItem } from '@/utils/db'
+import { getBuddySpaces, saveBuddySpaces } from '@/utils/buddy-space'
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-
-// OmniBuddy 对话主区：pi Agent 流式对话（文本 + 工具调用 + ask-user + todo）
+// OmniBuddy 对话主区：pi Agent 流式对话
+// 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
 export default {
   name: 'OmniBuddyChat',
-  components: { BuddyComposer },
+  components: { BuddyComposer, ChatPlaceholder, MessageBubble, AskUserCard, TodoCard, ComposerPicker },
   data() {
     return {
       draft: '',
@@ -200,9 +120,24 @@ export default {
       streaming: false,
       providers: [],
       currentProviderId: '',
-      // ===== 工作空间（发送前必须选定） =====
+      // ===== 对话模式（'work' 工作模式 / 'coding' Coding 模式；持久化恢复） =====
+      mode: getItem('omnibuddy:mode', 'work'),
+      // ===== 空间（左侧空间列表数据；选中后作为对话工作空间） =====
+      spaces: [],
+      currentSpaceId: '',
+      // 工作空间列表（空间的关联目录登记于此，发送时主进程按 id 解析目录）
       workspaces: [],
       currentWorkspaceId: '',
+      // 当前展开的选择面板（'space' | 'provider' | ''）
+      openSelect: '',
+      // 思考计时器（发送后到首个 delta 之间）
+      thinkTimer: null,
+      // 本轮问答对应的助手消息（一次问答聚合为一条，跨工具调用持续复用）
+      turnMsg: null,
+      // 本轮已累积正文的基线（工具调用后模型续写，正文需拼接在前一段之后）
+      cycleBase: '',
+      // 当前正在累积的思考内容块（思考文本按轮次独立成块）
+      thinkingItem: null,
       unsubscribe: null
     }
   },
@@ -210,11 +145,35 @@ export default {
     sessionId() {
       return this.$route.query.s || ''
     },
+    // 欢迎占位副文案（跟随当前选择的空间）
+    // 是否可切换对话模式（仅空会话/新对话可切换，对话开始后锁定）
+    canSwitchMode() {
+      return !this.sessionId || !this.messages.length
+    },
     currentProvider() {
       return this.providers.find(p => p.id === this.currentProviderId) || null
     },
     currentWorkspace() {
       return this.workspaces.find(w => w.id === this.currentWorkspaceId) || null
+    },
+    // 当前选中的空间（左侧空间列表数据）
+    currentSpace() {
+      return this.spaces.find(s => s.id === this.currentSpaceId) || null
+    },
+    // 空间选择器选项（未关联目录的空间：灰色文件夹图标 + 「未关联」弱化标签）
+    spaceItems() {
+      return this.spaces.map(sp => sp.dir
+        ? { value: sp.id, label: sp.name, svg: sp.icon || 'star' }
+        : { value: sp.id, label: sp.name, svg: 'folder', tag: '未关联' }
+      )
+    },
+    // 模型选择器选项
+    providerItems() {
+      return this.providers.map(p => ({
+        value: p.id,
+        label: p.name + ' · ' + (p.displayName || p.model),
+        svg: 'cpu'
+      }))
     }
   },
   watch: {
@@ -227,11 +186,20 @@ export default {
   },
   created() {
     this.loadProviders()
+    // 空间加载完成后恢复上次选中的空间
+    this.loadSpaces().then(() => this.restoreSpaceSelection())
     this.loadWorkspaces()
     this.unsubscribe = this.api().onEvent(this.onAgentEvent)
+    // 左侧空间增删改后同步刷新
+    this.$root.$on('omnibuddy:spaces-changed', this.refreshSpaces)
+    // 点击面板外关闭
+    document.addEventListener('mousedown', this.onDocMouseDown)
   },
   beforeDestroy() {
+    this.stopThinkTimer()
     if (this.unsubscribe) this.unsubscribe()
+    this.$root.$off('omnibuddy:spaces-changed', this.refreshSpaces)
+    document.removeEventListener('mousedown', this.onDocMouseDown)
     if (this.streaming && this.sessionId) this.api().interrupt(this.sessionId)
   },
   methods: {
@@ -254,28 +222,6 @@ export default {
         sessionMeta: async () => null
       }
     },
-    renderMarkdown(text) {
-      try {
-        return md.render(text || '')
-      } catch (e) {
-        return ''
-      }
-    },
-    formatJson(v) {
-      if (typeof v === 'string') return v
-      try {
-        return JSON.stringify(v, null, 2)
-      } catch (e) {
-        return String(v)
-      }
-    },
-    todoIcon(status) {
-      return {
-        pending: 'el-icon-remove-outline',
-        in_progress: 'el-icon-loading',
-        completed: 'el-icon-success'
-      }[status] || 'el-icon-remove-outline'
-    },
     loadProviders() {
       const list = getItem('aiProviderList', [])
       this.providers = Array.isArray(list) ? list : []
@@ -290,17 +236,62 @@ export default {
       const list = await this.api().getMessages(this.sessionId)
       // 历史记录：todo 只保留最新一条（避免回放堆积）
       const seenTodo = list.some(m => m.role === 'todo')
-      this.messages = seenTodo
+      const filtered = seenTodo
         ? list.filter(m => m.role !== 'todo' || m === [...list].reverse().find(x => x.role === 'todo'))
         : list
+      this.messages = this.normalizeHistory(filtered)
       this.scrollToBottom()
     },
-    onSelectProvider(id) {
-      if (id === '__settings') {
-        this.$router.push('/omnibuddy/settings')
-        return
+    // 历史记录归一化为「助手消息内嵌内容块」，与实时聚合模型保持一致：
+    // 1) role:'tool' 记录归并进相邻助手消息的 items
+    // 2) 被工具调用隔开的连续助手记录合并为一条（两轮问答之间必有 user 记录）
+    normalizeHistory(list) {
+      const out = []
+      for (const m of list) {
+        if (m.role === 'tool') {
+          const last = out[out.length - 1]
+          if (last && last.role === 'assistant') {
+            last.items.push({
+              type: 'tool',
+              toolCallId: '',
+              toolName: m.toolName,
+              args: m.args,
+              status: 'done',
+              result: m.result || '',
+              isError: !!m.isError
+            })
+          }
+          continue
+        }
+        if (m.role === 'assistant') {
+          const last = out[out.length - 1]
+          if (last && last.role === 'assistant') {
+            if (m.content) last.content = last.content ? last.content + '\n\n' + m.content : m.content
+            if (m.thinking) last.items.push({ type: 'thinking', content: m.thinking })
+            // 供应商错误记录：归并后仍保留展示
+            if (m.error) last.error = m.error
+            continue
+          }
+          const msg = Object.assign({}, m, { items: [] })
+          if (m.thinking) msg.items.push({ type: 'thinking', content: m.thinking })
+          out.push(msg)
+          continue
+        }
+        out.push(Object.assign({}, m))
       }
+      return out
+    },
+    onSelectProvider(id) {
+      this.openSelect = ''
       this.currentProviderId = id
+      // 持久化选中模型，切换页面后自动恢复
+      setItem('omnibuddy:providerId', id)
+    },
+    // 切换对话模式（对话开始后锁定；选择持久化）
+    setMode(m) {
+      if (!this.canSwitchMode || this.mode === m) return
+      this.mode = m
+      setItem('omnibuddy:mode', m)
     },
     async send() {
       const text = this.draft.trim()
@@ -310,23 +301,43 @@ export default {
         this.draft = ''
         return
       }
-      // 发送前必须选定工作空间
+      // 发送前必须选定空间（且空间已关联本地目录）
+      if (!this.currentSpaceId) {
+        this.$message.warning('请先选择空间')
+        return
+      }
       if (!this.currentWorkspaceId) {
-        this.$message.warning('请先在输入框左下角选择工作空间')
+        this.$message.warning('当前空间未关联本地目录，请先关联')
         return
       }
       this.draft = ''
 
       let sessionId = this.sessionId
       if (!sessionId) {
-        const spaceId = getItem('buddyActiveSpaceId', 'sp-default')
-        const session = await this.api().createSession({ spaceId, workspaceId: this.currentWorkspaceId })
+        // 会话归属当前选中的空间（底部选择器）
+        const spaceId = this.currentSpaceId
+        const session = await this.api().createSession({ spaceId, workspaceId: this.currentWorkspaceId, mode: this.mode })
         sessionId = session.id
         this.$router.replace({ query: { s: sessionId } })
         this.$root.$emit('omnibuddy:sessions-changed')
       }
 
       this.messages.push({ role: 'user', content: text, createdAt: Date.now() })
+      // 立即显示「思考中」占位（光标闪烁 + 秒计时）；内容块到达后转为深度思考区
+      const placeholder = {
+        role: 'assistant',
+        content: '',
+        streaming: true,
+        isThinking: false,
+        thinking: true,
+        seconds: 0,
+        items: []
+      }
+      this.messages.push(placeholder)
+      this.turnMsg = placeholder
+      this.cycleBase = ''
+      this.thinkingItem = null
+      this.startThinkTimer()
       this.streaming = true
       this.scrollToBottom()
 
@@ -334,64 +345,140 @@ export default {
         id: sessionId,
         text,
         provider: this.currentProvider,
-        workspaceId: this.currentWorkspaceId
+        workspaceId: this.currentWorkspaceId,
+        mode: this.mode
       })
       if (!res.ok) {
         this.streaming = false
+        this.finishTurn()
         this.$message.error(res.error || '发送失败')
+      }
+    },
+    // ===== 本轮助手消息（跨工具调用持续复用同一条） =====
+    ensureTurnMessage() {
+      if (this.turnMsg && this.messages.indexOf(this.turnMsg) >= 0) return this.turnMsg
+      const msg = {
+        role: 'assistant',
+        content: '',
+        streaming: true,
+        isThinking: false,
+        seconds: 0,
+        items: []
+      }
+      this.messages.push(msg)
+      this.turnMsg = msg
+      this.cycleBase = ''
+      this.thinkingItem = null
+      return msg
+    },
+    // 结束本轮：清理流式/思考态，释放引用
+    finishTurn() {
+      this.stopThinkTimer()
+      const msg = this.turnMsg
+      if (msg) {
+        this.$delete(msg, 'streaming')
+        this.$delete(msg, 'thinking')
+        msg.isThinking = false
+      }
+      this.turnMsg = null
+      this.thinkingItem = null
+      this.cycleBase = ''
+    },
+    // 按 toolCallId 定位本轮工具内容块
+    findToolItem(toolCallId) {
+      const msg = this.turnMsg
+      if (!msg || !msg.items) return null
+      for (let i = msg.items.length - 1; i >= 0; i--) {
+        const it = msg.items[i]
+        if (it.type === 'tool' && it.toolCallId === toolCallId) return it
+      }
+      return null
+    },
+    // ===== 思考计时（占位消息 seconds 每秒 +1） =====
+    startThinkTimer() {
+      this.stopThinkTimer()
+      this.thinkTimer = setInterval(() => {
+        if (this.turnMsg && this.turnMsg.thinking) this.turnMsg.seconds++
+      }, 1000)
+    },
+    stopThinkTimer() {
+      if (this.thinkTimer) {
+        clearInterval(this.thinkTimer)
+        this.thinkTimer = null
       }
     },
     // 主进程流式事件（pi Agent 循环 + 兜底纯对话）
     onAgentEvent(e) {
       if (e.sessionId !== this.sessionId) return
       switch (e.type) {
-        case 'assistant_start':
-          this.messages.push({ role: 'assistant', content: '', streaming: true })
+        case 'assistant_start': {
+          // 助手消息开始（工具调用后模型会再次开始）：复用本轮消息，开启新的思考块
+          const msg = this.ensureTurnMessage()
+          this.thinkingItem = null
+          this.cycleBase = msg.content || ''
           break
-        case 'delta': {
-          // 更新最后一个流式助手消息（兜底路径无 assistant_start，需兜底 push）
-          let last = this.messages[this.messages.length - 1]
-          if (!last || last.role !== 'assistant') {
-            this.messages.push({ role: 'assistant', content: '', streaming: true })
-            last = this.messages[this.messages.length - 1]
+        }
+        case 'thinking': {
+          // 思考过程：按轮次累积为独立内容块（同轮内持续覆盖累积文本）
+          const msg = this.ensureTurnMessage()
+          if (!this.thinkingItem) {
+            this.thinkingItem = { type: 'thinking', content: '' }
+            msg.items.push(this.thinkingItem)
           }
-          last.content = e.text
+          this.thinkingItem.content = e.text || ''
+          msg.isThinking = true
+          break
+        }
+        case 'delta': {
+          const msg = this.ensureTurnMessage()
+          if (msg.isThinking) msg.isThinking = false
+          this.stopThinkTimer()
+          msg.content = this.cycleBase + (e.text || '')
           break
         }
         case 'assistant_end': {
-          const last = this.messages[this.messages.length - 1]
-          if (last && last.role === 'assistant' && last.streaming) {
-            last.content = e.content
-            this.$delete(last, 'streaming')
-          }
+          const msg = this.ensureTurnMessage()
+          msg.isThinking = false
+          msg.content = this.cycleBase + (e.content || '')
+          this.$delete(msg, 'thinking')
+          this.stopThinkTimer()
           break
         }
-        case 'tool_start':
-          this.messages.push({
-            role: 'tool',
+        case 'skill': {
+          // Skill 激活（模型读取 SKILL.md）：作为内容块插入
+          const msg = this.ensureTurnMessage()
+          msg.items.push({
+            type: 'skill',
+            skillName: e.skillName,
+            toolCallId: e.toolCallId
+          })
+          break
+        }
+        case 'tool_start': {
+          const msg = this.ensureTurnMessage()
+          msg.items.push({
+            type: 'tool',
+            toolCallId: e.toolCallId,
             toolName: e.toolName,
             args: e.args,
             status: 'running',
-            _open: false
+            partial: '',
+            result: '',
+            isError: false
           })
           break
+        }
         case 'tool_update': {
-          const t = this.messages.find(m => m.role === 'tool' && m.status === 'running' && m.toolName === e.toolName)
+          const t = this.findToolItem(e.toolCallId)
           if (t) t.partial = e.partial
           break
         }
         case 'tool_end': {
-          // 匹配执行中的同名工具（toolCallId 不持久化，按名称匹配最后一个 running）
-          const idx = [...this.messages]
-            .map((m, i) => ({ m, i }))
-            .reverse()
-            .find(x => x.m.role === 'tool' && x.m.status === 'running' && x.m.toolName === e.toolName)
-          if (idx) {
-            const t = this.messages[idx.i]
+          const t = this.findToolItem(e.toolCallId)
+          if (t) {
             t.status = 'done'
-            t.result = e.result
-            t.isError = e.isError
-            if (e.isError) t._open = true
+            t.result = e.result || ''
+            t.isError = !!e.isError
           }
           break
         }
@@ -428,21 +515,28 @@ export default {
           break
         case 'done':
           this.streaming = false
+          this.finishTurn()
           this.$root.$emit('omnibuddy:sessions-changed')
           break
         case 'interrupted': {
-          const last = this.messages[this.messages.length - 1]
-          if (last && last.role === 'assistant' && last.streaming) {
-            if (!last.content) this.messages.pop()
-            else this.$delete(last, 'streaming')
+          const msg = this.turnMsg
+          // 空回复（无正文且无内容块）直接移除占位气泡
+          if (msg && !msg.content && (!msg.items || !msg.items.length)) {
+            const idx = this.messages.indexOf(msg)
+            if (idx >= 0) this.messages.splice(idx, 1)
           }
+          this.finishTurn()
           this.streaming = false
           break
         }
-        case 'error':
+        case 'error': {
           this.streaming = false
-          this.$message.error(e.error || '生成失败')
+          // 模型/供应商错误：原封不动写入本轮气泡展示（不弹易逝的 toast）
+          const errTurn = this.turnMsg || this.ensureTurnMessage()
+          this.$set(errTurn, 'error', e.error || '生成失败')
+          this.finishTurn()
           break
+        }
         default:
           break
       }
@@ -463,49 +557,105 @@ export default {
     interrupt() {
       if (this.sessionId) this.api().interrupt(this.sessionId)
     },
-    // ===== 工作空间（发送前必须选定） =====
+    // ===== 空间选择（左侧空间列表数据；选中即确定对话的工作空间） =====
+    // 工作空间列表（主进程持久化；空间的关联目录登记于此）
     async loadWorkspaces() {
       try {
         const list = await this.api().listWorkspaces()
         this.workspaces = Array.isArray(list) ? list : []
-        if (this.workspaces.length && !this.currentWorkspaceId) {
-          this.currentWorkspaceId = this.workspaces[0].id
-        }
       } catch (e) {
         this.workspaces = []
       }
     },
-    async onSelectWorkspace(command) {
-      if (command === '__add') {
-        const res = await this.api().addWorkspace()
-        if (res && res.ok && res.workspace) {
-          await this.loadWorkspaces()
-          this.currentWorkspaceId = res.workspace.id
-          this.$message.success('已添加工作空间：' + res.workspace.name)
-        } else if (res && !res.canceled && res.error) {
-          this.$message.error(res.error)
-        }
+    async loadSpaces() {
+      // 合并系统默认空间（运行时派生，不落盘）与用户空间
+      this.spaces = await getBuddySpaces()
+      // 选中空间被删除时清空选择
+      if (!this.spaces.some(s => s.id === this.currentSpaceId)) {
+        this.currentSpaceId = ''
+        this.currentWorkspaceId = ''
+      }
+    },
+    // 恢复上次选中的空间（返回 Deck 再进入不丢失）：校验空间仍存在且已关联目录
+    async restoreSpaceSelection() {
+      const savedId = getItem('omnibuddy:spaceId', '')
+      if (!savedId || this.currentSpaceId) return
+      const sp = this.spaces.find(s => s.id === savedId)
+      if (!sp || !sp.dir) return
+      // 等待工作空间列表就绪后映射为 workspaceId
+      if (!this.workspaces.length) await this.loadWorkspaces()
+      const ws = this.workspaces.find(w => w.path === sp.dir)
+      if (!ws) return
+      this.currentSpaceId = sp.id
+      this.currentWorkspaceId = ws.id
+    },
+    // 左侧空间变化后刷新（保留仍存在且已关联目录的选择）
+    async refreshSpaces() {
+      const prev = this.currentSpace
+      await this.loadSpaces()
+      await this.loadWorkspaces()
+      if (prev) {
+        const sp = this.spaces.find(s => s.id === prev.id)
+        if (sp) this.onSelectSpace(sp.id)
+      }
+    },
+    // ===== 选择面板（打开状态集中管理，同时只展开一个） =====
+    toggleSelect(key) {
+      this.openSelect = this.openSelect === key ? '' : key
+    },
+    // 点击面板外关闭
+    onDocMouseDown(e) {
+      if (!this.openSelect) return
+      if (e.target.closest('.ob-select')) return
+      this.openSelect = ''
+    },
+    // 选择空间：校验是否已关联本地目录，再映射为对应工作空间
+    async onSelectSpace(command) {
+      this.openSelect = ''
+      // 为未关联目录的当前空间补选目录
+      if (command === '__edit') {
+        await this.linkSpaceDir(this.currentSpace)
         return
       }
-      if (command === '__remove') {
-        const target = this.currentWorkspace
-        if (!target) return
-        this.$confirm('移除工作空间「' + target.name + '」？（仅解除关联，不删除磁盘文件）', '移除工作空间', {
-          confirmButtonText: '移除',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }).then(async () => {
-          const res = await this.api().removeWorkspace(target.id)
-          if (res && res.ok) {
-            await this.loadWorkspaces()
-            this.currentWorkspaceId = this.workspaces.length ? this.workspaces[0].id : ''
-          } else {
-            this.$message.error((res && res.error) || '移除失败')
-          }
-        }).catch(() => {})
+      const sp = this.spaces.find(s => s.id === command)
+      if (!sp) return
+      if (!sp.dir) {
+        this.currentSpaceId = sp.id
+        this.$message.warning('该空间未关联本地目录，请在左侧编辑空间或点击“关联本地目录…”选择目录')
         return
       }
-      this.currentWorkspaceId = command
+      const ws = this.workspaces.find(w => w.path === sp.dir)
+      if (!ws) {
+        this.currentSpaceId = sp.id
+        this.$message.warning('该空间关联的目录未登记为工作空间，请重新编辑空间选择目录')
+        return
+      }
+      this.currentSpaceId = sp.id
+      this.currentWorkspaceId = ws.id
+      // 目录不可用（被移动/删除/磁盘未挂载）：仍允许选中但明确提示
+      if (ws.available === false) {
+        this.$message.warning('该空间关联的目录当前不可用（可能已被移动或磁盘未挂载）')
+      }
+      // 持久化选中空间，切换页面后自动恢复
+      setItem('omnibuddy:spaceId', sp.id)
+      // 同步左侧空间选中态（对话列表按该空间过滤）
+      this.$root.$emit('omnibuddy:space-selected', sp.id)
+    },
+    // 为空间选择并关联本地目录（复用工作空间目录选择 IPC）
+    async linkSpaceDir(sp) {
+      if (!sp) return
+      const res = await this.api().addWorkspace()
+      if (res && res.ok && res.workspace) {
+        sp.dir = res.workspace.path
+        // 持久化用户空间（过滤系统默认空间）并通知左侧列表刷新
+        saveBuddySpaces(this.spaces)
+        this.$root.$emit('omnibuddy:spaces-changed')
+        this.currentWorkspaceId = res.workspace.id
+        setItem('omnibuddy:spaceId', sp.id)
+        this.$message.success('已关联目录：' + res.workspace.path)
+      } else if (res && !res.canceled && res.error) {
+        this.$message.error(res.error)
+      }
     },
     // ===== 回退与分支（M4） =====
     truncateAt(m) {
@@ -552,8 +702,6 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-$ob-accent: #722ED1;
-
 .ob-chat {
   flex: 1;
   min-width: 0;
@@ -572,53 +720,6 @@ $ob-accent: #722ED1;
   overflow: hidden;
 }
 
-/* ===== 对话框工具栏内嵌选择 chip（工作空间/模型） ===== */
-.ob-inline-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 13px;
-  background: var(--search-bg);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  font-size: 11.5px;
-  cursor: pointer;
-  user-select: none;
-  max-width: 200px;
-  transition: all 0.15s ease;
-
-  i {
-    font-size: 12px;
-    color: $ob-accent;
-
-    &.el-icon-arrow-down {
-      color: var(--text-secondary);
-      font-size: 11px;
-    }
-  }
-
-  > span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &:hover {
-    border-color: rgba(114, 46, 209, 0.45);
-  }
-
-  &.warn {
-    border-color: #e6a23c;
-    color: #e6a23c;
-
-    i {
-      color: #e6a23c;
-    }
-  }
-}
-
 /* ===== 主体 ===== */
 .ob-body {
   flex: 1;
@@ -632,405 +733,15 @@ $ob-accent: #722ED1;
   }
 }
 
-/* 空会话欢迎占位 */
-.ob-placeholder {
-  margin: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 36px 48px;
-}
-
-.ob-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, rgba(114, 46, 209, 0.16), rgba(114, 46, 209, 0.05));
-  border: 1px solid rgba(114, 46, 209, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  .ob-svg {
-    width: 32px;
-    height: 32px;
-    color: $ob-accent;
-  }
-}
-
-.ob-hi {
-  margin-top: 4px;
-  font-size: 19px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.ob-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
 /* ===== 消息列表 ===== */
 .ob-messages {
   width: 100%;
-  max-width: 760px;
+  max-width: 920px;
   margin: 0 auto;
-  padding: 24px 18px 12px;
+  padding: 24px 28px 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.ob-msg {
-  display: flex;
-  gap: 10px;
-
-  &.user {
-    flex-direction: row-reverse;
-
-    .ob-msg-bubble {
-      background: linear-gradient(135deg, #9254DE, $ob-accent);
-      color: #fff;
-      border: none;
-    }
-
-    .ob-msg-avatar {
-      background: var(--search-bg);
-      color: var(--text-secondary);
-    }
-  }
-}
-
-.ob-msg-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(114, 46, 209, 0.1);
-
-  .ob-msg-svg {
-    width: 16px;
-    height: 16px;
-    color: $ob-accent;
-  }
-
-  i {
-    font-size: 14px;
-  }
-}
-
-.ob-msg-bubble {
-  max-width: calc(100% - 56px);
-  padding: 10px 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color);
-  background: var(--card-bg, #fff);
-  font-size: 13.5px;
-  line-height: 1.7;
-  color: var(--text-primary);
-  word-break: break-word;
-  user-select: text;
-}
-
-/* 流式光标 */
-.ob-cursor {
-  display: inline-block;
-  width: 7px;
-  height: 15px;
-  margin-left: 3px;
-  vertical-align: -2px;
-  border-radius: 2px;
-  background: $ob-accent;
-  animation: ob-blink 0.9s steps(2) infinite;
-}
-
-@keyframes ob-blink {
-  50% { opacity: 0; }
-}
-
-/* 用户消息 hover 操作：回退重发 / 创建分支 */
-.ob-msg-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 6px;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.ob-msg.user:hover .ob-msg-actions {
-  opacity: 1;
-}
-
-.ob-msg-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
-
-  i {
-    font-size: 12px;
-  }
-
-  &:hover {
-    color: $ob-accent;
-  }
-}
-
-/* ===== 工具调用卡片 ===== */
-.ob-tool-card {
-  margin-left: 40px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--card-bg, #fff);
-  overflow: hidden;
-
-  &.error {
-    border-color: rgba(245, 34, 45, 0.4);
-  }
-}
-
-.ob-tool-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
-
-  > i:first-child { font-size: 13px; }
-
-  .ob-tool-name {
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
-    color: $ob-accent;
-    font-weight: 600;
-  }
-
-  .ob-tool-status.running { color: #E6A23C; }
-
-  .ob-tool-arrow {
-    margin-left: auto;
-    transition: transform 0.15s ease;
-    font-size: 11px;
-
-    &.open { transform: rotate(180deg); }
-  }
-}
-
-.ob-tool-detail {
-  border-top: 1px solid var(--border-color);
-  padding: 8px 12px;
-}
-
-.ob-tool-block {
-  & + & { margin-top: 8px; }
-}
-
-.ob-tool-label {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-
-.ob-tool-pre {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.05);
-  font-size: 11.5px;
-  line-height: 1.55;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 220px;
-  overflow-y: auto;
-  color: var(--text-primary);
-}
-
-/* ===== ask_user 表单卡片 ===== */
-.ob-ask-card {
-  margin-left: 40px;
-  border: 1px solid rgba(114, 46, 209, 0.35);
-  border-radius: 12px;
-  background: rgba(114, 46, 209, 0.05);
-  padding: 12px 14px;
-}
-
-.ob-ask-question {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.6;
-
-  .ob-ask-icon {
-    width: 16px;
-    height: 16px;
-    color: $ob-accent;
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-}
-
-.ob-ask-form {
-  margin-top: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-
-  .el-button { margin: 0; }
-}
-
-.ob-ask-input {
-  width: 260px;
-}
-
-.ob-ask-answer {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--text-secondary);
-  word-break: break-word;
-
-  i { color: $ob-accent; }
-}
-
-/* ===== todo 任务清单卡片 ===== */
-.ob-todo-card {
-  margin-left: 40px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--card-bg, #fff);
-  padding: 10px 14px;
-}
-
-.ob-todo-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-
-  i { color: $ob-accent; }
-}
-
-.ob-todo-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 12.5px;
-
-  > i { font-size: 13px; }
-
-  &.pending {
-    color: var(--text-secondary);
-    > i { color: var(--text-secondary); }
-  }
-
-  &.in_progress {
-    color: $ob-accent;
-    font-weight: 600;
-    > i { color: $ob-accent; }
-  }
-
-  &.completed {
-    color: var(--text-secondary);
-    text-decoration: line-through;
-    > i { color: #67C23A; }
-  }
-}
-
-.ob-todo-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.ob-todo-tag {
-  font-size: 10.5px;
-  color: $ob-accent;
-  background: rgba(114, 46, 209, 0.1);
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-
-/* ===== Markdown 渲染 ===== */
-.ob-md {
-  ::v-deep {
-    p { margin: 0 0 8px; }
-    p:last-child { margin-bottom: 0; }
-
-    pre {
-      background: rgba(0, 0, 0, 0.06);
-      border-radius: 10px;
-      padding: 10px 12px;
-      overflow-x: auto;
-      margin: 8px 0;
-      font-size: 12.5px;
-      line-height: 1.6;
-
-      code {
-        background: transparent;
-        padding: 0;
-        font-family: 'SF Mono', Menlo, Consolas, monospace;
-      }
-    }
-
-    code {
-      background: rgba(114, 46, 209, 0.09);
-      color: $ob-accent;
-      padding: 1px 5px;
-      border-radius: 5px;
-      font-size: 12.5px;
-      font-family: 'SF Mono', Menlo, Consolas, monospace;
-    }
-
-    ul, ol {
-      padding-left: 20px;
-      margin: 6px 0;
-    }
-
-    blockquote {
-      margin: 8px 0;
-      padding: 4px 12px;
-      border-left: 3px solid rgba(114, 46, 209, 0.45);
-      color: var(--text-secondary);
-    }
-
-    table {
-      border-collapse: collapse;
-      margin: 8px 0;
-
-      th, td {
-        border: 1px solid var(--border-color);
-        padding: 5px 10px;
-        font-size: 12.5px;
-      }
-    }
-
-    a {
-      color: $ob-accent;
-    }
-
-    h1, h2, h3, h4 {
-      margin: 12px 0 6px;
-      font-weight: 700;
-    }
-  }
+  gap: 20px;
 }
 
 /* ===== 输入区 ===== */
@@ -1041,35 +752,98 @@ $ob-accent: #722ED1;
 
 .ob-composer-inner {
   width: 100%;
-  max-width: 760px;
+  max-width: 920px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.ob-provider-check {
-  color: $ob-accent;
-  margin-left: 6px;
-  font-weight: 700;
-}
-
-.ob-stop-btn {
+/* 对话模式分段胶囊：豆包风格（圆角容器 + active 白底阴影滑块感） */
+.ob-mode-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  color: #fff;
-  background: linear-gradient(135deg, #9254DE, $ob-accent);
-  border: none;
-  border-radius: 999px;
-  padding: 3px 12px;
+  gap: 2px;
+  margin-right: 6px;
+  padding: 2px;
+  border-radius: 100px;
+  background: var(--search-bg, rgba(0, 0, 0, 0.05));
+  flex-shrink: 0;
+
+  button {
+    border: none;
+    outline: none;
+    background: transparent;
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+
+    &.active {
+      background: var(--card-bg, #fff);
+      color: var(--text-primary);
+      font-weight: 500;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+    }
+  }
+
+  /* 会话已有消息时锁定：按钮禁用，整体弱化 */
+  &.locked {
+    opacity: 0.6;
+
+    button {
+      cursor: not-allowed;
+    }
+  }
+}
+
+/* 选择器底部操作项（关联目录）：与浮层内 item 结构对齐 */
+.ob-pop-footer-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
 
-  i { font-size: 11px; }
+  .ob-pop-ico {
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
 
-  &:hover { filter: brightness(1.08); }
-  &:active { transform: scale(0.95); }
+    .svg-icon {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+  }
+
+  .ob-pop-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &:hover {
+    background: var(--search-bg-hover);
+    color: var(--text-primary);
+
+    .ob-pop-ico .svg-icon {
+      color: var(--primary-color);
+    }
+  }
 }
 </style>

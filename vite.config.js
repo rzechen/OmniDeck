@@ -20,7 +20,7 @@ export default defineConfig({
         }
       },
       // agent 模块为 CJS require 互相引用：逐文件构建，保留 require 结构
-      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'skills', 'workspace', 'workspaces'].map(name => ({
+      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'skills', 'workspace', 'workspaces', 'files', 'mcp', 'credentials'].map(name => ({
         entry: `electron/agent/${name}.js`,
         vite: {
           build: {
@@ -29,8 +29,10 @@ export default defineConfig({
               output: {
                 entryFileNames: `${name}.js`
               },
-              // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()
-              external: ['electron', '@earendil-works/pi-coding-agent', '@anthropic-ai/sandbox-runtime']
+              // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()；
+              // pi-mcp-adapter 随应用打包，mcp.js 以 require.resolve 定位其运行时路径，须保留原生调用；
+              // adm-zip 由 skills.js 运行时 require（node_modules 内），保留原生调用
+              external: ['electron', '@earendil-works/pi-coding-agent', '@anthropic-ai/sandbox-runtime', 'pi-mcp-adapter', 'adm-zip']
             }
           }
         }

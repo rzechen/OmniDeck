@@ -14,7 +14,7 @@
 
         <!-- 输入区（占位骨架：可输入，发送提示规划中） -->
         <div class="buddy-input-wrap">
-          <i class="el-icon-chat-dot-round buddy-input-icon"></i>
+          <svg-icon icon-class="chat-dot-round" class="buddy-input-icon" />
           <input
             ref="buddyInput"
             v-model="draft"
@@ -24,13 +24,13 @@
             @keydown.esc.stop="close"
           />
           <button class="buddy-send" :class="{ ready: !!draft.trim() }" @click="send">
-            <i class="el-icon-s-promotion"></i>
+            <svg-icon icon-class="promotion" />
           </button>
         </div>
 
         <!-- 底部提示 -->
         <div class="buddy-foot">
-          <span class="buddy-hint"><i class="el-icon-time"></i>对话能力规划中，敬请期待</span>
+          <span class="buddy-hint"><svg-icon icon-class="clock" />对话能力规划中，敬请期待</span>
           <span class="buddy-link" @click="openBuddySettings">配置模型 ›</span>
         </div>
       </div>
@@ -93,8 +93,6 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-$ob-accent: #722ED1;
-
 .buddy-overlay {
   position: fixed;
   inset: 0;
@@ -131,11 +129,11 @@ $ob-accent: #722ED1;
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #9254DE, $ob-accent);
+  background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(114, 46, 209, 0.35);
+  box-shadow: 0 1px 3px rgba(var(--primary-color-rgb), 0.35);
 
   .buddy-logo-svg {
     width: 15px;
@@ -185,14 +183,14 @@ $ob-accent: #722ED1;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
   &:focus-within {
-    border-color: $ob-accent;
-    box-shadow: 0 0 0 3px rgba(114, 46, 209, 0.12);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.12);
   }
 }
 
 .buddy-input-icon {
   font-size: 15px;
-  color: $ob-accent;
+  color: var(--primary-color);
   flex-shrink: 0;
 }
 
@@ -224,12 +222,12 @@ $ob-accent: #722ED1;
   cursor: default;
   transition: all 0.15s ease;
 
-  i {
+  .svg-icon {
     font-size: 13px;
   }
 
   &.ready {
-    background: linear-gradient(135deg, #9254DE, $ob-accent);
+    background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
     color: #fff;
     cursor: pointer;
   }
@@ -250,14 +248,14 @@ $ob-accent: #722ED1;
   font-size: 11.5px;
   color: var(--text-secondary);
 
-  i {
+  .svg-icon {
     font-size: 12px;
   }
 }
 
 .buddy-link {
   font-size: 11.5px;
-  color: $ob-accent;
+  color: var(--primary-color);
   text-decoration: none;
   font-weight: 600;
   cursor: pointer;

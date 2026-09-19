@@ -16,6 +16,7 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.75",
     "@earendil-works/pi-coding-agent": "^0.84.4",
+    "adm-zip": "^0.6.1",
     "codemirror": "^5.65.21",
     "crypto-js": "^4.2.0",
     "element-ui": "^2.15.14",
@@ -29,6 +30,7 @@
     "katex": "^0.16.47",
     "markdown-it": "^14.3.1",
     "node-forge": "^1.4.0",
+    "pi-mcp-adapter": "^2.34.0",
     "qrcode": "^1.5.4",
     "relationship.js": "^1.2.9",
     "solarlunar": "^2.0.7",

@@ -20,17 +20,27 @@
         <div class="bc-tools">
           <slot name="tools"></slot>
           <button class="bc-tool-btn" title="附件（规划中）" @click="todoHint">
-            <i class="el-icon-circle-plus-outline"></i>
+            <svg-icon icon-class="circle-plus-outline" />
           </button>
         </div>
 
+        <!-- 发送 / 停止：同一位置，流式生成时切换为停止 -->
         <button
+          v-if="!streaming"
           class="bc-send"
           :class="{ ready: canSend }"
           :title="canSend ? '发送（Enter）' : '输入内容后发送'"
           @click="onSend"
         >
-          <i class="el-icon-top"></i>
+          <svg-icon icon-class="top" />
+        </button>
+        <button
+          v-else
+          class="bc-send bc-stop"
+          title="停止生成"
+          @click="$emit('stop')"
+        >
+          <svg-icon icon-class="video-pause" />
         </button>
       </div>
     </div>
@@ -38,7 +48,8 @@
     <!-- 提示行 -->
     <div class="bc-hint">
       <span class="bc-hint-keys"><kbd>Enter</kbd> 发送 <kbd>Shift+Enter</kbd> 换行</span>
-      <span class="bc-hint-privacy"><i class="el-icon-lock"></i>内容仅保存在本机</span>
+      <span class="bc-hint-ai">内容由 AI 生成，请注意甄别</span>
+      <span class="bc-hint-privacy"><svg-icon icon-class="lock" />内容仅保存在本机</span>
     </div>
   </div>
 </template>
@@ -55,6 +66,11 @@ export default {
     placeholder: {
       type: String,
       default: '有什么可以帮您？'
+    },
+    // 流式生成中：发送按钮切换为停止按钮
+    streaming: {
+      type: Boolean,
+      default: false
     }
   },
   data() {
@@ -99,11 +115,9 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-$ob-accent: #722ED1;
-
 .bc-composer {
   width: 100%;
-  max-width: 760px;
+  max-width: 920px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -123,8 +137,8 @@ $ob-accent: #722ED1;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 
   &.focus {
-    border-color: rgba(114, 46, 209, 0.55);
-    box-shadow: 0 0 0 3px rgba(114, 46, 209, 0.12), 0 4px 18px rgba(114, 46, 209, 0.1);
+    border-color: rgba(var(--primary-color-rgb), 0.55);
+    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.12), 0 4px 18px rgba(var(--primary-color-rgb), 0.1);
   }
 }
 
@@ -178,13 +192,13 @@ $ob-accent: #722ED1;
   justify-content: center;
   transition: all 0.15s ease;
 
-  i {
+  .svg-icon {
     font-size: 16px;
   }
 
   &:hover {
-    background: rgba(114, 46, 209, 0.08);
-    color: $ob-accent;
+    background: rgba(var(--primary-color-rgb), 0.08);
+    color: var(--primary-color);
   }
 
   &:active {
@@ -206,16 +220,15 @@ $ob-accent: #722ED1;
   cursor: default;
   transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  i {
+  .svg-icon {
     font-size: 15px;
-    font-weight: 700;
   }
 
   &.ready {
-    background: linear-gradient(135deg, #9254DE, $ob-accent);
+    background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
     color: #fff;
     cursor: pointer;
-    box-shadow: 0 2px 10px rgba(114, 46, 209, 0.35);
+    box-shadow: 0 2px 10px rgba(var(--primary-color-rgb), 0.35);
 
     &:hover {
       filter: brightness(1.08);
@@ -225,6 +238,26 @@ $ob-accent: #722ED1;
     &:active {
       transform: scale(0.88);
     }
+  }
+}
+
+/* 停止按钮：与发送按钮同位切换，激活渐变外观 */
+.bc-stop {
+  background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(var(--primary-color-rgb), 0.35);
+
+  .svg-icon {
+    font-size: 14px;
+  }
+
+  &:hover {
+    filter: brightness(1.08);
+  }
+
+  &:active {
+    transform: scale(0.88);
   }
 }
 
@@ -255,6 +288,15 @@ $ob-accent: #722ED1;
   gap: 4px;
 }
 
+/* 底部中间：AI 生成声明 */
+.bc-hint-ai {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.75;
+}
+
 .bc-hint-privacy {
   font-size: 11px;
   color: var(--text-secondary);
@@ -262,7 +304,7 @@ $ob-accent: #722ED1;
   align-items: center;
   gap: 4px;
 
-  i {
+  .svg-icon {
     font-size: 12px;
   }
 }

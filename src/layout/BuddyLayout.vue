@@ -5,9 +5,9 @@
       <!-- macOS 交通灯按钮独占行 -->
       <div class="buddy-sidebar-topbar"></div>
 
-      <!-- 品牌行：logo + 名称 + 新建对话 icon -->
+      <!-- 品牌行：logo + 名称 + 新建对话 icon（收起时隐藏 logo，仅保留居中的新建按钮） -->
       <div class="buddy-brand">
-        <span class="buddy-brand-icon">
+        <span v-show="!sidebarCollapsed" class="buddy-brand-icon">
           <svg-icon icon-class="buddy" class="buddy-brand-svg" />
         </span>
         <span v-show="!sidebarCollapsed" class="buddy-brand-text">OmniBuddy</span>
@@ -18,50 +18,59 @@
           title="新对话"
           @click="onNewChat"
         >
-          <i class="el-icon-plus"></i>
+          <svg-icon icon-class="plus" />
         </div>
       </div>
 
       <div class="buddy-scroll">
-        <!-- 空间列表（可拖拽排序；默认空间固定且不可编辑/删除） -->
+        <!-- 空间列表：系统默认空间固定首位（不可编辑/删除/拖拽）+ 用户空间（可拖拽排序） -->
         <div class="buddy-section">
           <div v-show="!sidebarCollapsed" class="buddy-section-title">空间</div>
+          <div
+            v-if="defaultSpace"
+            class="buddy-space"
+            :class="{ active: activeSpaceId === defaultSpace.id }"
+            :title="sidebarCollapsed ? defaultSpace.name : ''"
+            @click="onSelectSpaceItem(defaultSpace)"
+          >
+            <svg-icon :icon-class="defaultSpace.icon || 'star'" class="buddy-space-svg" />
+            <span v-show="!sidebarCollapsed" class="buddy-space-name">{{ defaultSpace.name }}</span>
+            <span v-show="!sidebarCollapsed" class="buddy-space-tag">系统</span>
+          </div>
           <draggable
-            v-model="spaces"
+            v-model="userSpaces"
             :disabled="sidebarCollapsed"
-            :filter="defaultSpaceFilter"
-            :prevent-on-filter="false"
             animation="200"
             ghost-class="ob-drag-ghost"
             @end="saveSpaces"
             class="buddy-space-list"
           >
             <div
-              v-for="sp in spaces"
+              v-for="sp in userSpaces"
               :key="sp.id"
               class="buddy-space"
-              :class="{ active: activeSpaceId === sp.id, 'is-default': isDefaultSpace(sp) }"
+              :class="{ active: activeSpaceId === sp.id }"
               :title="sidebarCollapsed ? sp.name : ''"
-              @click="activeSpaceId = sp.id"
+              @click="onSelectSpaceItem(sp)"
             >
               <svg-icon :icon-class="sp.icon || 'star'" class="buddy-space-svg" />
               <span v-show="!sidebarCollapsed" class="buddy-space-name">{{ sp.name }}</span>
               <span
-                v-if="!isDefaultSpace(sp)"
                 v-show="!sidebarCollapsed"
                 class="buddy-space-actions"
                 @click.stop
               >
-                <i
-                  class="el-icon-edit"
+                <svg-icon
+                  icon-class="edit"
                   title="重命名"
                   @click.stop="openEditSpace(sp)"
-                ></i>
-                <i
-                  class="el-icon-delete"
+                />
+                <svg-icon
+                  icon-class="delete"
+                  class="ob-del"
                   title="删除空间"
                   @click.stop="confirmDeleteSpace(sp)"
-                ></i>
+                />
               </span>
             </div>
           </draggable>
@@ -70,16 +79,21 @@
             class="buddy-space-add"
             @click="openCreateSpace"
           >
-            <i class="el-icon-plus"></i>
+            <svg-icon icon-class="plus" />
             <span>新建空间</span>
           </div>
         </div>
 
         <!-- 对话列表（主进程 JSONL 持久化） -->
-        <div class="buddy-section">
+        <div class="buddy-section buddy-section-chats">
           <div v-show="!sidebarCollapsed" class="buddy-section-title">对话列表</div>
+          <!-- 空状态：在剩余区域内垂直水平居中 -->
           <div v-if="!visibleChats.length" v-show="!sidebarCollapsed" class="buddy-chat-empty">
-            暂无对话
+            <div class="buddy-chat-empty-icon">
+              <svg-icon icon-class="chat-dot-round" />
+            </div>
+            <p class="buddy-chat-empty-title">暂无对话</p>
+            <p class="buddy-chat-empty-desc">点击右上角「+」新建对话</p>
           </div>
           <div
             v-for="c in visibleChats"
@@ -88,24 +102,27 @@
             :class="{ active: c.id === activeChatId }"
             :title="sidebarCollapsed ? c.title : ''"
             @click="onSelectChat(c.id)"
+            @mouseenter="onChatEnter"
+            @mouseleave="onChatLeave"
           >
-            <i :class="c.branch ? 'el-icon-share' : 'el-icon-chat-dot-round'" :style="c.branch ? 'color: var(--ob-accent, #722ED1)' : ''"></i>
-            <span v-show="!sidebarCollapsed" class="buddy-chat-name">{{ c.title }}</span>
+            <svg-icon :icon-class="c.branch ? 'share' : 'chat-dot-round'" :style="c.branch ? 'color: var(--primary-color)' : ''" />
+            <span v-show="!sidebarCollapsed" class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
             <span
               v-show="!sidebarCollapsed"
               class="buddy-chat-actions"
               @click.stop
             >
-              <i
-                class="el-icon-edit"
+              <svg-icon
+                icon-class="edit"
                 title="重命名"
                 @click.stop="renameChat(c)"
-              ></i>
-              <i
-                class="el-icon-delete"
+              />
+              <svg-icon
+                icon-class="delete"
+                class="ob-del"
                 title="删除对话"
                 @click.stop="confirmDeleteChat(c)"
-              ></i>
+              />
             </span>
           </div>
         </div>
@@ -118,17 +135,17 @@
           :title="sidebarCollapsed ? '返回 OmniDeck' : ''"
           @click="goMain"
         >
-          <i class="el-icon-back buddy-footer-back-icon"></i>
+          <svg-icon icon-class="back" class="buddy-footer-back-icon" />
           <span v-show="!sidebarCollapsed">返回 OmniDeck</span>
         </div>
         <div
           class="buddy-footer-item"
           :class="{ active: isSettings }"
-          :title="sidebarCollapsed ? '设置' : ''"
+          :title="sidebarCollapsed ? 'Buddy 工坊' : ''"
           @click="goSettings"
         >
           <svg-icon icon-class="settings" class="buddy-footer-svg" />
-          <span v-show="!sidebarCollapsed">设置</span>
+          <span v-show="!sidebarCollapsed">Buddy 工坊</span>
         </div>
       </div>
     </aside>
@@ -140,7 +157,7 @@
         <!-- 毛玻璃背景层：backdrop-filter 会吞掉同元素的 app-region 拖拽区，独立成层规避 -->
         <div class="buddy-topbar-glass"></div>
         <div class="buddy-search" :class="{ focused: searchFocus }">
-          <i class="el-icon-search buddy-search-icon"></i>
+          <svg-icon icon-class="search" class="buddy-search-icon" />
           <input
             v-model="searchQuery"
             class="buddy-search-input"
@@ -149,11 +166,12 @@
             @blur="onSearchBlur"
             @keydown.esc="searchQuery = ''"
           />
-          <i
+          <svg-icon
             v-if="searchQuery"
-            class="el-icon-circle-close buddy-search-clear"
+            icon-class="circle_close"
+            class="buddy-search-clear"
             @mousedown.prevent="searchQuery = ''"
-          ></i>
+          />
           <span v-if="!searchQuery" class="buddy-search-kbd">esc</span>
         </div>
       </header>
@@ -168,13 +186,13 @@
               class="buddy-search-item"
               @mousedown.prevent="onSelectChat(r.id)"
             >
-              <i class="el-icon-chat-dot-round"></i>
+              <svg-icon icon-class="chat-dot-round" />
               <span class="buddy-search-item-name">{{ r.name }}</span>
               <span class="buddy-search-item-snippet">{{ r.snippet }}</span>
             </div>
           </template>
           <div v-else class="buddy-search-empty">
-            <i class="el-icon-search"></i>
+            <svg-icon icon-class="search" />
             <span>未找到「{{ searchQuery }}」相关的对话</span>
           </div>
         </div>
@@ -198,105 +216,42 @@
     </div>
 
     <!-- 新建/编辑空间弹窗 -->
-    <transition name="ob-modal">
-      <div v-if="spaceDialogVisible" class="ob-overlay" @click.self="closeSpaceDialog">
-        <div class="ob-dialog">
-          <header class="ob-dialog-header">
-            <h3 class="ob-dialog-title">{{ editingSpaceId ? '编辑空间' : '新建空间' }}</h3>
-            <i class="el-icon-close ob-dialog-close" @click="closeSpaceDialog"></i>
-          </header>
-          <div class="ob-dialog-body">
-            <!-- 空间名称 -->
-            <div class="ob-field" :class="{ error: !!spaceErrors.name }">
-              <label class="ob-field-label">空间名称 <span class="ob-field-required">*</span></label>
-              <el-input
-                v-model="spaceForm.name"
-                size="small"
-                clearable
-                placeholder="输入空间名称"
-                maxlength="20"
-                @keydown.enter.native="saveSpace"
-                @blur="validateSpaceField('name')"
-                @input="clearSpaceFieldError('name')"
-              />
-              <p class="ob-field-error" :class="{ visible: !!spaceErrors.name }">{{ spaceErrors.name }}</p>
-            </div>
-            <!-- 描述 -->
-            <div class="ob-field" :class="{ error: !!spaceErrors.desc }">
-              <label class="ob-field-label">描述 <span class="ob-field-required">*</span></label>
-              <el-input
-                v-model="spaceForm.desc"
-                type="textarea"
-                :rows="3"
-                placeholder="这个空间用来做什么？"
-                maxlength="100"
-                @blur="validateSpaceField('desc')"
-                @input="clearSpaceFieldError('desc')"
-              />
-              <p class="ob-field-error" :class="{ visible: !!spaceErrors.desc }">{{ spaceErrors.desc }}</p>
-            </div>
-            <!-- 图标 -->
-            <div class="ob-field">
-              <label class="ob-field-label">图标</label>
-              <div class="ob-icon-grid">
-                <div
-                  v-for="ic in spaceIcons"
-                  :key="ic"
-                  class="ob-icon-item"
-                  :class="{ active: spaceForm.icon === ic }"
-                  @click="spaceForm.icon = ic"
-                >
-                  <svg-icon :icon-class="ic" class="ob-icon-svg" />
-                </div>
-              </div>
-            </div>
-          </div>
-          <footer class="ob-dialog-footer">
-            <el-button size="small" round @click="closeSpaceDialog">取消</el-button>
-            <el-button size="small" round type="primary" @click="saveSpace">保存</el-button>
-          </footer>
-        </div>
-      </div>
-    </transition>
+    <space-edit-dialog
+      :visible="spaceDialogVisible"
+      :space="editingSpace"
+      :spaces="spaces"
+      :dir-only="!!(editingSpace && editingSpace.system)"
+      @close="spaceDialogVisible = false"
+      @submit="saveSpace"
+    />
   </div>
 </template>
 
 <script>
 import draggable from 'vuedraggable'
+import SpaceEditDialog from '@/components/buddy/SpaceEditDialog.vue'
 import { getItem, setItem } from '@/utils/db'
+import { getBuddySpaces, saveBuddySpaces, DEFAULT_SPACE_ID } from '@/utils/buddy-space'
 
 let spaceUid = Date.now()
-
-// 空间可选图标（来自 assets/icons/svg）
-const SPACE_ICONS = [
-  'star', 'heart', 'sparkle', 'buddy', 'book', 'case', 'code', 'cube',
-  'crown', 'database', 'flag', 'globe', 'home', 'key', 'money', 'palette',
-  'pen', 'storage', 'tools', 'gift', 'shield', 'timer', 'calendar', 'clock'
-]
 
 // OmniBuddy 视图壳：与主 Layout 平级的独立视图
 // 侧边栏（可折叠）= 空间（可管理）+ 对话列表；顶栏 = 对话搜索
 export default {
   name: 'BuddyLayout',
-  components: { draggable },
+  components: { draggable, SpaceEditDialog },
   data() {
     return {
       sidebarCollapsed: false,
       searchQuery: '',
       searchFocus: false,
-      // 默认空间不可拖拽/编辑/删除
-      defaultSpaceFilter: '.is-default',
-      // 空间图标候选
-      spaceIcons: SPACE_ICONS,
-      // 空间列表（IndexedDB 持久化）
-      spaces: [],
+      // 空间列表：系统默认空间（运行时派生）+ 用户空间（IndexedDB 持久化）
+      defaultSpace: null,
+      userSpaces: [],
       activeSpaceId: '',
       // 新建/编辑空间弹窗
       spaceDialogVisible: false,
       editingSpaceId: null,
-      spaceForm: { name: '', desc: '', icon: 'star' },
-      // 必填字段失焦校验的错误提示
-      spaceErrors: { name: '', desc: '' },
       // 会话列表（主进程 JSONL 持久化，按更新时间倒序）
       chats: [],
       // 顶栏搜索：query -> 结果缓存（主进程搜索，防抖执行）
@@ -308,6 +263,17 @@ export default {
     isSettings() {
       return this.$route.name === 'OmniBuddySettings'
     },
+    isSpace() {
+      return this.$route.name === 'OmniBuddySpace'
+    },
+    // 全部空间：系统默认空间固定首位 + 用户空间
+    spaces() {
+      return this.defaultSpace ? [this.defaultSpace].concat(this.userSpaces) : this.userSpaces
+    },
+    // 弹窗编辑目标空间（null 表示新建；默认空间仅关联目录）
+    editingSpace() {
+      return this.spaces.find(s => s.id === this.editingSpaceId) || null
+    },
     toggleLeft() {
       return this.sidebarCollapsed ? '46px' : '200px'
     },
@@ -315,9 +281,9 @@ export default {
     activeChatId() {
       return this.$route.query.s || ''
     },
-    // 当前空间下的对话
+    // 对话列表：与空间解绑（始终显示全部会话，按更新时间倒序）
     visibleChats() {
-      return this.chats.filter(c => c.spaceId === this.activeSpaceId)
+      return this.chats
     },
     // 顶栏搜索：主进程跨会话搜索（标题 + 内容）
     searchResults() {
@@ -330,103 +296,108 @@ export default {
     searchQuery(q) {
       this.runSearch(q)
     },
-    // 切换空间时记住（对话页新建会话时取用）
+    // 选中空间变化：持久化 + 通知空间页刷新
+    // 跳转空间视图由用户点击（onSelectSpaceItem）或新建空间（saveSpace）触发，避免恢复/同步选择时被拽走
     activeSpaceId(id) {
       setItem('buddyActiveSpaceId', id)
+      this.$root.$emit('omnibuddy:active-space-changed', id)
     }
   },
   created() {
+    // 恢复上次选中的空间（与问答页共用持久化 key），未选中时对话列表显示全部
+    this.activeSpaceId = getItem('omnibuddy:spaceId', '')
     this.loadSpaces()
     this.loadChats()
     // 对话页创建/更新会话后刷新列表
     this.$root.$on('omnibuddy:sessions-changed', this.loadChats)
+    // 对话页为空间补关联目录后刷新空间列表
+    this.$root.$on('omnibuddy:spaces-changed', this.loadSpaces)
+    // 问答页底部选择空间后同步左侧选中态
+    this.$root.$on('omnibuddy:space-selected', this.onChatSpaceSelected)
   },
   beforeDestroy() {
     this.$root.$off('omnibuddy:sessions-changed', this.loadChats)
+    this.$root.$off('omnibuddy:spaces-changed', this.loadSpaces)
+    this.$root.$off('omnibuddy:space-selected', this.onChatSpaceSelected)
   },
   methods: {
     // ===== 空间管理 =====
-    // 默认空间（sp-default）固定：不可编辑/删除/拖拽
-    isDefaultSpace(sp) {
-      return sp.id === 'sp-default'
-    },
-    loadSpaces() {
-      const saved = getItem('buddySpaces', null)
-      if (Array.isArray(saved) && saved.length) {
-        this.spaces = saved
-      } else {
-        // 首次使用：预置默认空间
-        this.spaces = [{ id: 'sp-default', name: '默认空间', desc: '', createdAt: Date.now() }]
-        this.saveSpaces()
-      }
+    async loadSpaces() {
+      const list = await getBuddySpaces()
+      this.defaultSpace = list.find(s => s.system) || null
+      this.userSpaces = list.filter(s => !s.system)
+      // 已存储的激活空间不存在（或从未选择）时不自动选中，默认停留在新建对话页
       if (!this.spaces.some(s => s.id === this.activeSpaceId)) {
-        this.activeSpaceId = this.spaces[0].id
+        this.activeSpaceId = ''
       }
       setItem('buddyActiveSpaceId', this.activeSpaceId)
     },
     saveSpaces() {
-      setItem('buddySpaces', this.spaces)
+      saveBuddySpaces(this.userSpaces)
+    },
+    // 点击空间：选中并切到空间视图（重复点击同一空间也会跳转）
+    // 系统默认空间未关联目录、或已关联目录在磁盘上不存在：弹窗引导（重新）关联，仅目录可编辑
+    async onSelectSpaceItem(sp) {
+      if (sp.system && !(await this.defaultSpaceDirReady())) {
+        this.editingSpaceId = sp.id
+        this.spaceDialogVisible = true
+        return
+      }
+      this.activeSpaceId = sp.id
+      if (this.$route.name !== 'OmniBuddySpace') {
+        this.$router.push('/omnibuddy/space').catch(() => {})
+      }
+    },
+    // 默认空间关联目录是否就绪：已关联且仍存在（桌面端用 files.list 探测，失败视为不存在）
+    async defaultSpaceDirReady() {
+      const dir = getItem('buddyDefaultSpaceDir', '')
+      if (!dir) return false
+      const api = this.buddyApi()
+      if (!api || !api.files) return true // 非桌面端无法探测，视为有效
+      const res = await api.files.list(dir).catch(() => null)
+      return !!(res && res.ok)
     },
     openCreateSpace() {
       this.editingSpaceId = null
-      this.spaceForm = { name: '', desc: '', icon: 'star' }
-      this.resetSpaceErrors()
       this.spaceDialogVisible = true
     },
     openEditSpace(sp) {
       this.editingSpaceId = sp.id
-      this.spaceForm = { name: sp.name, desc: sp.desc || '', icon: sp.icon || 'star' }
-      this.resetSpaceErrors()
       this.spaceDialogVisible = true
     },
-    closeSpaceDialog() {
-      this.spaceDialogVisible = false
-    },
-    // ===== 必填字段失焦校验 =====
-    resetSpaceErrors() {
-      this.spaceErrors.name = ''
-      this.spaceErrors.desc = ''
-    },
-    validateSpaceField(field) {
-      const val = (this.spaceForm[field] || '').trim()
-      if (!val) {
-        this.spaceErrors[field] = field === 'name' ? '请输入空间名称' : '请输入描述'
-        return false
+    // 弹窗校验通过后提交：更新或新建空间（表单与校验在 SpaceEditDialog 内）
+    async saveSpace(form) {
+      // 系统默认空间：仅保存关联目录（其余字段弹窗内不可编辑），关联后自动进入
+      if (this.editingSpaceId === DEFAULT_SPACE_ID) {
+        setItem('buddyDefaultSpaceDir', form.dir)
+        this.spaceDialogVisible = false
+        await this.loadSpaces()
+        this.$root.$emit('omnibuddy:spaces-changed')
+        this.$message.success('默认空间已关联目录')
+        this.activeSpaceId = DEFAULT_SPACE_ID
+        return
       }
-      this.spaceErrors[field] = ''
-      return true
-    },
-    // 重新输入时清除错误提示（失焦时再校验）
-    clearSpaceFieldError(field) {
-      if (this.spaceErrors[field]) this.spaceErrors[field] = ''
-    },
-    saveSpace() {
-      const validName = this.validateSpaceField('name')
-      const validDesc = this.validateSpaceField('desc')
-      if (!validName || !validDesc) return
-      const name = this.spaceForm.name.trim()
-      const desc = this.spaceForm.desc.trim()
       if (this.editingSpaceId) {
-        const sp = this.spaces.find(s => s.id === this.editingSpaceId)
-        if (sp) {
-          sp.name = name
-          sp.desc = desc
-          sp.icon = this.spaceForm.icon
-        }
+        const sp = this.userSpaces.find(s => s.id === this.editingSpaceId)
+        if (sp) Object.assign(sp, form)
       } else {
-        this.spaces.push({
+        this.userSpaces.push({
           id: 'sp' + (spaceUid++),
-          name,
-          desc,
-          icon: this.spaceForm.icon,
+          ...form,
           createdAt: Date.now()
         })
+        // 新建空间后自动选中并进入空间视图，后续新建对话归属该空间
+        this.activeSpaceId = this.userSpaces[this.userSpaces.length - 1].id
+        if (this.$route.name !== 'OmniBuddySpace') {
+          this.$router.push('/omnibuddy/space').catch(() => {})
+        }
       }
       this.saveSpaces()
-      this.closeSpaceDialog()
+      this.spaceDialogVisible = false
+      this.$root.$emit('omnibuddy:spaces-changed')
       this.$message.success(this.editingSpaceId ? '空间已更新' : '空间已创建')
     },
-    // 删除空间（二次确认；删除激活空间后自动选中第一个）
+    // 删除空间（二次确认；仅用户空间可删，系统默认空间不渲染删除入口）
     confirmDeleteSpace(sp) {
       this.$confirm(
         '删除后该空间下的对话记录将一并移除，确定删除「' + sp.name + '」吗？',
@@ -441,11 +412,13 @@ export default {
         const api = this.buddyApi()
         if (api) await api.deleteSessionsBySpace(sp.id)
         this.chats = this.chats.filter(c => c.spaceId !== sp.id)
-        this.spaces = this.spaces.filter(s => s.id !== sp.id)
-        if (this.activeSpaceId === sp.id && this.spaces.length) {
-          this.activeSpaceId = this.spaces[0].id
+        this.userSpaces = this.userSpaces.filter(s => s.id !== sp.id)
+        // 删除的是激活空间 → 回到新建对话页（不自动选中其他空间）
+        if (this.activeSpaceId === sp.id) {
+          this.activeSpaceId = ''
         }
         this.saveSpaces()
+        this.$root.$emit('omnibuddy:spaces-changed')
         this.$message.success('空间已删除')
       }).catch(() => {})
     },
@@ -520,8 +493,15 @@ export default {
         this.$router.push('/omnibuddy/settings')
       }
     },
+    goSpace() {
+      if (this.$route.name !== 'OmniBuddySpace') {
+        this.$router.push('/omnibuddy/space')
+      }
+    },
     onNewChat() {
       // 回到空会话页（发送首条消息时自动创建会话）
+      // 同时清空空间选中态：新建对话后左侧菜单不再高亮任何空间
+      this.activeSpaceId = ''
       if (this.$route.path !== '/omnibuddy' || this.activeChatId) {
         this.$router.push('/omnibuddy')
       }
@@ -531,6 +511,24 @@ export default {
       if (this.$route.name !== 'OmniBuddy' || this.activeChatId !== id) {
         this.$router.push({ path: '/omnibuddy', query: { s: id } })
       }
+    },
+    // ===== 对话名称 hover 滚动（超长标题从右向左滚动展示） =====
+    onChatEnter(e) {
+      const wrap = e.currentTarget.querySelector('.buddy-chat-name')
+      const inner = wrap && wrap.firstElementChild
+      if (!wrap || !inner) return
+      const diff = inner.scrollWidth - wrap.clientWidth
+      wrap.classList.remove('scrolling')
+      if (diff > 4) {
+        // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
+        wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
+        void wrap.offsetWidth // 强制 reflow 以重启动画
+        wrap.classList.add('scrolling')
+      }
+    },
+    onChatLeave(e) {
+      const wrap = e.currentTarget.querySelector('.buddy-chat-name')
+      if (wrap) wrap.classList.remove('scrolling')
     },
     // 延迟失焦：给下拉项的 mousedown 留出响应时间
     onSearchBlur() {
@@ -543,9 +541,10 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-$ob-accent: #722ED1;
-$buddy-sidebar-w: 200px;
-$buddy-sidebar-collapsed-w: 52px;
+
+/* 侧边栏宽度与 Deck 主界面保持一致（全局变量） */
+$buddy-sidebar-w: $sidebar-width;
+$buddy-sidebar-collapsed-w: $sidebar-collapsed-width;
 
 .buddy-layout {
   display: flex;
@@ -608,11 +607,11 @@ $buddy-sidebar-collapsed-w: 52px;
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #9254DE, $ob-accent);
+  background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(114, 46, 209, 0.35);
+  box-shadow: 0 1px 3px rgba(var(--primary-color-rgb), 0.35);
   flex-shrink: 0;
 
   .buddy-brand-svg {
@@ -640,15 +639,15 @@ $buddy-sidebar-collapsed-w: 52px;
   align-items: center;
   justify-content: center;
   color: #fff;
-  background: linear-gradient(135deg, #9254DE, $ob-accent);
-  box-shadow: 0 1px 3px rgba(114, 46, 209, 0.35);
+  background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
+  box-shadow: 0 1px 3px rgba(var(--primary-color-rgb), 0.35);
   cursor: pointer;
   flex-shrink: 0;
   transition: all 0.15s ease;
   -webkit-app-region: no-drag;
 
-  i {
-    font-size: 12px;
+  .svg-icon {
+    font-size: 13px;
   }
 
   &:hover {
@@ -664,8 +663,8 @@ $buddy-sidebar-collapsed-w: 52px;
     width: 26px;
     height: 26px;
 
-    i {
-      font-size: 13px;
+    .svg-icon {
+      font-size: 14px;
     }
   }
 }
@@ -678,6 +677,8 @@ $buddy-sidebar-collapsed-w: 52px;
   overflow-x: hidden;
   padding: 6px 8px;
   -webkit-app-region: no-drag;
+  /* 空态以此为定位容器，覆盖整个滚动区做垂直水平居中 */
+  position: relative;
 
   &::-webkit-scrollbar {
     width: 0;
@@ -715,7 +716,7 @@ $buddy-sidebar-collapsed-w: 52px;
   > .buddy-space-svg {
     width: 14px;
     height: 14px;
-    color: $ob-accent;
+    color: var(--primary-color);
     flex-shrink: 0;
   }
 
@@ -725,6 +726,17 @@ $buddy-sidebar-collapsed-w: 52px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* 系统空间标识 tag */
+  .buddy-space-tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    line-height: 16px;
+    padding: 0 6px;
+    border-radius: 999px;
+    color: $text-secondary;
+    background: $sidebar-item-hover;
   }
 
   &:hover {
@@ -737,7 +749,7 @@ $buddy-sidebar-collapsed-w: 52px;
   }
 
   &.active {
-    background: rgba(114, 46, 209, 0.12);
+    background: rgba(var(--primary-color-rgb), 0.12);
     color: $text-sidebar-active;
     font-weight: 600;
   }
@@ -752,20 +764,20 @@ $buddy-sidebar-collapsed-w: 52px;
   transition: opacity 0.15s ease;
   flex-shrink: 0;
 
-  i {
-    font-size: 12px;
+  .svg-icon {
+    font-size: 14px;
     color: $text-secondary;
-    padding: 3px;
+    padding: 2px;
     border-radius: 5px;
     cursor: pointer;
     transition: all 0.15s ease;
 
     &:hover {
-      background: rgba(114, 46, 209, 0.12);
-      color: $ob-accent;
+      background: rgba(var(--primary-color-rgb), 0.12);
+      color: var(--primary-color);
     }
 
-    &.el-icon-delete:hover {
+    &.ob-del:hover {
       background: rgba(245, 34, 45, 0.12);
       color: #F5222D;
     }
@@ -791,13 +803,13 @@ $buddy-sidebar-collapsed-w: 52px;
   transition: all 0.15s ease;
   white-space: nowrap;
 
-  i {
-    font-size: 12px;
+  .svg-icon {
+    font-size: 13px;
   }
 
   &:hover {
-    border-color: $ob-accent;
-    color: $ob-accent;
+    border-color: var(--primary-color);
+    color: var(--primary-color);
   }
 }
 
@@ -813,7 +825,7 @@ $buddy-sidebar-collapsed-w: 52px;
   transition: all 0.15s ease;
   margin-bottom: 1px;
 
-  > i {
+  > .svg-icon {
     font-size: 13px;
     color: $text-secondary;
     flex-shrink: 0;
@@ -825,7 +837,23 @@ $buddy-sidebar-collapsed-w: 52px;
     font-size: 12.5px;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
+
+    /* 内层承载文字：默认省略号截断，hover 超长时从右向左滚动 */
+    .ob-name-inner {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      will-change: transform;
+    }
+
+    &.scrolling .ob-name-inner {
+      max-width: none;
+      overflow: visible;
+      text-overflow: clip;
+      animation: ob-name-scroll 3.5s ease-in-out 0.35s forwards;
+    }
   }
 
   &:hover {
@@ -838,19 +866,63 @@ $buddy-sidebar-collapsed-w: 52px;
   }
 
   &.active {
-    background: rgba(114, 46, 209, 0.1);
+    background: rgba(var(--primary-color-rgb), 0.1);
 
-    > i {
-      color: $ob-accent;
+    > .svg-icon {
+      color: var(--primary-color);
     }
   }
 }
 
-/* 对话空态 */
+/* 对话名称 hover 滚动动画（滚动量由 --scroll-x 变量按溢出宽度注入） */
+@keyframes ob-name-scroll {
+  to {
+    transform: translateX(var(--scroll-x, 0));
+  }
+}
+
+/* 对话空态：绝对定位铺满滚动区，垂直水平居中（不占文档流、不拦截点击） */
 .buddy-chat-empty {
-  padding: 8px 10px;
-  font-size: 12px;
-  color: $text-secondary;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 12px 10px;
+  text-align: center;
+  pointer-events: none;
+
+  .buddy-chat-empty-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    background: $sidebar-item-hover;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+
+    .svg-icon {
+      font-size: 19px;
+      color: $text-secondary;
+    }
+  }
+
+  .buddy-chat-empty-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: $text-primary;
+    margin: 0;
+  }
+
+  .buddy-chat-empty-desc {
+    font-size: 11px;
+    color: $text-secondary;
+    margin: 0;
+    line-height: 1.5;
+  }
 }
 
 /* 对话行内操作：hover 浮现（重命名/删除） */
@@ -862,20 +934,20 @@ $buddy-sidebar-collapsed-w: 52px;
   transition: opacity 0.15s ease;
   flex-shrink: 0;
 
-  i {
-    font-size: 12px;
+  .svg-icon {
+    font-size: 14px;
     color: $text-secondary;
-    padding: 3px;
+    padding: 2px;
     border-radius: 5px;
     cursor: pointer;
     transition: all 0.15s ease;
 
     &:hover {
-      background: rgba(114, 46, 209, 0.12);
-      color: $ob-accent;
+      background: rgba(var(--primary-color-rgb), 0.12);
+      color: var(--primary-color);
     }
 
-    &.el-icon-delete:hover {
+    &.ob-del:hover {
       background: rgba(245, 34, 45, 0.12);
       color: #F5222D;
     }
@@ -919,12 +991,12 @@ $buddy-sidebar-collapsed-w: 52px;
   }
 
   &.active {
-    background: rgba(114, 46, 209, 0.12);
+    background: rgba(var(--primary-color-rgb), 0.12);
     color: $text-sidebar-active;
     font-weight: 600;
 
     .buddy-footer-svg {
-      color: $ob-accent;
+      color: var(--primary-color);
     }
   }
 }
@@ -983,7 +1055,7 @@ $buddy-sidebar-collapsed-w: 52px;
 
   &.focused {
     background: var(--card-bg);
-    box-shadow: 0 0 0 3px rgba(114, 46, 209, 0.14);
+    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.14);
   }
 
   .buddy-search-icon {
@@ -1057,9 +1129,9 @@ $buddy-sidebar-collapsed-w: 52px;
   cursor: pointer;
   transition: background 0.12s ease;
 
-  > i {
+  > .svg-icon {
     font-size: 13px;
-    color: $ob-accent;
+    color: var(--primary-color);
     flex-shrink: 0;
   }
 
@@ -1085,7 +1157,7 @@ $buddy-sidebar-collapsed-w: 52px;
   }
 
   &:hover {
-    background: rgba(114, 46, 209, 0.08);
+    background: rgba(var(--primary-color-rgb), 0.08);
   }
 }
 
@@ -1098,7 +1170,7 @@ $buddy-sidebar-collapsed-w: 52px;
   font-size: 12px;
   color: $text-secondary;
 
-  i {
+  .svg-icon {
     font-size: 14px;
   }
 }
@@ -1177,184 +1249,6 @@ $buddy-sidebar-collapsed-w: 52px;
 
   &:active {
     transform: translateY(-50%) scale(0.92);
-  }
-}
-
-/* ===== 新建/编辑空间弹窗 ===== */
-.ob-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 3100;
-  background: rgba(0, 0, 0, 0.32);
-  backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  -webkit-app-region: no-drag;
-}
-
-.ob-dialog {
-  width: 460px;
-  max-width: calc(100vw - 48px);
-  border-radius: 16px;
-  border: 1px solid var(--border-color);
-  background: var(--card-bg, #fff);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
-  overflow: hidden;
-}
-
-/* 空间图标选择网格 */
-.ob-icon-grid {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 6px;
-  max-height: 132px;
-  overflow-y: auto;
-  padding: 2px;
-
-  &::-webkit-scrollbar {
-    width: 4px;
-  }
-}
-
-.ob-icon-item {
-  aspect-ratio: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9px;
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: all 0.13s ease;
-
-  .ob-icon-svg {
-    width: 15px;
-    height: 15px;
-    color: $text-secondary;
-    transition: color 0.13s ease;
-  }
-
-  &:hover {
-    border-color: rgba(114, 46, 209, 0.45);
-
-    .ob-icon-svg {
-      color: $ob-accent;
-    }
-  }
-
-  &.active {
-    border-color: $ob-accent;
-    background: rgba(114, 46, 209, 0.1);
-
-    .ob-icon-svg {
-      color: $ob-accent;
-    }
-  }
-}
-
-.ob-dialog-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px 0;
-
-  .ob-dialog-title {
-    font-size: 15px;
-    font-weight: 700;
-    color: $text-primary;
-  }
-
-  .ob-dialog-close {
-    font-size: 15px;
-    color: $text-secondary;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 6px;
-    transition: all 0.15s ease;
-
-    &:hover {
-      background: $search-bg;
-      color: $text-primary;
-    }
-  }
-}
-
-.ob-dialog-body {
-  padding: 14px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 13px;
-}
-
-.ob-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-
-  .ob-field-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: $text-primary;
-  }
-
-  .ob-field-required {
-    color: #F5222D;
-  }
-
-  // 校验失败：输入框/文本域红框
-  &.error ::v-deep .el-input__inner,
-  &.error ::v-deep .el-textarea__inner {
-    border-color: #F5222D;
-
-    &:focus {
-      border-color: #F5222D;
-    }
-  }
-
-  // 错误提示固定占位，避免出现/消失时挤压布局导致抖动
-  .ob-field-error {
-    height: 15px;
-    font-size: 11px;
-    line-height: 15px;
-    color: #F5222D;
-    visibility: hidden;
-
-    &.visible {
-      visibility: visible;
-    }
-  }
-}
-
-.ob-dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 0 18px 16px;
-}
-
-/* 弹窗过渡 */
-.ob-modal-enter-active {
-  transition: opacity 0.18s ease;
-
-  .ob-dialog {
-    transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-}
-
-.ob-modal-leave-active {
-  transition: opacity 0.14s ease;
-
-  .ob-dialog {
-    transition: transform 0.14s ease;
-  }
-}
-
-.ob-modal-enter,
-.ob-modal-leave-to {
-  opacity: 0;
-
-  .ob-dialog {
-    transform: scale(0.95) translateY(8px);
   }
 }
 </style>

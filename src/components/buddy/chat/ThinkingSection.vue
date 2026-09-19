@@ -1,0 +1,561 @@
+<template>
+  <!-- 深度思考区（可折叠）：思考文本 + Skill 激活 + 工具/MCP 调用，聚合于助手回复上方 -->
+  <div class="ob-think">
+    <!-- 折叠头部：思考中显示 loading，结束后显示已完成与步骤数 -->
+    <div class="ob-think-header" :class="{ thinking: isThinking }" @click="toggleCollapse">
+      <svg-icon
+        :icon-class="isThinking ? 'loading' : 'sparkle'"
+        class="ob-think-hico"
+        :class="{ spin: isThinking }"
+      />
+      <span class="ob-think-title">{{ isThinking ? '深度思考中…' : '已深度思考' }}</span>
+      <span v-if="!isThinking && stepCount > 0" class="ob-think-count">{{ stepCount }} 个步骤</span>
+      <svg-icon
+        icon-class="arrow-down"
+        class="ob-think-arrow"
+        :class="{ collapsed }"
+      />
+    </div>
+
+    <!-- 内容主体（思考中 / 流式中自动展开，不随折叠收起） -->
+    <div v-show="!collapsed || isThinking || isStreaming" class="ob-think-body">
+      <template v-for="(item, i) in items">
+        <!-- 思考文本 -->
+        <div
+          v-if="item.type === 'thinking'"
+          :key="'thinking-' + i"
+          class="ob-think-text"
+        >
+          <div class="ob-think-md" v-html="rendered(item.content)"></div>
+          <span v-if="isThinking && i === items.length - 1" class="ob-cursor"></span>
+        </div>
+
+        <!-- Skill 激活 -->
+        <div v-else-if="item.type === 'skill'" :key="'skill-' + i" class="ob-skill">
+          <svg-icon icon-class="magic-stick" class="ob-skill-ico" />
+          <span class="ob-skill-label">SKILL</span>
+          <span class="ob-skill-name">{{ item.skillName }}</span>
+        </div>
+
+        <!-- 工具调用（含 MCP 工具） -->
+        <div v-else-if="item.type === 'tool'" :key="'tool-' + i" class="ob-tool">
+          <!-- 摘要行：状态图标三态（运行中 / 错误 / 完成）+ MCP 服务名 + 中文名 + 原始名 tag -->
+          <div class="ob-tool-head" :class="{ error: item.isError }" @click="toggleTool(item)">
+            <svg-icon
+              :icon-class="toolIcon(item)"
+              class="ob-tool-ico"
+              :class="{ spin: item.status === 'running' }"
+            />
+            <span v-if="isMcp(item)" class="ob-tool-server">{{ mcpServerLabel(item) }}</span>
+            <span class="ob-tool-name">{{ friendlyToolName(item) }}</span>
+            <span v-if="rawToolTag(item)" class="ob-tool-tag">{{ rawToolTag(item) }}</span>
+            <svg-icon
+              v-if="hasDetails(item)"
+              icon-class="arrow-down"
+              class="ob-tool-arrow"
+              :class="{ open: isToolOpen(item) }"
+            />
+          </div>
+
+          <!-- 详情：参数区 + 结果区（左侧竖线缩进） -->
+          <div v-if="isToolOpen(item)" class="ob-tool-detail">
+            <!-- 参数区 -->
+            <div v-if="hasArgs(item)" class="ob-tool-args">
+              <div class="ob-tool-label">参数</div>
+              <!-- content 参数单独成块，其余参数渲染为 chips -->
+              <template v-if="hasContentArg(item)">
+                <div v-if="chipEntries(item).length" class="ob-arg-chips">
+                  <span v-for="(e, ci) in chipEntries(item)" :key="ci" class="ob-arg-chip">
+                    <span class="ob-arg-key">{{ e.key }}</span>: <span class="ob-arg-val">{{ truncateVal(e.val, 80) }}</span>
+                  </span>
+                </div>
+                <pre class="ob-arg-content">{{ item.args.content }}</pre>
+              </template>
+              <!-- 无 content 参数：逐参数行展示 -->
+              <template v-else>
+                <div v-for="(e, ci) in argEntries(item)" :key="ci" class="ob-arg-row">
+                  <span class="ob-arg-key">{{ e.key }}</span>
+                  <span class="ob-arg-val">{{ truncateVal(e.val, 200) }}</span>
+                </div>
+              </template>
+            </div>
+
+            <!-- 结果区：优先展示流式 partial，运行中尾部带光标；错误态红底红字 -->
+            <div v-if="hasResult(item)" class="ob-tool-result-block">
+              <div class="ob-tool-label" :class="{ error: item.isError }">{{ item.isError ? '错误' : '结果' }}</div>
+              <div class="ob-tool-result" :class="{ error: item.isError }">
+                {{ truncatedResult(item) }}<span v-if="isResultStreaming(item)" class="ob-cursor"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
+<script>
+// OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) 的聚合渲染
+import { renderMarkdown } from '@/utils/markdown'
+
+// 内置工具的中文短名（MCP 工具走 mcpServerLabel + 原始工具名）
+const TOOL_LABELS = {
+  read: '读取文件',
+  write: '写入文件',
+  edit: '编辑文件',
+  bash: '执行命令',
+  powershell: '执行命令(PowerShell)',
+  find: '查找文件',
+  glob: '查找文件',
+  grep: '搜索内容',
+  ls: '列出目录',
+  todo_write: '更新任务清单',
+  ask_user: '询问用户'
+}
+
+export default {
+  name: 'ThinkingSection',
+  props: {
+    // 有序内容块：{ type: 'thinking' | 'skill' | 'tool', ... }
+    items: {
+      type: Array,
+      default: () => []
+    },
+    // 正在思考（实时接收 thinking 内容）
+    isThinking: {
+      type: Boolean,
+      default: false
+    },
+    // 助手回复正在流式生成
+    isStreaming: {
+      type: Boolean,
+      default: false
+    }
+  },
+  data() {
+    return {
+      collapsed: true,
+      toolOpenOverrides: {}
+    }
+  },
+  computed: {
+    // 步骤数：工具与 Skill 计数（思考文本不计）
+    stepCount() {
+      return this.items.filter(i => i.type === 'tool' || i.type === 'skill').length
+    }
+  },
+  methods: {
+    toggleCollapse() {
+      // 思考中 / 流式中不允许收起，避免过程被隐藏
+      if (this.isThinking || this.isStreaming) return
+      this.collapsed = !this.collapsed
+    },
+    rendered(text) {
+      return renderMarkdown(text || '')
+    },
+    isMcp(item) {
+      return !!(item.toolName && item.toolName.indexOf('mcp_') === 0)
+    },
+    // mcp_<server>__<tool> → server
+    mcpServerLabel(item) {
+      const name = item.toolName
+      if (!name || name.indexOf('mcp_') !== 0) return ''
+      const rest = name.slice(4)
+      const sep = rest.indexOf('__')
+      return sep >= 0 ? rest.slice(0, sep) : rest
+    },
+    // 原始工具名 tag（MCP 取 __ 之后的片段；与主标题相同时不显示）
+    rawToolTag(item) {
+      const name = item.toolName
+      if (!name) return ''
+      let raw = name
+      if (name.indexOf('mcp_') === 0) {
+        const rest = name.slice(4)
+        const sep = rest.indexOf('__')
+        raw = sep >= 0 ? rest.slice(sep + 2) : rest
+      }
+      return raw && raw !== this.friendlyToolName(item) ? raw : ''
+    },
+    friendlyToolName(item) {
+      const name = item.toolName
+      if (!name) return '工具调用'
+      if (name.indexOf('mcp_') === 0) {
+        const rest = name.slice(4)
+        const sep = rest.indexOf('__')
+        const toolPart = sep >= 0 ? rest.slice(sep + 2) : rest
+        return TOOL_LABELS[toolPart] || toolPart || rest
+      }
+      return TOOL_LABELS[name] || name
+    },
+    // 摘要行状态图标：运行中 loading / 错误 warning-outline / 完成 check
+    toolIcon(item) {
+      if (item.status === 'running') return 'loading'
+      if (item.isError) return 'warning-outline'
+      return 'check'
+    },
+    hasArgs(item) {
+      return !!(item.args && typeof item.args === 'object' && Object.keys(item.args).length)
+    },
+    // args.content 为非空字符串：content 单独成块，其余参数走 chips
+    hasContentArg(item) {
+      return !!(item.args && typeof item.args.content === 'string' && item.args.content.length)
+    },
+    // 参数键值对列表（skipContent：跳过 content 键）
+    argEntries(item, skipContent) {
+      const args = item.args
+      if (!args || typeof args !== 'object') return []
+      return Object.keys(args)
+        .filter(k => !(skipContent && k === 'content'))
+        .map(k => ({ key: k, val: args[k] }))
+    },
+    // chips 参数（hasContentArg 时排除 content）
+    chipEntries(item) {
+      return this.argEntries(item, true)
+    },
+    // 参数值截断：对象先序列化，超长截断加省略号
+    truncateVal(v, max) {
+      let s = v
+      if (s !== null && typeof s === 'object') {
+        try {
+          s = JSON.stringify(s)
+        } catch (e) {
+          s = String(s)
+        }
+      }
+      s = String(s)
+      return s.length > max ? s.slice(0, max) + '…' : s
+    },
+    // 是否有可展示的结果（流式 partial 优先）
+    hasResult(item) {
+      return !!(item.partial || item.result)
+    },
+    // 结果文本：超 500 字截断加省略号
+    truncatedResult(item) {
+      const s = String(item.partial || item.result || '')
+      return s.length > 500 ? s.slice(0, 500) + '…' : s
+    },
+    // 结果仍在流式输出（运行中且有 partial）：尾部显示光标
+    isResultStreaming(item) {
+      return item.status === 'running' && !!item.partial
+    },
+    hasDetails(item) {
+      return this.hasArgs(item) || this.hasResult(item)
+    },
+    toolKey(item) {
+      return item.toolCallId || (item.toolName + '::' + (item.args ? JSON.stringify(item.args).slice(0, 40) : ''))
+    },
+    isToolOpen(item) {
+      // 默认收起（错误时默认展开）；用户手动操作后以 override 为准
+      const key = this.toolKey(item)
+      if (Object.prototype.hasOwnProperty.call(this.toolOpenOverrides, key)) {
+        return this.toolOpenOverrides[key]
+      }
+      return !!item.isError
+    },
+    toggleTool(item) {
+      this.$set(this.toolOpenOverrides, this.toolKey(item), !this.isToolOpen(item))
+    }
+  }
+}
+</script>
+
+<style lang="scss" scoped>
+.ob-think {
+  margin-bottom: 8px;
+}
+
+/* ===== 折叠头部 ===== */
+.ob-think-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  margin-left: -8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: var(--search-bg-hover, rgba(0, 0, 0, 0.04));
+  }
+
+  .ob-think-hico {
+    font-size: 12px;
+    color: var(--text-secondary);
+
+    &.spin {
+      color: var(--primary-color);
+      animation: ob-think-spin 0.9s linear infinite;
+    }
+  }
+
+  &.thinking .ob-think-hico {
+    color: var(--primary-color);
+  }
+
+  .ob-think-title {
+    font-weight: 500;
+  }
+
+  .ob-think-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+    opacity: 0.75;
+  }
+
+  .ob-think-arrow {
+    font-size: 10px;
+    color: var(--text-secondary);
+    transition: transform 0.2s ease;
+
+    &.collapsed {
+      transform: rotate(-90deg);
+    }
+  }
+}
+
+@keyframes ob-think-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== 内容主体（缩进体现层级） ===== */
+.ob-think-body {
+  margin-top: 4px;
+  padding-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 思考文本 */
+.ob-think-text {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+
+  .ob-think-md {
+    ::v-deep {
+      p { margin: 0 0 4px; }
+      p:last-child { margin-bottom: 0; }
+    }
+  }
+}
+
+/* Skill 行 */
+.ob-skill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+
+  .ob-skill-ico {
+    font-size: 12px;
+    color: #8B5CF6;
+  }
+
+  .ob-skill-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #8B5CF6;
+  }
+
+  .ob-skill-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #7C3AED;
+  }
+}
+
+/* 工具卡片 */
+.ob-tool {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 摘要行 */
+.ob-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 22px;
+  padding: 2px 0;
+  cursor: pointer;
+  user-select: none;
+
+  .ob-tool-ico {
+    font-size: 13px;
+    flex-shrink: 0;
+    color: #10B981;
+
+    &.spin { color: var(--primary-color); }
+  }
+
+  &.error .ob-tool-ico { color: #EF4444; }
+
+  /* MCP 服务名前缀 */
+  .ob-tool-server {
+    font-size: 11.5px;
+    color: #0D9488;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .ob-tool-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .ob-tool-tag {
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+  }
+
+  .ob-tool-arrow {
+    font-size: 10px;
+    color: var(--text-secondary);
+    transition: transform 0.2s ease;
+
+    &.open { transform: rotate(180deg); }
+  }
+}
+
+/* 详情容器（左侧 2px 竖线缩进） */
+.ob-tool-detail {
+  margin: 2px 0 4px 20px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 区块标签（参数 / 结果 / 错误） */
+.ob-tool-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+
+  &.error { color: #EF4444; }
+}
+
+/* ===== 参数区 ===== */
+.ob-tool-args {
+  display: flex;
+  flex-direction: column;
+}
+
+/* chips 行（content 单独成块时，其余参数以 chips 展示） */
+.ob-arg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ob-arg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color);
+  font-size: 10.5px;
+  line-height: 1.5;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* content 参数块（可滚动） */
+.ob-arg-content {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 11.5px;
+  line-height: 1.55;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--text-primary);
+}
+
+/* 逐参数行（无 content 参数时） */
+.ob-arg-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  padding: 1px 0;
+
+  .ob-arg-key {
+    flex-shrink: 0;
+    width: 72px;
+    color: #0284C7;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    word-break: break-all;
+  }
+
+  .ob-arg-val {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-primary);
+    word-break: break-all;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+  }
+}
+
+/* ===== 结果区 ===== */
+.ob-tool-result {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 11.5px;
+  line-height: 1.55;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
+  color: var(--text-primary);
+
+  /* 错误态：红底红字 */
+  &.error {
+    background: rgba(239, 68, 68, 0.08);
+    color: #EF4444;
+  }
+}
+
+/* 流式光标 */
+.ob-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 13px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  border-radius: 2px;
+  background: var(--primary-color);
+  animation: ob-think-blink 0.9s steps(2) infinite;
+}
+
+@keyframes ob-think-blink {
+  50% { opacity: 0; }
+}
+</style>

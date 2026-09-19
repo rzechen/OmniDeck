@@ -21,14 +21,21 @@ const routes = [
         path: 'settings',
         name: 'OmniBuddySettings',
         component: () => import('@/views/omnibuddy/settings.vue'),
-        meta: { title: 'OmniBuddy 设置' }
+        meta: { title: 'Buddy 工坊' }
+      },
+      {
+        path: 'space',
+        name: 'OmniBuddySpace',
+        component: () => import('@/views/omnibuddy/space.vue'),
+        meta: { title: 'OmniBuddy 空间' }
       }
     ]
   },
   {
     path: '/',
     component: Layout,
-    redirect: '/home',
+    // 临时将 OmniBuddy 设为应用主入口（原默认重定向到首页 /home）
+    redirect: '/omnibuddy',
     children: [
       {
         path: 'home',

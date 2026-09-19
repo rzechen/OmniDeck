@@ -25,6 +25,19 @@ Vue.config.productionTip = false
 // - 低于 AppLock 锁屏（9999），锁屏仍覆盖一切
 PopupManager.zIndex = 3200
 
+// Message 全局提示统一抬高距顶位置：Element 默认 20px 过于贴顶，
+// 统一注入 offset: 72（多条提示仍由 Element 在此基准上自动向下堆叠）
+const rawMessage = Vue.prototype.$message
+Vue.prototype.$message = function (options) {
+  if (typeof options === 'string') options = { message: options }
+  return rawMessage(Object.assign({ offset: 72 }, options))
+}
+;['success', 'warning', 'info', 'error'].forEach(type => {
+  Vue.prototype.$message[type] = function (message, options) {
+    return rawMessage(Object.assign({ message, type, offset: 72 }, (typeof message === 'object' ? message : options)))
+  }
+})
+
 // 复制图标变形：点击带复制图标（el-icon-document-copy）的按钮时，
 // 图标短暂替换为绿色 ✓ 并弹跳，1.2s 后还原。无需改动任何工具页代码。
 function setupCopyMorph() {

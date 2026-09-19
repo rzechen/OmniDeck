@@ -770,6 +770,8 @@ export default {
 <style lang="scss" scoped>
 .favorites-page {
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 // ===== 页头 =====
@@ -1305,13 +1307,14 @@ export default {
   color: $text-secondary;
 }
 
-// ===== Tab 空状态（居中大区块） =====
+// ===== Tab 空状态（垂直居中占满剩余页面） =====
 .tab-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 320px;
+  flex: 1;
+  min-height: 0;
 
   .empty-icon {
     width: 64px;

@@ -537,15 +537,15 @@ export default {
   margin: 0 12px 6px;
   padding: 7px 11px;
   border-radius: $radius-base;
-  background: linear-gradient(135deg, #9254DE, #722ED1);
-  box-shadow: 0 2px 8px rgba(114, 46, 209, 0.3);
+  background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
+  box-shadow: 0 2px 8px rgba(var(--primary-color-rgb), 0.3);
   cursor: pointer;
   transition: all 0.15s ease;
   overflow: hidden;
 
   &:hover {
     filter: brightness(1.08);
-    box-shadow: 0 3px 12px rgba(114, 46, 209, 0.42);
+    box-shadow: 0 3px 12px rgba(var(--primary-color-rgb), 0.42);
 
     .buddy-entry-arrow {
       transform: translateX(2px);
@@ -603,8 +603,8 @@ export default {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #9254DE, #722ED1);
-  box-shadow: 0 2px 8px rgba(114, 46, 209, 0.3);
+  background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
+  box-shadow: 0 2px 8px rgba(var(--primary-color-rgb), 0.3);
   cursor: pointer;
   transition: all 0.15s ease;
 

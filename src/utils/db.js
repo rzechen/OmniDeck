@@ -100,3 +100,33 @@ export async function removeItem(key) {
     }
   })
 }
+
+// 清空全部本地数据（危险操作）：关闭连接后删除整个数据库
+export async function clearAll() {
+  cache.clear()
+  await openDB()
+  if (db) {
+    try { db.close() } catch (e) { /* 忽略 */ }
+    db = null
+  }
+  ready = null
+  return new Promise((resolve) => {
+    let done = false
+    const finish = () => {
+      if (!done) {
+        done = true
+        resolve(true)
+      }
+    }
+    try {
+      const req = indexedDB.deleteDatabase(DB_NAME)
+      req.onsuccess = finish
+      req.onerror = finish
+      req.onblocked = finish
+    } catch (e) {
+      finish()
+    }
+    // 兜底：连接未及时释放导致 blocked 时也放行（内存缓存已清空）
+    setTimeout(finish, 500)
+  })
+}

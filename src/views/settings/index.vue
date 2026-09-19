@@ -224,6 +224,23 @@
               </div>
               <el-button size="small" round icon="el-icon-lock" @click="lockNow">锁定应用</el-button>
             </div>
+
+            <!-- 清除本地记录（危险操作） -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">清除本地记录</span>
+                <span class="label-desc">删除 OmniDeck 与 OmniBuddy 的全部本地数据（含偏好设置、工具收藏、对话记录、空间与模型配置），清除后自动重启应用</span>
+              </div>
+              <el-button
+                size="small"
+                round
+                type="danger"
+                plain
+                icon="el-icon-delete"
+                :loading="clearing"
+                @click="clearLocalData"
+              >清除数据</el-button>
+            </div>
           </div>
         </template>
       </section>
@@ -263,7 +280,7 @@
 
 <script>
 import { presetColors, themeModes, applyTheme } from '@/utils/theme'
-import { setItem, getItem } from '@/utils/db'
+import { setItem, getItem, clearAll } from '@/utils/db'
 
 export default {
   name: 'Settings',
@@ -314,7 +331,9 @@ export default {
       isMac: !!(window.electronAPI && window.electronAPI.platform === 'darwin'),
       // 密码弹窗
       pwdDialogVisible: false,
-      pwdForm: { oldPwd: '', newPwd: '', confirmPwd: '' }
+      pwdForm: { oldPwd: '', newPwd: '', confirmPwd: '' },
+      // 清除本地记录执行中
+      clearing: false
     }
   },
   computed: {
@@ -466,6 +485,54 @@ export default {
       }
       // 事件总线通知全局 AppLock 遮罩锁定
       this.$root.$emit('app-lock:lock-now')
+    },
+    // ===== 清除本地记录 =====
+    // 身份校验：设置了应用密码（或开启指纹）才需要，否则直接通过
+    async verifyIdentityForReset() {
+      const api = window.electronAPI && window.electronAPI.appLock
+      if (!api || !this.hasPassword) return true
+      // 已开启触控 ID：优先指纹校验，取消/失败回退密码输入
+      if (this.biometricAvailable && this.lockSettings.biometric) {
+        try {
+          const bio = await api.biometricVerify()
+          if (bio && bio.ok) return true
+        } catch (e) { /* 回退密码输入 */ }
+      }
+      const { value } = await this.$prompt('请输入应用密码以确认清除操作', '身份校验', {
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+        inputType: 'password',
+        inputPattern: /^.+$/,
+        inputErrorMessage: '请输入应用密码'
+      }).catch(() => ({ value: null }))
+      if (value === null) return false
+      const res = await api.verify(value)
+      if (!res || !res.ok) {
+        this.$message.error('密码不正确')
+        return false
+      }
+      return true
+    },
+    // 清除本地记录：二次确认 + 身份校验后清空 deck/buddy 全部本地数据并重启应用
+    async clearLocalData() {
+      const yes = await this.$confirm(
+        '将清除 OmniDeck 与 OmniBuddy 的全部本地数据（偏好设置、工具收藏、对话记录、空间与模型配置等），清除后应用将自动重启。此操作不可恢复，确定继续吗？',
+        '清除本地记录',
+        { confirmButtonText: '清除', cancelButtonText: '取消', type: 'warning' }
+      ).then(() => true).catch(() => false)
+      if (!yes) return
+      if (!(await this.verifyIdentityForReset())) return
+      this.clearing = true
+      // 渲染侧：清空 IndexedDB（deck + buddy 全部键）与 localStorage
+      await clearAll()
+      try { localStorage.clear() } catch (e) { /* 忽略 */ }
+      // 主进程：删除 buddy 会话/Agent 数据并重启应用（非桌面端刷新页面兜底）
+      if (window.electronAPI && window.electronAPI.resetAllData) {
+        await window.electronAPI.resetAllData()
+      } else {
+        location.reload()
+      }
+      this.clearing = false
     }
   }
 }
