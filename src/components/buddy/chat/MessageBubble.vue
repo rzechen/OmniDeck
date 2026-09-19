@@ -262,7 +262,7 @@ export default {
   color: var(--text-secondary);
 
   .svg-icon {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   &:hover {
@@ -287,7 +287,7 @@ export default {
   color: var(--text-secondary);
 
   .svg-icon {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   &:hover {

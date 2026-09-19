@@ -755,20 +755,19 @@ $buddy-sidebar-collapsed-w: $sidebar-collapsed-width;
   }
 }
 
-/* 空间行内操作：hover 浮现（重命名/删除） */
+/* 空间行内操作：hover 浮现（重命名/删除）；间距由图标左右 margin 提供（padding 会侵蚀 1em 图标宽度） */
 .buddy-space-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
   opacity: 0;
   transition: opacity 0.15s ease;
   flex-shrink: 0;
 
   .svg-icon {
     font-size: 14px;
+    margin: 0 3px;
+    border-radius: 6px;
     color: $text-secondary;
-    padding: 2px;
-    border-radius: 5px;
     cursor: pointer;
     transition: all 0.15s ease;
 
@@ -925,20 +924,19 @@ $buddy-sidebar-collapsed-w: $sidebar-collapsed-width;
   }
 }
 
-/* 对话行内操作：hover 浮现（重命名/删除） */
+/* 对话行内操作：hover 浮现（重命名/删除）；间距由图标左右 margin 提供（padding 会侵蚀 1em 图标宽度） */
 .buddy-chat-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
   opacity: 0;
   transition: opacity 0.15s ease;
   flex-shrink: 0;
 
   .svg-icon {
-    font-size: 14px;
+    font-size: 12px;
+    margin: 0 3px;
+    border-radius: 6px;
     color: $text-secondary;
-    padding: 2px;
-    border-radius: 5px;
     cursor: pointer;
     transition: all 0.15s ease;
 
