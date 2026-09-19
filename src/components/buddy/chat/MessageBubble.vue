@@ -16,9 +16,10 @@
         <div class="ob-msg-error-text">{{ message.error }}</div>
       </div>
 
-      <!-- 助手：等待首个内容块的思考占位（秒计时） -->
+      <!-- 助手：等待首个内容块的思考占位（静态星形图标 + 秒计时） -->
       <div v-if="showThinkingPlaceholder" class="ob-thinking">
-        思考中<span class="ob-thinking-sec">{{ message.seconds }}s</span>
+        <svg-icon icon-class="sparkle" class="ob-think-hico" />
+        <span>思考中</span><span class="ob-thinking-sec">{{ message.seconds }}s</span>
       </div>
       <!-- 助手：正文 Markdown -->
       <div
@@ -28,12 +29,27 @@
       ></div>
       <template v-if="message.role === 'user'">{{ message.content }}</template>
       <span v-if="showCursor" class="ob-cursor"></span>
-      <!-- 用户消息 hover：回退重发 / 创建分支 -->
-      <div v-if="message.role === 'user' && !streaming && message.id" class="ob-msg-actions">
-        <span class="ob-msg-action" title="丢弃此消息及之后的记录，重新提问" @click="$emit('truncate')">
+
+      <!-- 助手 meta 行（回答完成后呈现：复制 / token 用量 / 时间，定高不抖动） -->
+      <div v-if="message.role === 'assistant' && !message.streaming" class="ob-msg-meta">
+        <span class="ob-meta-copy" title="复制全文" @click="copyContent">
+          <svg-icon icon-class="copy" />
+        </span>
+        <span v-if="tokensText" class="ob-meta-text">{{ tokensText }}</span>
+        <span v-if="timeText" class="ob-meta-text">{{ timeText }}</span>
+      </div>
+
+      <!-- 用户消息 hover：复制 / 时间 / 回退重发 / 创建分支（绝对定位，不占文档流）
+           复制与时间无需消息 id（实时消息即有）；回退/分支依赖落盘 id -->
+      <div v-if="message.role === 'user' && !streaming" class="ob-msg-actions">
+        <span class="ob-user-copy" title="复制" @click="copyContent">
+          <svg-icon icon-class="copy" />
+        </span>
+        <span class="ob-msg-time">{{ timeText }}</span>
+        <span v-if="message.id" class="ob-msg-action" title="丢弃此消息及之后的记录，重新提问" @click="$emit('truncate')">
           <svg-icon icon-class="refresh-left" /> 重新提问
         </span>
-        <span class="ob-msg-action" title="以此为分叉点创建分支会话（当前会话保留）" @click="$emit('branch')">
+        <span v-if="message.id" class="ob-msg-action" title="以此为分叉点创建分支会话（当前会话保留）" @click="$emit('branch')">
           <svg-icon icon-class="share" /> 创建分支
         </span>
       </div>
@@ -42,7 +58,7 @@
 </template>
 
 <script>
-// OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标）
+// OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标 + meta 行）
 import { renderMarkdown } from '@/utils/markdown'
 import ThinkingSection from './ThinkingSection.vue'
 
@@ -78,6 +94,44 @@ export default {
     showCursor() {
       return this.message.role === 'assistant' &&
         !!this.message.streaming && !!this.message.content && !this.message.isThinking
+    },
+    // token 用量（直接文字展示：输入 / 输出，单位 tokens；万位以上缩写为 k）
+    tokensText() {
+      const u = this.message.usage
+      if (!u || (!u.input && !u.output)) return ''
+      return '输入 ' + this.formatTokens(u.input) + ' tokens · 输出 ' + this.formatTokens(u.output) + ' tokens'
+    },
+    // 消息时间（今天 HH:mm，更早 MM-dd HH:mm）
+    timeText() {
+      return this.formatTime(this.message.createdAt)
+    }
+  },
+  methods: {
+    formatTokens(n) {
+      const v = Number(n) || 0
+      return v >= 10000 ? (v / 1000).toFixed(1) + 'k' : String(v)
+    },
+    formatTime(ts) {
+      if (!ts) return ''
+      const d = new Date(ts)
+      const now = new Date()
+      const pad = x => String(x).padStart(2, '0')
+      const hm = pad(d.getHours()) + ':' + pad(d.getMinutes())
+      if (d.toDateString() === now.toDateString()) return hm
+      return (d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hm
+    },
+    // 复制助手正文
+    copyContent() {
+      const text = this.message.content || ''
+      if (!text) return
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          () => this.$message.success('已复制'),
+          () => this.$message.error('复制失败')
+        )
+      } else {
+        this.$message.error('当前环境不支持复制')
+      }
     }
   }
 }
@@ -149,6 +203,13 @@ export default {
   font-size: 13px;
   color: var(--text-secondary);
   user-select: none;
+
+  /* 与深度思考区头部一致的星形图标（静态） */
+  .ob-think-hico {
+    font-size: 12px;
+    margin-right: 3px;
+    color: var(--primary-color);
+  }
 }
 
 .ob-thinking-sec {
@@ -178,11 +239,67 @@ export default {
   top: calc(100% + 3px);
   right: 0;
   display: flex;
+  align-items: center;
   gap: 10px;
   opacity: 0;
   pointer-events: none;
   z-index: 2;
   transition: opacity 0.15s ease;
+}
+
+/* 用户消息时间（hover 与操作一起浮现） */
+.ob-msg-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+/* 用户消息复制 icon（hover 与操作一起浮现） */
+.ob-user-copy {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+
+  .svg-icon {
+    font-size: 13px;
+  }
+
+  &:hover {
+    color: var(--primary-color);
+  }
+}
+
+/* ===== 助手 meta 行：固定常驻显示（复制 / token / 时间），定高保持布局稳定 ===== */
+.ob-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 20px;
+  margin-top: 2px;
+  user-select: none;
+}
+
+.ob-meta-copy {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+
+  .svg-icon {
+    font-size: 13px;
+  }
+
+  &:hover {
+    color: var(--primary-color);
+  }
+}
+
+.ob-meta-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .ob-msg.user:hover .ob-msg-actions {

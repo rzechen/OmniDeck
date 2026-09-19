@@ -268,6 +268,12 @@ export default {
           if (last && last.role === 'assistant') {
             if (m.content) last.content = last.content ? last.content + '\n\n' + m.content : m.content
             if (m.thinking) last.items.push({ type: 'thinking', content: m.thinking })
+            // token 用量累加（工具循环中被归并的多条助手记录）
+            if (m.usage) {
+              last.usage = last.usage || { input: 0, output: 0 }
+              last.usage.input += m.usage.input || 0
+              last.usage.output += m.usage.output || 0
+            }
             // 供应商错误记录：归并后仍保留展示
             if (m.error) last.error = m.error
             continue
@@ -331,6 +337,7 @@ export default {
         isThinking: false,
         thinking: true,
         seconds: 0,
+        createdAt: Date.now(),
         items: []
       }
       this.messages.push(placeholder)
@@ -363,6 +370,7 @@ export default {
         streaming: true,
         isThinking: false,
         seconds: 0,
+        createdAt: Date.now(),
         items: []
       }
       this.messages.push(msg)
@@ -441,6 +449,14 @@ export default {
           msg.isThinking = false
           msg.content = this.cycleBase + (e.content || '')
           this.$delete(msg, 'thinking')
+          // token 用量：工具循环中多次模型调用，逐次累加
+          if (e.usage && (e.usage.input || e.usage.output)) {
+            const prev = msg.usage || { input: 0, output: 0 }
+            this.$set(msg, 'usage', {
+              input: prev.input + (e.usage.input || 0),
+              output: prev.output + (e.usage.output || 0)
+            })
+          }
           this.stopThinkTimer()
           break
         }

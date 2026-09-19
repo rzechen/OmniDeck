@@ -1,13 +1,9 @@
 <template>
   <!-- 深度思考区（可折叠）：思考文本 + Skill 激活 + 工具/MCP 调用，聚合于助手回复上方 -->
   <div class="ob-think">
-    <!-- 折叠头部：思考中显示 loading，结束后显示已完成与步骤数 -->
+    <!-- 折叠头部：静态星形图标（思考中主色），结束后显示已完成与步骤数 -->
     <div class="ob-think-header" :class="{ thinking: isThinking }" @click="toggleCollapse">
-      <svg-icon
-        :icon-class="isThinking ? 'loading' : 'sparkle'"
-        class="ob-think-hico"
-        :class="{ spin: isThinking }"
-      />
+      <svg-icon icon-class="sparkle" class="ob-think-hico" />
       <span class="ob-think-title">{{ isThinking ? '深度思考中…' : '已深度思考' }}</span>
       <span v-if="!isThinking && stepCount > 0" class="ob-think-count">{{ stepCount }} 个步骤</span>
       <svg-icon
@@ -285,11 +281,6 @@ export default {
   .ob-think-hico {
     font-size: 12px;
     color: var(--text-secondary);
-
-    &.spin {
-      color: var(--primary-color);
-      animation: ob-think-spin 0.9s linear infinite;
-    }
   }
 
   &.thinking .ob-think-hico {
@@ -315,10 +306,6 @@ export default {
       transform: rotate(-90deg);
     }
   }
-}
-
-@keyframes ob-think-spin {
-  to { transform: rotate(360deg); }
 }
 
 /* ===== 内容主体（缩进体现层级） ===== */

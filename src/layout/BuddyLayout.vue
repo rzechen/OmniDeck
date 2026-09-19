@@ -15,7 +15,7 @@
         <div
           class="buddy-new-icon"
           :class="{ solo: sidebarCollapsed }"
-          title="新对话"
+          title="新建任务"
           @click="onNewChat"
         >
           <svg-icon icon-class="plus" />
@@ -84,16 +84,16 @@
           </div>
         </div>
 
-        <!-- 对话列表（主进程 JSONL 持久化） -->
+        <!-- 任务列表（主进程 JSONL 持久化） -->
         <div class="buddy-section buddy-section-chats">
-          <div v-show="!sidebarCollapsed" class="buddy-section-title">对话列表</div>
+          <div v-show="!sidebarCollapsed" class="buddy-section-title">任务列表</div>
           <!-- 空状态：在剩余区域内垂直水平居中 -->
           <div v-if="!visibleChats.length" v-show="!sidebarCollapsed" class="buddy-chat-empty">
             <div class="buddy-chat-empty-icon">
               <svg-icon icon-class="chat-dot-round" />
             </div>
-            <p class="buddy-chat-empty-title">暂无对话</p>
-            <p class="buddy-chat-empty-desc">点击右上角「+」新建对话</p>
+            <p class="buddy-chat-empty-title">暂无任务</p>
+            <p class="buddy-chat-empty-desc">点击右上角「+」新建任务</p>
           </div>
           <div
             v-for="c in visibleChats"
@@ -120,7 +120,7 @@
               <svg-icon
                 icon-class="delete"
                 class="ob-del"
-                title="删除对话"
+                title="删除任务"
                 @click.stop="confirmDeleteChat(c)"
               />
             </span>
@@ -161,7 +161,7 @@
           <input
             v-model="searchQuery"
             class="buddy-search-input"
-            placeholder="搜索对话名称或内容..."
+            placeholder="搜索任务名称或内容..."
             @focus="searchFocus = true"
             @blur="onSearchBlur"
             @keydown.esc="searchQuery = ''"
@@ -193,7 +193,7 @@
           </template>
           <div v-else class="buddy-search-empty">
             <svg-icon icon-class="search" />
-            <span>未找到「{{ searchQuery }}」相关的对话</span>
+            <span>未找到「{{ searchQuery }}」相关的任务</span>
           </div>
         </div>
       </transition>
@@ -400,7 +400,7 @@ export default {
     // 删除空间（二次确认；仅用户空间可删，系统默认空间不渲染删除入口）
     confirmDeleteSpace(sp) {
       this.$confirm(
-        '删除后该空间下的对话记录将一并移除，确定删除「' + sp.name + '」吗？',
+        '删除后该空间下的任务记录将一并移除，确定删除「' + sp.name + '」吗？',
         '删除空间',
         {
           confirmButtonText: '删除',
@@ -452,7 +452,7 @@ export default {
       }, 200)
     },
     renameChat(c) {
-      this.$prompt('请输入新的对话名称', '重命名对话', {
+      this.$prompt('请输入新的任务名称', '重命名任务', {
         confirmButtonText: '保存',
         cancelButtonText: '取消',
         inputValue: c.title
@@ -465,7 +465,7 @@ export default {
       }).catch(() => {})
     },
     confirmDeleteChat(c) {
-      this.$confirm('删除后该对话的记录将一并移除，确定删除吗？', '删除对话', {
+      this.$confirm('删除后该任务的记录将一并移除，确定删除吗？', '删除任务', {
         confirmButtonText: '删除',
         cancelButtonText: '取消',
         type: 'warning'
