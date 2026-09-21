@@ -58,6 +58,13 @@ const routes = [
         name: 'OmniBuddyUsage',
         component: () => import('@/views/omnibuddy/usage.vue'),
         meta: { title: '用量统计' }
+      },
+      // 全局设置：与 Deck 视图 /settings 复用同一组件（应用级配置，双视图均可达）
+      {
+        path: 'settings',
+        name: 'OmniBuddySettings',
+        component: () => import('@/views/settings/index.vue'),
+        meta: { title: '设置' }
       }
     ]
   },

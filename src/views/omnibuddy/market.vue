@@ -212,7 +212,7 @@ export default {
   },
   methods: {
     api() {
-      return window.omnibuddy && window.omnibuddy.market
+      return (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.market) || null
     },
     typeIcon(type) {
       if (type === 'workflow') return 'promotion'

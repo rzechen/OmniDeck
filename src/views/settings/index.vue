@@ -17,11 +17,11 @@
 
       <!-- 右侧：设置内容 -->
       <section class="settings-body">
-        <!-- 通用 -->
+        <!-- 通用（应用级设置，OmniDeck 与 OmniBuddy 两视图共用） -->
         <template v-if="activeTab === 'general'">
           <header class="settings-section-header">
             <h2 class="section-title">通用</h2>
-            <p class="section-desc">个性化 OmniDeck 的视觉风格，立即生效并自动保存</p>
+            <p class="section-desc">应用级偏好设置，OmniDeck 与 OmniBuddy 视图均生效，自动保存</p>
           </header>
 
           <!-- Mac 式设置分组：行布局（左标签 + 右控件） -->
@@ -63,65 +63,6 @@
                   @click="selectColor(color.value)"
                 >
                   <i v-if="primaryColor === color.value" class="el-icon-check"></i>
-                </div>
-              </div>
-            </div>
-
-            <!-- 工具卡片布局：每行个数（分类页网格） -->
-            <div class="settings-row">
-              <div class="row-label">
-                <span class="label-text">工具卡片密度</span>
-                <span class="label-desc">工具分类页每行展示的卡片数量，「自动」随窗口宽度自适应</span>
-              </div>
-              <div class="segmented">
-                <div
-                  v-for="opt in gridOptions"
-                  :key="opt.value"
-                  class="segmented-item"
-                  :class="{ active: toolGridCols === opt.value }"
-                  @click="selectGridCols(opt.value)"
-                >
-                  <span>{{ opt.label }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 侧边栏默认状态：启动时展开或收起 -->
-            <div class="settings-row">
-              <div class="row-label">
-                <span class="label-text">侧边栏默认状态</span>
-                <span class="label-desc">应用启动时侧边栏的初始状态，运行中仍可随时折叠</span>
-              </div>
-              <div class="segmented">
-                <div
-                  v-for="opt in sidebarOptions"
-                  :key="opt.value"
-                  class="segmented-item"
-                  :class="{ active: sidebarDefault === opt.value }"
-                  @click="selectSidebarDefault(opt.value)"
-                >
-                  <i :class="opt.icon"></i>
-                  <span>{{ opt.label }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 分组默认状态：启动时菜单分组展开或收起 -->
-            <div class="settings-row">
-              <div class="row-label">
-                <span class="label-text">分组默认状态</span>
-                <span class="label-desc">应用启动时左侧菜单分组的初始展开状态，运行中可随时点按调整</span>
-              </div>
-              <div class="segmented">
-                <div
-                  v-for="opt in sidebarGroupsOptions"
-                  :key="opt.value"
-                  class="segmented-item"
-                  :class="{ active: sidebarGroupsDefault === opt.value }"
-                  @click="selectSidebarGroupsDefault(opt.value)"
-                >
-                  <i :class="opt.icon"></i>
-                  <span>{{ opt.label }}</span>
                 </div>
               </div>
             </div>
@@ -243,6 +184,78 @@
                 </div>
               </div>
             </template>
+          </div>
+
+          <!-- Deck 视图专属：仅影响 OmniDeck 主界面布局 -->
+          <div class="settings-sub-header">Deck 视图</div>
+          <div class="settings-group">
+            <!-- 工具卡片布局：每行个数（分类页网格） -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">工具卡片密度</span>
+                <span class="label-desc">工具分类页每行展示的卡片数量，「自动」随窗口宽度自适应</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in gridOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: toolGridCols === opt.value }"
+                  @click="selectGridCols(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 侧边栏默认状态：启动时展开或收起 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">侧边栏默认状态</span>
+                <span class="label-desc">应用启动时侧边栏的初始状态，运行中仍可随时折叠</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in sidebarOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: sidebarDefault === opt.value }"
+                  @click="selectSidebarDefault(opt.value)"
+                >
+                  <i :class="opt.icon"></i>
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 分组默认状态：启动时菜单分组展开或收起 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">分组默认状态</span>
+                <span class="label-desc">应用启动时左侧菜单分组的初始展开状态，运行中可随时点按调整</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in sidebarGroupsOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: sidebarGroupsDefault === opt.value }"
+                  @click="selectSidebarGroupsDefault(opt.value)"
+                >
+                  <i :class="opt.icon"></i>
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 还原菜单排序：低频动作收纳入设置（原侧边栏底部图标） -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">菜单排序</span>
+                <span class="label-desc">将左侧菜单的分组与工具排序还原到初始状态</span>
+              </div>
+              <el-button size="small" round @click="resetMenuOrder">还原排序</el-button>
+            </div>
           </div>
         </template>
 
@@ -366,6 +379,34 @@
             </div>
           </div>
         </template>
+
+        <!-- 关于（应用级：版本信息 + 问题反馈） -->
+        <template v-else-if="activeTab === 'about'">
+          <header class="settings-section-header">
+            <h2 class="section-title">关于</h2>
+            <p class="section-desc">应用版本信息与帮助反馈</p>
+          </header>
+
+          <div class="settings-group">
+            <!-- 当前版本：跳转版本详情页 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">当前版本</span>
+                <span class="label-desc">查看版本信息与更新日志</span>
+              </div>
+              <el-button size="small" round icon="el-icon-info" @click="goVersion">查看版本</el-button>
+            </div>
+
+            <!-- 问题反馈 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">问题反馈</span>
+                <span class="label-desc">使用中遇到问题或有功能建议，欢迎反馈</span>
+              </div>
+              <el-button size="small" round icon="el-icon-chat-dot-round" @click="goFeedback">去反馈</el-button>
+            </div>
+          </div>
+        </template>
       </section>
     </div>
 
@@ -404,6 +445,7 @@
 <script>
 import { presetColors, themeModes, applyTheme } from '@/utils/theme'
 import { setItem, getItem, clearAll } from '@/utils/db'
+import { clearMenuOrder } from '@/utils/menu-order'
 import {
   addWallpaperFile,
   removeWallpaper,
@@ -420,7 +462,8 @@ export default {
       tabs: [
         { key: 'general', label: '通用', icon: 'el-icon-setting' },
         { key: 'quick', label: '快捷入口', icon: 'el-icon-magic-stick' },
-        { key: 'security', label: '安全', icon: 'el-icon-lock' }
+        { key: 'security', label: '安全', icon: 'el-icon-lock' },
+        { key: 'about', label: '关于', icon: 'el-icon-info' }
       ],
       themeModes,
       presetColors,
@@ -634,6 +677,32 @@ export default {
     selectMode(mode) {
       this.$store.commit('SET_THEME', { mode })
       applyTheme(this.themeMode, this.primaryColor)
+    },
+    // ===== Deck 视图 =====
+    // 还原菜单排序：清除持久化排序，广播事件由 Sidebar 重建菜单
+    resetMenuOrder() {
+      this.$confirm('确定要将菜单排序还原到初始状态吗？', '还原排序', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+        .then(() => {
+          clearMenuOrder()
+          this.$root.$emit('menu-order-reset')
+          this.$message.success('排序已还原')
+        })
+        .catch(() => {})
+    },
+    // ===== 关于 =====
+    goVersion() {
+      if (this.$route.name !== 'Version') {
+        this.$router.push('/version').catch(() => {})
+      }
+    },
+    goFeedback() {
+      if (this.$route.name !== 'Feedback') {
+        this.$router.push('/feedback').catch(() => {})
+      }
     },
     selectColor(color) {
       this.$store.commit('SET_THEME', { color })
@@ -962,6 +1031,15 @@ export default {
     font-size: 12px;
     color: $text-secondary;
   }
+}
+
+// 组内小标题（作用域分组：应用级 / Deck 视图专属）
+.settings-sub-header {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: $text-secondary;
 }
 
 /* ============ Mac 式设置分组（圆角卡片 + 行布局） ============ */

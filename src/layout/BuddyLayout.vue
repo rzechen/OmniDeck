@@ -11,8 +11,10 @@
 
       <!-- 顶栏搜索（三列 grid 中列，窗口级水平居中） -->
       <buddy-search ref="search" @select="onSelectChat" />
-      <!-- 右侧占位列：与左列等宽，保证搜索框居中于整个窗口 -->
-      <div class="buddy-topbar-tail"></div>
+      <!-- 右侧：全局设置入口（与 Deck 顶栏同位，占位列保持搜索框窗口级居中） -->
+      <div class="buddy-topbar-tail">
+        <global-topbar-actions />
+      </div>
     </header>
 
     <!-- 主体：侧边栏（logo 区 + 菜单 + 任务列表，可拖宽/收起）+ 主区 -->
@@ -141,13 +143,14 @@
 <script>
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
 import BuddySearch from '@/components/buddy/layout/BuddySearch.vue'
+import GlobalTopbarActions from '@/components/GlobalTopbarActions.vue'
 import { getItem, setItem, clearAll } from '@/utils/db'
 
 // OmniBuddy 视图壳：与主 Layout 平级的独立视图
 // 侧边栏（新建入口 + 菜单 + 任务列表，可拖宽/收起）+ 顶栏（开关 + 居中搜索）+ 主区（对话/管理页）
 export default {
   name: 'BuddyLayout',
-  components: { BuddyTaskList, BuddySearch },
+  components: { BuddyTaskList, BuddySearch, GlobalTopbarActions },
   data() {
     return {
       // 侧边栏菜单（置于任务列表上方）：资源市场 → 工作空间 → 模型供应商 → Skills 管理 → MCP 管理

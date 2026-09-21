@@ -144,49 +144,6 @@
           <svg-icon icon-class="buddy" class="buddy-entry-svg" />
         </span>
       </div>
-
-      <!-- 操作按钮区 -->
-      <div class="sidebar-footer">
-      <!-- 设置 -->
-      <div
-        class="footer-item"
-        @click="goSettings"
-        :title="collapsed ? '设置' : ''"
-      >
-        <svg-icon :icon-class="settings.iconSvg" class="nav-svg" />
-      </div>
-
-      <span class="footer-divider"></span>
-
-      <!-- 排序还原 -->
-      <div
-        class="footer-item"
-        @click="resetOrder"
-        title="还原排序"
-      >
-        <svg-icon icon-class="sort" class="nav-svg" />
-      </div>
-
-      <span class="footer-divider"></span>
-
-      <!-- 版本 -->
-      <div
-        class="footer-item"
-        @click="goVersion"
-        :title="collapsed ? '版本' : ''"
-      >
-        <svg-icon :icon-class="version.iconSvg" class="nav-svg" />
-      </div>
-
-      <!-- 问题反馈 -->
-      <div
-        class="footer-item"
-        @click="goFeedback"
-        :title="collapsed ? '问题反馈' : ''"
-      >
-        <svg-icon icon-class="feedback" class="nav-svg" />
-      </div>
-      </div>
     </div>
   </aside>
 </template>
@@ -197,11 +154,9 @@ import {
   homeItem,
   favoriteItem,
   todoItem,
-  settingsItem,
-  versionItem,
   menuGroups
 } from '@/config/tools'
-import { getMenuOrder, saveMenuOrder, clearMenuOrder } from '@/utils/menu-order'
+import { getMenuOrder, saveMenuOrder } from '@/utils/menu-order'
 
 export default {
   name: 'Sidebar',
@@ -217,8 +172,6 @@ export default {
       home: homeItem,
       favorite: favoriteItem,
       todo: todoItem,
-      settings: settingsItem,
-      version: versionItem,
       groups: [],
       expandedMap: { tools: true },
       // 滑动指示器位置（相对 nav 内容坐标）
@@ -260,15 +213,7 @@ export default {
     // 深拷贝组结构（children 引用配置数组，保证拖拽变更同步到配置单例）
     this.groups = menuGroups.map(g => ({ ...g }))
     // 恢复持久化的排序
-    const order = getMenuOrder()
-    if (order) {
-      this.sortByNames(this.groups, 'key', order.groupKeys)
-      this.groups.forEach(g => {
-        if (order.children[g.key]) {
-          this.sortByNames(g.children, 'name', order.children[g.key])
-        }
-      })
-    }
+    this.restoreOrder()
     // 按设置的默认状态初始化分组展开/收起（'collapse' 时全部收起）
     if (this.$store.state.sidebarGroupsDefault === 'collapse') {
       const map = {}
@@ -277,6 +222,11 @@ export default {
       })
       this.expandedMap = map
     }
+    // 设置页「还原排序」动作广播：重建菜单
+    this.$root.$on('menu-order-reset', this.onOrderReset)
+  },
+  beforeDestroy() {
+    this.$root.$off('menu-order-reset', this.onOrderReset)
   },
   mounted() {
     this.updateIndicator()
@@ -321,6 +271,25 @@ export default {
         }
       })
     },
+    // 重建菜单结构并应用持久化排序
+    restoreOrder() {
+      this.groups = menuGroups.map(g => ({ ...g, children: [...g.children] }))
+      const order = getMenuOrder()
+      if (order) {
+        this.sortByNames(this.groups, 'key', order.groupKeys)
+        this.groups.forEach(g => {
+          if (order.children[g.key]) {
+            this.sortByNames(g.children, 'name', order.children[g.key])
+          }
+        })
+      }
+    },
+    // 设置页「还原排序」：持久化已被清除，直接重建为初始顺序
+    onOrderReset() {
+      this.restoreOrder()
+      this.expandedMap = { tools: true }
+      this.$nextTick(this.updateIndicator)
+    },
     // 选中判断：路径匹配（当前路径等于菜单项路径，或以其为前缀）
     // 工具详情页（如 /tools/format/json）保持对应分类菜单（/tools/format）高亮
     isActive(item) {
@@ -344,40 +313,10 @@ export default {
         this.$router.push(item.path)
       }
     },
-    goSettings() {
-      if (this.$route.name !== this.settings.name) {
-        this.$router.push(this.settings.path)
-      }
-    },
-    goVersion() {
-      if (this.$route.name !== this.version.name) {
-        this.$router.push(this.version.path)
-      }
-    },
-    goFeedback() {
-      if (this.$route.name !== 'Feedback') {
-        this.$router.push('/feedback')
-      }
-    },
     goBuddy() {
       if (this.$route.path !== '/omnibuddy') {
         this.$router.push('/omnibuddy')
       }
-    },
-    resetOrder() {
-      this.$confirm('确定要将菜单排序还原到初始状态吗？', '还原排序', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      })
-        .then(() => {
-          clearMenuOrder()
-          this.groups = menuGroups.map(g => ({ ...g, children: [...g.children] }))
-          this.expandedMap = { tools: true }
-          this.$nextTick(this.updateIndicator)
-          this.$message.success('排序已还原')
-        })
-        .catch(() => {})
     },
     onToggleGroup(group) {
       if (this.collapsed) {
@@ -430,20 +369,8 @@ export default {
     }
 
     // 收起时底部操作区改为竖向排列，避免图标横向挤压
-    .sidebar-footer {
-      flex-direction: column;
-      align-items: stretch;
+    .sidebar-footer-area {
       padding: 4px 8px 8px;
-
-      .footer-item {
-        flex: none;
-      }
-
-      .footer-divider {
-        width: 16px;
-        height: 1px;
-        margin: 3px auto;
-      }
     }
   }
 }
@@ -618,43 +545,6 @@ export default {
 
   .buddy-entry-icon {
     background: transparent;
-  }
-}
-
-// 底部固定操作区（设置/排序/版本/反馈）
-.sidebar-footer {
-  flex-shrink: 0;
-  padding: 6px 12px 10px;
-  -webkit-app-region: no-drag;
-  display: flex;
-  align-items: center;
-
-  .footer-item {
-    flex: 1;
-    height: 28px;
-    border-radius: $radius-sm;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: $text-secondary;
-    transition: background 0.15s ease;
-
-    .nav-svg {
-      width: 15px;
-      height: 15px;
-    }
-
-    &:hover {
-      background: $sidebar-item-hover;
-    }
-  }
-
-  .footer-divider {
-    width: 1px;
-    height: 16px;
-    background: $sidebar-divider;
-    flex-shrink: 0;
   }
 }
 

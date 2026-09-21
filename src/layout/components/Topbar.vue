@@ -15,8 +15,10 @@
       </div>
     </div>
 
-    <!-- 右侧：Windows 窗口控制按钮（mac 用系统红绿灯） -->
+    <!-- 右侧：全局设置入口 + Windows 窗口控制按钮（mac用系统红绿灯） -->
     <div class="topbar-right">
+      <!-- 全局设置（两视图顶栏同位） -->
+      <global-topbar-actions />
       <div v-if="isWindows" class="win-controls">
         <button class="wc-btn" title="最小化" @click="winMinimize">
           <span class="wc-glyph wc-min"></span>
@@ -86,9 +88,11 @@
 
 <script>
 import { searchItems, toolCategories } from '@/config/tools'
+import GlobalTopbarActions from '@/components/GlobalTopbarActions.vue'
 
 export default {
   name: 'Topbar',
+  components: { GlobalTopbarActions },
   data() {
     return {
       showSearch: false,
