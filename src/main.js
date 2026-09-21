@@ -12,6 +12,7 @@ import { applyTheme, getStoredTheme, watchSystemTheme } from './utils/theme'
 import './styles/index.scss'
 import './styles/theme.scss'
 import './styles/motion.scss'
+import './styles/buddy-settings-global.scss'
 
 Vue.use(ElementUI, { size: 'small' })
 Vue.component('svg-icon', SvgIcon)

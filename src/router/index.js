@@ -6,7 +6,7 @@ import BuddyLayout from '@/layout/BuddyLayout.vue'
 Vue.use(VueRouter)
 
 const routes = [
-  // OmniBuddy 独立视图：侧边栏切换为「空间 + 对话列表」
+  // OmniBuddy 独立视图：侧边栏为「任务列表（按展示名分组）」，顶栏为多 tab 页签
   {
     path: '/omnibuddy',
     component: BuddyLayout,
@@ -18,18 +18,44 @@ const routes = [
         meta: { title: 'OmniBuddy' }
       },
       {
-        path: 'settings',
-        name: 'OmniBuddySettings',
-        component: () => import('@/views/omnibuddy/settings.vue'),
-        meta: { title: 'Buddy 工坊' }
+        path: 'workspace',
+        name: 'OmniBuddyWorkspace',
+        component: () => import('@/views/omnibuddy/workspace.vue'),
+        meta: { title: '工作空间' }
       },
       {
-        path: 'space',
-        name: 'OmniBuddySpace',
-        component: () => import('@/views/omnibuddy/space.vue'),
-        meta: { title: 'OmniBuddy 空间' }
+        path: 'providers',
+        name: 'OmniBuddyProviders',
+        component: () => import('@/views/omnibuddy/providers.vue'),
+        meta: { title: '模型供应商' }
+      },
+      {
+        path: 'mcp',
+        name: 'OmniBuddyMcp',
+        component: () => import('@/views/omnibuddy/mcp.vue'),
+        meta: { title: 'MCP 服务' }
+      },
+      {
+        path: 'skills',
+        name: 'OmniBuddySkills',
+        component: () => import('@/views/omnibuddy/skills.vue'),
+        meta: { title: 'Skills 管理' }
+      },
+      {
+        path: 'market',
+        name: 'OmniBuddyMarket',
+        component: () => import('@/views/omnibuddy/market.vue'),
+        meta: { title: '资源市场' }
       }
     ]
+  },
+  // 快捷面板（P0-M1）：Spotlight 式独立壳页（不挂任何 Layout；
+  // 锁定遮罩由 App.vue 全局 AppLock 组件覆盖，无需本页处理）
+  {
+    path: '/quick',
+    name: 'QuickPanel',
+    component: () => import('@/views/quick/index.vue'),
+    meta: { title: '快捷面板' }
   },
   {
     path: '/',
@@ -615,9 +641,9 @@ const router = new VueRouter({
 })
 
 // 记录 deck 主界面最后所在页面：从 OmniBuddy「返回 OmniDeck」时
-// 回到进入前的页面（而非固定回首页）
+// 回到进入前的页面（而非固定回首页）；快捷面板为独立窗口壳页，不参与记录
 router.afterEach((to) => {
-  if (!to.path.startsWith('/omnibuddy')) {
+  if (!to.path.startsWith('/omnibuddy') && to.path !== '/quick') {
     router.lastDeckPath = to.path
   }
 })

@@ -1,0 +1,122 @@
+/* OmniBuddy 管理页全局样式（el-dialog append-to-body / ZIP 上传区）
+   需全局生效：el-dialog 挂载在 body 下，scoped 样式无法命中 */
+
+.ob-el-dialog {
+  border-radius: 16px !important;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28) !important;
+
+  .el-dialog__header {
+    padding: 14px 18px 0;
+
+    .el-dialog__title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .el-dialog__headerbtn {
+      .el-dialog__close {
+        color: var(--text-secondary);
+        transition: color 0.15s ease;
+
+        &:hover {
+          color: var(--text-primary);
+        }
+      }
+    }
+  }
+
+  .el-dialog__body {
+    padding: 14px 18px;
+  }
+
+  .el-dialog__footer {
+    padding: 0 18px 16px;
+  }
+}
+
+/* ===== Skill ZIP 导入（上传区 + 验证行 + 随包凭据） ===== */
+.ob-zip-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 20px 14px;
+  border: 1.5px dashed var(--border-color);
+  border-radius: $radius-base;
+  background: var(--search-bg, rgba(0, 0, 0, 0.03));
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  &:hover,
+  &.over {
+    border-color: rgba(var(--primary-color-rgb), 0.55);
+    background: rgba(var(--primary-color-rgb), 0.05);
+  }
+
+  .ob-zip-ico {
+    font-size: 22px;
+    color: var(--primary-color);
+    opacity: 0.85;
+  }
+
+  .ob-zip-title {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .ob-zip-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--primary-color);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ob-zip-hint {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+}
+
+.ob-zip-validate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.ob-zip-msg {
+  font-size: 11.5px;
+  line-height: 1.5;
+  flex: 1;
+  min-width: 0;
+
+  &.ok {
+    color: #52C41A;
+  }
+
+  &.err {
+    color: #F56C6C;
+  }
+}
+
+.ob-field-hint {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* JSON 等宽编辑区（凭据等） */
+.ob-code-area textarea {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}

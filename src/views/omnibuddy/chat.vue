@@ -5,7 +5,7 @@
       <!-- 对话主体 -->
       <div ref="body" class="ob-body">
         <!-- 空会话欢迎占位 -->
-        <chat-placeholder v-if="!sessionId || !messages.length" :mode="mode" @set-mode="setMode" />
+        <chat-placeholder v-if="!sessionId || !messages.length" />
 
         <!-- 消息列表 -->
         <div v-else class="ob-messages">
@@ -35,44 +35,17 @@
         </div>
       </div>
 
-      <!-- 底部：输入框（空间/模型选择内嵌于对话框工具栏） -->
+      <!-- 底部：输入框（磁盘路径/模型选择内嵌于对话框工具栏） -->
       <div class="ob-composer">
         <div class="ob-composer-inner">
           <buddy-composer v-model="draft" :streaming="streaming" @send="send" @stop="interrupt">
             <template slot="tools">
-              <!-- 对话模式标识（对话开始后锁定显示；空会话时由欢迎页大胶囊切换） -->
-              <div v-if="!canSwitchMode" class="ob-mode-pill locked">
-                <button
-                  type="button"
-                  :class="{ active: mode === 'work' }"
-                  :disabled="true"
-                  :title="mode === 'coding' ? 'Coding 模式（对话开始后锁定）' : '工作模式（对话开始后锁定）'"
-                >{{ mode === 'coding' ? 'Coding' : '工作' }}</button>
-              </div>
-
-              <!-- 空间选择（空间需已关联本地目录） -->
-              <composer-picker
-                picker-key="space"
-                :active-key="openSelect"
-                :model-value="currentSpaceId"
-                trigger-icon="folder"
-                :trigger-label="currentSpace ? currentSpace.name : '选择空间'"
-                :trigger-title="currentSpace ? currentSpace.dir : ''"
-                :warn="!currentSpaceId"
-                panel-title="空间"
-                :items="spaceItems"
-                empty-title="暂无空间"
-                empty-desc="请在左侧新建空间并关联本地目录"
-                @toggle="toggleSelect('space')"
-                @select="onSelectSpace"
-              >
-                <template v-if="currentSpace && !currentSpace.dir" slot="footer">
-                  <div class="ob-pop-item ob-pop-footer-item" @click="onSelectSpace('__edit')">
-                    <span class="ob-pop-ico"><svg-icon icon-class="folder-add" /></span>
-                    <span class="ob-pop-text">关联本地目录…</span>
-                  </div>
-                </template>
-              </composer-picker>
+              <!-- 关联本地磁盘路径（必填，未关联无法发送；点击弹出关联弹窗） -->
+              <workspace-chip
+                :dir="workspaceLink.dir"
+                :name="workspaceLink.name"
+                @open="linkDialogVisible = true"
+              />
 
               <!-- 模型选择 -->
               <composer-picker
@@ -95,6 +68,14 @@
         </div>
       </div>
     </div>
+
+    <!-- 关联本地磁盘路径弹窗（磁盘路径必填 + 展示名选填） -->
+    <workspace-link-dialog
+      :visible="linkDialogVisible"
+      :initial="workspaceLink"
+      @close="linkDialogVisible = false"
+      @submit="onLinkWorkspace"
+    />
   </div>
 </template>
 
@@ -105,14 +86,15 @@ import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
 import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
 import TodoCard from '@/components/buddy/chat/TodoCard.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
+import WorkspaceChip from '@/components/buddy/chat/WorkspaceChip.vue'
+import WorkspaceLinkDialog from '@/components/buddy/WorkspaceLinkDialog.vue'
 import { getItem, setItem } from '@/utils/db'
-import { getBuddySpaces, saveBuddySpaces } from '@/utils/buddy-space'
 
 // OmniBuddy 对话主区：pi Agent 流式对话
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
 export default {
   name: 'OmniBuddyChat',
-  components: { BuddyComposer, ChatPlaceholder, MessageBubble, AskUserCard, TodoCard, ComposerPicker },
+  components: { BuddyComposer, ChatPlaceholder, MessageBubble, AskUserCard, TodoCard, ComposerPicker, WorkspaceChip, WorkspaceLinkDialog },
   data() {
     return {
       draft: '',
@@ -120,15 +102,10 @@ export default {
       streaming: false,
       providers: [],
       currentProviderId: '',
-      // ===== 对话模式（'work' 工作模式 / 'coding' Coding 模式；持久化恢复） =====
-      mode: getItem('omnibuddy:mode', 'work'),
-      // ===== 空间（左侧空间列表数据；选中后作为对话工作空间） =====
-      spaces: [],
-      currentSpaceId: '',
-      // 工作空间列表（空间的关联目录登记于此，发送时主进程按 id 解析目录）
-      workspaces: [],
-      currentWorkspaceId: '',
-      // 当前展开的选择面板（'space' | 'provider' | ''）
+      // ===== 关联的本地磁盘路径（必填，未关联无法发送；dir/name/workspaceId） =====
+      workspaceLink: { dir: '', name: '', workspaceId: '' },
+      linkDialogVisible: false,
+      // 当前展开的选择面板（'provider' | ''）
       openSelect: '',
       // 思考计时器（发送后到首个 delta 之间）
       thinkTimer: null,
@@ -145,27 +122,8 @@ export default {
     sessionId() {
       return this.$route.query.s || ''
     },
-    // 欢迎占位副文案（跟随当前选择的空间）
-    // 是否可切换对话模式（仅空会话/新对话可切换，对话开始后锁定）
-    canSwitchMode() {
-      return !this.sessionId || !this.messages.length
-    },
     currentProvider() {
       return this.providers.find(p => p.id === this.currentProviderId) || null
-    },
-    currentWorkspace() {
-      return this.workspaces.find(w => w.id === this.currentWorkspaceId) || null
-    },
-    // 当前选中的空间（左侧空间列表数据）
-    currentSpace() {
-      return this.spaces.find(s => s.id === this.currentSpaceId) || null
-    },
-    // 空间选择器选项（未关联目录的空间：灰色文件夹图标 + 「未关联」弱化标签）
-    spaceItems() {
-      return this.spaces.map(sp => sp.dir
-        ? { value: sp.id, label: sp.name, svg: sp.icon || 'star' }
-        : { value: sp.id, label: sp.name, svg: 'folder', tag: '未关联' }
-      )
     },
     // 模型选择器选项
     providerItems() {
@@ -181,24 +139,21 @@ export default {
       immediate: true,
       handler() {
         this.loadMessages()
+        // 切换会话/页签：恢复该会话关联的磁盘路径与展示名（新会话用上次关联）
+        this.restoreWorkspaceLink()
       }
     }
   },
   created() {
     this.loadProviders()
-    // 空间加载完成后恢复上次选中的空间
-    this.loadSpaces().then(() => this.restoreSpaceSelection())
-    this.loadWorkspaces()
+    this.restoreWorkspaceLink()
     this.unsubscribe = this.api().onEvent(this.onAgentEvent)
-    // 左侧空间增删改后同步刷新
-    this.$root.$on('omnibuddy:spaces-changed', this.refreshSpaces)
     // 点击面板外关闭
     document.addEventListener('mousedown', this.onDocMouseDown)
   },
   beforeDestroy() {
     this.stopThinkTimer()
     if (this.unsubscribe) this.unsubscribe()
-    this.$root.$off('omnibuddy:spaces-changed', this.refreshSpaces)
     document.removeEventListener('mousedown', this.onDocMouseDown)
     if (this.streaming && this.sessionId) this.api().interrupt(this.sessionId)
   },
@@ -293,12 +248,6 @@ export default {
       // 持久化选中模型，切换页面后自动恢复
       setItem('omnibuddy:providerId', id)
     },
-    // 切换对话模式（对话开始后锁定；选择持久化）
-    setMode(m) {
-      if (!this.canSwitchMode || this.mode === m) return
-      this.mode = m
-      setItem('omnibuddy:mode', m)
-    },
     async send() {
       const text = this.draft.trim()
       if (!text || this.streaming) return
@@ -307,22 +256,22 @@ export default {
         this.draft = ''
         return
       }
-      // 发送前必须选定空间（且空间已关联本地目录）
-      if (!this.currentSpaceId) {
-        this.$message.warning('请先选择空间')
-        return
-      }
-      if (!this.currentWorkspaceId) {
-        this.$message.warning('当前空间未关联本地目录，请先关联')
+      // 发送前必须关联本地磁盘路径（必填）
+      if (!this.workspaceLink.dir || !this.workspaceLink.workspaceId) {
+        this.$message.warning('请先关联本地磁盘路径后再发送')
+        this.linkDialogVisible = true
         return
       }
       this.draft = ''
 
       let sessionId = this.sessionId
       if (!sessionId) {
-        // 会话归属当前选中的空间（底部选择器）
-        const spaceId = this.currentSpaceId
-        const session = await this.api().createSession({ spaceId, workspaceId: this.currentWorkspaceId, mode: this.mode })
+        // 创建会话：快照当前关联的磁盘路径与展示名（左侧列表按展示名分组）
+        const session = await this.api().createSession({
+          workspaceId: this.workspaceLink.workspaceId,
+          workspaceDir: this.workspaceLink.dir,
+          displayName: this.workspaceLink.name
+        })
         sessionId = session.id
         this.$router.replace({ query: { s: sessionId } })
         this.$root.$emit('omnibuddy:sessions-changed')
@@ -352,8 +301,8 @@ export default {
         id: sessionId,
         text,
         provider: this.currentProvider,
-        workspaceId: this.currentWorkspaceId,
-        mode: this.mode
+        workspaceId: this.workspaceLink.workspaceId,
+        displayName: this.workspaceLink.name
       })
       if (!res.ok) {
         this.streaming = false
@@ -573,47 +522,36 @@ export default {
     interrupt() {
       if (this.sessionId) this.api().interrupt(this.sessionId)
     },
-    // ===== 空间选择（左侧空间列表数据；选中即确定对话的工作空间） =====
-    // 工作空间列表（主进程持久化；空间的关联目录登记于此）
-    async loadWorkspaces() {
-      try {
-        const list = await this.api().listWorkspaces()
-        this.workspaces = Array.isArray(list) ? list : []
-      } catch (e) {
-        this.workspaces = []
+    // ===== 关联本地磁盘路径（必填；选路径的同时登记为工作空间） =====
+    // 恢复上次关联（新会话页）：返回 Buddy 不丢失；已有会话按会话快照恢复
+    async restoreWorkspaceLink() {
+      if (this.sessionId) {
+        const meta = await this.api().sessionMeta(this.sessionId)
+        if (meta && meta.workspaceDir) {
+          // 会话已关联：回显该会话快照的路径与展示名
+          this.workspaceLink = {
+            dir: meta.workspaceDir,
+            name: meta.displayName || '',
+            workspaceId: meta.workspaceId || ''
+          }
+          return
+        }
       }
+      const saved = getItem('omnibuddy:workspace-link', null)
+      if (saved && saved.dir) this.workspaceLink = saved
     },
-    async loadSpaces() {
-      // 合并系统默认空间（运行时派生，不落盘）与用户空间
-      this.spaces = await getBuddySpaces()
-      // 选中空间被删除时清空选择
-      if (!this.spaces.some(s => s.id === this.currentSpaceId)) {
-        this.currentSpaceId = ''
-        this.currentWorkspaceId = ''
+    // 弹窗提交：更新关联并持久化（展示名选填，不填按路径呈现）
+    onLinkWorkspace(payload) {
+      this.workspaceLink = {
+        dir: payload.dir,
+        name: payload.name,
+        workspaceId: payload.workspaceId
       }
-    },
-    // 恢复上次选中的空间（返回 Deck 再进入不丢失）：校验空间仍存在且已关联目录
-    async restoreSpaceSelection() {
-      const savedId = getItem('omnibuddy:spaceId', '')
-      if (!savedId || this.currentSpaceId) return
-      const sp = this.spaces.find(s => s.id === savedId)
-      if (!sp || !sp.dir) return
-      // 等待工作空间列表就绪后映射为 workspaceId
-      if (!this.workspaces.length) await this.loadWorkspaces()
-      const ws = this.workspaces.find(w => w.path === sp.dir)
-      if (!ws) return
-      this.currentSpaceId = sp.id
-      this.currentWorkspaceId = ws.id
-    },
-    // 左侧空间变化后刷新（保留仍存在且已关联目录的选择）
-    async refreshSpaces() {
-      const prev = this.currentSpace
-      await this.loadSpaces()
-      await this.loadWorkspaces()
-      if (prev) {
-        const sp = this.spaces.find(s => s.id === prev.id)
-        if (sp) this.onSelectSpace(sp.id)
-      }
+      setItem('omnibuddy:workspace-link', this.workspaceLink)
+      this.linkDialogVisible = false
+      // 通知工作空间菜单：新增关联或展示名变更后刷新
+      this.$root.$emit('omnibuddy:workspaces-changed')
+      this.$message.success('已关联：' + payload.dir)
     },
     // ===== 选择面板（打开状态集中管理，同时只展开一个） =====
     toggleSelect(key) {
@@ -624,54 +562,6 @@ export default {
       if (!this.openSelect) return
       if (e.target.closest('.ob-select')) return
       this.openSelect = ''
-    },
-    // 选择空间：校验是否已关联本地目录，再映射为对应工作空间
-    async onSelectSpace(command) {
-      this.openSelect = ''
-      // 为未关联目录的当前空间补选目录
-      if (command === '__edit') {
-        await this.linkSpaceDir(this.currentSpace)
-        return
-      }
-      const sp = this.spaces.find(s => s.id === command)
-      if (!sp) return
-      if (!sp.dir) {
-        this.currentSpaceId = sp.id
-        this.$message.warning('该空间未关联本地目录，请在左侧编辑空间或点击“关联本地目录…”选择目录')
-        return
-      }
-      const ws = this.workspaces.find(w => w.path === sp.dir)
-      if (!ws) {
-        this.currentSpaceId = sp.id
-        this.$message.warning('该空间关联的目录未登记为工作空间，请重新编辑空间选择目录')
-        return
-      }
-      this.currentSpaceId = sp.id
-      this.currentWorkspaceId = ws.id
-      // 目录不可用（被移动/删除/磁盘未挂载）：仍允许选中但明确提示
-      if (ws.available === false) {
-        this.$message.warning('该空间关联的目录当前不可用（可能已被移动或磁盘未挂载）')
-      }
-      // 持久化选中空间，切换页面后自动恢复
-      setItem('omnibuddy:spaceId', sp.id)
-      // 同步左侧空间选中态（对话列表按该空间过滤）
-      this.$root.$emit('omnibuddy:space-selected', sp.id)
-    },
-    // 为空间选择并关联本地目录（复用工作空间目录选择 IPC）
-    async linkSpaceDir(sp) {
-      if (!sp) return
-      const res = await this.api().addWorkspace()
-      if (res && res.ok && res.workspace) {
-        sp.dir = res.workspace.path
-        // 持久化用户空间（过滤系统默认空间）并通知左侧列表刷新
-        saveBuddySpaces(this.spaces)
-        this.$root.$emit('omnibuddy:spaces-changed')
-        this.currentWorkspaceId = res.workspace.id
-        setItem('omnibuddy:spaceId', sp.id)
-        this.$message.success('已关联目录：' + res.workspace.path)
-      } else if (res && !res.canceled && res.error) {
-        this.$message.error(res.error)
-      }
     },
     // ===== 回退与分支（M4） =====
     truncateAt(m) {
@@ -773,93 +663,5 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-/* 对话模式分段胶囊：豆包风格（圆角容器 + active 白底阴影滑块感） */
-.ob-mode-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-right: 6px;
-  padding: 2px;
-  border-radius: 100px;
-  background: var(--search-bg, rgba(0, 0, 0, 0.05));
-  flex-shrink: 0;
-
-  button {
-    border: none;
-    outline: none;
-    background: transparent;
-    padding: 3px 10px;
-    border-radius: 100px;
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--text-secondary);
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s ease;
-
-    &.active {
-      background: var(--card-bg, #fff);
-      color: var(--text-primary);
-      font-weight: 500;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
-    }
-  }
-
-  /* 会话已有消息时锁定：按钮禁用，整体弱化 */
-  &.locked {
-    opacity: 0.6;
-
-    button {
-      cursor: not-allowed;
-    }
-  }
-}
-
-/* 选择器底部操作项（关联目录）：与浮层内 item 结构对齐 */
-.ob-pop-footer-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 32px;
-  padding: 5px 9px;
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  transition: background 0.12s ease, color 0.12s ease;
-
-  .ob-pop-ico {
-    width: 16px;
-    height: 16px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-
-    .svg-icon {
-      font-size: 14px;
-      color: var(--text-secondary);
-    }
-  }
-
-  .ob-pop-text {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  &:hover {
-    background: var(--search-bg-hover);
-    color: var(--text-primary);
-
-    .ob-pop-ico .svg-icon {
-      color: var(--primary-color);
-    }
-  }
 }
 </style>

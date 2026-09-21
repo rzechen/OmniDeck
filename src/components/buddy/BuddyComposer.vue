@@ -44,13 +44,6 @@
         </button>
       </div>
     </div>
-
-    <!-- 提示行 -->
-    <div class="bc-hint">
-      <span class="bc-hint-keys"><kbd>Enter</kbd> 发送 <kbd>Shift+Enter</kbd> 换行</span>
-      <span class="bc-hint-ai">内容由 AI 生成，请注意甄别</span>
-      <span class="bc-hint-privacy"><svg-icon icon-class="lock" />内容仅保存在本机</span>
-    </div>
   </div>
 </template>
 
@@ -65,7 +58,7 @@ export default {
     },
     placeholder: {
       type: String,
-      default: '有什么可以帮您？'
+      default: '有什么可以帮您？（Enter 发送，Shift+Enter 换行）'
     },
     // 流式生成中：发送按钮切换为停止按钮
     streaming: {
@@ -121,7 +114,6 @@ export default {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
 /* 输入容器：悬浮卡片式大圆角气泡 */
@@ -258,54 +250,6 @@ export default {
 
   &:active {
     transform: scale(0.88);
-  }
-}
-
-/* 提示行 */
-.bc-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 6px;
-
-  kbd {
-    font-family: 'SF Mono', Menlo, monospace;
-    font-size: 10px;
-    color: var(--text-secondary);
-    background: var(--search-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    padding: 0 4px;
-    line-height: 1.5;
-  }
-}
-
-.bc-hint-keys {
-  font-size: 11px;
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* 底部中间：AI 生成声明 */
-.bc-hint-ai {
-  flex: 1;
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-secondary);
-  opacity: 0.75;
-}
-
-.bc-hint-privacy {
-  font-size: 11px;
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-
-  .svg-icon {
-    font-size: 12px;
   }
 }
 </style>

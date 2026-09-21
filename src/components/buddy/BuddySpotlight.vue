@@ -81,11 +81,11 @@ export default {
       this.draft = ''
       this.$message.info('OmniBuddy 对话能力规划中，敬请期待')
     },
-    // 跳转 OmniBuddy 设置页（Buddy 视图内独立设置页）
+    // 跳转模型供应商页（Buddy 视图内独立管理页）
     openBuddySettings() {
       this.close()
-      if (this.$route.name !== 'OmniBuddySettings') {
-        this.$router.push('/omnibuddy/settings')
+      if (this.$route.name !== 'OmniBuddyProviders') {
+        this.$router.push('/omnibuddy/providers')
       }
     }
   }

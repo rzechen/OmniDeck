@@ -1,37 +1,32 @@
 <template>
   <div
-    class="ob-space"
+    class="ob-workspace"
     :class="{ dragging: dragDepth > 0 }"
     @dragenter="onDragEnter"
     @dragleave="onDragLeave"
     @dragover.prevent
     @drop.prevent="onDrop"
   >
-    <!-- 未选择空间 -->
+    <!-- 空状态：尚未通过对话关联任何磁盘路径 -->
     <space-blank
-      v-if="!space"
+      v-if="!workspaces.length"
       icon="storage"
-      title="未选择空间"
-      desc="在左侧选择或新建一个空间，即可像网盘一样管理其关联的本地目录"
-    />
-
-    <!-- 空间未关联目录 -->
-    <space-blank
-      v-else-if="!space.dir"
-      icon="folder"
-      :title="space.name + ' 未关联本地目录'"
-      desc="在左侧编辑该空间并选择一个本地目录后，即可浏览与管理文件"
+      title="暂无工作空间"
+      desc="在对话中关联本地磁盘路径后，即可在此像网盘一样浏览与管理文件"
     />
 
     <template v-else>
-      <!-- 头部：空间信息 + 工具栏 -->
+      <!-- 头部：工作空间信息（点击下拉切换）+ 工具栏 -->
       <space-toolbar
-        :space="space"
+        :space="activeSpace"
         :count="visibleEntries.length"
         :view.sync="view"
         :show-hidden.sync="showHidden"
         :search.sync="search"
         :loading="loading"
+        :workspaces="workspaceItems"
+        :active-id="activeId"
+        @select-workspace="selectWorkspace"
         @create-folder="createFolder"
         @create-file="createFile"
         @import="importDialog"
@@ -39,7 +34,7 @@
       />
 
       <!-- 面包屑 -->
-      <space-crumbs :root-name="space.name" :crumbs="crumbs" @go="goCrumb" />
+      <space-crumbs :root-name="displayName(active)" :crumbs="crumbs" @go="goCrumb" />
 
       <!-- 主体 -->
       <div class="sp-body">
@@ -77,7 +72,7 @@
 
     <!-- 拖拽导入遮罩 -->
     <transition name="sp-fade">
-      <div v-if="dragDepth > 0 && space && space.dir" class="sp-drop-mask">
+      <div v-if="dragDepth > 0 && workspaces.length" class="sp-drop-mask">
         <div class="sp-drop-inner">
           <svg-icon icon-class="upload" />
           <p>松开将文件导入当前文件夹</p>
@@ -106,7 +101,8 @@
 </template>
 
 <script>
-// OmniBuddy 空间页：网盘风格的本地文件管理（状态与业务编排，UI 见 components/buddy/space/）
+// OmniBuddy 工作空间页：网盘风格的本地文件管理（状态与业务编排，UI 见 components/buddy/space/）
+// 工作空间来源 = 对话中「关联本地磁盘路径」登记的目录；默认为空状态占位
 import SpaceBlank from '@/components/buddy/space/SpaceBlank.vue'
 import SpaceToolbar from '@/components/buddy/space/SpaceToolbar.vue'
 import SpaceCrumbs from '@/components/buddy/space/SpaceCrumbs.vue'
@@ -115,23 +111,23 @@ import SpaceList from '@/components/buddy/space/SpaceList.vue'
 import SpaceContextMenu from '@/components/buddy/space/SpaceContextMenu.vue'
 import SpaceFilePreview from '@/components/buddy/space/SpaceFilePreview.vue'
 import { isTextEntry } from '@/utils/file-meta'
-import { getItem } from '@/utils/db'
-import { getBuddySpaces } from '@/utils/buddy-space'
+import { getItem, setItem } from '@/utils/db'
 
 export default {
-  name: 'OmniBuddySpace',
+  name: 'OmniBuddyWorkspace',
   components: { SpaceBlank, SpaceToolbar, SpaceCrumbs, SpaceGrid, SpaceList, SpaceContextMenu, SpaceFilePreview },
   data() {
     return {
-      spaces: [],
-      activeSpaceId: '',
-      // 当前目录（绝对路径，始终位于所选空间根目录内）
+      // 已关联的工作空间列表（由对话关联磁盘路径时登记）
+      workspaces: [],
+      activeId: '',
+      // 当前目录（绝对路径，始终位于所选工作空间根目录内）
       currentDir: '',
       entries: [],
       loading: false,
       selected: '',
       // 视图与筛选
-      view: 'grid',
+      view: 'list',
       showHidden: false,
       search: '',
       // 右键菜单
@@ -143,15 +139,30 @@ export default {
     }
   },
   computed: {
-    space() {
-      return this.spaces.find(s => s.id === this.activeSpaceId) || null
+    active() {
+      return this.workspaces.find(w => w.id === this.activeId) || null
+    },
+    // 传给 SpaceToolbar 的合成空间对象（icon 统一用文件夹）
+    activeSpace() {
+      return this.active
+        ? { name: this.displayName(this.active), dir: this.active.path, icon: 'folder' }
+        : { name: '', dir: '', icon: 'folder' }
+    },
+    // 工作空间下拉选项（多空间时头部可切换）
+    workspaceItems() {
+      return this.workspaces.map(w => ({
+        value: w.id,
+        label: this.displayName(w),
+        svg: 'folder',
+        tag: w.id === this.activeId ? '' : (w.path && w.path.length > 30 ? w.path.slice(0, 28) + '…' : w.path)
+      }))
     },
     filesApi() {
       return (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.files) || null
     },
     // 面包屑：根目录之后的相对层级
     crumbs() {
-      const root = this.space && this.space.dir
+      const root = this.active && this.active.path
       if (!root || !this.currentDir || this.currentDir === root) return []
       const rel = this.currentDir.slice(root.length).replace(/^[/\\]+/, '')
       const parts = rel.split(/[/\\]+/).filter(Boolean)
@@ -190,41 +201,51 @@ export default {
     }
   },
   created() {
-    this.loadSpaces()
-    // 左侧空间增删改 / 切换后同步
-    this.$root.$on('omnibuddy:spaces-changed', this.onSpacesChanged)
-    this.$root.$on('omnibuddy:active-space-changed', this.onActiveSpaceChanged)
+    this.loadWorkspaces()
+    // 对话关联/展示名更新后同步
+    this.$root.$on('omnibuddy:workspaces-changed', this.loadWorkspaces)
     // 全局点击 / Esc 关闭右键菜单
     document.addEventListener('mousedown', this.onDocMouseDown)
     document.addEventListener('keydown', this.onKeydown)
   },
   beforeDestroy() {
-    this.$root.$off('omnibuddy:spaces-changed', this.onSpacesChanged)
-    this.$root.$off('omnibuddy:active-space-changed', this.onActiveSpaceChanged)
+    this.$root.$off('omnibuddy:workspaces-changed', this.loadWorkspaces)
     document.removeEventListener('mousedown', this.onDocMouseDown)
     document.removeEventListener('keydown', this.onKeydown)
   },
   methods: {
-    // ===== 数据 =====
-    loadSpaces() {
-      // 异步加载：系统默认空间（运行时派生）+ 用户空间
-      return getBuddySpaces().then(list => {
-        this.spaces = list
-        const active = getItem('buddyActiveSpaceId', '')
-        this.activeSpaceId = this.spaces.some(s => s.id === active) ? active : ''
-        this.applySpace()
-      })
+    // ===== 工作空间 =====
+    // 展示名（未重命名时按磁盘路径呈现，与任务列表分组口径一致）
+    displayName(w) {
+      const name = (w && w.name) || ''
+      return name && name !== w.path ? name : w.path
     },
-    // 按当前空间重置目录（目录失效时回根目录）
-    applySpace() {
-      const dir = this.space && this.space.dir
-      if (!dir) {
-        this.currentDir = ''
-        this.entries = []
+    async loadWorkspaces() {
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api) {
+        this.workspaces = []
         return
       }
-      const inside = this.currentDir && (this.currentDir + '/').startsWith(dir.replace(/[/\\]+$/, '') + '/')
-      this.currentDir = inside ? this.currentDir : dir
+      const list = await api.listWorkspaces()
+      this.workspaces = Array.isArray(list) ? list.filter(w => w.available !== false) : []
+      // 恢复上次选中；失效则取第一个
+      const saved = getItem('buddyActiveWorkspaceId', '')
+      const hit = this.workspaces.find(w => w.id === saved)
+      this.selectWorkspace(hit || this.workspaces[0] || null)
+    },
+    selectWorkspace(w) {
+      // 下拉事件传 id，这里归一为对象
+      if (typeof w === 'string') w = this.workspaces.find(x => x.id === w) || null
+      const prevId = this.activeId
+      this.activeId = (w && w.id) || ''
+      if (this.activeId) setItem('buddyActiveWorkspaceId', this.activeId)
+      // 切换工作空间回根目录（同空间不重置当前目录）
+      if (this.activeId && this.activeId !== prevId) {
+        this.currentDir = w.path
+      } else if (!this.activeId) {
+        this.currentDir = ''
+        this.entries = []
+      }
     },
     async load() {
       if (!this.currentDir) return
@@ -242,16 +263,6 @@ export default {
         if (res && res.error) this.$message.error(res.error)
       }
     },
-    onSpacesChanged() {
-      this.loadSpaces()
-    },
-    onActiveSpaceChanged(id) {
-      if (id === this.activeSpaceId) return
-      this.activeSpaceId = id
-      // 切换空间回根目录
-      const sp = this.space
-      this.currentDir = sp && sp.dir ? sp.dir : ''
-    },
     // ===== 浏览 =====
     entryPath(en) {
       return this.currentDir.replace(/[/\\]+$/, '') + '/' + en.name
@@ -268,7 +279,7 @@ export default {
       }
     },
     goCrumb(idx) {
-      this.currentDir = idx < 0 ? this.space.dir : this.crumbs[idx].path
+      this.currentDir = idx < 0 ? this.active.path : this.crumbs[idx].path
     },
     // ===== 操作 =====
     async createFolder() {
@@ -463,7 +474,7 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.ob-space {
+.ob-workspace {
   flex: 1;
   min-width: 0;
   display: flex;
