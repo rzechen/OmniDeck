@@ -42,10 +42,22 @@ const routes = [
         meta: { title: 'Skills 管理' }
       },
       {
+        path: 'rules',
+        name: 'OmniBuddyRules',
+        component: () => import('@/views/omnibuddy/rules.vue'),
+        meta: { title: '项目规则' }
+      },
+      {
         path: 'market',
         name: 'OmniBuddyMarket',
         component: () => import('@/views/omnibuddy/market.vue'),
         meta: { title: '资源市场' }
+      },
+      {
+        path: 'usage',
+        name: 'OmniBuddyUsage',
+        component: () => import('@/views/omnibuddy/usage.vue'),
+        meta: { title: '用量统计' }
       }
     ]
   },
@@ -56,6 +68,14 @@ const routes = [
     name: 'QuickPanel',
     component: () => import('@/views/quick/index.vue'),
     meta: { title: '快捷面板' }
+  },
+  // 选区截屏覆盖窗（P0-M4）：铺满单屏的透明框选层（主进程 capture.js
+  // 按每显示器开窗加载本页），独立壳页不挂 Layout
+  {
+    path: '/capture-overlay',
+    name: 'CaptureOverlay',
+    component: () => import('@/views/capture-overlay/index.vue'),
+    meta: { title: '区域截屏' }
   },
   {
     path: '/',

@@ -2,10 +2,10 @@
 //
 // 结构说明：
 // - 每个工具组（分类）：name 路由名 / path 路由地址 / title 名称 / desc 描述
-//   iconSvg SVG 图标名，约定路径：src/assets/icons/svg/{iconSvg}.svg（后续补充）
+//   iconSvg SVG 图标名，约定路径：src/assets/icons/svg/deck/{iconSvg}.svg（后续补充）
 //   color   图标建议主色（用于首页卡片背景色）
 // - children：组内的具体工具（name 名称 / desc 描述 / path 路由地址 / icon 图标名）
-//   icon 约定路径：src/assets/icons/svg/{icon}.svg（未配置时渲染字母头像兜底）
+//   icon 约定路径：src/assets/icons/svg/deck/{icon}.svg（未配置时渲染字母头像兜底）
 
 const toolCategories = [
   {

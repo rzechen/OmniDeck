@@ -1,8 +1,38 @@
 <template>
   <div class="bc-composer">
-    <!-- 输入容器：豆包风格大圆角气泡 -->
-    <div class="bc-box" :class="{ focus: isFocus }">
-      <!-- 多行输入：自动增高 -->
+    <!-- 输入容器：豆包风格大圆角气泡（拖入文件时高亮提示） -->
+    <div
+      class="bc-box"
+      :class="{ focus: isFocus, drag: isDrag }"
+      @dragover.prevent="onDragOver"
+      @dragleave="onDragLeave"
+      @drop.prevent="onDrop"
+    >
+      <!-- 待发送图片附件条（截图/粘贴图片，缩略图胶囊） -->
+      <div v-if="images && images.length" class="bc-attachments">
+        <div v-for="(img, i) in images" :key="i" class="bc-attachment">
+          <img class="bc-attachment-img" :src="img.thumb" alt="截图" draggable="false" />
+          <button class="bc-attachment-remove" title="移除" @click="$emit('remove-image', i)">
+            <svg-icon icon-class="close" />
+          </button>
+        </div>
+      </div>
+
+      <!-- 待发送文件附件条（"+"选择/拖拽/粘贴导入：图片缩略图胶囊 + 文本/PDF 文件胶囊） -->
+      <div v-if="files && files.length" class="bc-attachments">
+        <div v-for="(f, i) in files" :key="f.id || i" class="bc-attachment" :class="{ file: f.kind !== 'image' }">
+          <img v-if="f.kind === 'image' && f.thumb" class="bc-attachment-img" :src="f.thumb" alt="" draggable="false" />
+          <template v-else>
+            <svg-icon :icon-class="f.kind === 'pdf' ? 'doc' : 'document'" class="bc-file-ico" />
+            <span class="bc-file-name" :title="f.name">{{ f.name }}</span>
+          </template>
+          <button class="bc-attachment-remove" title="移除" @click="$emit('remove-file', i)">
+            <svg-icon icon-class="close" />
+          </button>
+        </div>
+      </div>
+
+      <!-- 多行输入：自动增高（粘贴图片转附件） -->
       <textarea
         ref="ta"
         class="bc-textarea"
@@ -13,13 +43,19 @@
         @focus="isFocus = true"
         @blur="isFocus = false"
         @keydown.enter.exact.prevent="onSend"
+        @paste="onPaste"
       ></textarea>
 
       <!-- 底部工具栏：左扩展（工作空间/模型选择等经插槽注入） + 右发送 -->
       <div class="bc-toolbar">
         <div class="bc-tools">
           <slot name="tools"></slot>
-          <button class="bc-tool-btn" title="附件（规划中）" @click="todoHint">
+          <button
+            v-if="attachEnabled"
+            class="bc-tool-btn"
+            title="添加附件（图片 / 文本 / PDF，支持拖入）"
+            @click="$emit('pick')"
+          >
             <svg-icon icon-class="circle-plus-outline" />
           </button>
         </div>
@@ -64,16 +100,37 @@ export default {
     streaming: {
       type: Boolean,
       default: false
+    },
+    // 附加可发送条件（如已有图片附件时无文本也允许发送）
+    extraSendable: {
+      type: Boolean,
+      default: false
+    },
+    // 待发送图片附件（[{id,width,height,thumb}]）：内置附件条渲染
+    images: {
+      type: Array,
+      default: null
+    },
+    // 待发送文件附件（[{id,name,size,kind,thumb}]，P1-7）：图片缩略图 + 文本/PDF 文件胶囊
+    files: {
+      type: Array,
+      default: null
+    },
+    // 是否展示"+"附件按钮（快捷面板等场景可关闭）
+    attachEnabled: {
+      type: Boolean,
+      default: true
     }
   },
   data() {
     return {
-      isFocus: false
+      isFocus: false,
+      isDrag: false
     }
   },
   computed: {
     canSend() {
-      return !!this.value.trim()
+      return !!this.value.trim() || this.extraSendable
     }
   },
   watch: {
@@ -89,6 +146,61 @@ export default {
     onInput(e) {
       this.$emit('input', e.target.value)
     },
+    // 粘贴含图片/文件时转为附件（M4 / P1-7）：拦截默认行为，交主进程落盘
+    onPaste(e) {
+      const items = e.clipboardData && e.clipboardData.items
+      if (!items) return
+      let hasImage = false
+      let hasFile = false
+      for (const it of items) {
+        if (it.kind === 'file' && it.type.startsWith('image/')) hasImage = true
+        else if (it.kind === 'file') hasFile = true
+      }
+      if (!hasImage && !hasFile) return // 纯文本粘贴走默认行为
+      e.preventDefault()
+      const cap = window.electronAPI && window.electronAPI.capture
+      const buddy = window.electronAPI && window.electronAPI.omnibuddy
+      // 剪贴板图片走截图管道（原生剪贴板读取，质量无损）
+      if (hasImage && cap) {
+        cap.clipboardImage().then(res => {
+          if (res && res.ok) this.$emit('captured', res.image)
+        }).catch(() => {})
+      }
+      // 非图片文件（文本/PDF）走附件管道
+      if (hasFile && buddy && buddy.importAttachment) {
+        for (const it of items) {
+          if (it.kind !== 'file' || it.type.startsWith('image/')) continue
+          const f = it.getAsFile()
+          if (!f) continue
+          this.emitImportFile(f)
+        }
+      }
+    },
+    // ===== 拖拽导入（P1-7）：Electron 32+ File.path 已移除，须经 webUtils 取真实路径 =====
+    onDragOver(e) {
+      if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return
+      this.isDrag = true
+    },
+    onDragLeave() {
+      this.isDrag = false
+    },
+    onDrop(e) {
+      this.isDrag = false
+      const files = e.dataTransfer && e.dataTransfer.files
+      if (!files || !files.length) return
+      for (const f of files) this.emitImportFile(f)
+    },
+    // 取拖拽/粘贴文件的真实路径，交主进程导入（emit import-file）
+    emitImportFile(f) {
+      const api = window.electronAPI
+      if (!api || !api.getPathForFile) {
+        this.$message.info('附件导入需要 OmniDeck 桌面端')
+        return
+      }
+      let p = ''
+      try { p = api.getPathForFile(f) } catch (err) { p = '' }
+      if (p) this.$emit('import-file', p)
+    },
     onSend() {
       if (!this.canSend) return
       this.$emit('send', this.value)
@@ -99,9 +211,6 @@ export default {
       if (!ta) return
       ta.style.height = 'auto'
       ta.style.height = Math.max(68, Math.min(ta.scrollHeight, 220)) + 'px'
-    },
-    todoHint() {
-      this.$message.info('该能力规划中，敬请期待')
     }
   }
 }
@@ -132,6 +241,91 @@ export default {
     border-color: rgba(var(--primary-color-rgb), 0.55);
     box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.12), 0 4px 18px rgba(var(--primary-color-rgb), 0.1);
   }
+}
+
+/* 待发送附件条（内置于气泡顶部） */
+.bc-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 4px 4px;
+}
+
+.bc-attachment {
+  position: relative;
+  width: 86px;
+  height: 54px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: var(--border-color, #f0f0f2);
+
+  /* 文件胶囊（文本/PDF）：图标 + 文件名，宽随内容 */
+  &.file {
+    width: auto;
+    min-width: 86px;
+    max-width: 220px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 22px 0 9px;
+    background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
+  }
+}
+
+.bc-file-ico {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: var(--primary-color);
+}
+
+.bc-file-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 拖拽悬停高亮 */
+.bc-box.drag {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.18), 0 4px 18px rgba(var(--primary-color-rgb), 0.12);
+}
+
+.bc-attachment-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bc-attachment-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+
+  .svg-icon {
+    font-size: 10px;
+  }
+}
+
+.bc-attachment:hover .bc-attachment-remove {
+  opacity: 1;
 }
 
 .bc-textarea {

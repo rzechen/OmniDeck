@@ -27,7 +27,7 @@
             @click="$emit('select', it.value)"
           >
             <span class="ob-pop-ico">
-              <svg-icon :icon-class="it.svg || 'collection-tag'" class="ob-pop-svg" />
+              <svg-icon :icon-class="it.svg || 'menu'" class="ob-pop-svg" />
             </span>
             <span class="ob-pop-text">{{ it.label }}</span>
             <span v-if="it.tag" class="ob-pop-tag">{{ it.tag }}</span>
@@ -79,7 +79,7 @@ export default {
     // 触发 chip 图标（svg 图标名）
     triggerIcon: {
       type: String,
-      default: 'collection-tag'
+      default: 'menu'
     },
     triggerLabel: {
       type: String,

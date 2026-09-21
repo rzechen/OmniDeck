@@ -28,13 +28,22 @@
             <img src="@/assets/logo.png" alt="OmniDeck" class="buddy-logo-img" />
           </div>
           <span v-if="!collapsed" class="buddy-logo-text">OmniBuddy</span>
-          <div
-            v-if="!collapsed"
-            class="buddy-new-icon"
-            title="新建任务"
-            @click="onNewChat"
-          >
-            <svg-icon icon-class="plus" />
+          <!-- 新建任务 + 清空本地数据（测试初始化用，两钮并排靠右） -->
+          <div v-if="!collapsed" class="buddy-head-actions">
+            <div
+              class="buddy-new-icon"
+              title="新建任务"
+              @click="onNewChat"
+            >
+              <svg-icon icon-class="plus" />
+            </div>
+            <div
+              class="buddy-clear-icon"
+              title="清空本地数据（恢复初始化状态并重启）"
+              @click="clearLocalData"
+            >
+              <svg-icon icon-class="delete" />
+            </div>
           </div>
         </div>
 
@@ -85,6 +94,7 @@
               @select-chat="onSelectChat"
               @rename-chat="renameChat"
               @delete-chat="confirmDeleteChat"
+              @export-chat="exportChat"
             />
           </div>
         </div>
@@ -131,7 +141,7 @@
 <script>
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
 import BuddySearch from '@/components/buddy/layout/BuddySearch.vue'
-import { getItem, setItem } from '@/utils/db'
+import { getItem, setItem, clearAll } from '@/utils/db'
 
 // OmniBuddy 视图壳：与主 Layout 平级的独立视图
 // 侧边栏（新建入口 + 菜单 + 任务列表，可拖宽/收起）+ 顶栏（开关 + 居中搜索）+ 主区（对话/管理页）
@@ -146,7 +156,9 @@ export default {
         { label: '工作空间', name: 'OmniBuddyWorkspace', path: '/omnibuddy/workspace', icon: 'folder' },
         { label: '模型供应商', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' },
         { label: 'Skills 管理', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
-        { label: 'MCP 管理', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' }
+        { label: '项目规则', name: 'OmniBuddyRules', path: '/omnibuddy/rules', icon: 'rules' },
+        { label: 'MCP 管理', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
+        { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' }
       ],
       // 会话列表（主进程 JSONL 持久化，按更新时间倒序）
       chats: [],
@@ -182,6 +194,25 @@ export default {
     document.removeEventListener('mouseup', this.onResizeEnd)
   },
   methods: {
+    // 清空本地数据（测试初始化用）：与设置页「清除本地记录」同逻辑
+    // 清空 IndexedDB/localStorage + 主进程删除 buddy 数据并重启
+    async clearLocalData() {
+      const yes = await this.$confirm(
+        '将清除 OmniDeck 与 OmniBuddy 的全部本地数据（偏好设置、工具收藏、对话记录、空间与模型配置等），清除后应用将自动重启。此操作不可恢复，确定继续吗？',
+        '清空本地数据',
+        { confirmButtonText: '清除', cancelButtonText: '取消', type: 'warning' }
+      ).then(() => true).catch(() => false)
+      if (!yes) return
+      // 渲染侧：清空 IndexedDB 与 localStorage
+      await clearAll()
+      try { localStorage.clear() } catch (e) { /* 忽略 */ }
+      // 主进程：删除全部主进程数据并重启（非桌面端刷新页面兜底）
+      if (window.electronAPI && window.electronAPI.resetAllData) {
+        await window.electronAPI.resetAllData()
+      } else {
+        location.reload()
+      }
+    },
     // ===== 会话（对话）管理 =====
     // preload API（浏览器环境无 electronAPI 时返回空实现）
     buddyApi() {
@@ -246,6 +277,52 @@ export default {
         if (api) await api.renameSession({ id: c.id, title })
         c.title = title
       }).catch(() => {})
+    },
+    // 导出会话（N4）：选择格式 → 主进程写文件（保存对话框）→ 成功后可打开所在目录
+    exportChat(c) {
+      const h = this.$createElement
+      this.$msgbox({
+        title: '导出会话「' + c.title + '」',
+        message: h('div', { style: 'display:flex;gap:10px;justify-content:center;margin-top:6px' }, [
+          h('el-button', {
+            props: { round: true, type: 'primary', plain: true },
+            on: { click: () => { this.$msgbox.close(); this.doExportChat(c, 'md') } }
+          }, 'Markdown / ZIP'),
+          h('el-button', {
+            props: { round: true, type: 'primary' },
+            on: { click: () => { this.$msgbox.close(); this.doExportChat(c, 'html') } }
+          }, 'HTML（自包含）')
+        ]),
+        showCancelButton: true,
+        cancelButtonText: '取消',
+        showConfirmButton: false
+      }).catch(() => {})
+    },
+    async doExportChat(c, format) {
+      const api = this.buddyApi()
+      if (!api || !api.exportSession) {
+        this.$message.error('导出需要 OmniDeck 桌面端')
+        return
+      }
+      try {
+        const res = await api.exportSession({ id: c.id, format })
+        if (!res || !res.ok) {
+          if (res && res.canceled) return
+          this.$message.error((res && res.error) || '导出失败')
+          return
+        }
+        this.$notify({
+          title: '导出成功',
+          message: (res.note ? res.note + ' · ' : '') + res.filePath,
+          type: 'success',
+          duration: 6000,
+          onClick: () => {
+            if (api.exportReveal) api.exportReveal(res.filePath)
+          }
+        })
+      } catch (e) {
+        this.$message.error('导出请求异常')
+      }
     },
     confirmDeleteChat(c) {
       this.$confirm('删除后该任务的记录将一并移除，确定删除吗？', '删除任务', {
@@ -458,10 +535,17 @@ $buddy-sidebar-w: 260px;
 
 /* 新建任务 icon：侧边栏头部小圆钮（标题右侧，margin-left 自动推到行尾）。
 侧边栏为窗口拖拽区，按钮必须显式 no-drag 才能接收点击 */
+.buddy-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .buddy-new-icon {
   width: 24px;
   height: 24px;
-  margin-left: auto;
   border-radius: 8px;
   display: inline-flex;
   align-items: center;
@@ -480,6 +564,35 @@ $buddy-sidebar-w: 260px;
 
   &:hover {
     filter: brightness(1.1);
+  }
+
+  &:active {
+    transform: scale(0.9);
+  }
+}
+
+/* 清空本地数据 icon：与新建钮同尺寸的次级灰钮 */
+.buddy-clear-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: $text-secondary;
+  background: $sidebar-item-hover;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  -webkit-app-region: no-drag;
+
+  .svg-icon {
+    font-size: 13px;
+  }
+
+  &:hover {
+    color: #d93025;
+    background: rgba(217, 48, 37, 0.1);
   }
 
   &:active {

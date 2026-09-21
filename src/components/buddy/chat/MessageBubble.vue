@@ -2,6 +2,15 @@
   <!-- 用户 / 助手消息（豆包风格：无头像，用户右侧气泡，助手左侧纯内容） -->
   <div class="ob-msg" :class="message.role">
     <div class="ob-msg-bubble">
+      <!-- 助手：上下文压缩摘要分界（自动压缩产物，正文即早期对话的总结） -->
+      <div v-if="message.compaction" class="ob-compaction">
+        <div class="ob-compaction-line">
+          <svg-icon icon-class="clock" class="ob-compaction-ico" />
+          <span>已自动整理早期对话（上下文压缩）</span>
+        </div>
+        <div v-if="compactionText" class="ob-compaction-meta">{{ compactionText }}</div>
+      </div>
+
       <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP） -->
       <thinking-section
         v-if="hasSection"
@@ -27,6 +36,29 @@
         class="ob-md"
         v-html="rendered"
       ></div>
+      <!-- 用户：图片附件缩略图（截图提问） -->
+      <div v-if="message.role === 'user' && message.images && message.images.length" class="ob-msg-images">
+        <img
+          v-for="img in message.images"
+          :key="img.id"
+          class="ob-msg-img"
+          :src="img.thumb"
+          :title="img.width + '×' + img.height"
+          alt="截图"
+          draggable="false"
+        />
+      </div>
+      <!-- 用户：文件附件卡片（文本/PDF 与文件导入图片，P1-7） -->
+      <div v-if="fileAttachmentList.length" class="ob-msg-files">
+        <div v-for="f in fileAttachmentList" :key="f.id" class="ob-msg-file">
+          <img v-if="f.kind === 'image' && f.thumb" class="ob-msg-file-thumb" :src="f.thumb" alt="" draggable="false" />
+          <svg-icon v-else :icon-class="f.kind === 'pdf' ? 'doc' : 'document'" class="ob-msg-file-ico" />
+          <div class="ob-msg-file-info">
+            <div class="ob-msg-file-name" :title="f.name">{{ f.name }}</div>
+            <div class="ob-msg-file-meta">{{ fileKindLabel(f.kind) + ' · ' + formatSize(f.size) }}</div>
+          </div>
+        </div>
+      </div>
       <template v-if="message.role === 'user'">{{ message.content }}</template>
       <span v-if="showCursor" class="ob-cursor"></span>
 
@@ -36,6 +68,10 @@
           <svg-icon icon-class="copy" />
         </span>
         <span v-if="tokensText" class="ob-meta-text">{{ tokensText }}</span>
+        <span v-if="contextText" class="ob-meta-ctx" :title="'上下文占用 ' + contextPercent + '%（接近上限将自动整理早期对话）'">
+          <span class="ob-ctx-bar"><span class="ob-ctx-fill" :class="ctxLevel" :style="{ width: contextPercent + '%' }"></span></span>
+          <span class="ob-meta-text">{{ contextText }}</span>
+        </span>
         <span v-if="timeText" class="ob-meta-text">{{ timeText }}</span>
       </div>
 
@@ -101,15 +137,57 @@ export default {
       if (!u || (!u.input && !u.output)) return ''
       return '输入 ' + this.formatTokens(u.input) + ' tokens · 输出 ' + this.formatTokens(u.output) + ' tokens'
     },
+    // 上下文占用文字（tokens / 窗口，P1-9）
+    contextText() {
+      const u = this.message.usage
+      if (!u || !u.contextTokens || !u.contextWindow) return ''
+      return '上下文 ' + this.formatTokens(u.contextTokens) + ' / ' + this.formatTokens(u.contextWindow)
+    },
+    // 上下文占用百分比（0-100，钳制；无数据时 0）
+    contextPercent() {
+      const u = this.message.usage
+      if (!u || !u.contextTokens || !u.contextWindow) return 0
+      return Math.min(100, Math.max(0, Math.round((u.contextTokens / u.contextWindow) * 100)))
+    },
+    // 用量条颜色档位（<60% 正常 / <85% 警示 / 高危）
+    ctxLevel() {
+      const p = this.contextPercent
+      if (p >= 85) return 'danger'
+      if (p >= 60) return 'warn'
+      return 'ok'
+    },
+    // 压缩摘要 meta（token 前后对比）
+    compactionText() {
+      const c = this.message.compaction
+      if (!c || (!c.tokensBefore && !c.tokensAfter)) return ''
+      return '上下文 ' + this.formatTokens(c.tokensBefore) + ' → ' + this.formatTokens(c.tokensAfter) + ' tokens'
+    },
     // 消息时间（今天 HH:mm，更早 MM-dd HH:mm）
     timeText() {
       return this.formatTime(this.message.createdAt)
+    },
+    // 文件附件列表（仅用户消息有，P1-7）
+    fileAttachmentList() {
+      if (this.message.role !== 'user' || !Array.isArray(this.message.fileAttachments)) return []
+      return this.message.fileAttachments
     }
   },
   methods: {
     formatTokens(n) {
       const v = Number(n) || 0
       return v >= 10000 ? (v / 1000).toFixed(1) + 'k' : String(v)
+    },
+    // 文件大小人性化（B/KB/MB）
+    formatSize(n) {
+      const v = Number(n) || 0
+      if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB'
+      if (v >= 1024) return (v / 1024).toFixed(1) + ' KB'
+      return v + ' B'
+    },
+    fileKindLabel(kind) {
+      if (kind === 'pdf') return 'PDF'
+      if (kind === 'image') return '图片'
+      return '文本'
     },
     formatTime(ts) {
       if (!ts) return ''
@@ -165,6 +243,81 @@ export default {
   color: var(--text-primary);
   word-break: break-word;
   user-select: text;
+}
+
+/* 用户消息图片附件缩略图（气泡内文字上方） */
+.ob-msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+
+  &:empty { margin-bottom: 0; }
+}
+
+.ob-msg-img {
+  max-width: 220px;
+  max-height: 140px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: block;
+}
+
+/* 用户消息文件附件卡片（P1-7）：图标/缩略图 + 文件名 + 类型/大小 */
+.ob-msg-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+
+  &:empty { margin-bottom: 0; }
+}
+
+.ob-msg-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px 7px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+  max-width: 240px;
+}
+
+.ob-msg-file-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+}
+
+.ob-msg-file-ico {
+  flex-shrink: 0;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.ob-msg-file-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ob-msg-file-name {
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ob-msg-file-meta {
+  font-size: 10.5px;
+  opacity: 0.78;
+  user-select: none;
 }
 
 /* 模型/供应商错误块：原始报错原样展示 */
@@ -300,6 +453,74 @@ export default {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* ===== 上下文压缩摘要分界（P1-9）===== */
+.ob-compaction {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-left: 2px solid var(--primary-color);
+  border-radius: 6px;
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.ob-compaction-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.ob-compaction-ico {
+  font-size: 13px;
+  color: var(--primary-color);
+}
+
+.ob-compaction-meta {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/* ===== 上下文用量迷你条（meta 行内，P1-9）===== */
+.ob-meta-ctx {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ob-ctx-bar {
+  width: 52px;
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(125, 125, 135, 0.18);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.ob-ctx-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.3s ease;
+
+  &.ok {
+    background: var(--primary-color);
+  }
+
+  &.warn {
+    background: #e6a23c;
+  }
+
+  &.danger {
+    background: #d93025;
+  }
 }
 
 .ob-msg.user:hover .ob-msg-actions {

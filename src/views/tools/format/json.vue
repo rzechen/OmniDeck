@@ -34,7 +34,7 @@
         去转义
       </button>
       <button class="tool-btn" @click="toggleFold">
-        <svg-icon icon-class="expand-fold" class="fold-icon" :class="{ 'is-folded': folded }" />
+        <svg-icon :icon-class="folded ? 'expand' : 'fold'" class="fold-icon" />
         {{ folded ? '展开全部' : '折叠全部' }}
       </button>
       <button class="tool-btn is-primary" @click="copyOutput">
@@ -275,15 +275,9 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-/* 折叠按钮箭头：展开态向下 ▾，折叠态向右 ▸，旋转过渡 */
+/* 折叠按钮箭头：未折叠显示双左箭头（折叠全部），已折叠显示双右箭头（展开全部） */
 .fold-icon {
   width: 12px;
   height: 12px;
-  transform: rotate(90deg);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-
-  &.is-folded {
-    transform: rotate(0deg);
-  }
 }
 </style>

@@ -38,7 +38,20 @@
       <!-- 底部：输入框（磁盘路径/模型选择内嵌于对话框工具栏） -->
       <div class="ob-composer">
         <div class="ob-composer-inner">
-          <buddy-composer v-model="draft" :streaming="streaming" @send="send" @stop="interrupt">
+          <buddy-composer
+            v-model="draft"
+            :streaming="streaming"
+            :images="attachments"
+            :files="fileAttachments"
+            :extra-sendable="attachments.length > 0 || fileAttachments.length > 0"
+            @send="send"
+            @stop="interrupt"
+            @remove-image="removeAttachment"
+            @remove-file="removeFileAttachment"
+            @captured="onCaptured"
+            @pick="pickAttachments"
+            @import-file="importFile"
+          >
             <template slot="tools">
               <!-- 关联本地磁盘路径（必填，未关联无法发送；点击弹出关联弹窗） -->
               <workspace-chip
@@ -47,12 +60,12 @@
                 @open="linkDialogVisible = true"
               />
 
-              <!-- 模型选择 -->
+              <!-- 模型选择（与快捷面板同款 llm 图标） -->
               <composer-picker
                 picker-key="provider"
                 :active-key="openSelect"
                 :model-value="currentProviderId"
-                trigger-icon="cpu"
+                trigger-icon="llm"
                 :trigger-label="currentProvider ? currentProvider.model : '选择模型'"
                 :trigger-title="currentProvider ? currentProvider.name : ''"
                 :warn="!currentProviderId"
@@ -63,6 +76,19 @@
                 @toggle="toggleSelect('provider')"
                 @select="onSelectProvider"
               />
+
+              <!-- 截屏提问（P0-M3）：desktopCapturer 截屏，缩略图入附件条 -->
+              <composer-capture :disabled="streaming" @captured="onCaptured" />
+
+              <!-- 检查点（N4）：写操作前自动快照，抽屉查看时间线并回滚 -->
+              <div
+                class="ob-cp-entry"
+                :class="{ disabled: !sessionId }"
+                :title="sessionId ? '检查点（写操作自动快照，可回滚）' : '发送首条消息后可用'"
+                @click="openCheckpoints"
+              >
+                <svg-icon icon-class="refresh-left" />
+              </div>
             </template>
           </buddy-composer>
         </div>
@@ -76,6 +102,45 @@
       @close="linkDialogVisible = false"
       @submit="onLinkWorkspace"
     />
+
+    <!-- 检查点抽屉（N4）：写操作前自动快照，时间线倒序 + 一键回滚 -->
+    <el-drawer
+      :visible.sync="cpDrawer"
+      title="检查点"
+      size="360px"
+      append-to-body
+    >
+      <div v-loading="cpLoading" class="ob-cp-list">
+        <div v-if="!cpLoading && !checkpoints.length" class="ob-cp-empty">
+          暂无检查点<br />Agent 执行写操作（写文件/编辑等）前会自动创建快照
+        </div>
+        <el-timeline v-else>
+          <el-timeline-item
+            v-for="cp in checkpoints"
+            :key="cp.n"
+            :timestamp="cpTime(cp)"
+            :type="cp.missing ? 'warning' : 'primary'"
+            placement="top"
+          >
+            <div class="ob-cp-item">
+              <div class="ob-cp-main">
+                <span class="ob-cp-tool">#{{ cp.n }} · {{ cpToolName(cp.tool) }}</span>
+                <span v-if="cp.missing" class="ob-cp-missing">快照已丢失</span>
+              </div>
+              <el-button
+                size="mini"
+                type="text"
+                class="ob-cp-rollback"
+                :disabled="cp.missing || rollingBack === cp.n"
+                :loading="rollingBack === cp.n"
+                @click="rollbackTo(cp)"
+              >回滚到此</el-button>
+            </div>
+          </el-timeline-item>
+        </el-timeline>
+      </div>
+      <div class="ob-cp-tip">回滚将恢复快照时的工作空间文件，并截断之后的对话记录；回滚前会自动再做一次快照，可再回滚回来。</div>
+    </el-drawer>
   </div>
 </template>
 
@@ -86,6 +151,7 @@ import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
 import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
 import TodoCard from '@/components/buddy/chat/TodoCard.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
+import ComposerCapture from '@/components/buddy/chat/ComposerCapture.vue'
 import WorkspaceChip from '@/components/buddy/chat/WorkspaceChip.vue'
 import WorkspaceLinkDialog from '@/components/buddy/WorkspaceLinkDialog.vue'
 import { getItem, setItem } from '@/utils/db'
@@ -94,7 +160,7 @@ import { getItem, setItem } from '@/utils/db'
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
 export default {
   name: 'OmniBuddyChat',
-  components: { BuddyComposer, ChatPlaceholder, MessageBubble, AskUserCard, TodoCard, ComposerPicker, WorkspaceChip, WorkspaceLinkDialog },
+  components: { BuddyComposer, ChatPlaceholder, MessageBubble, AskUserCard, TodoCard, ComposerPicker, ComposerCapture, WorkspaceChip, WorkspaceLinkDialog },
   data() {
     return {
       draft: '',
@@ -102,6 +168,10 @@ export default {
       streaming: false,
       providers: [],
       currentProviderId: '',
+      // 待发送截图附件（[{id,width,height,thumb}]）
+      attachments: [],
+      // 待发送文件附件（[{id,name,size,kind,thumb,path}]，P1-7）
+      fileAttachments: [],
       // ===== 关联的本地磁盘路径（必填，未关联无法发送；dir/name/workspaceId） =====
       workspaceLink: { dir: '', name: '', workspaceId: '' },
       linkDialogVisible: false,
@@ -115,6 +185,11 @@ export default {
       cycleBase: '',
       // 当前正在累积的思考内容块（思考文本按轮次独立成块）
       thinkingItem: null,
+      // ===== 检查点（N4）=====
+      cpDrawer: false,
+      cpLoading: false,
+      checkpoints: [],
+      rollingBack: 0,
       unsubscribe: null
     }
   },
@@ -130,7 +205,7 @@ export default {
       return this.providers.map(p => ({
         value: p.id,
         label: p.name + ' · ' + (p.displayName || p.model),
-        svg: 'cpu'
+        svg: 'llm'
       }))
     }
   },
@@ -174,7 +249,12 @@ export default {
         listWorkspaces: async () => [],
         addWorkspace: async () => ({ ok: false, canceled: true }),
         removeWorkspace: async () => ({ ok: false }),
-        sessionMeta: async () => null
+        sessionMeta: async () => null,
+        pickAttachments: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
+        importAttachment: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
+        listCheckpoints: async () => ({ ok: true, items: [] }),
+        rollbackCheckpoint: async () => ({ ok: false, error: '检查点需要 OmniDeck 桌面端' }),
+        exportSession: async () => ({ ok: false, error: '导出需要 OmniDeck 桌面端' })
       }
     },
     loadProviders() {
@@ -219,6 +299,11 @@ export default {
           continue
         }
         if (m.role === 'assistant') {
+          // 压缩摘要（compaction 分界）独立成条，不与相邻助手消息归并
+          if (m.compaction) {
+            out.push(Object.assign({}, m, { items: [] }))
+            continue
+          }
           const last = out[out.length - 1]
           if (last && last.role === 'assistant') {
             if (m.content) last.content = last.content ? last.content + '\n\n' + m.content : m.content
@@ -228,6 +313,11 @@ export default {
               last.usage = last.usage || { input: 0, output: 0 }
               last.usage.input += m.usage.input || 0
               last.usage.output += m.usage.output || 0
+              // 上下文占用取最新值（快照，不累加）
+              if (m.usage.contextTokens != null) {
+                last.usage.contextTokens = m.usage.contextTokens
+                last.usage.contextWindow = m.usage.contextWindow
+              }
             }
             // 供应商错误记录：归并后仍保留展示
             if (m.error) last.error = m.error
@@ -248,9 +338,42 @@ export default {
       // 持久化选中模型，切换页面后自动恢复
       setItem('omnibuddy:providerId', id)
     },
+    // ===== 截图附件 =====
+    onCaptured(image) {
+      this.attachments.push(image)
+    },
+    removeAttachment(i) {
+      this.attachments.splice(i, 1)
+    },
+    // ===== 文件附件（P1-7）=====
+    // “+”按钮：系统文件选择框（多选）
+    async pickAttachments() {
+      if (this.streaming) return
+      const res = await this.api().pickAttachments()
+      if (!res || !res.ok) {
+        if (res && res.error) this.$message.warning(res.error)
+        return
+      }
+      for (const a of res.attachments) this.fileAttachments.push(a)
+    },
+    // 拖拽/粘贴导入：主进程落盘后入待发送列表
+    async importFile(filePath) {
+      if (this.streaming) return
+      const res = await this.api().importAttachment(filePath)
+      if (!res || !res.ok) {
+        this.$message.warning((res && res.error) || '附件导入失败')
+        return
+      }
+      this.fileAttachments.push(res.attachment)
+    },
+    removeFileAttachment(i) {
+      this.fileAttachments.splice(i, 1)
+    },
     async send() {
       const text = this.draft.trim()
-      if (!text || this.streaming) return
+      const images = this.attachments.slice()
+      const files = this.fileAttachments.slice()
+      if ((!text && !images.length && !files.length) || this.streaming) return
       if (!window.electronAPI || !window.electronAPI.omnibuddy) {
         this.$message.info('对话能力需要 OmniDeck 桌面端')
         this.draft = ''
@@ -263,6 +386,8 @@ export default {
         return
       }
       this.draft = ''
+      this.attachments = []
+      this.fileAttachments = []
 
       let sessionId = this.sessionId
       if (!sessionId) {
@@ -277,7 +402,13 @@ export default {
         this.$root.$emit('omnibuddy:sessions-changed')
       }
 
-      this.messages.push({ role: 'user', content: text, createdAt: Date.now() })
+      this.messages.push({
+        role: 'user',
+        content: text,
+        images: images.length ? images : undefined,
+        fileAttachments: files.length ? files : undefined,
+        createdAt: Date.now()
+      })
       // 立即显示「思考中」占位（光标闪烁 + 秒计时）；内容块到达后转为深度思考区
       const placeholder = {
         role: 'assistant',
@@ -300,6 +431,8 @@ export default {
       const res = await this.api().sendMessage({
         id: sessionId,
         text,
+        images,
+        attachments: files,
         provider: this.currentProvider,
         workspaceId: this.workspaceLink.workspaceId,
         displayName: this.workspaceLink.name
@@ -398,12 +531,14 @@ export default {
           msg.isThinking = false
           msg.content = this.cycleBase + (e.content || '')
           this.$delete(msg, 'thinking')
-          // token 用量：工具循环中多次模型调用，逐次累加
-          if (e.usage && (e.usage.input || e.usage.output)) {
+          // token 用量：工具循环中多次模型调用，逐次累加；上下文占用取最新快照
+          if (e.usage && (e.usage.input || e.usage.output || e.usage.contextTokens)) {
             const prev = msg.usage || { input: 0, output: 0 }
             this.$set(msg, 'usage', {
               input: prev.input + (e.usage.input || 0),
-              output: prev.output + (e.usage.output || 0)
+              output: prev.output + (e.usage.output || 0),
+              contextTokens: e.usage.contextTokens,
+              contextWindow: e.usage.contextWindow
             })
           }
           this.stopThinkTimer()
@@ -470,10 +605,41 @@ export default {
             this.$message.warning('沙箱未生效：' + e.status.reason)
           }
           break
+        case 'compaction_start':
+          // 上下文压缩开始：提示条（不中断流式状态）
+          this.$message.info('对话较长，正在自动整理早期记录…')
+          break
+        case 'compaction_end': {
+          // 压缩完成：摘要已落盘，插入分界气泡（历史重开会话亦可见）
+          if (e.errorMessage) {
+            this.$message.warning('上下文整理失败：' + e.errorMessage)
+            break
+          }
+          if (e.aborted || e.willRetry) break
+          this.messages.push({
+            role: 'assistant',
+            content: '',
+            createdAt: Date.now(),
+            compaction: {
+              tokensBefore: e.tokensBefore || 0,
+              tokensAfter: e.tokensAfter || 0
+            }
+          })
+          break
+        }
         case 'truncated':
           // 其他窗口/入口触发了回退，重新加载消息
           this.streaming = false
           this.loadMessages()
+          break
+        case 'rolled_back':
+          // 检查点回滚完成（可能由其他入口触发）：刷新消息与检查点列表
+          this.streaming = false
+          this.finishTurn()
+          this.loadMessages()
+          this.$root.$emit('omnibuddy:sessions-changed')
+          this.$message.success('已回滚到检查点')
+          if (this.cpDrawer) this.loadCheckpoints()
           break
         case 'pi_unavailable':
           this.$message.warning('Agent 模式不可用，已回退纯对话：' + (e.error || ''))
@@ -597,6 +763,51 @@ export default {
         }
       }).catch(() => {})
     },
+    // ===== 检查点 / 回滚（N4） =====
+    openCheckpoints() {
+      if (!this.sessionId) return
+      this.cpDrawer = true
+      this.loadCheckpoints()
+    },
+    async loadCheckpoints() {
+      if (!this.sessionId) return
+      this.cpLoading = true
+      try {
+        const res = await this.api().listCheckpoints(this.sessionId)
+        this.checkpoints = (res && res.items) || []
+      } finally {
+        this.cpLoading = false
+      }
+    },
+    rollbackTo(cp) {
+      this.$confirm(
+        '将恢复到检查点 #' + cp.n + '：工作空间文件回退到快照状态，之后的对话记录将被截断。继续吗？',
+        '回滚到检查点',
+        { confirmButtonText: '回滚', cancelButtonText: '取消', type: 'warning' }
+      ).then(async () => {
+        this.rollingBack = cp.n
+        try {
+          const res = await this.api().rollbackCheckpoint({ id: this.sessionId, n: cp.n })
+          if (res && res.ok) {
+            // 主进程会广播 rolled_back 事件统一刷新，这里兜底关闭抽屉
+            this.cpDrawer = false
+          } else {
+            this.$message.error((res && res.error) || '回滚失败')
+          }
+        } finally {
+          this.rollingBack = 0
+        }
+      }).catch(() => {})
+    },
+    cpTime(cp) {
+      const d = new Date(cp.createdAt)
+      const p = n => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+    },
+    cpToolName(tool) {
+      const map = { write: '写文件', edit: '编辑', multi_edit: '批量编辑', mkdir: '建目录', delete: '删除', rollback: '回滚前备份' }
+      return map[tool] || tool
+    },
     scrollToBottom() {
       this.$nextTick(() => {
         const body = this.$refs.body
@@ -663,5 +874,39 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* ===== 检查点入口（composer 工具区） ===== */
+.ob-cp-entry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: $text-secondary;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+
+  .svg-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  &:hover {
+    color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.1);
+  }
+
+  &.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+
+    &:hover {
+      color: $text-secondary;
+      background: transparent;
+    }
+  }
 }
 </style>

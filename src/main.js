@@ -9,6 +9,7 @@ import SvgIcon from './components/SvgIcon/index.vue'
 import { setupSvgSprite } from './utils/svg-sprite'
 import { loadAll, getItem } from './utils/db'
 import { applyTheme, getStoredTheme, watchSystemTheme } from './utils/theme'
+import { getStoredWallpaper, applyWallpaperDom } from './utils/wallpaper'
 import './styles/index.scss'
 import './styles/theme.scss'
 import './styles/motion.scss'
@@ -76,6 +77,8 @@ async function bootstrap() {
   watchSystemTheme()
 
   // 同步到 Vuex（含工具收藏、卡片布局、侧边栏默认状态、分组展开状态、动效偏好）
+  const { list: wpList, config: wpConfig } = getStoredWallpaper()
+  applyWallpaperDom(wpConfig)
   store.commit('INIT_FROM_DB', {
     mode,
     color,
@@ -83,7 +86,9 @@ async function bootstrap() {
     toolGridCols: getItem('toolGridCols', 'auto'),
     sidebarDefault: getItem('sidebarDefault', 'expand'),
     sidebarGroupsDefault: getItem('sidebarGroupsDefault', 'expand'),
-    reduceMotion: getItem('reduceMotion', false)
+    reduceMotion: getItem('reduceMotion', false),
+    wallpaperList: wpList,
+    wallpaperConfig: wpConfig
   })
 
   // 减弱动态效果：写入 html 根类，全局 CSS 感知

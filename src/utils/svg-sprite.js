@@ -1,9 +1,15 @@
 // SVG 雪碧图：用 Vite 原生 import.meta.glob 收集 svg 原始内容，生成 symbol 注入页面
 // 不依赖第三方插件，dev/build 均稳定
 
-// 通用图标目录 + 空间专属图标目录（src/assets/space，space- 前缀命名避免重名）
+// 图标按域划分：svg/deck（主应用）/ svg/buddy（OmniBuddy），共用图标两边各放一份
+// + 空间专属图标目录（src/assets/space，space- 前缀命名避免重名）
 const modules = {
-  ...import.meta.glob('@/assets/icons/svg/*.svg', {
+  ...import.meta.glob('@/assets/icons/svg/deck/*.svg', {
+    eager: true,
+    query: '?raw',
+    import: 'default'
+  }),
+  ...import.meta.glob('@/assets/icons/svg/buddy/*.svg', {
     eager: true,
     query: '?raw',
     import: 'default'

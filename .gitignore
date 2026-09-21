@@ -2,6 +2,8 @@ node_modules
 dist
 dist-verify*
 dist-electron
+.dist-trash
+.stale-builds
 release
 .DS_Store
 *.log

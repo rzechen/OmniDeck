@@ -33,6 +33,11 @@
         />
         <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
         <span class="buddy-chat-actions" @click.stop>
+          <svg-icon
+            icon-class="arrow-down"
+            title="导出会话"
+            @click.stop="$emit('export-chat', c)"
+          />
           <svg-icon icon-class="edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
           <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="$emit('delete-chat', c)" />
         </span>
@@ -150,12 +155,12 @@ export default {
   }
 }
 
-/* 对话项 */
+/* 对话项：缩进于分组标题之下（视觉层级） */
 .buddy-chat {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 7px 10px 7px 26px;
   border-radius: $radius-sm;
   color: $text-sidebar;
   cursor: pointer;

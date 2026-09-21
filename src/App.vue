@@ -7,6 +7,8 @@
     <transition name="view-swap" mode="out-in">
       <router-view />
     </transition>
+    <!-- 全局背景壁纸层（设置页可配置：图片/GIF/视频 + 轮播） -->
+    <app-wallpaper />
     <!-- OmniBuddy 快速唤起浮窗（全局 ⌘J） -->
     <buddy-spotlight />
     <!-- 应用锁定遮罩（密码 / Touch ID） -->
@@ -17,18 +19,35 @@
 <script>
 import BuddySpotlight from '@/components/buddy/BuddySpotlight.vue'
 import AppLock from '@/components/AppLock.vue'
+import AppWallpaper from '@/components/AppWallpaper.vue'
 import { getItem, setItem } from '@/utils/db'
 
 export default {
   name: 'App',
-  components: { BuddySpotlight, AppLock },
+  components: { BuddySpotlight, AppLock, AppWallpaper },
   created() {
     // 代办到期提醒：全局轮询（含启动时补发错过未通知的提醒）
     this.todoRemindTimer = setInterval(this.checkTodoReminders, 30000)
     this.checkTodoReminders()
+
+    // 主进程导航指令（托盘「检查更新」等）：跳转指定路由
+    if (window.electronAPI && window.electronAPI.onNavGoto) {
+      this.offNavGoto = window.electronAPI.onNavGoto(p => {
+        if (this.$route.path !== p) this.$router.push(p).catch(() => {})
+      })
+    }
+
+    // 静默检查发现新版本：系统通知，点击跳版本页查看
+    if (window.electronAPI && window.electronAPI.updater) {
+      this.offUpdateAvailable = window.electronAPI.updater.onAvailable(info => {
+        this.fireUpdateNotification(info)
+      })
+    }
   },
   beforeDestroy() {
     clearInterval(this.todoRemindTimer)
+    if (this.offNavGoto) this.offNavGoto()
+    if (this.offUpdateAvailable) this.offUpdateAvailable()
   },
   methods: {
     // ===== 代办到期提醒 =====
@@ -47,6 +66,31 @@ export default {
         }
       })
       if (changed) setItem('todoItems', todos)
+    },
+    // 新版本系统通知（与代办提醒同模式）：点击跳版本页
+    fireUpdateNotification(info) {
+      if (typeof Notification === 'undefined') return
+      const fire = () => {
+        try {
+          const n = new Notification('发现新版本 v' + info.version, {
+            body: '点击查看更新内容并前往下载',
+            tag: 'omnideck-update'
+          })
+          n.onclick = () => {
+            window.focus()
+            if (this.$route.path !== '/version') {
+              this.$router.push('/version').catch(() => {})
+            }
+          }
+        } catch (e) { /* 通知失败忽略 */ }
+      }
+      if (Notification.permission === 'granted') {
+        fire()
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(p => {
+          if (p === 'granted') fire()
+        }).catch(() => {})
+      }
     },
     // 系统通知（Electron 渲染进程 Notification 走系统通知）
     fireTodoNotification(t) {

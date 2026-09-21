@@ -18,7 +18,7 @@
     <!-- 空状态 -->
     <div v-if="!list.length" class="ob-empty">
       <div class="ob-empty-icon">
-        <svg-icon icon-class="cpu" />
+        <svg-icon icon-class="llm" />
       </div>
       <div class="ob-empty-title">暂无模型供应商</div>
       <div class="ob-empty-desc">新建一个供应商后，即可在对话中选择对应模型</div>
@@ -49,7 +49,7 @@
             </span>
           </div>
           <div class="ob-item-meta">
-            <svg-icon icon-class="cpu" class="ob-item-model-svg" />
+            <svg-icon icon-class="llm" class="ob-item-model-svg" />
             <span class="ob-item-model">{{ p.displayName || p.model }}</span>
             <span class="ob-item-dot"></span>
             <span class="ob-item-url" :title="p.baseUrl">{{ p.baseUrl }}</span>

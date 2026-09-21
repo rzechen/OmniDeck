@@ -20,7 +20,7 @@
     <!-- 空状态 -->
     <div v-if="!skillList.length && !skillLoading" class="ob-empty">
       <div class="ob-empty-icon">
-        <svg-icon icon-class="collection-tag" />
+        <svg-icon icon-class="skill" />
       </div>
       <div class="ob-empty-title">暂无 Skill</div>
       <div class="ob-empty-desc">导入一个 Skill（ZIP），让 Agent 掌握特定任务的操作手册</div>
@@ -143,7 +143,7 @@
                   @drop.prevent="onSkillZipDrop"
                 >
                   <template v-if="!skillZipFile">
-                    <svg-icon icon-class="collection-tag" class="ob-zip-ico" />
+                    <svg-icon icon-class="skill" class="ob-zip-ico" />
                     <div class="ob-zip-title">点击或拖拽 ZIP 文件到此处</div>
                     <div class="ob-zip-hint">仅支持 .zip 格式，大小不超过 10MB（需包含 SKILL.md）</div>
                   </template>

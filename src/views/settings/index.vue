@@ -144,6 +144,129 @@
                 </div>
               </div>
             </div>
+
+            <!-- 背景壁纸：本地图/GIF/视频作为全局背景 -->
+            <div class="settings-row wp-row">
+              <div class="row-label">
+                <span class="label-text">背景壁纸</span>
+                <span class="label-desc">选择图片、GIF 或视频作为应用背景，界面自动转为半透明毛玻璃</span>
+              </div>
+              <div class="wp-controls">
+                <el-button size="small" round icon="el-icon-picture-outline" @click="pickWallpaper">选择文件</el-button>
+                <div class="segmented">
+                  <div
+                    v-for="opt in motionOptions"
+                    :key="'wp' + opt.value"
+                    class="segmented-item"
+                    :class="{ active: wpEnabled === opt.value }"
+                    @click="toggleWallpaper(opt.value)"
+                  >
+                    <span>{{ opt.value ? '开启' : '关闭' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 壁纸列表（有壁纸时显示） -->
+            <div v-if="wallpaperList.length" class="wp-gallery-row">
+              <div class="wp-gallery">
+                <div
+                  v-for="wp in wpThumbs"
+                  :key="wp.id"
+                  class="wp-thumb"
+                  :class="{ selected: wpConfig.selectedId === wp.id, video: isVideoWp(wp) }"
+                  @click="selectWallpaper(wp)"
+                >
+                  <img v-if="wp._thumb" :src="wp._thumb" alt="" />
+                  <i v-else class="el-icon-video-play wp-video-badge"></i>
+                  <span class="wp-thumb-name" :title="wp.name">{{ wp.name }}</span>
+                  <span class="wp-thumb-del" title="删除" @click.stop="deleteWallpaper(wp)">
+                    <i class="el-icon-close"></i>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 壁纸效果选项（开启后显示） -->
+            <template v-if="wpEnabled">
+              <div class="settings-row">
+                <div class="row-label">
+                  <span class="label-text">壁纸柔化</span>
+                  <span class="label-desc">模糊壁纸本身，突出前景内容</span>
+                </div>
+                <div class="segmented">
+                  <div
+                    v-for="opt in motionOptions"
+                    :key="'soft' + opt.value"
+                    class="segmented-item"
+                    :class="{ active: wpConfig.soft === opt.value }"
+                    @click="setWpOption('soft', opt.value)"
+                  >
+                    <span>{{ opt.value ? '开启' : '关闭' }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <div class="row-label">
+                  <span class="label-text">背景压暗</span>
+                  <span class="label-desc">加深遮罩浓度，保证浅色壁纸下文字可读</span>
+                </div>
+                <div class="segmented">
+                  <div
+                    v-for="opt in wpDimOptions"
+                    :key="opt.value"
+                    class="segmented-item"
+                    :class="{ active: wpConfig.dim === opt.value }"
+                    @click="setWpOption('dim', opt.value)"
+                  >
+                    <span>{{ opt.label }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <div class="row-label">
+                  <span class="label-text">自动轮播</span>
+                  <span class="label-desc">多张壁纸时按间隔自动切换（交叉淡入）</span>
+                </div>
+                <div class="segmented">
+                  <div
+                    v-for="opt in wpCarouselOptions"
+                    :key="opt.value"
+                    class="segmented-item"
+                    :class="{ active: wpConfig.carousel === opt.value }"
+                    @click="setWpOption('carousel', opt.value)"
+                  >
+                    <span>{{ opt.label }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- 快捷入口（P0-M4）：快捷面板快捷键改键 -->
+        <template v-else-if="activeTab === 'quick'">
+          <header class="settings-section-header">
+            <h2 class="section-title">快捷入口</h2>
+            <p class="section-desc">系统级快捷键唤起快捷面板（应用未聚焦也生效）</p>
+          </header>
+
+          <div class="settings-group">
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">唤起快捷面板</span>
+                <span class="label-desc">点击右侧按钮后按下组合键完成录制；Esc 取消录制</span>
+              </div>
+              <div class="shortcut-recorder" :class="{ recording: recording }">
+                <span class="shortcut-display">{{ recording ? '请按下组合键…' : prettyShortcut }}</span>
+                <el-button size="small" round :type="recording ? 'warning' : 'primary'" @click="toggleRecord">
+                  {{ recording ? '取消' : '录制' }}
+                </el-button>
+                <el-button v-if="!recording && shortcutModified" size="small" round @click="resetShortcut">恢复默认</el-button>
+              </div>
+            </div>
           </div>
         </template>
 
@@ -281,6 +404,13 @@
 <script>
 import { presetColors, themeModes, applyTheme } from '@/utils/theme'
 import { setItem, getItem, clearAll } from '@/utils/db'
+import {
+  addWallpaperFile,
+  removeWallpaper,
+  saveWallpaperConfig,
+  applyWallpaperDom,
+  isVideoItem
+} from '@/utils/wallpaper'
 
 export default {
   name: 'Settings',
@@ -289,6 +419,7 @@ export default {
       activeTab: 'general',
       tabs: [
         { key: 'general', label: '通用', icon: 'el-icon-setting' },
+        { key: 'quick', label: '快捷入口', icon: 'el-icon-magic-stick' },
         { key: 'security', label: '安全', icon: 'el-icon-lock' }
       ],
       themeModes,
@@ -333,12 +464,38 @@ export default {
       pwdDialogVisible: false,
       pwdForm: { oldPwd: '', newPwd: '', confirmPwd: '' },
       // 清除本地记录执行中
-      clearing: false
+      clearing: false,
+      // ===== 快捷入口：快捷键录制（M4） =====
+      panelShortcut: '',
+      DEFAULT_PANEL_SHORTCUT: 'CommandOrControl+Shift+Space',
+      recording: false,
+      // ===== 背景壁纸 =====
+      wpDimOptions: [
+        { label: '无', value: 'none' },
+        { label: '轻', value: 'light' },
+        { label: '中', value: 'medium' },
+        { label: '重', value: 'heavy' }
+      ],
+      wpCarouselOptions: [
+        { label: '关闭', value: 'off' },
+        { label: '30 秒', value: '30s' },
+        { label: '1 分钟', value: '1m' },
+        { label: '5 分钟', value: '5m' }
+      ],
+      wpFileInput: null
     }
   },
   computed: {
     themeMode() {
       return this.$store.state.themeMode
+    },
+    // 展示用快捷键文案：⌃⌥⇧⌘ 形式（mac）
+    prettyShortcut() {
+      return this.formatAccelerator(this.panelShortcut || this.DEFAULT_PANEL_SHORTCUT)
+    },
+    // 是否已偏离默认键（控制「恢复默认」按钮显隐）
+    shortcutModified() {
+      return this.panelShortcut !== this.DEFAULT_PANEL_SHORTCUT
     },
     primaryColor() {
       return this.$store.state.primaryColor
@@ -354,12 +511,126 @@ export default {
     },
     reduceMotion() {
       return this.$store.state.reduceMotion
+    },
+    // ===== 背景壁纸 =====
+    wpEnabled() {
+      return this.$store.state.wallpaperConfig.enabled
+    },
+    wpConfig() {
+      return this.$store.state.wallpaperConfig
+    },
+    wallpaperList() {
+      return this.$store.state.wallpaperList
+    },
+    // 缩略图列表：图片附 blob URL（缓存复用，不反复 createObjectURL）
+    wpThumbs() {
+      return this.wallpaperList.map(wp => {
+        if (isVideoItem(wp)) return wp
+        if (!wp._thumb && wp.blob) {
+          try {
+            this.$set(wp, '_thumb', URL.createObjectURL(wp.blob))
+          } catch (e) { /* 忽略 */ }
+        }
+        return wp
+      })
     }
   },
   mounted() {
     this.loadLockState()
+    this.loadPanelShortcut()
+  },
+  beforeDestroy() {
+    window.removeEventListener('keydown', this.onRecordKeydown, true)
   },
   methods: {
+    // ===== 快捷入口：快捷键录制（M4） =====
+    async loadPanelShortcut() {
+      const quick = window.electronAPI && window.electronAPI.quick
+      if (quick && quick.getShortcut) {
+        const res = await quick.getShortcut()
+        this.panelShortcut = res && res.accelerator ? res.accelerator : this.DEFAULT_PANEL_SHORTCUT
+      } else {
+        this.panelShortcut = this.DEFAULT_PANEL_SHORTCUT
+      }
+    },
+    // accelerator → 展示文案（CommandOrControl+Shift+Space → ⌘⇧Space / Ctrl+Shift+Space）
+    formatAccelerator(a) {
+      const isMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin')
+      return String(a)
+        .split('+')
+        .map(k => {
+          if (k === 'CommandOrControl' || k === 'CmdOrCtrl') return isMac ? '⌘' : 'Ctrl'
+          if (k === 'Command' || k === 'Cmd') return '⌘'
+          if (k === 'Control' || k === 'Ctrl') return isMac ? '⌃' : 'Ctrl'
+          if (k === 'Alt' || k === 'AltGr') return isMac ? '⌥' : 'Alt'
+          if (k === 'Shift') return isMac ? '⇧' : 'Shift'
+          if (k === 'Meta' || k === 'Super') return isMac ? '⌘' : 'Win'
+          if (isMac) {
+            if (k === 'Space') return '空格'
+          }
+          return k
+        })
+        .join(isMac ? '' : '+')
+    },
+    toggleRecord() {
+      if (this.recording) {
+        this.stopRecord()
+      } else {
+        this.recording = true
+        window.addEventListener('keydown', this.onRecordKeydown, true)
+      }
+    },
+    stopRecord() {
+      this.recording = false
+      window.removeEventListener('keydown', this.onRecordKeydown, true)
+    },
+    // 录制：捕获首个合法组合（需含修饰键 + 一个普通键）
+    onRecordKeydown(e) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') {
+        this.stopRecord()
+        return
+      }
+      const isMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin')
+      const parts = []
+      if (isMac ? e.metaKey : (e.ctrlKey || e.metaKey)) parts.push('CommandOrControl')
+      if (e.ctrlKey && isMac) parts.push('Control')
+      if (e.altKey) parts.push('Alt')
+      if (e.shiftKey) parts.push('Shift')
+      // 仅修饰键：等待继续输入
+      if (!parts.length) return
+      let key = e.key.length === 1 ? e.key.toUpperCase() : e.key
+      // 命名归一（Electron accelerator 语法）
+      const alias = {
+        Space: 'Space', Escape: 'Esc', ArrowUp: 'Up', ArrowDown: 'Down',
+        ArrowLeft: 'Left', ArrowRight: 'Right', Enter: 'Return'
+      }
+      key = alias[key] || key
+      if (['Up', 'Down', 'Left', 'Right', 'Space', 'Esc', 'Return', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown'].indexOf(key) < 0 &&
+        !/^[A-Z0-9]$/.test(key) && !/^F\d{1,2}$/.test(key)) return
+      const accelerator = parts.concat([key]).join('+')
+      this.applyShortcut(accelerator)
+    },
+    async applyShortcut(accelerator) {
+      const quick = window.electronAPI && window.electronAPI.quick
+      if (!quick || !quick.setShortcut) {
+        this.$message.info('快捷键设置需要 OmniDeck 桌面端')
+        this.stopRecord()
+        return
+      }
+      const res = await quick.setShortcut(accelerator)
+      this.stopRecord()
+      if (res && res.ok) {
+        this.panelShortcut = res.accelerator
+        this.$message.success('快捷键已更新：' + this.formatAccelerator(res.accelerator))
+      } else {
+        this.$message.error((res && res.error) || '注册失败，请换一组按键')
+      }
+    },
+    resetShortcut() {
+      this.applyShortcut(this.DEFAULT_PANEL_SHORTCUT)
+    },
     selectMode(mode) {
       this.$store.commit('SET_THEME', { mode })
       applyTheme(this.themeMode, this.primaryColor)
@@ -388,6 +659,87 @@ export default {
       this.$store.commit('SET_REDUCE_MOTION', val)
       setItem('reduceMotion', val)
       document.documentElement.classList.toggle('reduce-motion', val)
+    },
+    // ===== 背景壁纸 =====
+    isVideoWp(wp) {
+      return isVideoItem(wp)
+    },
+    // 生成缩略图地址：图片直接出 blob URL，视频暂无缩略图（显示播放角标）
+    wpThumbUrl(wp) {
+      if (this.isVideoWp(wp) || !wp.blob) return ''
+      try {
+        return URL.createObjectURL(wp.blob)
+      } catch (e) {
+        return ''
+      }
+    },
+    // 选择文件（隐藏 input[type=file]，多选）
+    pickWallpaper() {
+      if (!this.wpFileInput) {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = 'image/gif,image/jpeg,image/png,image/webp,image/bmp,video/mp4,video/webm,video/quicktime,.gif,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.webm,.mov,.m4v'
+        input.multiple = true
+        input.style.display = 'none'
+        input.addEventListener('change', () => {
+          const files = Array.from(input.files || [])
+          this.addWallpapers(files)
+          input.value = ''
+        })
+        document.body.appendChild(input)
+        this.wpFileInput = input
+      }
+      this.wpFileInput.click()
+    },
+    async addWallpapers(files) {
+      if (!files.length) return
+      let last = null
+      for (const f of files) {
+        const res = await addWallpaperFile(f)
+        if (res) {
+          last = res
+          this.$store.commit('SET_WALLPAPER_LIST', res.list)
+          this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
+        }
+      }
+      if (last) {
+        // 首次添加自动开启壁纸
+        if (!last.config.enabled) {
+          this.commitWpConfig({ enabled: true })
+        }
+        applyWallpaperDom(this.$store.state.wallpaperConfig)
+        this.$message({ message: '已添加 ' + files.length + ' 张壁纸', type: 'success' })
+      } else {
+        this.$message({ message: '不支持的文件类型', type: 'warning' })
+      }
+    },
+    // 总开关
+    toggleWallpaper(on) {
+      if (on && !this.wallpaperList.length) {
+        this.$message({ message: '请先选择壁纸文件', type: 'info' })
+        return
+      }
+      this.commitWpConfig({ enabled: !!on })
+    },
+    // 选中某张壁纸
+    selectWallpaper(wp) {
+      this.commitWpConfig({ selectedId: wp.id })
+    },
+    // 属性级修改（柔化/压暗/轮播）
+    setWpOption(key, value) {
+      this.commitWpConfig({ [key]: value })
+    },
+    commitWpConfig(patch) {
+      const config = Object.assign({}, this.$store.state.wallpaperConfig, patch)
+      this.$store.commit('SET_WALLPAPER_CONFIG', config)
+      saveWallpaperConfig(config)
+      applyWallpaperDom(config)
+    },
+    async deleteWallpaper(wp) {
+      const res = await removeWallpaper(wp.id)
+      this.$store.commit('SET_WALLPAPER_LIST', res.list)
+      this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
+      applyWallpaperDom(res.config)
     },
     // ===== 安全：应用锁定 =====
     async loadLockState() {
@@ -650,6 +1002,38 @@ export default {
   }
 }
 
+/* 快捷键录制器 */
+.shortcut-recorder {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  &.recording .shortcut-display {
+    border-color: $primary-color;
+    color: $primary-color;
+    animation: shortcut-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+.shortcut-display {
+  display: inline-flex;
+  align-items: center;
+  min-width: 130px;
+  padding: 4px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: $search-bg;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: $text-primary;
+  letter-spacing: 0.5px;
+}
+
+@keyframes shortcut-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(64, 158, 255, 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(64, 158, 255, 0); }
+}
+
 /* 分段选择器（macOS segmented control 风格） */
 .segmented {
   display: inline-flex;
@@ -724,6 +1108,105 @@ export default {
 
   &.selected {
     box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px $primary-color;
+  }
+}
+
+/* ===== 背景壁纸 ===== */
+.wp-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.wp-gallery-row {
+  padding: 4px 16px 12px 16px;
+}
+
+.wp-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.wp-thumb {
+  position: relative;
+  width: 108px;
+  height: 68px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  background: $search-bg;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+  -webkit-app-region: no-drag;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+
+  &.selected {
+    border-color: $primary-color;
+  }
+}
+
+/* 视频壁纸：无静态缩略图时的占位底 */
+.wp-thumb.video {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wp-video-badge {
+  font-size: 22px;
+  color: $text-secondary;
+}
+
+.wp-thumb-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 14px;
+  color: #ffffff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wp-thumb-del {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+
+  i {
+    color: #ffffff;
+  }
+
+  .wp-thumb:hover & {
+    opacity: 1;
   }
 }
 
