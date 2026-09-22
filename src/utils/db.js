@@ -2,10 +2,15 @@
 // 设计：启动时 loadAll() 异步加载到内存缓存，之后 getItem 同步读取、setItem 异步写入
 
 const DB_NAME = 'omnideck'
-const DB_VERSION = 2
+const DB_VERSION = 4
 const STORE_NAME = 'settings'
 // v2 新增：截图记录池 / 剪贴板历史（记录 id 为主键，值为 { meta, blob }）
 const EXTRA_STORES = ['captures', 'clips']
+// v3 新增：工具执行历史（主键 = 时序 id，值为 { tool, ts, input, output, ... }，
+// 不进内存缓存，走 store* 系列按记录异步读写）
+const HISTORY_STORE = 'toolHistory'
+// v4 新增：剪贴板收藏（主键 = favclip id，值为 { meta, png? }；与 clips 历史隔离）
+const FAV_STORE = 'favClips'
 
 let db = null
 const cache = new Map()
@@ -27,6 +32,14 @@ function openDB() {
             database.createObjectStore(name)
           }
         })
+        // v3：工具执行历史 store
+        if (!database.objectStoreNames.contains(HISTORY_STORE)) {
+          database.createObjectStore(HISTORY_STORE)
+        }
+        // v4：剪贴板收藏 store
+        if (!database.objectStoreNames.contains(FAV_STORE)) {
+          database.createObjectStore(FAV_STORE)
+        }
       }
       req.onsuccess = (e) => {
         db = e.target.result
@@ -202,6 +215,95 @@ export async function storeGetAll(name) {
         if (cursor) {
           out.push({ key: cursor.key, value: cursor.value })
           cursor.continue()
+        } else {
+          resolve(out)
+        }
+      }
+      req.onerror = () => resolve(out)
+    } catch (e) { resolve(out) }
+  })
+}
+
+// ============ IndexedDB 每日用量采样（首页折线图数据源） ============
+// 每天首次启动采样一次 navigator.storage.estimate().usage（覆盖全库：
+// settings/captures/clips/toolHistory），KV 存 { 'YYYY-MM-DD': bytes }，
+// 折线画相邻采样日的差值（每日净增长），只保留最近 90 天
+
+const USAGE_SAMPLES_KEY = 'idbDailyUsageSamples'
+const USAGE_SAMPLES_DAYS = 90
+
+// 本地时区日期键
+function usageDayKey(ts) {
+  const d = new Date(ts)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+// 每日采样（当天已有采样则跳过）：返回是否写入
+export async function sampleDailyUsage() {
+  try {
+    if (!(navigator.storage && navigator.storage.estimate)) return false
+    const { usage } = await navigator.storage.estimate()
+    if (!Number.isFinite(usage)) return false
+    const samples = getItem(USAGE_SAMPLES_KEY, {}) || {}
+    const today = usageDayKey(Date.now())
+    if (samples[today] !== undefined) return false // 当天已采样
+    samples[today] = usage
+    // 顺手清理超期样本
+    const cutoff = usageDayKey(Date.now() - USAGE_SAMPLES_DAYS * 24 * 3600 * 1000)
+    Object.keys(samples).forEach(k => {
+      if (k < cutoff) delete samples[k]
+    })
+    setItem(USAGE_SAMPLES_KEY, samples)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+// 近 N 天每日净增长（旧→新）：当天用量 − 前一个采样日用量；首日 / 无前值补 null
+// bytes→可读文案由调用方格式化；null 表示该日无增长数据（不画点）
+export function getDailyGrowth(days) {
+  const n = days || 14
+  const samples = getItem(USAGE_SAMPLES_KEY, {}) || {}
+  const keys = Object.keys(samples).sort() // 升序日期键
+  const out = []
+  const now = new Date()
+  for (let i = n - 1; i >= 0; i--) {
+    const k = usageDayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i).getTime())
+    let growth = null
+    const idx = keys.indexOf(k)
+    if (idx > 0) {
+      growth = Math.max(0, samples[k] - samples[keys[idx - 1]]) // 净增长不为负（有清理时归 0）
+    }
+    out.push({ date: k, growth })
+  }
+  return out
+}
+
+// 倒序游标遍历历史 store：按 tool 过滤，最多取 limit 条
+// 倒序方向从最新往旧走（主键为时序 id `${ts}:${rand}`），配合 IDBKeyRange.upperBound 实现分页
+export async function historyQuery(tool, limit, before) {
+  await openDB()
+  if (!db) return []
+  return new Promise((resolve) => {
+    const out = []
+    try {
+      const range = before
+        ? IDBKeyRange.upperBound(before, true)
+        : undefined
+      const req = storeTx(HISTORY_STORE, 'readonly').openCursor(range, 'prev')
+      req.onsuccess = (e) => {
+        const cursor = e.target.result
+        if (cursor) {
+          if (!tool || (cursor.value && cursor.value.tool === tool)) {
+            out.push({ key: cursor.key, value: cursor.value })
+          }
+          if (out.length >= limit) {
+            resolve(out)
+          } else {
+            cursor.continue()
+          }
         } else {
           resolve(out)
         }

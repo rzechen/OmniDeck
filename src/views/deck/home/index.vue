@@ -74,6 +74,58 @@
         </div>
         <i class="el-icon-arrow-right quick-arrow"></i>
       </div>
+
+      <!-- 本地数据：配额监控 + 每日使用折线 -->
+      <div class="quick-card stagger-item" style="animation-delay: 160ms" @click="$router.push('/settings')">
+        <div class="quick-icon qc-storage">
+          <svg-icon icon-class="storage" class="quick-svg" />
+        </div>
+        <div class="quick-info">
+          <div class="quick-title">
+            本地数据
+            <span v-if="quotaPercent >= 80" class="quota-warn">{{ quotaPercent }}%</span>
+          </div>
+          <div class="quick-desc">{{ storageDesc }}</div>
+          <div class="quota-bar" v-if="quotaPercent > 0">
+            <span class="quota-used" :style="{ width: quotaPercent + '%' }"></span>
+          </div>
+          <!-- 近 14 天 IndexedDB 每日净增长折线图（无数据时占位） -->
+          <div class="usage-chart" :title="chartTitle">
+            <svg
+              v-if="hasUsage"
+              :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
+              preserveAspectRatio="none"
+              class="usage-svg"
+            >
+              <!-- 渐变面积填充 -->
+              <defs>
+                <linearGradient id="usage-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#10B981" stop-opacity="0.25" />
+                  <stop offset="100%" stop-color="#10B981" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <path :d="areaPath" fill="url(#usage-fill)" />
+              <path :d="linePath" fill="none" stroke="#10B981" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round" />
+              <!-- 各数据点（无采样日不画） -->
+              <template v-for="(p, i) in chartPoints">
+                <circle
+                  v-if="p.y !== null"
+                  :key="i"
+                  :cx="p.x"
+                  :cy="p.y"
+                  r="1.8"
+                  fill="#10B981"
+                >
+                  <title>{{ p.date }} · 增长 {{ fmtBytes(p.growth) }}</title>
+                </circle>
+              </template>
+            </svg>
+            <span v-else class="usage-empty">暂无每日用量数据（次日起开始记录）</span>
+          </div>
+        </div>
+        <i class="el-icon-arrow-right quick-arrow"></i>
+      </div>
     </div>
 
     <!-- 工具集：紧凑胶囊网格 -->
@@ -102,7 +154,20 @@
 
 <script>
 import { toolCategories } from '@/config/tools'
-import { getItem } from '@/utils/db'
+import { getItem, getDailyGrowth } from '@/utils/db'
+
+// 字节数人性化：B → KB → MB → GB
+function fmtBytes(n) {
+  if (!n || n < 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
+}
 
 // 首页：宣传位（OmniBuddy 主推）+ 核心功能入口 + 工具集紧凑网格
 export default {
@@ -114,7 +179,14 @@ export default {
       timer: null,
       todayPending: 0,
       favToolCount: 0,
-      favSiteCount: 0
+      favSiteCount: 0,
+      // 本地数据配额：{ usage, quota } 字节数，null 表示不可用
+      storageEstimate: null,
+      // 近 14 天 IndexedDB 每日净增长 [{ date, growth }]（旧→新；null = 无采样数据）
+      dailyUsage: [],
+      // 折线图逻辑尺寸（viewBox）
+      CHART_W: 100,
+      CHART_H: 24
     }
   },
   computed: {
@@ -145,6 +217,85 @@ export default {
     totalTools() {
       return this.toolCategories.reduce((sum, c) => sum + c.children.length, 0)
     },
+    // 配额已用百分比（0-100；取不到时 0 不渲染进度条）
+    quotaPercent() {
+      if (!this.storageEstimate || !this.storageEstimate.quota) return 0
+      return Math.min(100, Math.round((this.storageEstimate.usage / this.storageEstimate.quota) * 100))
+    },
+    // 用量文案：已用 / 总配额；取不到时提示不可用
+    storageDesc() {
+      if (!this.storageEstimate) return '用量统计不可用'
+      const { usage, quota } = this.storageEstimate
+      return `${fmtBytes(usage)} 已用 · 配额 ${fmtBytes(quota)}`
+    },
+    // ===== 近 14 天 IndexedDB 每日净增长折线 =====
+    // 是否有增长数据（任一天有非空采样差值）
+    hasUsage() {
+      return this.dailyUsage.some(d => d.growth !== null)
+    },
+    // 折线数据点（viewBox 坐标）：max 归一化；无采样日（null）跳过该点、折线断开
+    chartPoints() {
+      const max = Math.max(1, ...this.dailyUsage.filter(d => d.growth !== null).map(d => d.growth))
+      const n = this.dailyUsage.length
+      const W = this.CHART_W
+      const H = this.CHART_H
+      const pad = 2 // 上下留白，避免线条贴边
+      return this.dailyUsage.map((d, i) => {
+        const x = n <= 1 ? W / 2 : (i / (n - 1)) * W
+        // 无采样数据的日期：y 置为 null，path 生成时断开
+        if (d.growth === null) return { x, y: null, date: d.date.slice(5), growth: null }
+        const ratio = d.growth / max
+        const y = pad + (1 - ratio) * (H - pad * 2)
+        return { x, y, date: d.date.slice(5), growth: d.growth }
+      })
+    },
+    // 折线 path（null 点断线，用 M 重新起笔）
+    linePath() {
+      let d = ''
+      let pen = false // 上一笔是否有效（用于 M/L 切换）
+      this.chartPoints.forEach(p => {
+        if (p.y === null) {
+          pen = false
+          return
+        }
+        d += `${pen ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)} `
+        pen = true
+      })
+      return d.trim()
+    },
+    // 面积 path（每段折线闭合到底部；无有效点返回空）
+    areaPath() {
+      const H = this.CHART_H
+      const pts = this.chartPoints
+      let d = ''
+      let seg = [] // 当前连续段
+      const flush = () => {
+        if (seg.length < 2) { seg = []; return }
+        const head = seg.map((p, i) =>
+          `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`
+        ).join(' ')
+        d += `${head} L${seg[seg.length - 1].x.toFixed(1)},${H} L${seg[0].x.toFixed(1)},${H} Z `
+        seg = []
+      }
+      pts.forEach(p => {
+        if (p.y === null) {
+          flush()
+        } else {
+          seg.push(p)
+        }
+      })
+      flush()
+      return d.trim()
+    },
+    // 悬停提示：区间 + 累计增长
+    chartTitle() {
+      if (!this.hasUsage || !this.dailyUsage.length) return ''
+      const valid = this.dailyUsage.filter(d => d.growth !== null)
+      const total = valid.reduce((s, d) => s + d.growth, 0)
+      const first = this.dailyUsage[0].date.slice(5)
+      const last = this.dailyUsage[this.dailyUsage.length - 1].date.slice(5)
+      return `${first} ~ ${last} IndexedDB 累计增长 ${fmtBytes(total)}`
+    },
     todayKey() {
       const d = this.now
       const pad = n => String(n).padStart(2, '0')
@@ -156,6 +307,8 @@ export default {
       this.now = new Date()
     }, 1000)
     this.loadQuickStats()
+    this.loadStorageEstimate()
+    this.loadDailyUsage()
   },
   beforeDestroy() {
     if (this.timer) clearInterval(this.timer)
@@ -171,6 +324,21 @@ export default {
       this.favToolCount = Array.isArray(favTools) ? favTools.length : 0
       const sites = getItem('siteFavorites', [])
       this.favSiteCount = Array.isArray(sites) ? sites.length : 0
+    },
+    // 本地数据配额监控：navigator.storage.estimate()
+    async loadStorageEstimate() {
+      try {
+        if (navigator.storage && navigator.storage.estimate) {
+          const { usage, quota } = await navigator.storage.estimate()
+          this.storageEstimate = { usage: usage || 0, quota: quota || 0 }
+        }
+      } catch (e) { /* 不支持时保持 null，卡片显示「不可用」 */ }
+    },
+    // 近 14 天 IndexedDB 每日净增长（同步读 KV 内存缓存）
+    loadDailyUsage() {
+      try {
+        this.dailyUsage = getDailyGrowth(14)
+      } catch (e) { /* 忽略 */ }
     },
     goBuddy() {
       this.$router.push('/omnibuddy')
@@ -435,6 +603,61 @@ export default {
 
 .qc-fav {
   background: linear-gradient(135deg, #FA8C16, #D46B08);
+}
+
+.qc-storage {
+  background: linear-gradient(135deg, #10B981, #059669);
+}
+
+// 配额进度条
+.quota-bar {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+
+  .quota-used {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #10B981, #059669);
+    transition: width 0.4s ease;
+  }
+}
+
+// 用量告警徽标（≥80%）
+.quota-warn {
+  min-width: 17px;
+  height: 17px;
+  line-height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(245, 154, 23, 0.9);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+// 近 14 天使用折线图
+.usage-chart {
+  margin-top: 6px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.usage-svg {
+  width: 100%;
+  height: 24px;
+  display: block;
+}
+
+.usage-empty {
+  font-size: 10.5px;
+  color: $text-secondary;
+  opacity: 0.7;
 }
 
 .quick-info {

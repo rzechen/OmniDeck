@@ -2,7 +2,7 @@
   <div class="scroll-ctrl" @contextmenu.prevent="cancel">
     <!-- 拍一帧（✓）：滚动内容后再拍下一帧 -->
     <button class="sc-btn" title="拍一帧（滚动内容后点击）" @click="shot">
-      <svg-icon class="sc-ico" icon-class="screenshot" />
+      <svg-icon class="sc-ico" icon-class="capture" />
       <span>{{ frames }}</span>
     </button>
     <div class="sc-divider"></div>

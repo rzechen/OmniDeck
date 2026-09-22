@@ -17,6 +17,10 @@
         <i class="el-icon-download"></i>
         下载
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -49,6 +53,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="HISTORY_TOOL"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!errorMsg }"></span>
       <span v-if="errorMsg" class="status-err">{{ errorMsg }}</span>
@@ -61,15 +73,20 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/download'
 import { jsonToCodeMixin } from './code-gen-mixin'
 
 export default {
   name: 'ConvertJsonToJava',
-  components: { ToolShell, CodeEditor },
+  // 执行历史 toolPath（mixin 的 recordHistory 读取）
+  toolPath: '/tools/convert/json-to-java',
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   mixins: [jsonToCodeMixin],
   data() {
     return {
+      // 面板可访问的工具 path
+      HISTORY_TOOL: '/tools/convert/json-to-java',
       example: `{
   "name": "OmniDeck",
   "version": "1.0.0",

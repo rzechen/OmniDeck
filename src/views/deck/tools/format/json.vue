@@ -45,6 +45,10 @@
         <i class="el-icon-download"></i>
         下载
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -83,6 +87,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <template v-if="jsonInput.trim()">
         <span class="status-dot" :class="{ 'is-bad': !valid }"></span>
@@ -104,7 +116,11 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/download'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/format/json'
 
 const EXAMPLE = `{
   "name": "OmniDeck",
@@ -138,7 +154,7 @@ function locateError(input, err) {
 
 export default {
   name: 'FormatJson',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       jsonInput: EXAMPLE,
@@ -147,7 +163,10 @@ export default {
       folded: false,
       valid: true,
       errMsg: '',
-      errPos: null
+      errPos: null,
+      historyVisible: false,
+      // 模板/实例可访问的工具 path（历史面板与 record 用）
+      TOOL_PATH: TOOL_PATH
     }
   },
   computed: {
@@ -228,7 +247,9 @@ export default {
         this.$message.error('JSON 不合法，无法转义')
         return
       }
+      const before = this.jsonInput
       this.jsonInput = JSON.stringify(JSON.stringify(obj))
+      record(TOOL_PATH, { input: before, output: this.jsonInput, options: { action: 'escape' } })
     },
     // 去转义：转义字符串 → 格式化 JSON
     unescapeJson() {
@@ -243,7 +264,9 @@ export default {
           this.$message.warning('去除转义后不是 JSON 对象')
           return
         }
+        const before = this.jsonInput
         this.jsonInput = JSON.stringify(finalParsed, null, 2)
+        record(TOOL_PATH, { input: before, output: this.jsonInput, options: { action: 'unescape' } })
       } catch (e) {
         this.$message.error('内容不是合法的转义 JSON 字符串')
       }
@@ -255,7 +278,24 @@ export default {
       }
       navigator.clipboard.writeText(this.formattedJson).then(() => {
         this.$message.success('复制成功')
+        // 仅按钮触发记录（防抖自动格式化不记录）
+        record(TOOL_PATH, {
+          input: this.jsonInput,
+          output: this.formattedJson,
+          options: { action: 'copy', compressed: this.compressed }
+        })
       })
+    },
+    // 从历史恢复：回填输入并触发格式化
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.jsonInput = full.input || ''
+      this.$nextTick(() => this.$refs.inputEditor && this.$refs.inputEditor.focus())
+      this.$message.success('已从历史恢复')
     },
     downloadOutput() {
       if (!this.formattedJson.trim()) {

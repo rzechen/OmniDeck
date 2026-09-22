@@ -19,6 +19,10 @@
         <i class="el-icon-document-copy"></i>
         复制
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -52,6 +56,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!errorMsg }"></span>
       <span v-if="errorMsg" class="status-err">{{ errorMsg }}</span>
@@ -64,28 +76,39 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/encrypt/encode-decode'
 
 export default {
   name: 'EncryptUrlCodec',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       inputText: 'https://omnideck.app/search?q=格式化 工具&lang=zh',
       outputText: '',
-      errorMsg: ''
+      errorMsg: '',
+      historyVisible: false,
+      // 模板/实例可访问的工具 path（历史面板与 record 用）
+      TOOL_PATH: TOOL_PATH
     }
   },
   methods: {
     encode() {
       this.errorMsg = ''
       if (!this.inputText) return
+      const before = this.inputText
       this.outputText = encodeURIComponent(this.inputText)
+      record(TOOL_PATH, { input: before, output: this.outputText, options: { action: 'encode' } })
     },
     decode() {
       this.errorMsg = ''
       if (!this.inputText) return
+      const before = this.inputText
       try {
         this.outputText = decodeURIComponent(this.inputText)
+        record(TOOL_PATH, { input: before, output: this.outputText, options: { action: 'decode' } })
       } catch (e) {
         this.errorMsg = '解码失败：不是合法的 URL 编码'
         this.outputText = ''
@@ -98,7 +121,25 @@ export default {
       }
       navigator.clipboard.writeText(this.outputText).then(() => {
         this.$message.success('复制成功')
+        record(TOOL_PATH, {
+          input: this.inputText,
+          output: this.outputText,
+          options: { action: 'copy' }
+        })
       })
+    },
+    // 从历史恢复：回填输入输出
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.inputText = full.input || ''
+      this.outputText = full.output || ''
+      this.errorMsg = ''
+      this.$nextTick(() => this.$refs.inputEditor && this.$refs.inputEditor.focus())
+      this.$message.success('已从历史恢复')
     },
     clearAll() {
       this.inputText = ''

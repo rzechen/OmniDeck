@@ -411,9 +411,7 @@ const routes = [
       },
       {
         path: 'tools/image/screenshot',
-        name: 'ImageScreenshot',
-        component: () => import('@/views/deck/tools/image/screenshot.vue'),
-        meta: { title: '截图', group: 'tools' }
+        redirect: '/clipboard'
       },
       {
         path: 'tools/text',
@@ -680,6 +678,13 @@ const routes = [
         name: 'Todo',
         component: () => import('@/views/deck/todo/index.vue'),
         meta: { title: '我的代办' }
+      },
+      // 剪贴板（一级入口：剪贴板记录 + 截图记录）
+      {
+        path: 'clipboard',
+        name: 'Clipboard',
+        component: () => import('@/views/deck/clipboard/index.vue'),
+        meta: { title: '剪贴板' }
       },
       // 问题反馈
       {

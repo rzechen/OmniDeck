@@ -7,7 +7,8 @@ import router, { prefetchToolChunks } from './router'
 import store from './store'
 import SvgIcon from './components/common/SvgIcon/index.vue'
 import { setupSvgSprite } from './utils/svg-sprite'
-import { loadAll, getItem } from './utils/db'
+import { loadAll, getItem, sampleDailyUsage } from './utils/db'
+import { purge as purgeToolHistory } from './utils/tool-history'
 import { applyTheme, getStoredTheme, watchSystemTheme } from './utils/theme'
 import { getStoredWallpaper, applyWallpaperDom } from './utils/wallpaper'
 import './styles/index.scss'
@@ -105,6 +106,13 @@ async function bootstrap() {
 
   // 首屏挂载完成后，空闲时预取工具页分包（后台进行，不阻塞界面）
   prefetchToolChunks()
+
+  // 工具执行历史治理：清理过期记录（TTL 30 天）+ 申请持久化存储
+  // 后台异步执行，不阻塞启动；失败静默
+  purgeToolHistory().catch(() => {})
+
+  // 每日 IndexedDB 用量采样（每天首次启动记一次，首页折线图数据源）
+  sampleDailyUsage().catch(() => {})
 }
 
 bootstrap()

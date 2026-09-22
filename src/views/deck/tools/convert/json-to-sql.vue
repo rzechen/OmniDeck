@@ -32,6 +32,10 @@
         <i class="el-icon-download"></i>
         下载
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -64,6 +68,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!errorMsg }"></span>
       <span v-if="errorMsg" class="status-err">{{ errorMsg }}</span>
@@ -76,7 +88,11 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/download'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/convert/json-to-sql'
 
 const EXAMPLE = `[
   { "id": 1, "name": "OmniDeck", "version": "1.0.0", "stars": 128, "open_source": true },
@@ -85,14 +101,17 @@ const EXAMPLE = `[
 
 export default {
   name: 'ConvertJsonToSql',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       jsonInput: EXAMPLE,
       mode: 'insert',
       tableName: '',
       sqlOutput: '',
-      errorMsg: ''
+      errorMsg: '',
+      historyVisible: false,
+      // 模板/实例可访问的工具 path（历史面板与 record 用）
+      TOOL_PATH: TOOL_PATH
     }
   },
   computed: {
@@ -184,6 +203,12 @@ export default {
       }
       navigator.clipboard.writeText(this.sqlOutput).then(() => {
         this.$message.success('已复制 SQL')
+        // 仅按钮触发记录（防抖自动转换不记录）
+        record(TOOL_PATH, {
+          input: this.jsonInput,
+          output: this.sqlOutput,
+          options: { action: 'copy', mode: this.mode, table: this.table }
+        })
       })
     },
     downloadOutput() {
@@ -192,6 +217,29 @@ export default {
         return
       }
       downloadText(`${this.table}.sql`, this.sqlOutput)
+      record(TOOL_PATH, {
+        input: this.jsonInput,
+        output: this.sqlOutput,
+        options: { action: 'download', mode: this.mode, table: this.table }
+      })
+    },
+    // 从历史恢复：回填输入（含模式与表名）并触发转换
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      if (full.options) {
+        if (full.options.mode) this.mode = full.options.mode
+        if (full.options.table && full.options.table !== 'your_table') this.tableName = full.options.table
+      }
+      this.jsonInput = full.input || ''
+      this.$nextTick(() => {
+        this.convert()
+        this.$refs.inputEditor && this.$refs.inputEditor.focus()
+      })
+      this.$message.success('已从历史恢复')
     },
     clearAll() {
       this.jsonInput = ''

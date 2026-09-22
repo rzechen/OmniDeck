@@ -15,9 +15,13 @@
         placeholder="IP 地址（留空查本机公网 IP）"
         @keyup.enter.native="query"
       />
-      <button class="tool-btn is-primary" :disabled="loading" @click="query">
+      <button class="tool-btn is-primary" :disabled="loading" @click="manualQuery">
         <i :class="loading ? 'el-icon-loading' : 'el-icon-search'"></i>
         {{ loading ? '查询中…' : '查询' }}
+      </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
       </button>
     </template>
 
@@ -62,6 +66,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与主体并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!lastError }"></span>
       <span v-if="lastError" class="status-err">{{ lastError }}</span>
@@ -73,20 +85,26 @@
 
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
+import { record, get as getHistory } from '@/utils/tool-history'
 
 // ip-api.com 免费接口：中文返回，无需 Key
 const API = ip =>
   'http://ip-api.com/json/' + (ip || '') + '?lang=zh-CN&fields=status,message,country,countryCode,regionName,city,district,zip,lat,lon,timezone,isp,org,as,query'
 
+const TOOL_PATH = '/tools/other/ip-query'
+
 export default {
   name: 'OtherIpQuery',
-  components: { ToolShell },
+  components: { ToolShell, ToolHistoryPanel },
   data() {
     return {
       ipInput: '',
       ipInfo: null,
       loading: false,
-      lastError: ''
+      lastError: '',
+      historyVisible: false,
+      TOOL_PATH: TOOL_PATH
     }
   },
   computed: {
@@ -148,6 +166,26 @@ export default {
       } finally {
         this.loading = false
       }
+    },
+    // 手动查询（按钮触发）：成功后记录历史
+    async manualQuery() {
+      await this.query()
+      if (this.ipInfo && !this.lastError) {
+        record(TOOL_PATH, {
+          input: this.ipInput.trim(),
+          output: this.fields.filter(f => f.value).map(f => f.label + '：' + f.value).join('\n'),
+          options: { action: 'query', ip: this.ipInfo.query || this.ipInput.trim() }
+        })
+      }
+    },
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.ipInput = full.input || (full.options && full.options.ip) || ''
+      this.$message.success('已从历史恢复，点击查询重新获取')
     },
     async copyResult() {
       const text = this.fields

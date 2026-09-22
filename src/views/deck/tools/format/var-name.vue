@@ -11,6 +11,10 @@
         <i class="el-icon-document-copy"></i>
         复制全部
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -70,6 +74,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot"></span>
       <span>{{ rows.length }} 个变量</span>
@@ -81,14 +93,20 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/format/var-name'
 
 export default {
   name: 'FormatVarName',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       rawInput: 'user name\nno time out\nHTTP response code',
-      cols: ['original', 'camelCase', 'PascalCase', 'snake_case', 'SNAKE_CASE', 'kebab_case']
+      cols: ['original', 'camelCase', 'PascalCase', 'snake_case', 'SNAKE_CASE', 'kebab_case'],
+      historyVisible: false,
+      TOOL_PATH: TOOL_PATH
     }
   },
   computed: {
@@ -153,6 +171,23 @@ export default {
       navigator.clipboard.writeText([header, ...lines].join('\n')).then(() => {
         this.$message.success('已复制全部结果')
       })
+      record(TOOL_PATH, {
+        input: this.rawInput,
+        output: [header, ...lines].join('\n'),
+        options: { action: 'copy-all', count: this.rows.length }
+      })
+    },
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.rawInput = full.input || ''
+      this.$nextTick(() => {
+        this.$refs.inputEditor && this.$refs.inputEditor.focus()
+      })
+      this.$message.success('已从历史恢复')
     },
     clearAll() {
       this.rawInput = ''

@@ -58,6 +58,19 @@
         <span v-show="!collapsed" class="nav-label">{{ todo.title }}</span>
       </div>
 
+      <!-- 复制历史（固定，不可拖拽：剪贴板记录 + 截图记录管理页） -->
+      <div
+        class="nav-item"
+        :class="{ active: isActive(clipboard) }"
+        @click="navigate(clipboard)"
+        :title="collapsed ? clipboard.title : ''"
+      >
+        <span class="nav-icon-wrap">
+          <svg-icon :icon-class="clipboard.iconSvg" class="nav-svg" />
+        </span>
+        <span v-show="!collapsed" class="nav-label">{{ clipboard.title }}</span>
+      </div>
+
       <div class="nav-divider" v-if="!collapsed"></div>
 
       <!-- 组列表（可拖拽排序） -->
@@ -154,6 +167,7 @@ import {
   homeItem,
   favoriteItem,
   todoItem,
+  clipboardItem,
   menuGroups
 } from '@/config/tools'
 import { getMenuOrder, saveMenuOrder } from '@/utils/menu-order'
@@ -173,6 +187,7 @@ export default {
       home: homeItem,
       favorite: favoriteItem,
       todo: todoItem,
+      clipboard: clipboardItem,
       groups: [],
       expandedMap: { tools: true },
       // 滑动指示器位置（相对 nav 内容坐标）

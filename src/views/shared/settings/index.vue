@@ -257,6 +257,80 @@
               </div>
               <el-button size="small" round @click="resetMenuOrder">还原排序</el-button>
             </div>
+
+            <!-- 工具执行历史：条数上限（IndexedDB 容量治理） -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">历史记录上限</span>
+                <span class="label-desc">每个工具保留的执行历史条数（{{ historyTotalCount }} 条记录），超出自动淘汰最旧；过期 30 天的记录启动时自动清理</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in historyLimitOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: historyLimit === opt.value }"
+                  @click="selectHistoryLimit(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 剪贴板历史：条数上限（主进程轮询记录，可调 50-500） -->
+            <div class="settings-row" v-if="hasCaptureApi">
+              <div class="row-label">
+                <span class="label-text">剪贴板历史上限</span>
+                <span class="label-desc">系统剪贴板历史最多保留条数，超出自动淘汰最旧（单条文本 ≤100KB）</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in clipKeepOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: clipKeep === opt.value }"
+                  @click="selectClipKeep(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 工具执行历史管理：按工具清空 / 全局清空 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">历史记录管理</span>
+                <span class="label-desc">{{ storageUsageDesc }}</span>
+              </div>
+              <div class="lock-actions">
+                <el-dropdown v-if="historyTools.length" trigger="click" @command="clearToolHistory">
+                  <el-button size="small" round icon="el-icon-eraser" class="hist-tool-dropdown">
+                    按工具清空<i class="el-icon-arrow-down el-icon--right"></i>
+                  </el-button>
+                  <el-dropdown-menu slot="dropdown">
+                    <el-dropdown-item
+                      v-for="t in historyTools"
+                      :key="t.path"
+                      :command="t.path"
+                      class="hist-tool-item"
+                    >
+                      <span class="hist-tool-name">{{ t.name }}</span>
+                      <span class="hist-tool-count">{{ t.count }} 条</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </el-dropdown>
+                <el-button
+                  size="small"
+                  round
+                  type="danger"
+                  plain
+                  icon="el-icon-delete"
+                  :loading="historyClearing"
+                  :disabled="!historyTotalCount"
+                  @click="clearAllHistory"
+                >清空全部历史</el-button>
+              </div>
+            </div>
           </div>
         </template>
 
@@ -560,18 +634,42 @@ import {
   applyWallpaperDom,
   isVideoItem
 } from '@/utils/wallpaper'
+import * as toolHistory from '@/utils/tool-history'
+import { toolCategories } from '@/config/tools'
+
+// 字节数人性化
+function fmtBytes(n) {
+  if (!n || n < 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+// 工具 path → 名称（历史管理列表展示用）
+const TOOL_NAME_MAP = {}
+toolCategories.forEach(c => {
+  c.children.forEach(t => {
+    TOOL_NAME_MAP[t.path] = t.name
+  })
+})
 
 export default {
   name: 'Settings',
   data() {
     return {
       activeTab: 'general',
+      // 左侧二级菜单：label 统一为 3 字，避免长短参差
       tabs: [
-        { key: 'general', label: '通用', icon: 'el-icon-setting' },
+        { key: 'general', label: '通用项', icon: 'el-icon-setting' },
         { key: 'quick', label: '快捷键', icon: 'el-icon-magic-stick' },
-        { key: 'tray', label: '托盘菜单', icon: 'el-icon-menu' },
-        { key: 'security', label: '安全', icon: 'el-icon-lock' },
-        { key: 'about', label: '关于', icon: 'el-icon-info' }
+        { key: 'tray', label: '托盘项', icon: 'el-icon-menu' },
+        { key: 'security', label: '安全项', icon: 'el-icon-lock' },
+        { key: 'about', label: '关于项', icon: 'el-icon-info' }
       ],
       themeModes,
       presetColors,
@@ -599,6 +697,32 @@ export default {
         { label: '关闭', value: false },
         { label: '开启', value: true }
       ],
+      // ===== 工具执行历史管理 =====
+      // 条数上限选项（每工具保留条数）
+      historyLimitOptions: [
+        { label: '20 条', value: 20 },
+        { label: '50 条', value: 50 },
+        { label: '100 条', value: 100 },
+        { label: '200 条', value: 200 }
+      ],
+      // 当前条数上限
+      historyLimit: 200,
+      // 有历史记录的工具列表 [{ path, name, count }]
+      historyTools: [],
+      // 本地数据用量（storage.estimate）
+      storageEstimate: null,
+      // 清空执行中
+      historyClearing: false,
+      // ===== 剪贴板历史上限（主进程 capture-settings.json） =====
+      clipKeepOptions: [
+        { label: '200 条', value: 200 },
+        { label: '500 条', value: 500 },
+        { label: '1000 条', value: 1000 },
+        { label: '2000 条', value: 2000 }
+      ],
+      clipKeep: 1000,
+      // 是否在 Electron 环境（非 Electron 隐藏该行）
+      hasCaptureApi: !!(window.electronAPI && window.electronAPI.capture && window.electronAPI.capture.getClipKeep),
       // ===== 安全：应用锁定 =====
       autoLockOptions: [
         { label: '无', value: 0 },
@@ -617,10 +741,16 @@ export default {
       // 清除本地记录执行中
       clearing: false,
       // ===== 快捷键：全部可改键（M4 升级） =====
-      // 当前快捷键（accelerator 格式；panel 为系统级，其余为应用内）
-      shortcuts: { panel: '', search: '', lock: '', buddy: '' },
+      // 当前快捷键（accelerator 格式；panel / 截图三项为系统级，其余为应用内）
+      shortcuts: { panel: '', search: '', lock: '', buddy: '', area: '', screen: '', scroll: '' },
       // 全部默认键（含 O = OmniDeck / OmniBuddy 首字母，防与其他产品冲突）
       DEFAULT_PANEL_SHORTCUT: 'CommandOrControl+Shift+O',
+      // 截图三项默认键（与主进程 capture.js DEFAULT_SHORTCUTS 一致）
+      CAPTURE_DEFAULTS: {
+        area: 'CommandOrControl+Shift+S',
+        screen: 'Alt+Shift+3',
+        scroll: 'Alt+Shift+S'
+      },
       // 正在录制的快捷键 id（空串为未录制）
       recordingId: '',
       // 录制中：已按下的修饰键 / 普通键（松开组合键时组装 accelerator 保存）
@@ -657,6 +787,14 @@ export default {
           items: [
             { id: 'panel', label: '唤起快捷面板', desc: '系统级快捷键，应用未聚焦也生效；仅支持「修饰键 + 单键」组合' },
             { id: 'lock', label: '锁定应用', desc: '立即锁定应用（需已设置应用密码），锁定后凭密码或触控 ID 解锁' }
+          ]
+        },
+        {
+          title: '截图',
+          items: [
+            { id: 'area', label: '选区截图', desc: '框选区域进入标注编辑，确认后自动复制并入复制历史' },
+            { id: 'screen', label: '全屏截图', desc: '截取光标所在显示器整屏，自动复制并入复制历史' },
+            { id: 'scroll', label: '滚动长截图', desc: '框选区域后滚动内容逐帧拼接成长图；系统级快捷键，仅支持「修饰键 + 单键」' }
           ]
         },
         {
@@ -726,12 +864,26 @@ export default {
         }
         return wp
       })
+    },
+    // ===== 工具执行历史 =====
+    // 历史总条数（「清空全部」按钮可用性 + 描述）
+    historyTotalCount() {
+      return this.historyTools.reduce((s, t) => s + t.count, 0)
+    },
+    // 本地数据用量描述（IndexedDB 配额）
+    storageUsageDesc() {
+      if (!this.storageEstimate) return '按工具管理执行历史记录；超过 30 天的记录启动时自动清理'
+      const { usage, quota } = this.storageEstimate
+      const pct = quota ? Math.min(100, Math.round((usage / quota) * 100)) : 0
+      return `本地数据已用 ${fmtBytes(usage)} / 配额 ${fmtBytes(quota)}（${pct}%）`
     }
   },
   mounted() {
     this.loadLockState()
     this.loadShortcuts()
     this.loadTrayMenu()
+    this.loadHistoryState()
+    this.loadClipKeep()
   },
   beforeDestroy() {
     window.removeEventListener('keydown', this.onRecordKeydown, true)
@@ -739,8 +891,97 @@ export default {
     document.removeEventListener('mousedown', this.onRecordBlur, true)
   },
   methods: {
+    // ===== 工具执行历史管理 =====
+    // 加载历史状态：条数上限 + 各工具记录数 + 本地数据用量
+    async loadHistoryState() {
+      try {
+        this.historyLimit = toolHistory.getLimit()
+        const counts = await toolHistory.countByTool()
+        this.historyTools = Object.keys(counts).map(path => ({
+          path,
+          name: TOOL_NAME_MAP[path] || path,
+          count: counts[path]
+        }))
+      } catch (e) { /* 忽略加载失败 */ }
+      try {
+        if (navigator.storage && navigator.storage.estimate) {
+          const { usage, quota } = await navigator.storage.estimate()
+          this.storageEstimate = { usage: usage || 0, quota: quota || 0 }
+        }
+      } catch (e) { /* 不支持时忽略 */ }
+    },
+    // 切换每工具历史条数上限（保存后立即按新上限淘汰）
+    async selectHistoryLimit(v) {
+      if (v === this.historyLimit) return
+      this.historyLimit = v
+      await toolHistory.setLimit(v)
+      await this.loadHistoryState()
+      this.$message.success(`已调整为每工具保留 ${v} 条历史`)
+    },
+    // ===== 剪贴板历史上限 =====
+    // 读取主进程当前值（capture-settings.json）
+    async loadClipKeep() {
+      if (!this.hasCaptureApi) return
+      try {
+        const v = await window.electronAPI.capture.getClipKeep()
+        if (Number.isInteger(v)) this.clipKeep = v
+      } catch (e) { /* 忽略 */ }
+    },
+    // 切换剪贴板历史上限（主进程持久化 + 立即淘汰）
+    async selectClipKeep(v) {
+      if (v === this.clipKeep || !this.hasCaptureApi) return
+      const res = await window.electronAPI.capture.setClipKeep(v)
+      if (res && res.ok) {
+        this.clipKeep = res.clipKeep
+        this.$message.success(`剪贴板历史上限已调整为 ${v} 条`)
+      } else {
+        this.$message.error((res && res.error) || '设置失败')
+      }
+    },
+    // 按工具清空历史（下拉选择）
+    async clearToolHistory(path) {
+      const tool = this.historyTools.find(t => t.path === path)
+      const name = tool ? tool.name : path
+      try {
+        await this.$confirm(`将清空「${name}」的全部执行历史，是否继续？`, '按工具清空', {
+          confirmButtonText: '清空',
+          cancelButtonText: '取消',
+          type: 'warning'
+        })
+      } catch (e) {
+        return
+      }
+      await toolHistory.clear(path)
+      await this.loadHistoryState()
+      this.$message.success(`已清空「${name}」的历史`)
+    },
+    // 清空全部工具执行历史
+    async clearAllHistory() {
+      try {
+        await this.$confirm(
+          `将清空全部 ${this.historyTotalCount} 条工具执行历史记录，是否继续？`,
+          '清空全部历史',
+          {
+            confirmButtonText: '全部清空',
+            cancelButtonText: '取消',
+            type: 'warning'
+          }
+        )
+      } catch (e) {
+        return
+      }
+      this.historyClearing = true
+      try {
+        await toolHistory.clear()
+        await this.loadHistoryState()
+        this.$message.success('已清空全部执行历史')
+      } finally {
+        this.historyClearing = false
+      }
+    },
+
     // ===== 快捷键：全部可改键（M4 升级） =====
-    // 加载全部快捷键：panel 走主进程 IPC，应用内走 shortcuts.js
+    // 加载全部快捷键：panel 走主进程 IPC，截图三项走 capture IPC，应用内走 shortcuts.js
     async loadShortcuts() {
       const quick = window.electronAPI && window.electronAPI.quick
       if (quick && quick.getShortcut) {
@@ -749,6 +990,20 @@ export default {
       } else {
         this.shortcuts.panel = this.DEFAULT_PANEL_SHORTCUT
       }
+      const cap = window.electronAPI && window.electronAPI.capture
+      if (cap && cap.getShortcuts) {
+        try {
+          const res = await cap.getShortcuts()
+          if (res) {
+            this.shortcuts.area = res.area || this.CAPTURE_DEFAULTS.area
+            this.shortcuts.screen = res.screen || this.CAPTURE_DEFAULTS.screen
+            this.shortcuts.scroll = res.scroll || this.CAPTURE_DEFAULTS.scroll
+          }
+        } catch (e) { /* 主进程不可达：走默认 */ }
+      }
+      if (!this.shortcuts.area) this.shortcuts.area = this.CAPTURE_DEFAULTS.area
+      if (!this.shortcuts.screen) this.shortcuts.screen = this.CAPTURE_DEFAULTS.screen
+      if (!this.shortcuts.scroll) this.shortcuts.scroll = this.CAPTURE_DEFAULTS.scroll
       const app = getShortcuts()
       this.shortcuts.search = app.search
       this.shortcuts.lock = app.lock
@@ -761,6 +1016,7 @@ export default {
     // 某项默认键
     defaultOf(id) {
       if (id === 'panel') return this.DEFAULT_PANEL_SHORTCUT
+      if (this.CAPTURE_DEFAULTS[id]) return this.CAPTURE_DEFAULTS[id]
       return DEFAULT_SHORTCUTS[id]
     },
     // accelerator → 键帽数组 / 展示文案（平台自感知，shortcuts.js 统一实现）
@@ -918,6 +1174,27 @@ export default {
         }
         return
       }
+      // 截图快捷键（area / screen / scroll）：走主进程 globalShortcut，仅支持「修饰键 + 单键」
+      if (this.CAPTURE_DEFAULTS[id]) {
+        const parsed = parseAccelerator(accelerator)
+        if (!parsed || parsed.keys.size > 1) {
+          this.$message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
+          return
+        }
+        const cap = window.electronAPI && window.electronAPI.capture
+        if (!cap || !cap.setShortcut) {
+          this.$message.info('快捷键设置需要 OmniDeck 桌面端')
+          return
+        }
+        const res = await cap.setShortcut(id, accelerator)
+        if (res && res.ok) {
+          this.shortcuts[id] = res.shortcuts[id]
+          this.$message.success('快捷键已更新：' + this.formatAccelerator(res.shortcuts[id]))
+        } else {
+          this.$message.error((res && res.error) || '注册失败，请换一组按键')
+        }
+        return
+      }
       // 应用内快捷键
       const res = await saveShortcut(id, accelerator)
       if (res && res.ok) {
@@ -933,7 +1210,7 @@ export default {
       this.recordKeys = []
       this.saveShortcutFor(id, this.defaultOf(id))
     },
-    // 恢复全部默认键（panel + 应用内三项）
+    // 恢复全部默认键（panel + 应用内三项 + 截图三项）
     async resetAllShortcuts() {
       // 应用内：一次性恢复并广播
       const res = await resetAllAppShortcuts()
@@ -945,6 +1222,10 @@ export default {
       this.recordMods = []
       this.recordKeys = []
       await this.saveShortcutFor('panel', this.DEFAULT_PANEL_SHORTCUT)
+      // 截图三项：依次恢复默认键（主进程注册）
+      for (const key of Object.keys(this.CAPTURE_DEFAULTS)) {
+        await this.saveShortcutFor(key, this.CAPTURE_DEFAULTS[key])
+      }
       await this.loadShortcuts()
       this.$message.success('已恢复全部默认快捷键')
     },
@@ -1819,6 +2100,39 @@ html.reduce-motion .kbd-ghost {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+/* ===== 通用：历史记录管理下拉（mac 风格） ===== */
+/* 下拉项：工具名 + 条数徽标，两端对齐 */
+::v-deep .hist-tool-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 180px;
+  padding: 0 12px !important;
+
+  .hist-tool-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hist-tool-count {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    background: var(--search-bg);
+    padding: 1px 7px;
+    border-radius: 8px;
+  }
+
+  &:hover .hist-tool-count {
+    background: rgba(var(--primary-color-rgb), 0.1);
+    color: var(--primary-color);
+  }
 }
 
 /* 密码弹窗 */

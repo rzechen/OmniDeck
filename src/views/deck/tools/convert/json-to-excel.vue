@@ -11,6 +11,10 @@
         <i class="el-icon-download"></i>
         导出 CSV
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -59,6 +63,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!errorMsg }"></span>
       <span v-if="errorMsg" class="status-err">{{ errorMsg }}</span>
@@ -71,7 +83,11 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/download'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/convert/json-to-excel'
 
 const EXAMPLE = `[
   { "姓名": "张三", "部门": "研发部", "薪资": 25000, "在职": true },
@@ -107,13 +123,15 @@ function csvCell(v) {
 
 export default {
   name: 'ConvertJsonToExcel',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       jsonInput: EXAMPLE,
       columns: [],
       rows: [],
-      errorMsg: ''
+      errorMsg: '',
+      historyVisible: false,
+      TOOL_PATH: TOOL_PATH
     }
   },
   watch: {
@@ -167,6 +185,23 @@ export default {
       ].join('\r\n')
       // BOM 头保证 Excel 正确识别 UTF-8 中文
       downloadText('export.csv', '\uFEFF' + csv, 'text/csv;charset=utf-8')
+      record(TOOL_PATH, {
+        input: this.jsonInput,
+        output: csv,
+        options: { action: 'export', filename: 'export.csv', rows: this.rows.length, columns: this.columns.length }
+      })
+    },
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.jsonInput = full.input || ''
+      this.$nextTick(() => {
+        this.$refs.inputEditor && this.$refs.inputEditor.focus()
+      })
+      this.$message.success('已从历史恢复')
     },
     clearAll() {
       this.jsonInput = ''

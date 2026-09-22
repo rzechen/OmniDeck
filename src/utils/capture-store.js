@@ -67,10 +67,11 @@ export async function initCaptureStore() {
   // 1. 监听后续变更（须先挂监听再恢复，避免恢复期间丢推送）
   api.captureSync.onSync(op => { applyOp(op) })
 
-  // 2. 恢复：截图池 + 剪贴板历史
+  // 2. 恢复：截图池 + 剪贴板历史 + 剪贴板收藏
   try {
     await restoreStore('captures', payload => api.captureSync.restore(payload))
     await restoreStore('clips', payload => api.captureSync.clipsRestore(payload))
+    await restoreStore('favClips', payload => api.captureSync.favRestore && api.captureSync.favRestore(payload))
   } catch (e) { /* 恢复失败不阻塞启动 */ }
 
   // 3. 上报就绪：主进程重放 pending 变更

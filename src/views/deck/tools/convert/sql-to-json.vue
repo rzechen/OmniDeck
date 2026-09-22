@@ -15,6 +15,10 @@
         <i class="el-icon-download"></i>
         下载
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -47,6 +51,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!errorMsg }"></span>
       <span v-if="errorMsg" class="status-err">{{ errorMsg }}</span>
@@ -59,20 +71,27 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/download'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/convert/sql-to-json'
 
 const EXAMPLE = `INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`age\`, \`active\`) VALUES (1, 'OmniDeck', 'support@omnideck.app', 1, TRUE);
 INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`age\`, \`active\`) VALUES (2, 'wisfire', 'dev@example.com', 3, FALSE);`
 
 export default {
   name: 'ConvertSqlToJson',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       sqlInput: EXAMPLE,
       jsonOutput: '',
       errorMsg: '',
-      rowCount: 0
+      rowCount: 0,
+      historyVisible: false,
+      // 模板/实例可访问的工具 path（历史面板与 record 用）
+      TOOL_PATH: TOOL_PATH
     }
   },
   watch: {
@@ -215,6 +234,12 @@ export default {
       }
       navigator.clipboard.writeText(this.jsonOutput).then(() => {
         this.$message.success('已复制 JSON')
+        // 仅按钮触发记录（防抖自动转换不记录）
+        record(TOOL_PATH, {
+          input: this.sqlInput,
+          output: this.jsonOutput,
+          options: { action: 'copy' }
+        })
       })
     },
     downloadOutput() {
@@ -222,7 +247,26 @@ export default {
         this.$message.warning('没有可下载的内容')
         return
       }
-      downloadText('export.json', this.jsonOutput, 'application/json')
+      downloadText('export.json', this.jsonOutput)
+      record(TOOL_PATH, {
+        input: this.sqlInput,
+        output: this.jsonOutput,
+        options: { action: 'download' }
+      })
+    },
+    // 从历史恢复：回填输入并触发转换
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.sqlInput = full.input || ''
+      this.$nextTick(() => {
+        this.convert()
+        this.$refs.inputEditor && this.$refs.inputEditor.focus()
+      })
+      this.$message.success('已从历史恢复')
     },
     clearAll() {
       this.sqlInput = ''

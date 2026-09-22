@@ -84,6 +84,7 @@
 
 <script>
 import { getItem } from '@/utils/db'
+import { getShortcut, matchesShortcut } from '@/utils/shortcuts'
 
 // 应用锁定：全屏遮罩（触控 ID 优先 / 密码解锁）
 // 创意吉祥物：瞳孔跟随鼠标、随机眨眼、输入密码时闭眼「不看」、失败 ><
@@ -179,7 +180,7 @@ export default {
     window.addEventListener('mousemove', this.onEyeMove, { passive: true })
     this.scheduleBlink()
 
-    // 全局快捷键：⌘L / Ctrl+L 立即锁定应用
+    // 全局快捷键：可配置（默认 ⌘O+L / Ctrl+O+L）立即锁定应用
     window.addEventListener('keydown', this.onLockHotkey)
 
     // 「减弱动态效果」开关（html.reduce-motion）实时同步
@@ -336,10 +337,10 @@ export default {
         }, 150)
       }, 2800 + Math.random() * 3400)
     },
-    // 全局快捷键：⌘L / Ctrl+L 立即锁定应用
+    // 全局快捷键：可配置（默认 ⌘⌥L / Ctrl+Alt+L），设置页可改键
     onLockHotkey(e) {
       if (this.locked) return
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyL') {
+      if (matchesShortcut(e, getShortcut('lock'))) {
         e.preventDefault()
         if (!this.hasPassword) {
           this.$message && this.$message.warning('请先在 设置 → 安全 中设置应用密码')

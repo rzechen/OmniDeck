@@ -110,8 +110,61 @@
       </div>
     </template>
 
+    <!-- 剪贴板收藏 Tab：文本 / 图片 收藏条目（与剪贴板页一致的紧凑行） -->
+    <template v-else-if="activeTab === 'clip'">
+      <div v-if="filteredFavClips.length" class="clip-list">
+        <div
+          v-for="(c, idx) in filteredFavClips"
+          :key="c.id"
+          class="clip-item stagger-item"
+          :style="{ animationDelay: Math.min(idx, 14) * 30 + 'ms' }"
+          @click="onClipClick(c)"
+        >
+          <!-- 图片收藏：缩略图 + 分辨率 -->
+          <template v-if="c.kind === 'image'">
+            <div class="clip-thumb" @click.stop="previewClip(c)">
+              <img :src="c.thumb" alt="图片收藏" loading="lazy" />
+              <span class="clip-thumb-mask"><i class="el-icon-view"></i></span>
+            </div>
+            <div class="clip-meta">
+              <span class="clip-size">{{ c.width }} × {{ c.height }}</span>
+            </div>
+          </template>
+          <!-- 文本收藏：单行省略，点击看详情 -->
+          <p v-else class="clip-text" :title="c.text">{{ c.text }}</p>
+
+          <span class="clip-time">{{ fmtFavTime(c.favedAt) }}</span>
+
+          <div class="clip-ops">
+            <button title="复制" @click.stop="copyClip(c)">
+              <i class="el-icon-document-copy"></i>
+            </button>
+            <button v-if="c.kind === 'image'" title="另存为 PNG" @click.stop="saveClip(c)">
+              <i class="el-icon-download"></i>
+            </button>
+            <button title="取消收藏" @click.stop="removeClip(c)">
+              <i class="el-icon-delete"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="keyword" class="section-empty">
+        没有与「{{ keyword }}」匹配的剪贴板收藏
+      </div>
+      <div v-else class="tab-empty">
+        <div class="empty-icon is-clip">
+          <svg-icon icon-class="clipboard" class="empty-svg" />
+        </div>
+        <p class="empty-title">还没有剪贴板收藏</p>
+        <p class="empty-tip">在剪贴板页点击星标，把常用内容收藏到这里</p>
+        <el-button class="empty-btn" size="small" round @click="$router.push('/clipboard')">
+          去剪贴板看看
+        </el-button>
+      </div>
+    </template>
+
     <!-- 网站收藏 Tab：分组胶囊流（书签收藏夹风格） -->
-    <template v-else>
+    <template v-else-if="activeTab === 'site'">
       <template v-if="siteFavorites.length || siteCategories.length">
         <div v-for="g in visibleGroups" :key="g.name || '__uncategorized'" class="site-group">
           <!-- 分组头：名称 + 数量 + 管理操作（仅自定义分组） -->
@@ -254,6 +307,47 @@
         </el-button>
       </div>
     </el-dialog>
+
+    <!-- 剪贴板收藏：图片大图预览 -->
+    <el-dialog
+      :visible.sync="clipPreviewVisible"
+      :title="clipPreviewRec ? `图片收藏 · ${clipPreviewRec.width} × ${clipPreviewRec.height}` : '图片收藏'"
+      width="65%"
+      top="7vh"
+      append-to-body
+      custom-class="fav-clip-dialog"
+      @closed="clipPreviewData = ''"
+    >
+      <div class="clip-preview">
+        <img v-if="clipPreviewData" :src="clipPreviewData" alt="预览" />
+        <div v-else class="clip-preview-loading"><i class="el-icon-loading"></i></div>
+      </div>
+      <template #footer>
+        <el-button size="small" round @click="copyClip(clipPreviewRec)">复制</el-button>
+        <el-button size="small" round type="primary" @click="saveClip(clipPreviewRec)">
+          另存为
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 剪贴板收藏：文本详情（等宽字体，保留原始换行与缩进） -->
+    <el-dialog
+      :visible.sync="clipTextVisible"
+      title="文本收藏"
+      width="55%"
+      top="12vh"
+      append-to-body
+      custom-class="fav-clip-dialog is-text"
+    >
+      <div class="clip-text-preview">
+        <pre>{{ clipTextRec ? clipTextRec.text : '' }}</pre>
+      </div>
+      <template #footer>
+        <el-button size="small" round type="primary" @click="copyClip(clipTextRec)">
+          复制文本
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -285,25 +379,27 @@ function validateUrl(rule, value, callback) {
   callback(new Error('网址格式不正确'))
 }
 
-// Tab 元信息（工具/网站），顺序由用户拖拽决定
+// Tab 元信息（工具/网站/剪贴板），顺序由用户拖拽决定
 const TAB_META = {
   tool: { label: '工具收藏', icon: 'tools' },
-  site: { label: '网站收藏', icon: 'website' }
+  site: { label: '网站收藏', icon: 'website' },
+  clip: { label: '剪贴板收藏', icon: 'clipboard' }
 }
+// 全部合法 Tab key（用于持久化顺序的校验与补齐）
+const TAB_KEYS = ['tool', 'site', 'clip']
 
 export default {
   name: 'Favorites',
   components: { draggable },
   data() {
-    // Tab 顺序：从 IndexedDB 恢复（校验完整性，异常回退默认）
+    // Tab 顺序：从 IndexedDB 恢复（过滤非法 key，并补齐新增 Tab，兼容旧版仅两项的值）
     const tabOrder = (() => {
       const saved = getItem('favTabOrder', null)
-      return Array.isArray(saved) &&
-        saved.length === 2 &&
-        saved.includes('tool') &&
-        saved.includes('site')
-        ? saved
-        : ['tool', 'site']
+      const list = (Array.isArray(saved) ? saved : []).filter(k => TAB_KEYS.includes(k))
+      TAB_KEYS.forEach(k => {
+        if (!list.includes(k)) list.push(k)
+      })
+      return list
     })()
     return {
       activeTab: tabOrder[0], // 默认选中排序后的第一个 Tab
@@ -313,6 +409,12 @@ export default {
       siteFavorites: [], // { name, url, domain, category, iconFailed? }
       siteCategories: [], // 有序自定义分组名列表
       groups: [], // 渲染用分组视图：[{ name: ''|自定义, sites: [] }]
+      favClips: [], // 剪贴板收藏：[{ id, kind, text?|width/height/thumb, createdAt, favedAt }]
+      clipPreviewVisible: false, // 图片预览弹窗
+      clipPreviewData: '',
+      clipPreviewRec: null,
+      clipTextVisible: false, // 文本详情弹窗
+      clipTextRec: null,
       showAddDialog: false,
       checking: false, // 保存时可访问性检测中
       editingSite: null, // 编辑模式下的原对象
@@ -338,6 +440,10 @@ export default {
     }
   },
   computed: {
+    // 剪贴板收藏 IPC（仅桌面端提供）
+    favApi() {
+      return (window.electronAPI && window.electronAPI.captureFav) || null
+    },
     // 已收藏工具：按 store 中的收藏顺序渲染
     toolFavorites() {
       const paths = this.$store.state.toolFavorites
@@ -379,11 +485,26 @@ export default {
         setItem('toolFavorites', paths)
       }
     },
+    // 按关键字过滤剪贴板收藏（文本匹配内容，图片匹配「图片 + 分辨率」）
+    filteredFavClips() {
+      if (!this.keyword) return this.favClips
+      const q = this.keyword.trim().toLowerCase()
+      return this.favClips.filter(c => {
+        const hay = c.kind === 'text'
+          ? (c.text || '')
+          : `图片 ${c.width} × ${c.height}`
+        return hay.toLowerCase().includes(q)
+      })
+    },
     // 搜索框计数：当前 Tab 的 匹配数/总数
     searchCount() {
-      return this.activeTab === 'tool'
-        ? `${this.filteredToolFavorites.length}/${this.toolFavorites.length}`
-        : `${this.filteredSiteCount}/${this.siteFavorites.length}`
+      if (this.activeTab === 'tool') {
+        return `${this.filteredToolFavorites.length}/${this.toolFavorites.length}`
+      }
+      if (this.activeTab === 'site') {
+        return `${this.filteredSiteCount}/${this.siteFavorites.length}`
+      }
+      return `${this.filteredFavClips.length}/${this.favClips.length}`
     }
   },
   watch: {
@@ -408,8 +529,19 @@ export default {
     this.siteCategories = getItem('siteCategories', [])
     this.rebuildGroups()
   },
+  mounted() {
+    // 剪贴板收藏来自主进程内存池，挂载时拉取 + 窗口聚焦刷新
+    this.loadFavClips()
+    this.onWinFocus = () => this.loadFavClips()
+    window.addEventListener('focus', this.onWinFocus)
+  },
+  // keep-alive 缓存：从剪贴板页切回时立即同步新增/取消的收藏
+  activated() {
+    this.loadFavClips()
+  },
   beforeDestroy() {
     clearTimeout(this._urlTimer)
+    window.removeEventListener('focus', this.onWinFocus)
   },
   methods: {
     // ===== 通用 =====
@@ -419,9 +551,13 @@ export default {
     },
     // 单个 Tab 的徽标计数文案
     tabCount(key) {
-      return key === 'tool'
-        ? this.countLabel(this.filteredToolFavorites.length, this.toolFavorites.length)
-        : this.countLabel(this.filteredSiteCount, this.siteFavorites.length)
+      if (key === 'tool') {
+        return this.countLabel(this.filteredToolFavorites.length, this.toolFavorites.length)
+      }
+      if (key === 'site') {
+        return this.countLabel(this.filteredSiteCount, this.siteFavorites.length)
+      }
+      return this.countLabel(this.filteredFavClips.length, this.favClips.length)
     },
     // Tab 拖拽排序结束：持久化顺序
     onTabDragEnd() {
@@ -762,6 +898,58 @@ export default {
           this.$message({ message: '分组已删除', type: 'success', duration: 1500 })
         })
         .catch(() => {})
+    },
+
+    // ===== 剪贴板收藏 =====
+    // 拉取收藏列表（主进程按收藏时间倒序返回）
+    async loadFavClips() {
+      if (!this.favApi || !this.favApi.list) return
+      const res = await this.favApi.list()
+      if (res && res.ok) this.favClips = res.items || []
+    },
+    // 点击行：文本看详情（保留格式），图片直接复制
+    onClipClick(c) {
+      if (this.suppressClick) return
+      if (c.kind === 'text') this.previewClipText(c)
+      else this.copyClip(c)
+    },
+    async copyClip(c) {
+      if (!c || !this.favApi) return
+      const res = await this.favApi.copy(c.id)
+      if (res && res.ok) this.$message.success('已复制到剪贴板')
+    },
+    // 文本详情弹窗：保留换行与缩进
+    previewClipText(c) {
+      this.clipTextRec = c
+      this.clipTextVisible = true
+    },
+    // 图片大图预览
+    async previewClip(c) {
+      if (!c || c.kind !== 'image' || !this.favApi) return
+      this.clipPreviewRec = c
+      this.clipPreviewVisible = true
+      this.clipPreviewData = ''
+      const res = await this.favApi.data(c.id)
+      if (res && res.ok) this.clipPreviewData = res.data
+    },
+    // 取消收藏（仅移除收藏池，不影响剪贴板历史）
+    async removeClip(c) {
+      if (!c || !this.favApi) return
+      await this.favApi.remove(c.id)
+      this.loadFavClips()
+      this.$message({ message: '已取消收藏', type: 'success', duration: 1500 })
+    },
+    // 图片另存为 PNG
+    async saveClip(c) {
+      if (!c || c.kind !== 'image' || !this.favApi) return
+      const res = await this.favApi.saveAs(c.id)
+      if (res && res.ok) this.$message.success('已保存：' + res.filePath)
+    },
+    // 收藏时间：月-日 时:分
+    fmtFavTime(ts) {
+      const d = new Date(ts)
+      const pad = n => String(n).padStart(2, '0')
+      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
     }
   }
 }
@@ -1330,6 +1518,11 @@ export default {
       color: #13C2C2;
     }
 
+    &.is-clip {
+      background: rgba(235, 47, 150, 0.1);
+      color: #EB2F96;
+    }
+
     .empty-svg {
       width: 28px;
       height: 28px;
@@ -1350,6 +1543,146 @@ export default {
 
   .empty-btn {
     margin-top: 16px;
+  }
+}
+
+// ===== 剪贴板收藏：紧凑行列表（图片缩略图 / 文本单行省略，与剪贴板页对齐） =====
+.clip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.clip-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px; /* 文本行基准高度，与图片缩略图 36px + padding 对齐 */
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border-radius: $radius-base;
+  background: $card-bg;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-app-region: no-drag;
+
+  &:hover {
+    border-color: rgba(var(--primary-color-rgb), 0.35);
+    box-shadow: $shadow-base;
+  }
+}
+
+/* 文本收藏：占满剩余宽度，超长省略（完整内容点开弹窗看） */
+.clip-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: $text-primary;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 图片缩略图：hover 蒙层查看大图 */
+.clip-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 72px;
+  height: 36px;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: $search-bg;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: transform 0.2s ease;
+  }
+
+  .clip-thumb-mask {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.3);
+    color: #fff;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  &:hover {
+    img {
+      transform: scale(1.05);
+    }
+
+    .clip-thumb-mask {
+      opacity: 1;
+    }
+  }
+}
+
+/* 图片信息区：允许收缩，右侧时间与按钮不被挤出边界 */
+.clip-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.clip-size {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: $text-secondary;
+  white-space: nowrap;
+}
+
+.clip-time {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: $text-secondary;
+  opacity: 0.75;
+}
+
+/* 行内操作：常驻显示 */
+.clip-ops {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+
+  button {
+    width: 22px;
+    height: 22px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: $text-secondary;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.12s ease;
+
+    &:hover {
+      background: $search-bg;
+      border-color: var(--border-color);
+      color: $primary-color;
+    }
+
+    &:active {
+      transform: scale(0.92);
+    }
   }
 }
 </style>
@@ -1411,6 +1744,72 @@ export default {
   /* 分组选择器：全宽 */
   .el-select {
     width: 100%;
+  }
+}
+
+// 剪贴板收藏 预览/详情弹窗（append-to-body 所以必须非 scoped）
+.fav-clip-dialog {
+  border-radius: 14px !important;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18) !important;
+
+  .el-dialog__header {
+    padding: 12px 18px 10px;
+    border-bottom: 1px solid var(--border-color, #e8e8e8);
+  }
+
+  .el-dialog__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #1a1a1f);
+  }
+
+  .el-dialog__body {
+    padding: 14px 18px;
+  }
+
+  .el-dialog__footer {
+    padding: 10px 18px 14px;
+    border-top: 1px solid var(--border-color, #e8e8e8);
+  }
+
+  .clip-preview {
+    max-height: 60vh;
+    overflow: auto;
+    text-align: center;
+    background: var(--search-bg, #f5f5f5);
+    border-radius: 10px;
+
+    img {
+      max-width: 100%;
+      border-radius: 6px;
+    }
+  }
+
+  .clip-preview-loading {
+    padding: 70px 0;
+    font-size: 26px;
+    color: var(--text-secondary);
+  }
+
+  /* 文本详情：等宽字体 + 保留原始换行与缩进 */
+  &.is-text .clip-text-preview {
+    max-height: 62vh;
+    overflow: auto;
+    background: var(--search-bg, #f5f5f5);
+    border-radius: 10px;
+    padding: 14px 16px;
+
+    pre {
+      margin: 0;
+      font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+      font-size: 12.5px;
+      line-height: 1.6;
+      color: var(--text-primary, #1a1a1f);
+      white-space: pre-wrap; /* 保留换行 */
+      word-break: break-all; /* 长串不撑破容器 */
+      tab-size: 4;
+    }
   }
 }
 </style>

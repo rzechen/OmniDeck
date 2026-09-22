@@ -518,3 +518,47 @@ html[data-theme='dark'] {
     }
   }
 }
+
+/* ============ el-dropdown 全局定制：macOS 菜单风格 ============ */
+/* 与 el-select-dropdown 同款配方：大圆角 + 毛玻璃 + 柔和阴影 + 胶囊菜单项 */
+
+.el-dropdown-menu {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  padding: 5px;
+
+  /* 隐藏 popper 小箭头，简洁 */
+  .popper__arrow {
+    display: none;
+  }
+
+  .el-dropdown-menu__item {
+    height: 30px;
+    line-height: 30px;
+    border-radius: 7px;
+    padding: 0 12px;
+    font-size: 12.5px;
+    color: var(--text-primary);
+    transition: background 0.12s ease, color 0.12s ease;
+
+    /* 覆盖 Element 默认的 Windows 蓝底白字 hover，改为 mac 浅灰胶囊 */
+    &:not(.is-disabled):hover,
+    &:not(.is-disabled):focus {
+      background: var(--search-bg);
+      color: var(--text-primary);
+    }
+
+    &:active {
+      background: rgba(var(--primary-color-rgb), 0.1);
+    }
+
+    &.is-disabled {
+      color: var(--text-secondary);
+      opacity: 0.5;
+    }
+  }
+}

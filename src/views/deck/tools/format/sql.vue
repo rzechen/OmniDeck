@@ -21,7 +21,7 @@
           :value="d.value"
         />
       </el-select>
-      <button class="tool-btn" @click="formatContent">
+      <button class="tool-btn" @click="onFormatClick">
         <i class="el-icon-magic-stick"></i>
         格式化
       </button>
@@ -36,6 +36,10 @@
       <button class="tool-btn" @click="exportOutput">
         <i class="el-icon-download"></i>
         下载
+      </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
@@ -69,6 +73,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <template v-if="rawInput.trim()">
         <span class="status-dot"></span>
@@ -86,17 +98,24 @@
 import { format as formatSql } from 'sql-formatter'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/download'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/format/sql'
 
 const EXAMPLE = `SELECT d.deptno, d.dname, d.loc, COUNT(e.empno) AS mycount, NVL(AVG(e.sal), 0) AS myavg FROM dept d, emp e WHERE d.deptno = e.deptno(+) GROUP BY d.deptno, d.dname, d.loc HAVING AVG(sal) > 2000`
 
 export default {
   name: 'FormatSql',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       rawInput: EXAMPLE,
       formattedOutput: '',
+      historyVisible: false,
+      // 模板/实例可访问的工具 path（历史面板与 record 用）
+      TOOL_PATH: TOOL_PATH,
       dialect: 'sql',
       dialects: [
         { label: '标准 SQL', value: 'sql' },
@@ -146,6 +165,15 @@ export default {
           language: this.dialect,
           tabWidth: 2
         })
+        // 仅按钮触发记录（防抖自动格式化与方言切换不记录）
+        if (this._manual) {
+          this._manual = false
+          record(TOOL_PATH, {
+            input: this.rawInput,
+            output: this.formattedOutput,
+            options: { action: 'format', dialect: this.dialect }
+          })
+        }
       } catch (e) {
         this.formattedOutput = this.rawInput
         this.$message.error('格式化失败：' + e.message)
@@ -160,6 +188,11 @@ export default {
         .replace(/\s*\)\s*/g, ') ')
         .replace(/\s+/g, ' ')
         .trim()
+      record(TOOL_PATH, {
+        input: this.rawInput,
+        output: this.formattedOutput,
+        options: { action: 'minify', dialect: this.dialect }
+      })
     },
     copyOutput() {
       if (!this.formattedOutput.trim()) {
@@ -168,7 +201,32 @@ export default {
       }
       navigator.clipboard.writeText(this.formattedOutput).then(() => {
         this.$message.success('复制成功')
+        record(TOOL_PATH, {
+          input: this.rawInput,
+          output: this.formattedOutput,
+          options: { action: 'copy', dialect: this.dialect }
+        })
       })
+    },
+    // 手动点击「格式化」按钮（区别于防抖自动触发）
+    onFormatClick() {
+      this._manual = true
+      this.formatContent()
+    },
+    // 从历史恢复：回填输入并触发格式化
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.rawInput = full.input || ''
+      if (full.options && full.options.dialect) this.dialect = full.options.dialect
+      this.$nextTick(() => {
+        this.formatContent()
+        this.$refs.inputEditor && this.$refs.inputEditor.focus()
+      })
+      this.$message.success('已从历史恢复')
     },
     exportOutput() {
       if (!this.formattedOutput.trim()) {

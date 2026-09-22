@@ -20,6 +20,10 @@
         <i class="el-icon-document-copy"></i>
         复制
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -53,6 +57,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot"></span>
       <span>{{ input.length }} 字符输入</span>
@@ -64,18 +76,24 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
+import { record, get as getHistory } from '@/utils/tool-history'
 import { simplifiedToTraditionalMap, simplifiedToMarsMap } from '@/utils/mars-maps'
 
 // 繁→简反向映射（首次惰性构建）
 let traditionalToSimplifiedMap = null
 
+const TOOL_PATH = '/tools/text/to-mars'
+
 export default {
   name: 'TextToMars',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       input: '今天天气真不错，我们一起去公园玩吧',
-      output: ''
+      output: '',
+      historyVisible: false,
+      TOOL_PATH: TOOL_PATH
     }
   },
   methods: {
@@ -97,6 +115,24 @@ export default {
         }
         this.output = [...this.input].map(c => traditionalToSimplifiedMap[c] || c).join('')
       }
+      record(TOOL_PATH, {
+        input: this.input,
+        output: this.output,
+        options: { action: 'convert', direction: direction }
+      })
+    },
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.input = full.input || ''
+      this.output = full.output || ''
+      this.$nextTick(() => {
+        this.$refs.inputEditor && this.$refs.inputEditor.focus()
+      })
+      this.$message.success('已从历史恢复')
     },
     copyOutput() {
       if (!this.output) return

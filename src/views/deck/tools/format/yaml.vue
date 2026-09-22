@@ -23,7 +23,7 @@
           XML
         </div>
       </div>
-      <button class="tool-btn" @click="formatContent">
+      <button class="tool-btn" @click="onFormatClick">
         <i class="el-icon-magic-stick"></i>
         格式化
       </button>
@@ -38,6 +38,10 @@
       <button class="tool-btn" @click="exportOutput">
         <i class="el-icon-download"></i>
         下载
+      </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
@@ -75,6 +79,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <template v-if="rawInput.trim()">
         <span class="status-dot" :class="{ 'is-bad': !valid }"></span>
@@ -94,7 +106,11 @@ import yaml from 'js-yaml'
 import { html as beautifyHtml } from 'js-beautify'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/download'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/format/yaml'
 
 const YAML_EXAMPLE = `server:
   port: 8080
@@ -114,14 +130,17 @@ function validateXml(str) {
 
 export default {
   name: 'FormatYaml',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       formatType: 'yaml',
       rawInput: YAML_EXAMPLE,
       formattedOutput: '',
       valid: true,
-      errMsg: ''
+      errMsg: '',
+      historyVisible: false,
+      // 模板/实例可访问的工具 path（历史面板与 record 用）
+      TOOL_PATH: TOOL_PATH
     }
   },
   computed: {
@@ -180,6 +199,15 @@ export default {
           this.valid = true
           this.errMsg = ''
         }
+        // 仅按钮触发记录（防抖自动格式化与切换类型不记录）
+        if (this._manual) {
+          this._manual = false
+          record(TOOL_PATH, {
+            input: this.rawInput,
+            output: this.formattedOutput,
+            options: { action: 'format', type: this.formatType }
+          })
+        }
       } catch (e) {
         this.valid = false
         this.errMsg = e.message
@@ -204,6 +232,11 @@ export default {
           this.valid = true
         }
         this.errMsg = ''
+        record(TOOL_PATH, {
+          input: this.rawInput,
+          output: this.formattedOutput,
+          options: { action: 'minify', type: this.formatType }
+        })
       } catch (e) {
         this.valid = false
         this.errMsg = e.message
@@ -217,7 +250,32 @@ export default {
       }
       navigator.clipboard.writeText(this.formattedOutput).then(() => {
         this.$message.success('复制成功')
+        record(TOOL_PATH, {
+          input: this.rawInput,
+          output: this.formattedOutput,
+          options: { action: 'copy', type: this.formatType }
+        })
       })
+    },
+    // 手动点击「格式化」按钮（区别于防抖自动触发）
+    onFormatClick() {
+      this._manual = true
+      this.formatContent()
+    },
+    // 从历史恢复：回填输入（含格式类型）并触发格式化
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      if (full.options && full.options.type) this.formatType = full.options.type
+      this.rawInput = full.input || ''
+      this.$nextTick(() => {
+        this.formatContent()
+        this.$refs.inputEditor && this.$refs.inputEditor.focus()
+      })
+      this.$message.success('已从历史恢复')
     },
     exportOutput() {
       if (!this.formattedOutput.trim()) {

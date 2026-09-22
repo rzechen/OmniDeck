@@ -6,6 +6,13 @@
     color="#FAAD14"
     back-path="/tools/other"
   >
+    <template #toolbar>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
+    </template>
+
     <div class="split-pane">
       <!-- 左：五字段构建器 -->
       <div class="pane" style="flex: 1.35">
@@ -113,6 +120,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !parsed.ok }"></span>
       <span>5 字段 Cron（分 时 日 月 周）</span>
@@ -123,6 +138,10 @@
 
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/other/cron'
 
 // 五字段定义：min/max 取值范围，values 可选值序列
 const FIELD_DEFS = [
@@ -140,10 +159,12 @@ const WEEK_CN = n => '周' + '日一二三四五六'[n]
 
 export default {
   name: 'OtherCron',
-  components: { ToolShell },
+  components: { ToolShell, ToolHistoryPanel },
   data() {
     return {
       fields: FIELD_DEFS,
+      historyVisible: false,
+      TOOL_PATH: TOOL_PATH,
       // 每个字段的选择状态：every 任意 / step 每N / spec 指定
       state: {
         minute: { mode: 'spec', step: 5, selected: [30] },
@@ -389,9 +410,24 @@ export default {
       try {
         await navigator.clipboard.writeText(this.expression)
         this.$message.success('已复制：' + this.expression)
+        record(TOOL_PATH, {
+          input: this.expression,
+          output: this.description,
+          options: { action: 'copy', expr: this.expression }
+        })
       } catch (e) {
         this.$message.error('复制失败')
       }
+    },
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      const expr = (full.options && full.options.expr) || full.input
+      if (expr) this.applyExample({ expr })
+      this.$message.success('已从历史恢复')
     }
   }
 }

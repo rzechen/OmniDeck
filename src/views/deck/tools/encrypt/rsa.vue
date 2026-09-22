@@ -35,6 +35,10 @@
         <i class="el-icon-document-copy"></i>
         复制
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -101,6 +105,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!errorMsg }"></span>
       <span v-if="errorMsg" class="status-err">{{ errorMsg }}</span>
@@ -114,10 +126,14 @@
 import { JSEncrypt } from 'jsencrypt'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/encrypt/rsa'
 
 export default {
   name: 'EncryptRsa',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       action: 'encrypt',
@@ -126,7 +142,9 @@ export default {
       inputText: 'Hello OmniDeck',
       outputText: '',
       generating: false,
-      errorMsg: ''
+      errorMsg: '',
+      historyVisible: false,
+      TOOL_PATH: TOOL_PATH
     }
   },
   methods: {
@@ -157,10 +175,30 @@ export default {
           if (!r) throw new Error('解密失败：私钥或密文错误')
           this.outputText = r
         }
+        // 仅记录加解密动作，不存储公私钥（敏感信息红线）
+        record(TOOL_PATH, {
+          input: this.inputText,
+          output: this.outputText,
+          options: { action: this.action, bits: 2048 }
+        })
       } catch (e) {
         this.errorMsg = e.message
         this.outputText = ''
       }
+    },
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      if (full.options && full.options.action) this.action = full.options.action
+      this.inputText = full.input || ''
+      this.outputText = full.output || ''
+      this.$nextTick(() => {
+        this.$refs.inputEditor && this.$refs.inputEditor.focus()
+      })
+      this.$message.success('已从历史恢复（密钥不存储，需重新填入）')
     },
     // node-forge 动态导入：仅在生成时加载
     async generateKeyPair() {

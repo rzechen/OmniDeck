@@ -305,6 +305,7 @@ import {
   calcProfit, riseColor, fmtMoney, fmtPct,
   calcMarketStatus, fmtQuoteDate, fmtQuoteTime
 } from '@/utils/fund'
+import { getItem as dbGetItem, setItem as dbSetItem } from '@/utils/db'
 
 export default {
   name: 'FundPortfolio',
@@ -319,8 +320,9 @@ export default {
       updateTime: '',
       // 首次估值加载（骨架屏）
       booting: true,
-      // 金额隐私模式：隐藏收益等金额数值（持久化）
-      hideAmount: localStorage.getItem('fundHideAmount') === '1',
+      // 金额隐私模式：隐藏收益等金额数值（持久化，IndexedDB）
+      // 旧 localStorage 值一次性迁移（mounted 中处理）
+      hideAmount: dbGetItem('fundHideAmount', false) === true,
       // 市场状态（每秒 tick 时更新）：{ label, type }
       marketStatus: calcMarketStatus(),
       // 循环倒计时状态机：counting(倒数) → refreshing(刷新中) → success(成功2s) → counting
@@ -428,6 +430,7 @@ export default {
     }
   },
   mounted() {
+    this.migrateHideAmount()
     this.positions = loadPositions()
     this.refresh()
     // 统一 1s tick 驱动倒计时状态机
@@ -469,7 +472,17 @@ export default {
     },
     toggleHide() {
       this.hideAmount = !this.hideAmount
-      localStorage.setItem('fundHideAmount', this.hideAmount ? '1' : '0')
+      dbSetItem('fundHideAmount', this.hideAmount)
+    },
+    // 旧 localStorage 值一次性迁移到 IndexedDB（迁移后删除旧 key）
+    migrateHideAmount() {
+      try {
+        const legacy = localStorage.getItem('fundHideAmount')
+        if (legacy !== null) {
+          dbSetItem('fundHideAmount', legacy === '1')
+          localStorage.removeItem('fundHideAmount')
+        }
+      } catch (e) { /* 忽略迁移失败 */ }
     },
 
     /* ============ 倒计时状态机 ============ */
