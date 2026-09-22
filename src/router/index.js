@@ -694,12 +694,35 @@ const routes = [
         meta: { title: '问题反馈' }
       }
     ]
+  },
+  // 兜底路由：任意未匹配的路径（如托盘菜单里手填错的地址）。
+  // 组件仅作占位，实际由下方全局守卫回退首页，避免顶层 <router-view> 渲染空白
+  {
+    path: '*',
+    name: 'NotFound',
+    component: { render: h => h('div') },
+    meta: { title: '页面不存在' }
   }
 ]
 
 const router = new VueRouter({
   mode: 'hash',
   routes
+})
+
+// 全局兜底守卫：未匹配的路径不会渲染任何页面，会导致顶层 <router-view> 空白
+// （表现为只剩壁纸、侧边栏一并消失）。这里统一回退首页并提示，
+// 同时因为导航目标是首页，坏路径不会被 afterEach 写进 lastDeckPath
+router.beforeEach((to, from, next) => {
+  if (to.matched.length === 0 || to.name === 'NotFound') {
+    const bad = to.fullPath
+    next('/home')
+    if (Vue.prototype.$message && Vue.prototype.$message.warning) {
+      Vue.prototype.$message.warning('路由「' + bad + '」不存在，已返回首页')
+    }
+    return
+  }
+  next()
 })
 
 // 记录 deck 主界面最后所在页面：从 OmniBuddy「返回 OmniDeck」时

@@ -401,7 +401,7 @@
             <div class="settings-row">
               <div class="row-label">
                 <span class="label-text">菜单项管理</span>
-                <span class="label-desc">修改即时保存并生效；点击菜单项或按下快捷键将聚焦主窗口并跳转对应页面</span>
+                <span class="label-desc">修改即时保存并生效；页面路由可从下拉候选中选择（输入名称或路径可筛选），填写有误时该项标红且不会保存</span>
               </div>
               <div class="tray-menu-actions">
                 <el-button size="small" round @click="addTrayItem('deck')">+ Deck 项</el-button>
@@ -416,17 +416,30 @@
                 <input
                   v-model.trim="it.label"
                   class="tray-item-input"
+                  :class="{ 'is-invalid': !!labelInvalid(it) }"
+                  :title="labelInvalid(it)"
                   maxlength="20"
                   placeholder="菜单名称"
                   @change="saveTrayMenu"
                 />
-                <input
+                <el-autocomplete
                   v-model.trim="it.route"
-                  class="tray-item-input tray-item-route"
-                  maxlength="60"
+                  class="tray-route-select"
+                  :class="{ 'is-invalid': !!routeInvalid(it) }"
+                  :title="routeInvalid(it)"
+                  :fetch-suggestions="queryRoutes"
+                  value-key="path"
+                  :trigger-on-focus="true"
                   placeholder="页面路由，如 /home"
+                  size="small"
+                  @select="saveTrayMenu"
                   @change="saveTrayMenu"
-                />
+                >
+                  <template slot-scope="{ item }">
+                    <span style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;">{{ item.path }}</span>
+                    <span v-if="item.title" style="margin-left: 8px; color: #909399; font-size: 11px;">{{ item.title }}</span>
+                  </template>
+                </el-autocomplete>
                 <div class="shortcut-recorder" :class="{ recording: recordingId === 'tray:' + it.id }">
                   <button
                     type="button"
@@ -658,6 +671,21 @@ toolCategories.forEach(c => {
   })
 })
 
+// 扁平化路由表 → 托盘菜单「页面路由」候选（递归拼接子路由相对路径）
+// 跳过重定向项与带参路由（如 /finance/fund/:code），这类地址不适合放进托盘菜单
+function flattenRoutes(list, base) {
+  const out = []
+  ;(list || []).forEach(r => {
+    if (!r || !r.path) return
+    const full = r.path.startsWith('/') ? r.path : base === '/' ? '/' + r.path : base + '/' + r.path
+    if (r.component && !r.redirect && full.indexOf(':') === -1 && full.indexOf('*') === -1) {
+      out.push({ path: full, title: (r.meta && r.meta.title) || '' })
+    }
+    if (r.children && r.children.length) out.push(...flattenRoutes(r.children, full))
+  })
+  return out
+}
+
 export default {
   name: 'Settings',
   data() {
@@ -827,6 +855,17 @@ export default {
         { key: 'deck', title: 'Deck 视图', items: this.trayMenu.filter(i => i.group === 'deck') },
         { key: 'buddy', title: 'Buddy 视图', items: this.trayMenu.filter(i => i.group === 'buddy') }
       ]
+    },
+    // 托盘菜单「页面路由」候选：取自真实路由表（去重 + 按路径排序）
+    routeCandidates() {
+      const seen = {}
+      const out = []
+      flattenRoutes(this.$router.options.routes, '/').forEach(r => {
+        if (seen[r.path]) return
+        seen[r.path] = true
+        out.push(r)
+      })
+      return out.sort((a, b) => a.path.localeCompare(b.path))
     },
     primaryColor() {
       return this.$store.state.primaryColor
@@ -1132,7 +1171,8 @@ export default {
         return
       }
       it.accelerator = accelerator
-      await this.saveTrayMenu()
+      // 校验未通过（存在填写错误的项）时不再提示"已更新"，避免误导
+      if (!(await this.saveTrayMenu())) return
       // 回写后确认键位是否注册成功（失败被主进程置空）
       const saved = this.trayMenu.find(i => i.id === id)
       if (saved && saved.accelerator) {
@@ -1237,14 +1277,54 @@ export default {
       const res = await quick.getTrayMenu()
       this.trayMenu = (res && res.items) || []
     },
-    // 保存托盘菜单：主进程清洗/注册快捷键并重建托盘菜单，回写清洗后的数据
+    // 菜单名称校验：返回错误文案（空串表示合法），用于标红与阻止保存
+    labelInvalid(it) {
+      return ((it && it.label) || '').trim() ? '' : '菜单名称不能为空'
+    },
+    // 页面路由校验：必须命中真实路由表，避免填错地址
+    routeInvalid(it) {
+      const p = ((it && it.route) || '').trim()
+      if (!p) return '页面路由不能为空'
+      if (p.charAt(0) !== '/') return '页面路由需以 / 开头'
+      return this.routeCandidates.some(c => c.path === p) ? '' : '页面路由不存在'
+    },
+    // 路由候选检索（el-autocomplete 的 fetch-suggestions）：按路径或页面名称筛选
+    queryRoutes(queryString, cb) {
+      const kw = (queryString || '').toLowerCase()
+      cb(
+        this.routeCandidates.filter(
+          c => !kw || c.path.toLowerCase().indexOf(kw) !== -1 || (c.title || '').toLowerCase().indexOf(kw) !== -1
+        )
+      )
+    },
+    // 保存托盘菜单（编辑入口）：先做名称/路由校验，非法项不落盘并标红提示
+    // 返回是否通过校验（供调用方决定后续提示）
     async saveTrayMenu() {
+      const bad = this.trayMenu.filter(it => this.labelInvalid(it) || this.routeInvalid(it))
+      if (bad.length) {
+        this.$message.warning('有 ' + bad.length + ' 项填写有误，已暂不保存，请修正后再试')
+        return false
+      }
+      await this.persistTrayMenu()
+      return true
+    },
+    // 落盘：主进程清洗/注册快捷键并重建托盘菜单，回写清洗后的数据
+    // （新增/删除等结构性操作直接调用，避免被其他行的填写错误卡住）
+    async persistTrayMenu() {
       const quick = window.electronAPI && window.electronAPI.quick
       if (!quick || !quick.setTrayMenu) return
       const res = await quick.setTrayMenu(this.trayMenu)
       if (res && res.ok) {
         // 回写：注册失败的快捷键被主进程置空、冲突项被清洗
         this.trayMenu = res.items || this.trayMenu
+        // 兜底：主进程仍丢弃了项时明示原因，避免菜单项无声消失
+        const invalid = (res && res.invalid) || []
+        if (invalid.length) {
+          this.$message.warning(
+            '已忽略 ' + invalid.length + ' 个无效菜单项：' +
+              invalid.map(v => (v.label || v.route || '未命名') + '（' + v.reason + '）').join('；')
+          )
+        }
       }
     },
     // 新增菜单项（分组指定 deck / buddy）
@@ -1257,7 +1337,7 @@ export default {
         route,
         accelerator: ''
       })
-      await this.saveTrayMenu()
+      await this.persistTrayMenu()
     },
     // 删除菜单项
     async removeTrayItem(groupKey, id) {
@@ -1270,7 +1350,7 @@ export default {
       })
         .then(async () => {
           this.trayMenu = this.trayMenu.filter(i => i.id !== id)
-          await this.saveTrayMenu()
+          await this.persistTrayMenu()
           this.$message.success('已删除')
         })
         .catch(() => {})
@@ -1760,6 +1840,7 @@ export default {
 
   .tray-item-input {
     height: 28px;
+    width: 150px;
     padding: 0 8px;
     border: 1px solid var(--border-color);
     border-radius: 7px;
@@ -1773,17 +1854,37 @@ export default {
       border-color: rgba(var(--primary-color-rgb), 0.55);
     }
 
-    // 名称输入框固定宽；路由输入框弹性伸展
-    &.tray-item-route {
-      flex: 1;
-      min-width: 120px;
+    // 名称/路由非法：标红提示，配合 saveTrayMenu 的保存拦截
+    &.is-invalid {
+      border-color: #f56c6c;
+      box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.12);
+    }
+  }
+
+  // 页面路由（el-autocomplete）：弹性伸展，等价于原输入框
+  .tray-route-select {
+    flex: 1;
+    min-width: 160px;
+
+    ::v-deep .el-input__inner {
+      height: 28px;
+      line-height: 28px;
+      padding: 0 8px;
+      border-radius: 7px;
+      border-color: var(--border-color);
+      background: var(--card-bg, #fff);
       font-family: 'SF Mono', Menlo, Consolas, monospace;
       font-size: 11px;
       color: $text-secondary;
+
+      &:focus {
+        border-color: rgba(var(--primary-color-rgb), 0.55);
+      }
     }
 
-    &:not(.tray-item-route) {
-      width: 150px;
+    &.is-invalid ::v-deep .el-input__inner {
+      border-color: #f56c6c;
+      box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.12);
     }
   }
 
