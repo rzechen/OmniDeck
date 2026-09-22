@@ -86,6 +86,7 @@
         "from": "build",
         "to": "tray",
         "filter": [
+          "logo.png",
           "trayTemplate.png",
           "trayTemplate@2x.png",
           "trayTemplate@4x.png",
