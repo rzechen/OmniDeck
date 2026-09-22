@@ -20,19 +20,6 @@
       </div>
     </div>
 
-    <!-- 剪贴板图片感知胶囊（M4）：唤起时检测到剪贴板有图则提示可转为附件 -->
-    <div v-if="clipImage" class="qp-clip">
-      <img class="qp-clip-thumb" :src="clipImage.thumb" alt="剪贴板图片" draggable="false" />
-      <div class="qp-clip-info">
-        <div class="qp-clip-title">剪贴板中有图片</div>
-        <div class="qp-clip-desc">{{ clipImage.width }} × {{ clipImage.height }}</div>
-      </div>
-      <button class="qp-clip-use" @click="useClipImage">使用</button>
-      <button class="qp-clip-close" title="忽略" @click="dismissClipImage">
-        <svg-icon icon-class="close" />
-      </button>
-    </div>
-
     <!-- 消息区 -->
     <div ref="body" class="qp-body">
       <!-- 空会话欢迎占位 -->
@@ -68,15 +55,12 @@
       <buddy-composer
         v-model="draft"
         :streaming="streaming"
-        :images="attachments"
         :files="fileAttachments"
-        :extra-sendable="attachments.length > 0 || fileAttachments.length > 0"
+        :extra-sendable="fileAttachments.length > 0"
         placeholder="有什么可以帮您？（Enter 发送 / Shift+Enter 换行 / Esc 隐藏）"
         @send="send"
         @stop="interrupt"
-        @remove-image="removeAttachment"
         @remove-file="removeFileAttachment"
-        @captured="onCaptured"
         @pick="pickAttachments"
         @import-file="importFile"
       >
@@ -112,8 +96,6 @@
             @toggle="toggleSelect('provider')"
             @select="onSelectProvider"
           />
-
-          <composer-capture :disabled="streaming" @captured="onCaptured" />
         </template>
       </buddy-composer>
     </div>
@@ -131,7 +113,6 @@ import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
 import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
 import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
-import ComposerCapture from '@/components/buddy/chat/ComposerCapture.vue'
 import { getItem, setItem } from '@/utils/db'
 
 // 面板会话固定展示名：主窗口侧栏按此分组
@@ -139,7 +120,7 @@ const QUICK_DISPLAY_NAME = '快捷面板'
 
 export default {
   name: 'QuickPanel',
-  components: { BuddyComposer, MessageBubble, AskUserCard, ComposerPicker, ComposerCapture },
+  components: { BuddyComposer, MessageBubble, AskUserCard, ComposerPicker },
   data() {
     return {
       // 模型与工作空间
@@ -148,8 +129,6 @@ export default {
       workspaces: [],
       workspaceId: '',
       openSelect: '',
-      // 待发送截图附件（[{id,width,height,thumb}]）
-      attachments: [],
       // 待发送文件附件（[{id,name,size,kind,thumb,path}]，P1-7）
       fileAttachments: [],
       // 会话与消息
@@ -157,9 +136,6 @@ export default {
       messages: [],
       draft: '',
       streaming: false,
-      // 剪贴板图片感知（M4）：唤起时检测到图片显示胶囊，点击/⌘V 转附件
-      clipImage: null,
-      offVisibility: null,
       // 本轮助手消息（跨工具调用持续复用同一条）
       turnMsg: null,
       cycleBase: '',
@@ -218,21 +194,12 @@ export default {
     if (api) {
       this.offEvent = api.onEvent(e => this.onAgentEvent(e))
     }
-
-    // 面板唤起：检测剪贴板是否含图片（M4 感知胶囊）
-    const quick = window.electronAPI && window.electronAPI.quick
-    if (quick && quick.onVisibility) {
-      this.offVisibility = quick.onVisibility(v => {
-        if (v) this.detectClipboardImage()
-      })
-    }
   },
   beforeDestroy() {
     window.removeEventListener('keydown', this.onKeydown)
     document.removeEventListener('mousedown', this.onDocMouseDown)
     this.stopThinkTimer()
     if (this.offEvent) this.offEvent()
-    if (this.offVisibility) this.offVisibility()
   },
   methods: {
     api() {
@@ -261,36 +228,6 @@ export default {
     openMain() {
       const quick = window.electronAPI && window.electronAPI.quick
       if (quick) quick.showMain()
-    },
-    // ===== 剪贴板图片感知（M4） =====
-    // 唤起时检测（peek 不落盘）：有图显示胶囊，点击才真正转附件
-    async detectClipboardImage() {
-      const cap = window.electronAPI && window.electronAPI.capture
-      if (!cap || !cap.clipboardImage) {
-        this.clipImage = null
-        return
-      }
-      try {
-        const res = await cap.clipboardImage({ peek: true })
-        this.clipImage = res && res.ok ? res.image : null
-      } catch (e) {
-        this.clipImage = null
-      }
-    },
-    // 胶囊点击：重新读剪贴板并落盘为附件
-    async useClipImage() {
-      if (!this.clipImage) return
-      const cap = window.electronAPI && window.electronAPI.capture
-      if (cap && cap.clipboardImage) {
-        try {
-          const res = await cap.clipboardImage()
-          if (res && res.ok) this.onCaptured(res.image)
-        } catch (e) { /* 剪贴板已变：忽略 */ }
-      }
-      this.clipImage = null
-    },
-    dismissClipImage() {
-      this.clipImage = null
     },
     // ===== 模型 / 工作空间 =====
     loadProviders() {
@@ -403,16 +340,7 @@ export default {
       }
       this.sessionId = ''
       this.messages = []
-      this.attachments = []
       this.fileAttachments = []
-    },
-    // ===== 发送 =====
-    // 截屏回调：入待发送附件条
-    onCaptured(image) {
-      this.attachments.push(image)
-    },
-    removeAttachment(i) {
-      this.attachments.splice(i, 1)
     },
     // ===== 文件附件（P1-7）=====
     async pickAttachments() {
@@ -438,9 +366,8 @@ export default {
     },
     async send() {
       const text = this.draft.trim()
-      const images = this.attachments.slice()
       const files = this.fileAttachments.slice()
-      if ((!text && !images.length && !files.length) || this.streaming) return
+      if ((!text && !files.length) || this.streaming) return
       if (!window.electronAPI || !window.electronAPI.omnibuddy) {
         this.$message.info('对话能力需要 OmniDeck 桌面端')
         return
@@ -455,7 +382,6 @@ export default {
         return
       }
       this.draft = ''
-      this.attachments = []
       this.fileAttachments = []
 
       let sessionId = this.sessionId
@@ -472,7 +398,6 @@ export default {
       this.messages.push({
         role: 'user',
         content: text,
-        images: images.length ? images : undefined,
         fileAttachments: files.length ? files : undefined,
         createdAt: Date.now()
       })
@@ -498,7 +423,6 @@ export default {
       const res = await this.api().sendMessage({
         id: sessionId,
         text,
-        images: images.length ? images : undefined,
         attachments: files.length ? files : undefined,
         provider: this.currentProvider,
         workspaceId: ws.id,
@@ -738,10 +662,9 @@ export default {
 }
 
 .qp-logo {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  object-fit: cover;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 
@@ -790,80 +713,6 @@ export default {
 }
 
 // ---------- 消息区 ----------
-// 剪贴板图片感知胶囊（M4）
-.qp-clip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 8px 26px 0;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--search-bg, rgba(120, 120, 128, 0.1));
-  border: 1px solid var(--border-color, rgba(120, 120, 128, 0.18));
-
-  .qp-clip-thumb {
-    width: 52px;
-    height: 34px;
-    object-fit: cover;
-    border-radius: 6px;
-    background: rgba(0, 0, 0, 0.06);
-  }
-
-  .qp-clip-info {
-    flex: 1;
-    min-width: 0;
-
-    .qp-clip-title {
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .qp-clip-desc {
-      margin-top: 2px;
-      font-size: 11px;
-      color: var(--text-secondary);
-    }
-  }
-
-  .qp-clip-use {
-    padding: 4px 12px;
-    border: none;
-    border-radius: 999px;
-    background: var(--primary-color);
-    color: #fff;
-    font-size: 12px;
-    font-family: inherit;
-    cursor: pointer;
-
-    &:hover {
-      opacity: 0.88;
-    }
-  }
-
-  .qp-clip-close {
-    width: 22px;
-    height: 22px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-
-    .svg-icon {
-      font-size: 11px;
-    }
-
-    &:hover {
-      background: rgba(120, 120, 128, 0.16);
-      color: var(--text-primary);
-    }
-  }
-}
-
 .qp-body {
   flex: 1;
   overflow-y: auto;

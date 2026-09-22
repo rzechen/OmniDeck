@@ -5,7 +5,7 @@
         <!-- 头部：标识 + TODO 徽标 -->
         <div class="buddy-head">
           <span class="buddy-logo">
-            <svg-icon icon-class="buddy" class="buddy-logo-svg" />
+            <img src="@/assets/logo.png" alt="OmniBuddy" class="buddy-logo-img" />
           </span>
           <span class="buddy-name">OmniBuddy</span>
           <span class="buddy-todo">TODO</span>
@@ -39,8 +39,10 @@
 </template>
 
 <script>
-// OmniBuddy 快速唤起浮窗（⌘J / Ctrl+J 全局呼出）
+// OmniBuddy 快速唤起浮窗（可配置快捷键，默认 ⌘⌥J / Ctrl+Alt+J）
 // 占位骨架：输入与快捷键链路先立起来，对话能力接入后填充流式渲染
+import { getShortcut, matchesShortcut } from '@/utils/shortcuts'
+
 export default {
   name: 'BuddySpotlight',
   data() {
@@ -57,8 +59,8 @@ export default {
   },
   methods: {
     handleKeydown(e) {
-      // ⌘J / Ctrl+J：呼出或收起（避开输入法组合键场景由 key 判断保证）
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'j' || e.key === 'J')) {
+      // 唤起助手：可配置（默认 ⌘⌥J / Ctrl+Alt+J），设置页可改键
+      if (matchesShortcut(e, getShortcut('buddy'))) {
         e.preventDefault()
         this.toggle()
       }
@@ -134,11 +136,13 @@ export default {
   align-items: center;
   justify-content: center;
   box-shadow: 0 1px 3px rgba(var(--primary-color-rgb), 0.35);
+  overflow: hidden;
 
-  .buddy-logo-svg {
-    width: 15px;
-    height: 15px;
-    color: #fff;
+  // 品牌 logo（宽扁异形，contain 原比例呈现）
+  .buddy-logo-img {
+    width: 19px;
+    height: 19px;
+    object-fit: contain;
   }
 }
 

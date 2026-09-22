@@ -54,7 +54,7 @@ export default {
     // 类型 → 图标名（与页面原实现保持一致）
     typeIcon(type) {
       if (type === 'connector' || type === 'mcp') return 'mcp'
-      if (type === 'agent') return 'buddy'
+      if (type === 'agent') return 'subagent'
       return 'skill'
     }
   }

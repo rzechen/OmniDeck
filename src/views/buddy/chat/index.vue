@@ -24,24 +24,37 @@
           <buddy-composer
             v-model="draft"
             :streaming="streaming"
-            :images="attachments"
             :files="fileAttachments"
-            :extra-sendable="attachments.length > 0 || fileAttachments.length > 0"
+            :extra-sendable="fileAttachments.length > 0"
             @send="send"
             @stop="interrupt"
-            @remove-image="removeAttachment"
             @remove-file="removeFileAttachment"
-            @captured="onCaptured"
             @pick="pickAttachments"
             @import-file="importFile"
           >
             <template slot="tools">
-              <!-- 关联本地磁盘路径（必填，未关联无法发送；点击弹出关联弹窗） -->
-              <workspace-chip
-                :dir="workspaceLink.dir"
-                :name="workspaceLink.name"
-                @open="linkDialogVisible = true"
-              />
+              <!-- 工作空间（必填，未关联无法发送；上拉切换已登记空间 / 关联新路径） -->
+              <composer-picker
+                picker-key="workspace"
+                :active-key="openSelect"
+                :model-value="workspaceLink.workspaceId"
+                trigger-icon="folder"
+                :trigger-label="workspaceLabel"
+                :trigger-title="workspaceLink.dir || '选择工作空间（必填）'"
+                panel-title="工作空间"
+                :items="workspaceItems"
+                empty-title="暂无可用工作空间"
+                empty-desc="点击下方「关联新路径」登记本地目录"
+                @toggle="toggleSelect('workspace')"
+                @select="onSelectWorkspace"
+              >
+                <template slot="footer">
+                  <div class="ob-ws-add" @click="linkNewWorkspace">
+                    <svg-icon icon-class="folder-add" class="ob-ws-add-ico" />
+                    <span>关联新路径</span>
+                  </div>
+                </template>
+              </composer-picker>
 
               <!-- 模型选择（与快捷面板同款 llm 图标） -->
               <composer-picker
@@ -60,9 +73,6 @@
                 @select="onSelectProvider"
               />
 
-              <!-- 截屏提问（P0-M3）：desktopCapturer 截屏，缩略图入附件条 -->
-              <composer-capture :disabled="streaming" @captured="onCaptured" />
-
               <!-- 检查点（N4）：写操作前自动快照，抽屉查看时间线并回滚 -->
               <div
                 class="ob-cp-entry"
@@ -78,14 +88,6 @@
       </div>
     </div>
 
-    <!-- 关联本地磁盘路径弹窗（磁盘路径必填 + 展示名选填） -->
-    <workspace-link-dialog
-      :visible="linkDialogVisible"
-      :initial="workspaceLink"
-      @close="linkDialogVisible = false"
-      @submit="onLinkWorkspace"
-    />
-
     <!-- 检查点抽屉（N4）：写操作前自动快照，时间线倒序 + 一键回滚（自治组件，内部加载与回滚） -->
     <checkpoint-drawer
       ref="cp"
@@ -100,9 +102,6 @@
 import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
 import ChatPlaceholder from '@/components/buddy/chat/ChatPlaceholder.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
-import ComposerCapture from '@/components/buddy/chat/ComposerCapture.vue'
-import WorkspaceChip from '@/components/buddy/chat/WorkspaceChip.vue'
-import WorkspaceLinkDialog from '@/components/buddy/WorkspaceLinkDialog.vue'
 import ChatMessageList from './components/ChatMessageList.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
 import { getItem, setItem } from '@/utils/db'
@@ -111,7 +110,7 @@ import { getItem, setItem } from '@/utils/db'
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
 export default {
   name: 'OmniBuddyChat',
-  components: { BuddyComposer, ChatPlaceholder, ComposerPicker, ComposerCapture, WorkspaceChip, WorkspaceLinkDialog, ChatMessageList, CheckpointDrawer },
+  components: { BuddyComposer, ChatPlaceholder, ComposerPicker, ChatMessageList, CheckpointDrawer },
   data() {
     return {
       draft: '',
@@ -119,14 +118,13 @@ export default {
       streaming: false,
       providers: [],
       currentProviderId: '',
-      // 待发送截图附件（[{id,width,height,thumb}]）
-      attachments: [],
       // 待发送文件附件（[{id,name,size,kind,thumb,path}]，P1-7）
       fileAttachments: [],
       // ===== 关联的本地磁盘路径（必填，未关联无法发送；dir/name/workspaceId） =====
       workspaceLink: { dir: '', name: '', workspaceId: '' },
-      linkDialogVisible: false,
-      // 当前展开的选择面板（'provider' | ''）
+      // 已登记工作空间列表（上拉选择器数据源）
+      workspaces: [],
+      // 当前展开的选择面板（'workspace' | 'provider' | ''）
       openSelect: '',
       // 思考计时器（发送后到首个 delta 之间）
       thinkTimer: null,
@@ -155,6 +153,21 @@ export default {
         label: p.name + ' · ' + (p.displayName || p.model),
         svg: 'llm'
       }))
+    },
+    // 工作空间触发 chip 文案：展示名 → 末级目录名 → 占位
+    workspaceLabel() {
+      const link = this.workspaceLink
+      if (!link.dir) return '选择工作空间'
+      if (link.name) return link.name
+      return String(link.dir).replace(/\/+$/, '').split(/[\\/]/).pop() || link.dir
+    },
+    // 工作空间选择器选项（仅保留目录仍存在的项）
+    workspaceItems() {
+      return this.workspaces.map(w => ({
+        value: w.id,
+        label: w.name || String(w.path || '').replace(/\/+$/, '').split(/[\\/]/).pop() || w.path,
+        svg: 'folder'
+      }))
     }
   },
   watch: {
@@ -169,6 +182,7 @@ export default {
   },
   created() {
     this.loadProviders()
+    this.loadWorkspaces()
     this.restoreWorkspaceLink()
     this.unsubscribe = this.api().onEvent(this.onAgentEvent)
     // 点击面板外关闭
@@ -197,6 +211,7 @@ export default {
         listWorkspaces: async () => [],
         addWorkspace: async () => ({ ok: false, canceled: true }),
         removeWorkspace: async () => ({ ok: false }),
+        renameWorkspace: async () => ({ ok: false }),
         sessionMeta: async () => null,
         pickAttachments: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
         importAttachment: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
@@ -286,13 +301,6 @@ export default {
       // 持久化选中模型，切换页面后自动恢复
       setItem('omnibuddy:providerId', id)
     },
-    // ===== 截图附件 =====
-    onCaptured(image) {
-      this.attachments.push(image)
-    },
-    removeAttachment(i) {
-      this.attachments.splice(i, 1)
-    },
     // ===== 文件附件（P1-7）=====
     // “+”按钮：系统文件选择框（多选）
     async pickAttachments() {
@@ -319,22 +327,20 @@ export default {
     },
     async send() {
       const text = this.draft.trim()
-      const images = this.attachments.slice()
       const files = this.fileAttachments.slice()
-      if ((!text && !images.length && !files.length) || this.streaming) return
+      if ((!text && !files.length) || this.streaming) return
       if (!window.electronAPI || !window.electronAPI.omnibuddy) {
         this.$message.info('对话能力需要 OmniDeck 桌面端')
         this.draft = ''
         return
       }
-      // 发送前必须关联本地磁盘路径（必填）
+      // 发送前必须选定工作空间（必填）：未选定时展开上拉选择器
       if (!this.workspaceLink.dir || !this.workspaceLink.workspaceId) {
-        this.$message.warning('请先关联本地磁盘路径后再发送')
-        this.linkDialogVisible = true
+        this.$message.warning('请先选择工作空间后再发送')
+        this.openSelect = 'workspace'
         return
       }
       this.draft = ''
-      this.attachments = []
       this.fileAttachments = []
 
       let sessionId = this.sessionId
@@ -353,7 +359,6 @@ export default {
       this.messages.push({
         role: 'user',
         content: text,
-        images: images.length ? images : undefined,
         fileAttachments: files.length ? files : undefined,
         createdAt: Date.now()
       })
@@ -379,7 +384,6 @@ export default {
       const res = await this.api().sendMessage({
         id: sessionId,
         text,
-        images,
         attachments: files,
         provider: this.currentProvider,
         workspaceId: this.workspaceLink.workspaceId,
@@ -654,18 +658,41 @@ export default {
       const saved = getItem('omnibuddy:workspace-link', null)
       if (saved && saved.dir) this.workspaceLink = saved
     },
-    // 弹窗提交：更新关联并持久化（展示名选填，不填按路径呈现）
-    onLinkWorkspace(payload) {
-      this.workspaceLink = {
-        dir: payload.dir,
-        name: payload.name,
-        workspaceId: payload.workspaceId
-      }
+    // 加载已登记工作空间（仅保留目录仍存在的项）
+    async loadWorkspaces() {
+      const list = await this.api().listWorkspaces()
+      this.workspaces = (list || []).filter(w => w.available)
+    },
+    // 上拉选择已登记工作空间：同步关联三元组并持久化
+    onSelectWorkspace(id) {
+      const ws = this.workspaces.find(w => w.id === id)
+      if (!ws) return
+      this.openSelect = ''
+      this.workspaceLink = { dir: ws.path, name: ws.name || '', workspaceId: ws.id }
       setItem('omnibuddy:workspace-link', this.workspaceLink)
-      this.linkDialogVisible = false
-      // 通知工作空间菜单：新增关联或展示名变更后刷新
-      this.$root.$emit('omnibuddy:workspaces-changed')
-      this.$message.success('已关联：' + payload.dir)
+    },
+    // 浮层底部「关联新路径」：系统目录选择框 → 登记并直接选中（展示名默认末级目录名）
+    async linkNewWorkspace() {
+      this.openSelect = ''
+      const res = await this.api().addWorkspace()
+      if (res && res.ok && res.workspace) {
+        // 展示名缺省截取末级目录名（与关联弹窗行为一致，便于会话列表分组）
+        const ws = res.workspace
+        if (!ws.name) {
+          const lastSeg = String(ws.path || '').replace(/\/+$/, '').split(/[\\/]/).pop()
+          if (lastSeg) {
+            ws.name = lastSeg
+            this.api().renameWorkspace({ id: ws.id, name: lastSeg })
+          }
+        }
+        await this.loadWorkspaces()
+        this.workspaceLink = { dir: ws.path, name: ws.name || '', workspaceId: ws.id }
+        setItem('omnibuddy:workspace-link', this.workspaceLink)
+        this.$root.$emit('omnibuddy:workspaces-changed')
+        this.$message.success('已关联：' + ws.path)
+      } else if (res && !res.canceled && res.error) {
+        this.$message.error(res.error)
+      }
     },
     // ===== 选择面板（打开状态集中管理，同时只展开一个） =====
     toggleSelect(key) {
@@ -777,6 +804,36 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* ===== 工作空间浮层底部「关联新路径」入口 ===== */
+.ob-ws-add {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: $text-secondary;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+
+  .ob-ws-add-ico {
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  &:hover {
+    background: var(--search-bg-hover);
+    color: var(--text-primary);
+
+    .ob-ws-add-ico {
+      color: var(--primary-color);
+    }
+  }
 }
 
 /* ===== 检查点入口（composer 工具区） ===== */

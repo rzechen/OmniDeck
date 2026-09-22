@@ -24,7 +24,8 @@
             <p class="section-desc">应用级偏好设置，OmniDeck 与 OmniBuddy 视图均生效，自动保存</p>
           </header>
 
-          <!-- Mac 式设置分组：行布局（左标签 + 右控件） -->
+          <!-- 全局：应用级设置，OmniDeck 与 OmniBuddy 两视图共用 -->
+          <div class="settings-sub-header">全局</div>
           <div class="settings-group">
             <!-- 外观模式：分段选择器 -->
             <div class="settings-row">
@@ -259,26 +260,123 @@
           </div>
         </template>
 
-        <!-- 快捷入口（P0-M4）：快捷面板快捷键改键 -->
+        <!-- 快捷键（P0-M4）：全部快捷键可改键 + 恢复默认（全局 / Deck / Buddy 分组） -->
         <template v-else-if="activeTab === 'quick'">
           <header class="settings-section-header">
-            <h2 class="section-title">快捷入口</h2>
-            <p class="section-desc">系统级快捷键唤起快捷面板（应用未聚焦也生效）</p>
+            <h2 class="section-title">快捷键</h2>
+            <p class="section-desc">点击键帽后按下新组合键（支持 ⌘O+K 式双键组合），松开自动保存并生效</p>
           </header>
 
-          <div class="settings-group">
+          <!-- 快捷键分组：全局 / Deck 视图 / Buddy 视图 -->
+          <div v-for="group in shortcutGroups" :key="group.title" class="shortcut-group-block">
+            <div class="settings-sub-header">{{ group.title }}</div>
+            <div class="settings-group">
+              <!-- 恢复默认：归属全局分组的特殊行，任一项偏离默认时可用 -->
+              <div v-if="group.resetAll" class="settings-row">
+                <div class="row-label">
+                  <span class="label-text">恢复默认</span>
+                  <span class="label-desc">将全部快捷键还原到默认键位（均含字母 O，取自 OmniDeck / OmniBuddy 首字母）</span>
+                </div>
+                <el-button size="small" round :disabled="!anyShortcutModified" @click="resetAllShortcuts">恢复全部默认</el-button>
+              </div>
+              <div v-for="item in group.items" :key="item.id" class="settings-row">
+                <div class="row-label">
+                  <span class="label-text">{{ item.label }}</span>
+                  <span class="label-desc">{{ item.desc }}</span>
+                </div>
+                <div class="shortcut-recorder" :class="{ recording: recordingId === item.id }">
+                  <!-- 键帽式快捷键展示：点击进入录制，Esc 或点击外部取消，松开组合键自动保存 -->
+                  <button
+                    type="button"
+                    class="shortcut-keys"
+                    :title="recordingId === item.id ? '' : '点击修改快捷键'"
+                    @click="toggleRecord(item.id)"
+                  >
+                    <template v-if="recordingId === item.id">
+                      <template v-if="recordPreview.length">
+                        <span v-for="(k, i) in recordPreview" :key="i" class="kbd kbd-live">{{ k }}</span>
+                      </template>
+                      <span v-else class="kbd kbd-ghost">请按下组合键…</span>
+                    </template>
+                    <template v-else>
+                      <span v-for="(k, i) in acceleratorToKeys(shortcuts[item.id])" :key="i" class="kbd">{{ k }}</span>
+                    </template>
+                  </button>
+                  <span
+                    v-if="recordingId !== item.id && shortcutModified(item.id)"
+                    class="shortcut-reset"
+                    title="恢复默认快捷键"
+                    @click="resetShortcutItem(item.id)"
+                  >
+                    <i class="el-icon-refresh-right"></i>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 托盘快捷菜单：自定义顶部菜单栏托盘的 Deck / Buddy 菜单项与快捷键 -->
+        <template v-else-if="activeTab === 'tray'">
+          <header class="settings-section-header">
+            <h2 class="section-title">托盘菜单</h2>
+            <p class="section-desc">顶部菜单栏托盘图标的 Deck / Buddy 分组菜单；可为每项设置系统级快捷键（应用未聚焦也生效，仅支持「修饰键 + 单键」）</p>
+          </header>
+
+          <div class="settings-group tray-menu-block">
             <div class="settings-row">
               <div class="row-label">
-                <span class="label-text">唤起快捷面板</span>
-                <span class="label-desc">点击右侧按钮后按下组合键完成录制；Esc 取消录制</span>
+                <span class="label-text">菜单项管理</span>
+                <span class="label-desc">修改即时保存并生效；点击菜单项或按下快捷键将聚焦主窗口并跳转对应页面</span>
               </div>
-              <div class="shortcut-recorder" :class="{ recording: recording }">
-                <span class="shortcut-display">{{ recording ? '请按下组合键…' : prettyShortcut }}</span>
-                <el-button size="small" round :type="recording ? 'warning' : 'primary'" @click="toggleRecord">
-                  {{ recording ? '取消' : '录制' }}
-                </el-button>
-                <el-button v-if="!recording && shortcutModified" size="small" round @click="resetShortcut">恢复默认</el-button>
+              <div class="tray-menu-actions">
+                <el-button size="small" round @click="addTrayItem('deck')">+ Deck 项</el-button>
+                <el-button size="small" round @click="addTrayItem('buddy')">+ Buddy 项</el-button>
+                <el-button size="small" round @click="resetTrayMenu">恢复默认</el-button>
               </div>
+            </div>
+            <div v-for="(g, gi) in trayMenuGroups" :key="g.key" class="tray-menu-group">
+              <div class="tray-menu-group-title">{{ g.title }}</div>
+              <div v-for="it in g.items" :key="it.id" class="tray-item-row">
+                <span class="tray-item-badge" :class="'badge-' + g.key">{{ g.key === 'deck' ? 'D' : 'B' }}</span>
+                <input
+                  v-model.trim="it.label"
+                  class="tray-item-input"
+                  maxlength="20"
+                  placeholder="菜单名称"
+                  @change="saveTrayMenu"
+                />
+                <input
+                  v-model.trim="it.route"
+                  class="tray-item-input tray-item-route"
+                  maxlength="60"
+                  placeholder="页面路由，如 /home"
+                  @change="saveTrayMenu"
+                />
+                <div class="shortcut-recorder" :class="{ recording: recordingId === 'tray:' + it.id }">
+                  <button
+                    type="button"
+                    class="shortcut-keys"
+                    :title="recordingId === 'tray:' + it.id ? '' : '点击修改快捷键'"
+                    @click="toggleRecord('tray:' + it.id)"
+                  >
+                    <template v-if="recordingId === 'tray:' + it.id">
+                      <template v-if="recordPreview.length">
+                        <span v-for="(k, i) in recordPreview" :key="i" class="kbd kbd-live">{{ k }}</span>
+                      </template>
+                      <span v-else class="kbd kbd-ghost">按下组合键…</span>
+                    </template>
+                    <template v-else-if="it.accelerator">
+                      <span v-for="(k, i) in acceleratorToKeys(it.accelerator)" :key="i" class="kbd">{{ k }}</span>
+                    </template>
+                    <span v-else class="kbd kbd-ghost">未设置</span>
+                  </button>
+                </div>
+                <span class="tray-item-del" title="删除菜单项" @click="removeTrayItem(gi, it.id)">
+                  <i class="el-icon-delete"></i>
+                </span>
+              </div>
+              <div v-if="!g.items.length" class="tray-item-empty">暂无菜单项，点击上方「+ {{ g.key === 'deck' ? 'Deck' : 'Buddy' }} 项」添加</div>
             </div>
           </div>
         </template>
@@ -356,7 +454,7 @@
             <div class="settings-row">
               <div class="row-label">
                 <span class="label-text">立即锁定</span>
-                <span class="label-desc">手动锁定应用（需先设置应用密码），锁定后凭密码或触控 ID 解锁；快捷键 {{ isMac ? '⌘L' : 'Ctrl+L' }}</span>
+                <span class="label-desc">手动锁定应用（需先设置应用密码），锁定后凭密码或触控 ID 解锁；快捷键 {{ formatAccelerator(shortcuts.lock) }}</span>
               </div>
               <el-button size="small" round icon="el-icon-lock" @click="lockNow">锁定应用</el-button>
             </div>
@@ -447,6 +545,15 @@ import { presetColors, themeModes, applyTheme } from '@/utils/theme'
 import { setItem, getItem, clearAll } from '@/utils/db'
 import { clearMenuOrder } from '@/utils/menu-order'
 import {
+  DEFAULT_SHORTCUTS,
+  getShortcuts,
+  saveShortcut,
+  acceleratorToKeys,
+  formatAccelerator,
+  parseAccelerator,
+  resetAllShortcuts as resetAllAppShortcuts
+} from '@/utils/shortcuts'
+import {
   addWallpaperFile,
   removeWallpaper,
   saveWallpaperConfig,
@@ -461,7 +568,8 @@ export default {
       activeTab: 'general',
       tabs: [
         { key: 'general', label: '通用', icon: 'el-icon-setting' },
-        { key: 'quick', label: '快捷入口', icon: 'el-icon-magic-stick' },
+        { key: 'quick', label: '快捷键', icon: 'el-icon-magic-stick' },
+        { key: 'tray', label: '托盘菜单', icon: 'el-icon-menu' },
         { key: 'security', label: '安全', icon: 'el-icon-lock' },
         { key: 'about', label: '关于', icon: 'el-icon-info' }
       ],
@@ -508,10 +616,18 @@ export default {
       pwdForm: { oldPwd: '', newPwd: '', confirmPwd: '' },
       // 清除本地记录执行中
       clearing: false,
-      // ===== 快捷入口：快捷键录制（M4） =====
-      panelShortcut: '',
-      DEFAULT_PANEL_SHORTCUT: 'CommandOrControl+Shift+Space',
-      recording: false,
+      // ===== 快捷键：全部可改键（M4 升级） =====
+      // 当前快捷键（accelerator 格式；panel 为系统级，其余为应用内）
+      shortcuts: { panel: '', search: '', lock: '', buddy: '' },
+      // 全部默认键（含 O = OmniDeck / OmniBuddy 首字母，防与其他产品冲突）
+      DEFAULT_PANEL_SHORTCUT: 'CommandOrControl+Shift+O',
+      // 正在录制的快捷键 id（空串为未录制）
+      recordingId: '',
+      // 录制中：已按下的修饰键 / 普通键（松开组合键时组装 accelerator 保存）
+      recordMods: [],
+      recordKeys: [],
+      // ===== 托盘快捷菜单（Deck / Buddy 分组自定义项） =====
+      trayMenu: [],
       // ===== 背景壁纸 =====
       wpDimOptions: [
         { label: '无', value: 'none' },
@@ -532,13 +648,47 @@ export default {
     themeMode() {
       return this.$store.state.themeMode
     },
-    // 展示用快捷键文案：⌃⌥⇧⌘ 形式（mac）
-    prettyShortcut() {
-      return this.formatAccelerator(this.panelShortcut || this.DEFAULT_PANEL_SHORTCUT)
+    // ===== 快捷键：分组结构（全部可改键） =====
+    shortcutGroups() {
+      return [
+        {
+          title: '全局',
+          resetAll: true,
+          items: [
+            { id: 'panel', label: '唤起快捷面板', desc: '系统级快捷键，应用未聚焦也生效；仅支持「修饰键 + 单键」组合' },
+            { id: 'lock', label: '锁定应用', desc: '立即锁定应用（需已设置应用密码），锁定后凭密码或触控 ID 解锁' }
+          ]
+        },
+        {
+          title: 'Deck 视图',
+          items: [
+            { id: 'search', label: '全局搜索', desc: '唤起或收起顶部搜索，可搜索工具与页面' }
+          ]
+        },
+        {
+          title: 'Buddy 视图',
+          items: [
+            { id: 'buddy', label: '唤起助手', desc: '呼出或收起 OmniBuddy 快速对话浮窗' }
+          ]
+        }
+      ]
     },
-    // 是否已偏离默认键（控制「恢复默认」按钮显隐）
-    shortcutModified() {
-      return this.panelShortcut !== this.DEFAULT_PANEL_SHORTCUT
+    // 录制中：实时预览键帽（修饰键 + 已按普通键）
+    recordPreview() {
+      const mods = this.recordMods.map(m => this.acceleratorToKeys(m)[0])
+      const keys = this.recordKeys.map(k => this.acceleratorToKeys(k)[0])
+      return mods.concat(keys)
+    },
+    // 任一快捷键偏离默认（控制「恢复全部默认」可用性）
+    anyShortcutModified() {
+      return Object.keys(this.shortcuts).some(id => this.shortcutModified(id))
+    },
+    // 托盘菜单分组视图（Deck / Buddy）
+    trayMenuGroups() {
+      return [
+        { key: 'deck', title: 'Deck 视图', items: this.trayMenu.filter(i => i.group === 'deck') },
+        { key: 'buddy', title: 'Buddy 视图', items: this.trayMenu.filter(i => i.group === 'buddy') }
+      ]
     },
     primaryColor() {
       return this.$store.state.primaryColor
@@ -580,54 +730,72 @@ export default {
   },
   mounted() {
     this.loadLockState()
-    this.loadPanelShortcut()
+    this.loadShortcuts()
+    this.loadTrayMenu()
   },
   beforeDestroy() {
     window.removeEventListener('keydown', this.onRecordKeydown, true)
+    window.removeEventListener('keyup', this.onRecordKeyup, true)
+    document.removeEventListener('mousedown', this.onRecordBlur, true)
   },
   methods: {
-    // ===== 快捷入口：快捷键录制（M4） =====
-    async loadPanelShortcut() {
+    // ===== 快捷键：全部可改键（M4 升级） =====
+    // 加载全部快捷键：panel 走主进程 IPC，应用内走 shortcuts.js
+    async loadShortcuts() {
       const quick = window.electronAPI && window.electronAPI.quick
       if (quick && quick.getShortcut) {
         const res = await quick.getShortcut()
-        this.panelShortcut = res && res.accelerator ? res.accelerator : this.DEFAULT_PANEL_SHORTCUT
+        this.shortcuts.panel = res && res.accelerator ? res.accelerator : this.DEFAULT_PANEL_SHORTCUT
       } else {
-        this.panelShortcut = this.DEFAULT_PANEL_SHORTCUT
+        this.shortcuts.panel = this.DEFAULT_PANEL_SHORTCUT
       }
+      const app = getShortcuts()
+      this.shortcuts.search = app.search
+      this.shortcuts.lock = app.lock
+      this.shortcuts.buddy = app.buddy
     },
-    // accelerator → 展示文案（CommandOrControl+Shift+Space → ⌘⇧Space / Ctrl+Shift+Space）
-    formatAccelerator(a) {
-      const isMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin')
-      return String(a)
-        .split('+')
-        .map(k => {
-          if (k === 'CommandOrControl' || k === 'CmdOrCtrl') return isMac ? '⌘' : 'Ctrl'
-          if (k === 'Command' || k === 'Cmd') return '⌘'
-          if (k === 'Control' || k === 'Ctrl') return isMac ? '⌃' : 'Ctrl'
-          if (k === 'Alt' || k === 'AltGr') return isMac ? '⌥' : 'Alt'
-          if (k === 'Shift') return isMac ? '⇧' : 'Shift'
-          if (k === 'Meta' || k === 'Super') return isMac ? '⌘' : 'Win'
-          if (isMac) {
-            if (k === 'Space') return '空格'
-          }
-          return k
-        })
-        .join(isMac ? '' : '+')
+    // 某项是否偏离默认（控制单项「恢复默认」按钮显隐）
+    shortcutModified(id) {
+      return this.shortcuts[id] !== this.defaultOf(id)
     },
-    toggleRecord() {
-      if (this.recording) {
+    // 某项默认键
+    defaultOf(id) {
+      if (id === 'panel') return this.DEFAULT_PANEL_SHORTCUT
+      return DEFAULT_SHORTCUTS[id]
+    },
+    // accelerator → 键帽数组 / 展示文案（平台自感知，shortcuts.js 统一实现）
+    acceleratorToKeys,
+    formatAccelerator,
+    // id → 中文名（冲突提示用）
+    labelOf(id) {
+      const found = this.shortcutGroups.reduce((acc, g) => acc.concat(g.items), []).find(i => i.id === id)
+      return found ? found.label : id
+    },
+    toggleRecord(id) {
+      if (this.recordingId === id) {
         this.stopRecord()
       } else {
-        this.recording = true
+        this.recordingId = id
+        this.recordMods = []
+        this.recordKeys = []
         window.addEventListener('keydown', this.onRecordKeydown, true)
+        window.addEventListener('keyup', this.onRecordKeyup, true)
+        // 点击录制器外部：自动取消录制（主流改键交互）
+        this.$nextTick(() => document.addEventListener('mousedown', this.onRecordBlur, true))
       }
     },
     stopRecord() {
-      this.recording = false
+      this.recordingId = ''
       window.removeEventListener('keydown', this.onRecordKeydown, true)
+      window.removeEventListener('keyup', this.onRecordKeyup, true)
+      document.removeEventListener('mousedown', this.onRecordBlur, true)
     },
-    // 录制：捕获首个合法组合（需含修饰键 + 一个普通键）
+    // 录制中点击外部取消
+    onRecordBlur(e) {
+      const el = this.$el && this.$el.querySelector('.shortcut-recorder.recording')
+      if (el && !el.contains(e.target)) this.stopRecord()
+    },
+    // 录制-按下：累积修饰键与普通键（实时预览），不立即保存
     onRecordKeydown(e) {
       e.preventDefault()
       e.stopPropagation()
@@ -635,44 +803,206 @@ export default {
         this.stopRecord()
         return
       }
-      const isMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin')
-      const parts = []
-      if (isMac ? e.metaKey : (e.ctrlKey || e.metaKey)) parts.push('CommandOrControl')
-      if (e.ctrlKey && isMac) parts.push('Control')
-      if (e.altKey) parts.push('Alt')
-      if (e.shiftKey) parts.push('Shift')
-      // 仅修饰键：等待继续输入
-      if (!parts.length) return
+      const isMac = this.isMac
+      if (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
+        // 修饰键：更新实时修饰键集合
+        this.recordMods = []
+        if (isMac ? e.metaKey : (e.ctrlKey || e.metaKey)) this.recordMods.push('CommandOrControl')
+        if (e.ctrlKey && isMac) this.recordMods.push('Control')
+        if (e.altKey) this.recordMods.push('Alt')
+        if (e.shiftKey) this.recordMods.push('Shift')
+        return
+      }
+      // 普通键：归一命名（Electron accelerator 风格）
       let key = e.key.length === 1 ? e.key.toUpperCase() : e.key
-      // 命名归一（Electron accelerator 语法）
+      if (key === ' ') key = 'Space'
       const alias = {
         Space: 'Space', Escape: 'Esc', ArrowUp: 'Up', ArrowDown: 'Down',
         ArrowLeft: 'Left', ArrowRight: 'Right', Enter: 'Return'
       }
       key = alias[key] || key
-      if (['Up', 'Down', 'Left', 'Right', 'Space', 'Esc', 'Return', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown'].indexOf(key) < 0 &&
-        !/^[A-Z0-9]$/.test(key) && !/^F\d{1,2}$/.test(key)) return
-      const accelerator = parts.concat([key]).join('+')
-      this.applyShortcut(accelerator)
+      const ok = ['Up', 'Down', 'Left', 'Right', 'Space', 'Esc', 'Return', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown'].indexOf(key) >= 0 ||
+        /^[A-Z0-9]$/.test(key) || /^F\d{1,2}$/.test(key)
+      if (!ok) return
+      // 最多 2 个普通键（⌘O+K 式双键组合）
+      if (this.recordKeys.indexOf(key) < 0 && this.recordKeys.length < 2) this.recordKeys.push(key)
     },
-    async applyShortcut(accelerator) {
-      const quick = window.electronAPI && window.electronAPI.quick
-      if (!quick || !quick.setShortcut) {
-        this.$message.info('快捷键设置需要 OmniDeck 桌面端')
-        this.stopRecord()
+    // 录制-松开：任一键松开后，若修饰键已全部松开且已有普通键 → 组装保存
+    // （先松修饰键或先松普通键均可触发；双键组合的中间键松开不打断录制）
+    onRecordKeyup(e) {
+      e.preventDefault()
+      const isMac = this.isMac
+      this.recordMods = []
+      if (isMac ? e.metaKey : (e.ctrlKey || e.metaKey)) this.recordMods.push('CommandOrControl')
+      if (e.ctrlKey && isMac) this.recordMods.push('Control')
+      if (e.altKey) this.recordMods.push('Alt')
+      if (e.shiftKey) this.recordMods.push('Shift')
+      if (!this.recordMods.length && this.recordKeys.length) {
+        this.commitRecording()
+      }
+    },
+    // 提交录制结果：校验修饰键后组装保存
+    commitRecording() {
+      if (!this.recordingId) return
+      // 必须含修饰键：提示后清空普通键继续录制
+      if (!this.recordMods.length) {
+        this.recordKeys = []
+        this.$message.warning('快捷键需包含修饰键（⌘ / Ctrl / Alt / Shift）')
         return
       }
-      const res = await quick.setShortcut(accelerator)
+      if (!this.recordKeys.length) return
+      const full = this.recordMods.concat(this.recordKeys).join('+')
+      // 托盘菜单项快捷键（tray: 前缀）：系统级，仅支持「修饰键 + 单键」
+      if (this.recordingId.indexOf('tray:') === 0) {
+        const parsed = parseAccelerator(full)
+        if (!parsed || parsed.keys.size > 1) {
+          this.$message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
+          this.stopRecord()
+          return
+        }
+        this.saveTrayItemShortcut(this.recordingId.slice(5), full)
+        return
+      }
+      this.saveShortcutFor(this.recordingId, full)
+    },
+    // 保存托盘菜单项快捷键：写入该项并整单保存（冲突/占用由主进程清洗回写）
+    async saveTrayItemShortcut(id, accelerator) {
       this.stopRecord()
-      if (res && res.ok) {
-        this.panelShortcut = res.accelerator
-        this.$message.success('快捷键已更新：' + this.formatAccelerator(res.accelerator))
+      const it = this.trayMenu.find(i => i.id === id)
+      if (!it) return
+      // 与固定快捷键冲突提示（panel 等）
+      if (Object.keys(this.shortcuts).some(k => this.shortcuts[k] && this.shortcuts[k].toLowerCase() === accelerator.toLowerCase())) {
+        this.$message.error('与既有快捷键冲突，请换一组按键')
+        return
+      }
+      it.accelerator = accelerator
+      await this.saveTrayMenu()
+      // 回写后确认键位是否注册成功（失败被主进程置空）
+      const saved = this.trayMenu.find(i => i.id === id)
+      if (saved && saved.accelerator) {
+        this.$message.success('快捷键已更新：' + this.formatAccelerator(saved.accelerator))
       } else {
-        this.$message.error((res && res.error) || '注册失败，请换一组按键')
+        this.$message.error('注册失败（可能已被其它应用占用），请换一组按键')
       }
     },
-    resetShortcut() {
-      this.applyShortcut(this.DEFAULT_PANEL_SHORTCUT)
+    // 保存快捷键：panel 走主进程（仅支持单普通键），应用内走 shortcuts.js
+    async saveShortcutFor(id, accelerator) {
+      if (!id) return
+      this.stopRecord()
+      // 本地冲突检测（四项互查，大小写不敏感）
+      const conflict = Object.keys(this.shortcuts).find(
+        k => k !== id && this.shortcuts[k] && this.shortcuts[k].toLowerCase() === accelerator.toLowerCase()
+      )
+      if (conflict) {
+        this.$message.error('与「' + this.labelOf(conflict) + '」快捷键冲突')
+        return
+      }
+      if (id === 'panel') {
+        // 系统级快捷键：Electron globalShortcut 不支持多普通键
+        const parsed = parseAccelerator(accelerator)
+        if (!parsed || parsed.keys.size > 1) {
+          this.$message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
+          return
+        }
+        const quick = window.electronAPI && window.electronAPI.quick
+        if (!quick || !quick.setShortcut) {
+          this.$message.info('快捷键设置需要 OmniDeck 桌面端')
+          return
+        }
+        const res = await quick.setShortcut(accelerator)
+        if (res && res.ok) {
+          this.shortcuts.panel = res.accelerator
+          this.$message.success('快捷键已更新：' + this.formatAccelerator(res.accelerator))
+        } else {
+          this.$message.error((res && res.error) || '注册失败，请换一组按键')
+        }
+        return
+      }
+      // 应用内快捷键
+      const res = await saveShortcut(id, accelerator)
+      if (res && res.ok) {
+        this.shortcuts[id] = accelerator
+        this.$message.success('快捷键已更新：' + this.formatAccelerator(accelerator))
+      } else {
+        this.$message.error((res && res.error) || '保存失败，请换一组按键')
+      }
+    },
+    // 恢复单项默认键
+    resetShortcutItem(id) {
+      this.recordMods = []
+      this.recordKeys = []
+      this.saveShortcutFor(id, this.defaultOf(id))
+    },
+    // 恢复全部默认键（panel + 应用内三项）
+    async resetAllShortcuts() {
+      // 应用内：一次性恢复并广播
+      const res = await resetAllAppShortcuts()
+      if (!(res && res.ok)) {
+        this.$message.error('恢复默认失败')
+        return
+      }
+      // panel：走主进程恢复默认键
+      this.recordMods = []
+      this.recordKeys = []
+      await this.saveShortcutFor('panel', this.DEFAULT_PANEL_SHORTCUT)
+      await this.loadShortcuts()
+      this.$message.success('已恢复全部默认快捷键')
+    },
+    // ===== 托盘快捷菜单（Deck / Buddy 分组自定义项） =====
+    // 加载托盘菜单配置（主进程 quick-settings.json）
+    async loadTrayMenu() {
+      const quick = window.electronAPI && window.electronAPI.quick
+      if (!quick || !quick.getTrayMenu) return
+      const res = await quick.getTrayMenu()
+      this.trayMenu = (res && res.items) || []
+    },
+    // 保存托盘菜单：主进程清洗/注册快捷键并重建托盘菜单，回写清洗后的数据
+    async saveTrayMenu() {
+      const quick = window.electronAPI && window.electronAPI.quick
+      if (!quick || !quick.setTrayMenu) return
+      const res = await quick.setTrayMenu(this.trayMenu)
+      if (res && res.ok) {
+        // 回写：注册失败的快捷键被主进程置空、冲突项被清洗
+        this.trayMenu = res.items || this.trayMenu
+      }
+    },
+    // 新增菜单项（分组指定 deck / buddy）
+    async addTrayItem(group) {
+      const route = group === 'deck' ? '/home' : '/omnibuddy'
+      this.trayMenu.push({
+        id: 'custom-' + Date.now(),
+        group,
+        label: group === 'deck' ? '新 Deck 页面' : '新 Buddy 页面',
+        route,
+        accelerator: ''
+      })
+      await this.saveTrayMenu()
+    },
+    // 删除菜单项
+    async removeTrayItem(groupKey, id) {
+      const g = this.trayMenuGroups[groupKey]
+      if (!g) return
+      this.$confirm('确定删除菜单项「' + (g.items.find(i => i.id === id) || {}).label + '」吗？', '删除菜单项', {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+        .then(async () => {
+          this.trayMenu = this.trayMenu.filter(i => i.id !== id)
+          await this.saveTrayMenu()
+          this.$message.success('已删除')
+        })
+        .catch(() => {})
+    },
+    // 恢复托盘菜单默认配置
+    async resetTrayMenu() {
+      const quick = window.electronAPI && window.electronAPI.quick
+      if (!quick || !quick.resetTrayMenu) return
+      const res = await quick.resetTrayMenu()
+      if (res && res.ok) {
+        this.trayMenu = res.items || []
+        this.$message.success('托盘菜单已恢复默认')
+      }
     },
     selectMode(mode) {
       this.$store.commit('SET_THEME', { mode })
@@ -872,7 +1202,7 @@ export default {
         this.hasPassword = true
         this.pwdDialogVisible = false
         this.$message.success('应用密码已保存')
-        // 通知 AppLock 同步密码状态（快捷键 ⌘L/Ctrl+L 立即可用）
+        // 通知 AppLock 同步密码状态（锁定快捷键立即可用）
         this.$root.$emit('app-lock:settings-changed')
       } else {
         this.$message.error('保存失败：系统加密存储不可用')
@@ -1080,36 +1410,231 @@ export default {
   }
 }
 
-/* 快捷键录制器 */
+/* ===== 快捷键：键帽与录制器 ===== */
 .shortcut-recorder {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+}
 
-  &.recording .shortcut-display {
-    border-color: $primary-color;
-    color: $primary-color;
-    animation: shortcut-pulse 1.2s ease-in-out infinite;
+/* ===== 托盘快捷菜单管理 ===== */
+.tray-menu-block {
+  .tray-menu-actions {
+    display: inline-flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .tray-menu-group {
+    padding: 10px 14px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-secondary, rgba(0, 0, 0, 0.02));
+
+    // 分组之间留出间距
+    & + .tray-menu-group {
+      margin-top: 10px;
+    }
+  }
+
+  .tray-menu-group-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: $text-secondary;
+    letter-spacing: 0.4px;
+    margin-bottom: 8px;
+  }
+
+  .tray-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+
+    & + .tray-item-row {
+      margin-top: 4px;
+    }
+  }
+
+  .tray-item-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+
+    &.badge-deck {
+      background: var(--primary-color, #5b7cf0);
+    }
+
+    &.badge-buddy {
+      background: #f59e0b;
+    }
+  }
+
+  .tray-item-input {
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: var(--card-bg, #fff);
+    font-size: 12px;
+    color: $text-primary;
+    outline: none;
+    transition: border-color 0.15s ease;
+
+    &:focus {
+      border-color: rgba(var(--primary-color-rgb), 0.55);
+    }
+
+    // 名称输入框固定宽；路由输入框弹性伸展
+    &.tray-item-route {
+      flex: 1;
+      min-width: 120px;
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: $text-secondary;
+    }
+
+    &:not(.tray-item-route) {
+      width: 150px;
+    }
+  }
+
+  .tray-item-del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    color: $text-secondary;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease, color 0.15s ease;
+
+    &:hover {
+      background: rgba(245, 108, 108, 0.12);
+      color: #f56c6c;
+    }
+  }
+
+  .tray-item-empty {
+    font-size: 12px;
+    color: $text-secondary;
+    padding: 6px 0;
   }
 }
 
-.shortcut-display {
+// 键帽容器（可点击进入录制）
+.shortcut-keys {
   display: inline-flex;
   align-items: center;
-  min-width: 130px;
-  padding: 4px 12px;
-  border: 1px solid var(--border-color);
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  font: inherit;
+  transition: opacity 0.15s ease;
+
+  &:hover .kbd {
+    border-color: rgba(var(--primary-color-rgb), 0.55);
+  }
+
+  // 只读展示（速查行）：不可交互
+  &.readonly {
+    cursor: default;
+    pointer-events: none;
+  }
+}
+
+// 单个键帽（macOS 键盘样式：浅底 + 内阴影 + 底部厚度）
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
   border-radius: 6px;
-  background: $search-bg;
+  border: 1px solid var(--border-color);
+  border-bottom-width: 2px;
+  background: var(--card-bg, #fff);
   font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
   color: $text-primary;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+  transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+// 录制中：提示键帽（虚线幽灵样式 + 呼吸光晕）
+.kbd-ghost {
+  min-width: 150px;
+  border-style: dashed;
+  border-color: rgba(var(--primary-color-rgb), 0.6);
+  color: $primary-color;
+  font-family: inherit;
+  background: rgba(var(--primary-color-rgb), 0.06);
+  animation: shortcut-pulse 1.2s ease-in-out infinite;
+}
+
+// 录制中：实时按下的键帽（主题色高亮）
+.kbd-live {
+  border-color: rgba(var(--primary-color-rgb), 0.6);
+  color: $primary-color;
+  background: rgba(var(--primary-color-rgb), 0.08);
+}
+
+// 录制中：真实键帽整体轻微下压提示
+.shortcut-recorder.recording .shortcut-keys {
+  cursor: default;
+
+  .kbd:active {
+    transform: translateY(1px);
+    box-shadow: none;
+  }
+}
+
+// 恢复默认小按钮（图标）
+.shortcut-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: $text-secondary;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-app-region: no-drag;
+
+  i {
+    font-size: 14px;
+  }
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb), 0.09);
+    color: $primary-color;
+  }
 }
 
 @keyframes shortcut-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(64, 158, 255, 0.35); }
   50% { box-shadow: 0 0 0 5px rgba(64, 158, 255, 0); }
+}
+
+// 减弱动态效果：关闭录制呼吸光晕
+html.reduce-motion .kbd-ghost {
+  animation: none;
 }
 
 /* 分段选择器（macOS segmented control 风格） */

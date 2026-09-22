@@ -36,7 +36,8 @@
           <div class="ob-cell-label">更新时间</div>
           <div class="ob-cell-value">{{ formatDate(item.updatedAt) }}</div>
         </div>
-        <slot name="cells"></slot>
+        <!-- 作用域插槽：向页面下发 item（页面读取 item.installed 等安装状态字段） -->
+        <slot name="cells" :item="item"></slot>
       </div>
 
       <!-- 描述 -->
@@ -101,7 +102,7 @@ export default {
       return 'skill'
     },
     iconOf() {
-      return this.typeOf === 'connector' ? 'mcp' : this.typeOf === 'agent' ? 'buddy' : 'skill'
+      return this.typeOf === 'connector' ? 'mcp' : this.typeOf === 'agent' ? 'subagent' : 'skill'
     },
     typeLabel() {
       const map = { skill: '技能', agent: '子代理', connector: '连接器', mcp: '连接器' }
@@ -224,7 +225,9 @@ export default {
   margin-bottom: 18px;
 }
 
-.ob-detail-cell {
+/* 信息格：加 ::v-deep 使 cells slot 传入的页面侧格子（如安装状态）同样命中
+   —— slot 内容只带父组件 scope 属性，普通 scoped 选择器匹配不到 */
+::v-deep .ob-detail-cell {
   padding: 10px 12px;
   background: var(--bg-hover, rgba(0, 0, 0, 0.03));
   border-radius: 8px;

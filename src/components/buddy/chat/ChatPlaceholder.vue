@@ -2,7 +2,7 @@
   <!-- 空会话欢迎占位（垂直水平居中） -->
   <div class="ob-placeholder">
     <div class="ob-icon">
-      <svg-icon icon-class="buddy" class="ob-svg" />
+      <img src="@/assets/logo.png" alt="OmniBuddy" class="ob-img" />
     </div>
     <div class="ob-hi">有什么可以帮您？</div>
     <div class="ob-desc">智能工作助手，随时为您答疑解惑</div>
@@ -36,10 +36,11 @@ export default {
   align-items: center;
   justify-content: center;
 
-  .ob-svg {
-    width: 32px;
-    height: 32px;
-    color: var(--primary-color);
+  // 品牌 logo（宽扁异形，contain 原比例呈现）
+  .ob-img {
+    width: 42px;
+    height: 42px;
+    object-fit: contain;
   }
 }
 

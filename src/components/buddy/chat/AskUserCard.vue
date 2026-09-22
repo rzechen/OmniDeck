@@ -2,7 +2,7 @@
   <!-- ask_user 提问卡片：选项按钮 + 自定义输入 -->
   <div class="ob-ask-card">
     <div class="ob-ask-question">
-      <svg-icon icon-class="buddy" class="ob-ask-icon" />
+      <img src="@/assets/logo.png" alt="OmniBuddy" class="ob-ask-logo" />
       <span>{{ message.question }}</span>
     </div>
     <div v-if="message.answered || message.answer" class="ob-ask-answer">
@@ -63,10 +63,11 @@ export default {
   color: var(--text-primary);
   line-height: 1.6;
 
-  .ob-ask-icon {
+  // 品牌 logo（宽扁异形，contain 原比例呈现）
+  .ob-ask-logo {
     width: 16px;
     height: 16px;
-    color: var(--primary-color);
+    object-fit: contain;
     flex-shrink: 0;
     margin-top: 2px;
   }

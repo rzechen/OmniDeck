@@ -8,16 +8,6 @@
       @dragleave="onDragLeave"
       @drop.prevent="onDrop"
     >
-      <!-- 待发送图片附件条（截图/粘贴图片，缩略图胶囊） -->
-      <div v-if="images && images.length" class="bc-attachments">
-        <div v-for="(img, i) in images" :key="i" class="bc-attachment">
-          <img class="bc-attachment-img" :src="img.thumb" alt="截图" draggable="false" />
-          <button class="bc-attachment-remove" title="移除" @click="$emit('remove-image', i)">
-            <svg-icon icon-class="close" />
-          </button>
-        </div>
-      </div>
-
       <!-- 待发送文件附件条（"+"选择/拖拽/粘贴导入：图片缩略图胶囊 + 文本/PDF 文件胶囊） -->
       <div v-if="files && files.length" class="bc-attachments">
         <div v-for="(f, i) in files" :key="f.id || i" class="bc-attachment" :class="{ file: f.kind !== 'image' }">
@@ -32,7 +22,7 @@
         </div>
       </div>
 
-      <!-- 多行输入：自动增高（粘贴图片转附件） -->
+      <!-- 多行输入：自动增高（粘贴文件转附件） -->
       <textarea
         ref="ta"
         class="bc-textarea"
@@ -101,15 +91,10 @@ export default {
       type: Boolean,
       default: false
     },
-    // 附加可发送条件（如已有图片附件时无文本也允许发送）
+    // 附加可发送条件（如已有附件时无文本也允许发送）
     extraSendable: {
       type: Boolean,
       default: false
-    },
-    // 待发送图片附件（[{id,width,height,thumb}]）：内置附件条渲染
-    images: {
-      type: Array,
-      default: null
     },
     // 待发送文件附件（[{id,name,size,kind,thumb}]，P1-7）：图片缩略图 + 文本/PDF 文件胶囊
     files: {
@@ -146,28 +131,19 @@ export default {
     onInput(e) {
       this.$emit('input', e.target.value)
     },
-    // 粘贴含图片/文件时转为附件（M4 / P1-7）：拦截默认行为，交主进程落盘
+    // 粘贴含文件时转为附件（P1-7）：拦截默认行为，交主进程落盘
     onPaste(e) {
       const items = e.clipboardData && e.clipboardData.items
       if (!items) return
-      let hasImage = false
       let hasFile = false
       for (const it of items) {
-        if (it.kind === 'file' && it.type.startsWith('image/')) hasImage = true
-        else if (it.kind === 'file') hasFile = true
+        if (it.kind === 'file') hasFile = true
       }
-      if (!hasImage && !hasFile) return // 纯文本粘贴走默认行为
+      if (!hasFile) return // 纯文本粘贴走默认行为
       e.preventDefault()
-      const cap = window.electronAPI && window.electronAPI.capture
       const buddy = window.electronAPI && window.electronAPI.omnibuddy
-      // 剪贴板图片走截图管道（原生剪贴板读取，质量无损）
-      if (hasImage && cap) {
-        cap.clipboardImage().then(res => {
-          if (res && res.ok) this.$emit('captured', res.image)
-        }).catch(() => {})
-      }
       // 非图片文件（文本/PDF）走附件管道
-      if (hasFile && buddy && buddy.importAttachment) {
+      if (buddy && buddy.importAttachment) {
         for (const it of items) {
           if (it.kind !== 'file' || it.type.startsWith('image/')) continue
           const f = it.getAsFile()

@@ -873,13 +873,15 @@ $buddy-sidebar-w: 260px;
 .buddy-sidebar-head {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px; /* 与主布局 Sidebar 的 logo↔标题间距一致 */
   padding: 0 12px 0 16px;
+  /* 顶栏 44px + 8px = 主布局红绿灯让位行 52px，logo 距窗口顶部对齐 Deck */
+  margin-top: 8px;
   flex-shrink: 0;
   height: 46px;
 }
 
-/* logo 与标题（尺寸对齐主布局侧边栏：38px 图标 + 19px 标题） */
+/* logo 与标题（与主布局侧边栏同款 lockup：38px 图标 + 16px/600 标题） */
 .buddy-logo-icon {
   width: 38px;
   height: 38px;
@@ -887,21 +889,21 @@ $buddy-sidebar-w: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
 
+  // 图形为宽扁异形（非圆角方块 App 图标），contain 原比例呈现，不加圆角裁切
   .buddy-logo-img {
     width: 38px;
     height: 38px;
     object-fit: contain;
-    border-radius: 8px;
   }
 }
 
 .buddy-logo-text {
-  font-size: 19px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
   color: $text-primary;
-  letter-spacing: 0.3px;
+  letter-spacing: -0.2px;
+  line-height: 1;
   white-space: nowrap;
 }
 

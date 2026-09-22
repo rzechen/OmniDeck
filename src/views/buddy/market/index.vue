@@ -125,8 +125,11 @@
       <template slot="cells" slot-scope="{ item }">
         <div class="ob-detail-cell">
           <div class="ob-cell-label">安装状态</div>
-          <div class="ob-cell-value">
-            {{ item.installed ? '已装 v' + item.installedVersion : '未安装' }}
+          <div class="ob-cell-value ob-install-state" :class="item.hasUpdate ? 'updatable' : item.installed ? 'installed' : 'none'">
+            <span class="ob-state-dot"></span>
+            <span class="ob-state-text">
+              {{ item.hasUpdate ? '可更新' : item.installed ? '已安装' + (item.installedVersion ? ' v' + item.installedVersion : '') : '未安装' }}
+            </span>
           </div>
         </div>
       </template>
@@ -280,7 +283,7 @@ export default {
     },
     typeIcon(type) {
       if (type === 'connector' || type === 'mcp') return 'mcp'
-      if (type === 'agent') return 'buddy'
+      if (type === 'agent') return 'subagent'
       return 'skill'
     },
     loadIndex() {
@@ -519,6 +522,51 @@ export default {
   &.update {
     color: #d97706;
     background: rgba(245, 158, 11, 0.12);
+  }
+}
+
+/* 详情弹窗安装状态：圆点 + 文字三态徽章（已装绿 / 可更新橙 / 未装灰） */
+.ob-install-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+
+  .ob-state-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  &.installed {
+    color: #2E8B63;
+    background: rgba(70, 168, 127, 0.1);
+
+    .ob-state-dot {
+      background: #34a877;
+    }
+  }
+
+  &.updatable {
+    color: #d97706;
+    background: rgba(245, 158, 11, 0.12);
+
+    .ob-state-dot {
+      background: #f59e0b;
+    }
+  }
+
+  &.none {
+    color: $text-secondary;
+    background: rgba(0, 0, 0, 0.05);
+
+    .ob-state-dot {
+      background: rgba(0, 0, 0, 0.25);
+    }
   }
 }
 </style>

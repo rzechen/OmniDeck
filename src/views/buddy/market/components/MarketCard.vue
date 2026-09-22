@@ -82,7 +82,7 @@ export default {
     },
     typeIcon(type) {
       if (type === 'connector' || type === 'mcp') return 'mcp'
-      if (type === 'agent') return 'buddy'
+      if (type === 'agent') return 'subagent'
       return 'skill'
     },
     logoClass(it) {

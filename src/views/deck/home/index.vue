@@ -16,7 +16,7 @@
     <div class="buddy-banner stagger-item" @click="goBuddy">
       <span class="buddy-banner-glow"></span>
       <div class="buddy-banner-icon">
-        <svg-icon icon-class="buddy" class="buddy-banner-svg" />
+        <img src="@/assets/logo.png" alt="OmniBuddy" class="buddy-banner-img" />
       </div>
       <div class="buddy-banner-info">
         <div class="buddy-banner-name">
@@ -275,17 +275,19 @@ export default {
   width: 52px;
   height: 52px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  // 实白 chip 衬底：logo 为蓝色渐变，紫底上需实白底衬出，半透明白会显脏
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 
-  .buddy-banner-svg {
-    width: 28px;
-    height: 28px;
-    color: #fff;
+  // 品牌 logo（宽扁异形，contain 原比例呈现）
+  .buddy-banner-img {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
   }
 }
 

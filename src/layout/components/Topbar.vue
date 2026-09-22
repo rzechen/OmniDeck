@@ -11,7 +11,7 @@
       <div class="search-box" @click="showSearch = true">
         <i class="el-icon-search search-icon"></i>
         <span class="search-placeholder">搜索工具...</span>
-        <span class="search-shortcut">⌘K</span>
+        <span class="search-shortcut">{{ searchShortcutText }}</span>
       </div>
     </div>
 
@@ -88,6 +88,7 @@
 
 <script>
 import { searchItems, toolCategories } from '@/config/tools'
+import { getShortcut, matchesShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/shortcuts'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 
 export default {
@@ -101,10 +102,18 @@ export default {
       allItems: searchItems,
       // Windows 无边框窗口控制
       isWindows: !!(window.electronAPI && window.electronAPI.platform === 'win32'),
-      winMaximized: false
+      winMaximized: false,
+      // 快捷键版本号（设置页改键后 bump，刷新提示文案）
+      shortcutVersion: 0
     }
   },
   computed: {
+    // 搜索快捷键提示（⌘OK / Ctrl+O+K，随设置实时变化）
+    searchShortcutText() {
+      // 依赖版本号：改键后重新计算
+      void this.shortcutVersion
+      return formatAccelerator(getShortcut('search'))
+    },
     // 所有分类下的具体工具（展平，用于搜索命中）
     toolItems() {
       const out = []
@@ -148,6 +157,8 @@ export default {
   },
   mounted() {
     document.addEventListener('keydown', this.handleKeydown)
+    // 设置页改键后刷新快捷键提示文案
+    this.offShortcutsChanged = onShortcutsChanged(() => { this.shortcutVersion++ })
     // Windows：同步初始最大化状态 + 监听变化切换按钮图标
     if (this.isWindows && window.electronAPI.winControl) {
       window.electronAPI.winControl.isMaximized().then(v => {
@@ -161,6 +172,7 @@ export default {
   beforeDestroy() {
     document.removeEventListener('keydown', this.handleKeydown)
     if (this.offMaximized) this.offMaximized()
+    if (this.offShortcutsChanged) this.offShortcutsChanged()
   },
   methods: {
     // Windows 窗口控制
@@ -174,8 +186,8 @@ export default {
       window.electronAPI.winControl.close()
     },
     handleKeydown(e) {
-      // ⌘K / Ctrl+K 打开或关闭
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      // 全局搜索快捷键：可配置（默认 ⌘⌥K / Ctrl+Alt+K），设置页可改键
+      if (matchesShortcut(e, getShortcut('search'))) {
         e.preventDefault()
         this.showSearch = !this.showSearch
       }

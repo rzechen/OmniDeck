@@ -124,10 +124,10 @@
         v-if="!collapsed"
         class="buddy-entry"
         @click="goBuddy"
-        title="OmniBuddy ⌘J"
+        :title="'OmniBuddy ' + buddyShortcutText"
       >
         <span class="buddy-entry-icon">
-          <svg-icon icon-class="buddy" class="buddy-entry-svg" />
+          <img src="@/assets/logo.png" alt="OmniBuddy" class="buddy-entry-img" />
         </span>
         <span class="buddy-entry-text">OmniBuddy</span>
         <span class="buddy-entry-arrow">
@@ -138,10 +138,10 @@
         v-else
         class="buddy-entry-collapsed"
         @click="goBuddy"
-        title="OmniBuddy ⌘J"
+        :title="'OmniBuddy ' + buddyShortcutText"
       >
         <span class="buddy-entry-icon">
-          <svg-icon icon-class="buddy" class="buddy-entry-svg" />
+          <img src="@/assets/logo.png" alt="OmniBuddy" class="buddy-entry-img" />
         </span>
       </div>
     </div>
@@ -157,6 +157,7 @@ import {
   menuGroups
 } from '@/config/tools'
 import { getMenuOrder, saveMenuOrder } from '@/utils/menu-order'
+import { getShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/shortcuts'
 
 export default {
   name: 'Sidebar',
@@ -177,10 +178,18 @@ export default {
       // 滑动指示器位置（相对 nav 内容坐标）
       indicator: { top: 0, height: 18, opacity: 0 },
       // 首次定位完成后再启用过渡，避免指示器从顶部滑入
-      indicatorReady: false
+      indicatorReady: false,
+      // 快捷键版本号（设置页改键后 bump，刷新提示文案）
+      shortcutVersion: 0
     }
   },
   computed: {
+    // OmniBuddy 唤起快捷键提示（⌘OJ / Ctrl+O+J，随设置实时变化）
+    buddyShortcutText() {
+      // 依赖版本号：改键后重新计算
+      void this.shortcutVersion
+      return formatAccelerator(getShortcut('buddy'))
+    },
     toolsExpanded() {
       return this.expandedMap.tools !== false
     },
@@ -227,9 +236,12 @@ export default {
   },
   beforeDestroy() {
     this.$root.$off('menu-order-reset', this.onOrderReset)
+    if (this.offShortcutsChanged) this.offShortcutsChanged()
   },
   mounted() {
     this.updateIndicator()
+    // 设置页改键后刷新快捷键提示文案
+    this.offShortcutsChanged = onShortcutsChanged(() => { this.shortcutVersion++ })
     this.$nextTick(() => {
       this.indicatorReady = true
     })
@@ -384,7 +396,7 @@ export default {
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   padding: 0 16px;
   flex-shrink: 0;
   height: 46px;
@@ -393,24 +405,25 @@ export default {
     width: 38px;
     height: 38px;
     flex-shrink: 0;
-    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
 
+    // 图形为宽扁异形（非圆角方块 App 图标），contain 原比例呈现，不加圆角裁切
     .logo-img {
       width: 38px;
       height: 38px;
       object-fit: contain;
-      border-radius: 8px;
     }
   }
 
+  // 主流 lockup 比例：图标可视高度约为字高 1.6~1.8 倍；semibold + 微负字距更精致
   .logo-text {
-    font-size: 19px;
-    font-weight: 700;
+    font-size: 16px;
+    font-weight: 600;
     color: $text-primary;
-    letter-spacing: 0.3px;
+    letter-spacing: -0.2px;
+    line-height: 1;
     white-space: nowrap;
   }
 }
@@ -488,16 +501,21 @@ export default {
   width: 22px;
   height: 22px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.2);
+  // 实白 chip 衬底：logo 本身是蓝色渐变，与胶囊蓝色背景同色系，
+  // 半透明白底会融为一体，实白底才能让 logo 清晰浮出
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
 
-  .buddy-entry-svg {
-    width: 13px;
-    height: 13px;
-    color: #fff;
+  // 品牌 logo（宽扁异形，contain 原比例呈现）
+  .buddy-entry-img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
   }
 }
 
