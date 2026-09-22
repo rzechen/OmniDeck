@@ -60,20 +60,27 @@
             <svg-icon icon-class="plus" />
           </div>
 
-          <!-- 菜单区：资源市场 / 工作空间 / 模型供应商 / Skills 管理 / MCP 管理 -->
+          <!-- 菜单区（分组）：资源市场 → 能力（技能/项目规则/连接器）→ 配置（工作空间/模型供应商/用量统计） -->
           <nav class="buddy-menu">
             <div
-              v-for="m in menus"
-              :key="m.name"
-              class="buddy-menu-item"
-              :class="{ active: $route.name === m.name }"
-              :title="m.label"
-              @click="goRoute(m.path)"
+              v-for="(group, gi) in menuGroups"
+              :key="group.title || 'g' + gi"
+              class="buddy-menu-group"
             >
-              <span class="buddy-ico-wrap">
-                <svg-icon :icon-class="m.icon" class="buddy-menu-ico" />
-              </span>
-              <span class="buddy-menu-label">{{ m.label }}</span>
+              <div v-if="group.title && !collapsed" class="buddy-menu-group-title">{{ group.title }}</div>
+              <div
+                v-for="m in group.items"
+                :key="m.name"
+                class="buddy-menu-item"
+                :class="{ active: $route.name === m.name, indented: !!group.title }"
+                :title="m.label"
+                @click="goRoute(m.path)"
+              >
+                <span class="buddy-ico-wrap">
+                  <svg-icon :icon-class="m.icon" class="buddy-menu-ico" />
+                </span>
+                <span class="buddy-menu-label">{{ m.label }}</span>
+              </div>
             </div>
           </nav>
 
@@ -143,7 +150,7 @@
 <script>
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
 import BuddySearch from '@/components/buddy/layout/BuddySearch.vue'
-import GlobalTopbarActions from '@/components/GlobalTopbarActions.vue'
+import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 import { getItem, setItem, clearAll } from '@/utils/db'
 
 // OmniBuddy 视图壳：与主 Layout 平级的独立视图
@@ -153,15 +160,36 @@ export default {
   components: { BuddyTaskList, BuddySearch, GlobalTopbarActions },
   data() {
     return {
-      // 侧边栏菜单（置于任务列表上方）：资源市场 → 工作空间 → 模型供应商 → Skills 管理 → MCP 管理
-      menus: [
-        { label: '资源市场', name: 'OmniBuddyMarket', path: '/omnibuddy/market', icon: 'market' },
-        { label: '工作空间', name: 'OmniBuddyWorkspace', path: '/omnibuddy/workspace', icon: 'folder' },
-        { label: '模型供应商', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' },
-        { label: 'Skills 管理', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
-        { label: '项目规则', name: 'OmniBuddyRules', path: '/omnibuddy/rules', icon: 'rules' },
-        { label: 'MCP 管理', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
-        { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' }
+      // 侧边栏菜单（分组，置于任务列表上方）：市场独立置顶 → 能力 → 配置 → 用量统计独立
+      // 命名与分组对齐业界（Claude Capabilities / Cursor Customize）：技能+规则+连接器聚合为「能力」
+      menuGroups: [
+        {
+          title: '',
+          items: [
+            { label: '资源市场', name: 'OmniBuddyMarket', path: '/omnibuddy/market', icon: 'market' }
+          ]
+        },
+        {
+          title: '能力',
+          items: [
+            { label: '技能', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
+            { label: '连接器', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
+            { label: '项目规则', name: 'OmniBuddyRules', path: '/omnibuddy/rules', icon: 'rules' }
+          ]
+        },
+        {
+          title: '配置',
+          items: [
+            { label: '工作空间', name: 'OmniBuddyWorkspace', path: '/omnibuddy/workspace', icon: 'folder' },
+            { label: '模型供应商', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' }
+          ]
+        },
+        {
+          title: '',
+          items: [
+            { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' }
+          ]
+        }
       ],
       // 会话列表（主进程 JSONL 持久化，按更新时间倒序）
       chats: [],
@@ -426,10 +454,24 @@ $buddy-sidebar-w: 260px;
     padding-bottom: 6px;
   }
 
+  // 收起态：分组标题隐藏（模板已条件渲染，样式兜底），组间距缩小保持视觉分隔
+  .buddy-menu-group-title {
+    display: none;
+  }
+
+  .buddy-menu-group + .buddy-menu-group {
+    margin-top: 7px;
+  }
+
   .buddy-menu-item {
     justify-content: center;
     gap: 0;
     padding: 9px 0;
+  }
+
+  // 收起态：分组缩进失效，图标恢复居中
+  .buddy-menu-item.indented {
+    padding-left: 0;
   }
 
   .buddy-menu-label {
@@ -619,9 +661,35 @@ $buddy-sidebar-w: 260px;
 .buddy-menu {
   display: flex;
   flex-direction: column;
-  gap: 2px;
   padding: 2px 0 10px;
   flex-shrink: 0;
+}
+
+/* 菜单分组：组间用间距分隔（首个分组无标题，紧贴顶部） */
+.buddy-menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  & + .buddy-menu-group {
+    margin-top: 10px;
+  }
+}
+
+/* 分组标题：与任务列表标题（buddy-section-title）视觉一致 */
+.buddy-menu-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: $text-secondary;
+  padding: 0 10px 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 分组内菜单项：相对组标题缩进，形成标题 → 子项的层级 */
+.buddy-menu-item.indented {
+  padding-left: 20px;
 }
 
 /* 图标对齐容器：与主布局 nav-icon-wrap 一致（20px 宽居中，保证文字左缘对齐） */
@@ -893,10 +961,13 @@ $buddy-sidebar-w: 260px;
   z-index: 1;
 }
 
-/* 右侧占位列：保持可拖拽（不拦截鼠标） */
+/* 右侧列：齿轮贴窗口右缘（与 Deck 顶栏同位），其余区域保持可拖拽 */
 .buddy-topbar-tail {
   position: relative;
   z-index: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
 }
 
 /* ===== 主区 ===== */

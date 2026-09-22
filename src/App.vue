@@ -18,8 +18,8 @@
 
 <script>
 import BuddySpotlight from '@/components/buddy/BuddySpotlight.vue'
-import AppLock from '@/components/AppLock.vue'
-import AppWallpaper from '@/components/AppWallpaper.vue'
+import AppLock from '@/components/common/AppLock.vue'
+import AppWallpaper from '@/components/common/AppWallpaper.vue'
 import { getItem, setItem } from '@/utils/db'
 
 export default {

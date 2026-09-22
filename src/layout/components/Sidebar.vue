@@ -456,12 +456,12 @@ export default {
   -webkit-app-region: no-drag;
 }
 
-// OmniBuddy 入口：操作按钮区上方，紫色渐变胶囊
+// OmniBuddy 入口：操作按钮区上方，紫色渐变胶囊（底部间距与 Buddy 返回胶囊一致）
 .buddy-entry {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 0 12px 6px;
+  margin: 0 12px 18px;
   padding: 7px 11px;
   border-radius: $radius-base;
   background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
@@ -521,12 +521,12 @@ export default {
   }
 }
 
-// 折叠态 OmniBuddy 入口：仅图标方块
+// 折叠态 OmniBuddy 入口：仅图标方块（底部间距与 Buddy 收起态返回胶囊一致）
 .buddy-entry-collapsed {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 8px 6px;
+  margin: 0 8px 16px;
   width: 36px;
   height: 36px;
   border-radius: 10px;

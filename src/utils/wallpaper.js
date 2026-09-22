@@ -1,6 +1,6 @@
 // 背景壁纸：本地图/GIF/视频作为全局背景层
 // 存储：壁纸列表（含 Blob 文件本体）与配置分开存放于 IndexedDB
-// 壁纸层渲染见 components/AppWallpaper.vue；界面半透明化见 styles/theme.scss
+// 壁纸层渲染见 components/common/AppWallpaper.vue；界面半透明化见 styles/theme.scss
 
 import { getItem, setItem } from './db'
 

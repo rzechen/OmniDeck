@@ -88,7 +88,7 @@
 
 <script>
 import { searchItems, toolCategories } from '@/config/tools'
-import GlobalTopbarActions from '@/components/GlobalTopbarActions.vue'
+import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 
 export default {
   name: 'Topbar',

@@ -1,5 +1,5 @@
 <template>
-  <!-- 空间页头部：空间信息（点击下拉切换工作空间）+ 工具栏（搜索 / 视图切换 / 隐藏项 / 新建 / 导入 / 刷新） -->
+  <!-- 空间页头部 Hero 卡片（市场页同款渐变底）：空间信息（点击下拉切换）+ 工具栏 -->
   <header class="sp-head">
     <!-- 工作空间选择器：空间名 + 下拉箭头，浮层向下弹出 -->
     <div class="sp-ws-select" :class="{ open: wsOpen, single: workspaces.length <= 1 }">
@@ -166,7 +166,11 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 20px 10px;
+  margin: 12px 20px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  border-radius: 12px;
   flex-wrap: wrap;
 }
 

@@ -86,11 +86,11 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 34px;
-  padding: 0 14px;
+  height: 28px;
+  padding: 0 10px;
   background: var(--search-bg);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 8px;
   flex-shrink: 0;
   transition: all 0.16s ease;
 
@@ -102,7 +102,7 @@ export default {
 
   i {
     color: var(--text-secondary);
-    font-size: 14px;
+    font-size: 13px;
   }
 
   input {
@@ -110,7 +110,7 @@ export default {
     border: none;
     outline: none;
     background: transparent;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-primary);
 
     &::placeholder {
