@@ -96,7 +96,8 @@ const toolCategories = [
       { name: 'GIF 制作', desc: '多张静态图片合成 GIF 动图', path: '/tools/image/make-gif', icon: 'gif' },
       { name: '图片水印', desc: '批量添加文字水印，支持位置与透明度', path: '/tools/image/watermark', icon: 'watermark' },
       { name: '文字转图片', desc: '文字渲染为图片，自定义画布与字体', path: '/tools/image/text-to-img', icon: 'text-image' },
-      { name: '二维码生成', desc: '高度可定制二维码生成，支持 Logo 嵌入', path: '/tools/image/qrcode', icon: 'qrcode' }
+      { name: '二维码生成', desc: '高度可定制二维码生成，支持 Logo 嵌入', path: '/tools/image/qrcode', icon: 'qrcode' },
+      { name: '截图', desc: '选区 / 全屏 / 滚动长截图，内存记录历史', path: '/tools/image/screenshot', icon: 'screenshot' }
     ]
   },
   {

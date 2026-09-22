@@ -2,8 +2,10 @@
 // 设计：启动时 loadAll() 异步加载到内存缓存，之后 getItem 同步读取、setItem 异步写入
 
 const DB_NAME = 'omnideck'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE_NAME = 'settings'
+// v2 新增：截图记录池 / 剪贴板历史（记录 id 为主键，值为 { meta, blob }）
+const EXTRA_STORES = ['captures', 'clips']
 
 let db = null
 const cache = new Map()
@@ -19,6 +21,12 @@ function openDB() {
         if (!database.objectStoreNames.contains(STORE_NAME)) {
           database.createObjectStore(STORE_NAME)
         }
+        // v2：截图记录池 / 剪贴板历史 store（无 keyPath，主键显式传入）
+        EXTRA_STORES.forEach(name => {
+          if (!database.objectStoreNames.contains(name)) {
+            database.createObjectStore(name)
+          }
+        })
       }
       req.onsuccess = (e) => {
         db = e.target.result
@@ -128,5 +136,77 @@ export async function clearAll() {
     }
     // 兜底：连接未及时释放导致 blocked 时也放行（内存缓存已清空）
     setTimeout(finish, 500)
+  })
+}
+
+// ============ 指定 store 读写（v2：截图池 / 剪贴板历史） ============
+// 与 settings 键值缓存不同，这两个 store 单条体积大（含 Blob 原图），
+// 不进内存缓存，直接异步读写；失败静默（截图记录仅影响持久化，不影响功能）
+
+function storeTx(name, mode) {
+  return db.transaction(name, mode).objectStore(name)
+}
+
+// 写一条（value: { meta, blob } 等，key = 记录 id）
+export async function storePut(name, key, value) {
+  await openDB()
+  if (!db) return
+  return new Promise((resolve) => {
+    try {
+      const tx = storeTx(name, 'readwrite')
+      tx.put(value, key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    } catch (e) { resolve() }
+  })
+}
+
+// 删一条
+export async function storeDelete(name, key) {
+  await openDB()
+  if (!db) return
+  return new Promise((resolve) => {
+    try {
+      const tx = storeTx(name, 'readwrite')
+      tx.delete(key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    } catch (e) { resolve() }
+  })
+}
+
+// 清空整个 store
+export async function storeClear(name) {
+  await openDB()
+  if (!db) return
+  return new Promise((resolve) => {
+    try {
+      const tx = storeTx(name, 'readwrite')
+      tx.clear()
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    } catch (e) { resolve() }
+  })
+}
+
+// 全量读出（含 Blob），按插入序返回 [{ key, value }]
+export async function storeGetAll(name) {
+  await openDB()
+  if (!db) return []
+  return new Promise((resolve) => {
+    const out = []
+    try {
+      const req = storeTx(name, 'readonly').openCursor()
+      req.onsuccess = (e) => {
+        const cursor = e.target.result
+        if (cursor) {
+          out.push({ key: cursor.key, value: cursor.value })
+          cursor.continue()
+        } else {
+          resolve(out)
+        }
+      }
+      req.onerror = () => resolve(out)
+    } catch (e) { resolve(out) }
   })
 }

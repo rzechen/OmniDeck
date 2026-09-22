@@ -9,7 +9,7 @@
     </transition>
     <!-- 全局背景壁纸层（设置页可配置：图片/GIF/视频 + 轮播） -->
     <app-wallpaper />
-    <!-- OmniBuddy 快速唤起浮窗（全局 ⌘J） -->
+    <!-- OmniBuddy 快速唤起浮窗（可配置快捷键，默认 ⌘O+J） -->
     <buddy-spotlight />
     <!-- 应用锁定遮罩（密码 / Touch ID） -->
     <app-lock ref="appLock" />
@@ -21,11 +21,15 @@ import BuddySpotlight from '@/components/buddy/BuddySpotlight.vue'
 import AppLock from '@/components/common/AppLock.vue'
 import AppWallpaper from '@/components/common/AppWallpaper.vue'
 import { getItem, setItem } from '@/utils/db'
+import { initCaptureStore } from '@/utils/capture-store'
 
 export default {
   name: 'App',
   components: { BuddySpotlight, AppLock, AppWallpaper },
   created() {
+    // 截图/剪贴板记录 IndexedDB 持久化桥（仅主窗生效，内部按路由自排除）
+    initCaptureStore()
+
     // 代办到期提醒：全局轮询（含启动时补发错过未通知的提醒）
     this.todoRemindTimer = setInterval(this.checkTodoReminders, 30000)
     this.checkTodoReminders()

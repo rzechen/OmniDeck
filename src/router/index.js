@@ -84,6 +84,30 @@ const routes = [
     component: () => import('@/views/shell/capture-overlay/index.vue'),
     meta: { title: '区域截屏' }
   },
+  // 长截图控制条小窗（P2）：选区完成后由主进程 capture.js openScrollCtrl
+  // 加载本页（208×44 无边框置顶小窗），提供拍一帧/完成/取消操作
+  {
+    path: '/capture-scroll-ctrl',
+    name: 'CaptureScrollCtrl',
+    component: () => import('@/views/shell/capture-scroll-ctrl/index.vue'),
+    meta: { title: '长截图' }
+  },
+  // 截图标注编辑窗：选区定格后由主进程 openEditorAndWait 加载本页，
+  // 底层显示定格帧，Canvas 标注（矩形/椭圆/直线/箭头/马赛克/文字），
+  // 确认/贴屏/取消经 capture-editor:done 回传
+  {
+    path: '/capture-editor',
+    name: 'CaptureEditor',
+    component: () => import('@/views/shell/capture-editor/index.vue'),
+    meta: { title: '截图标注' }
+  },
+  // 贴屏小窗：标注结果贴到屏幕（置顶可拖动/缩放，双击关闭）
+  {
+    path: '/capture-pin',
+    name: 'CapturePin',
+    component: () => import('@/views/shell/capture-pin/index.vue'),
+    meta: { title: '贴图' }
+  },
   {
     path: '/',
     component: Layout,
@@ -384,6 +408,12 @@ const routes = [
         name: 'ImageQrcode',
         component: () => import('@/views/deck/tools/image/qrcode.vue'),
         meta: { title: '二维码生成', group: 'tools' }
+      },
+      {
+        path: 'tools/image/screenshot',
+        name: 'ImageScreenshot',
+        component: () => import('@/views/deck/tools/image/screenshot.vue'),
+        meta: { title: '截图', group: 'tools' }
       },
       {
         path: 'tools/text',
