@@ -2,6 +2,7 @@ node_modules
 dist
 dist-verify*
 dist-electron
+native/build
 .dist-trash
 .stale-builds
 release

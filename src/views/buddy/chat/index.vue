@@ -194,6 +194,12 @@ export default {
     document.removeEventListener('mousedown', this.onDocMouseDown)
     if (this.streaming && this.sessionId) this.api().interrupt(this.sessionId)
   },
+  activated() {
+    // keep-alive 页签切回：模型/工作空间可能在其他页签（模型管理、工作空间）有增删，
+    // 重新加载列表（loadProviders 内部会保留当前选中，不会打断已选模型）
+    this.loadProviders()
+    this.loadWorkspaces()
+  },
   methods: {
     api() {
       const api = window.electronAPI && window.electronAPI.omnibuddy
@@ -223,6 +229,14 @@ export default {
     loadProviders() {
       const list = getItem('aiProviderList', [])
       this.providers = Array.isArray(list) ? list : []
+      // 优先保留当前选中（切回页签刷新列表时不打断已选模型）；
+      // 否则恢复上次持久化的选择；都无效则回落默认模型
+      const savedId = getItem('omnibuddy:providerId', '')
+      const keep = this.providers.find(p => p.id === (this.currentProviderId || savedId))
+      if (keep) {
+        this.currentProviderId = keep.id
+        return
+      }
       const def = this.providers.find(p => p.isDefault) || this.providers[0]
       this.currentProviderId = def ? def.id : ''
     },

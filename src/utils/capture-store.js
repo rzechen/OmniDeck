@@ -5,11 +5,11 @@
 // - 恢复：启动时 storeGetAll 全量读出，回传主进程重建内存池
 //   （capture:restore / capture:clips-restore），再上报就绪（capture:sync-ready）；
 //   主进程按返回 ids 对齐删除 IndexedDB 中多余条目
-// 辅助窗（quick / capture-overlay / capture-editor / capture-pin /
+// 辅助窗（quick / capture-overlay / capture-pin /
 // capture-scroll-ctrl）加载同一 SPA：按 hash 路由跳过（主进程另有 sink 校验双保险）
 import { storePut, storeDelete, storeClear, storeGetAll } from './db'
 
-const AUX_ROUTES = ['/quick', '/capture-overlay', '/capture-editor', '/capture-pin', '/capture-scroll-ctrl']
+const AUX_ROUTES = ['/quick', '/capture-overlay', '/capture-pin', '/capture-scroll-ctrl']
 
 function isAuxWindow() {
   const h = window.location.hash || ''

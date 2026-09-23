@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "build:native": "sh scripts/build-native.sh",
     "build:mac": "vite build && electron-builder --mac",
     "build:win": "vite build && electron-builder --win --x64",
     "build:all": "vite build && electron-builder --mac && electron-builder --win --x64"
@@ -50,6 +51,7 @@
     "electron": "^39.8.10",
     "electron-builder": "^26.15.3",
     "fast-glob": "^3.3.3",
+    "node-addon-api": "^8.9.2",
     "sass": "^1.69.0",
     "tree-kill": "^1.2.2",
     "vite": "^4.5.5",
@@ -76,11 +78,13 @@
       "dist-electron/**/*",
       "package.json",
       "src/config/remote.cjs",
+      "native/build/Release/*.node",
       "node_modules/@tobilu/qmd/**/*",
       "!node_modules/@tobilu/qmd/**/*.md"
     ],
     "asarUnpack": [
-      "node_modules/@tobilu/qmd/**"
+      "node_modules/@tobilu/qmd/**",
+      "native/build/Release/*.node"
     ],
     "extraResources": [
       {
