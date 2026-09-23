@@ -13,7 +13,7 @@
         size="small"
         round
         type="primary"
-        class="ob-hero-btn ob-btn-fold"
+        class="ob-hero-btn"
         title="新建供应商"
         @click="openCreate"
       ><svg-icon icon-class="plus" class="ob-btn-svg" /><span class="ob-btn-text">新建供应商</span></el-button>
@@ -151,38 +151,4 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
-
-/* 右上角新建按钮：默认仅图标胶囊，hover 时文字滑出展开 */
-.ob-btn-fold {
-  padding-right: 12px;
-
-  .ob-btn-text {
-    display: inline-block;
-    max-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    vertical-align: top;
-    opacity: 0;
-    transition: max-width 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease;
-  }
-
-  .ob-btn-svg {
-    margin-right: 0;
-    transition: margin-right 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  &:hover,
-  &:focus {
-    padding-right: 15px;
-
-    .ob-btn-text {
-      max-width: 72px;
-      opacity: 1;
-    }
-
-    .ob-btn-svg {
-      margin-right: 4px;
-    }
-  }
-}
 </style>

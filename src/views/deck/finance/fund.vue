@@ -108,7 +108,7 @@
       </div>
 
       <!-- 持仓列表 -->
-      <div key="live-list" class="fp-list fp-enter">
+      <div key="live-list" class="fp-list fp-enter" :class="{ 'is-empty': !positions.length }">
         <div
           v-for="(row, i) in rows"
           :key="row.pos.code"
@@ -918,6 +918,11 @@ export default {
   padding: 2px;
 }
 
+/* 空状态时撑满整行，让占位内容垂直居中 */
+.fp-list.is-empty {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .fp-row {
   display: grid;
   grid-template-columns: subgrid;
@@ -1105,9 +1110,7 @@ export default {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 260px;
-  border: 1.5px dashed var(--border-color);
-  border-radius: 12px;
+  min-height: 120px;
   color: var(--text-secondary);
 
   i {

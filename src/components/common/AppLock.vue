@@ -782,3 +782,13 @@ export default {
   }
 }
 </style>
+
+<style lang="scss">
+/* 壁纸模式：锁屏改为轻雾遮罩，壁纸清晰呈现（白字/卡片仍可读）。
+   scoped 规则选不中 html 根节点，需全局样式块 */
+html[data-wallpaper='on'] .applock-overlay {
+  background: rgba(16, 16, 22, 0.32);
+  backdrop-filter: blur(5px) saturate(1.2);
+  -webkit-backdrop-filter: blur(5px) saturate(1.2);
+}
+</style>

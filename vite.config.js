@@ -87,6 +87,21 @@ export default defineConfig({
           }
         }
       },
+      // 壁纸市场拉取模块：同 quick-panel 构建模式，main.js 经相对 require 引用
+      {
+        entry: 'electron/wallpaper-fetch.js',
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            rollupOptions: {
+              output: {
+                entryFileNames: 'wallpaper-fetch.js'
+              },
+              external: ['electron']
+            }
+          }
+        }
+      },
       // 启动依赖预检（P1）：同 quick-panel 构建模式，main.js 经 require('./deps') 引用
       {
         entry: 'electron/deps.js',

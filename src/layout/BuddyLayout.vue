@@ -1,30 +1,17 @@
 <template>
   <div class="buddy-layout">
-    <!-- 窗口级顶栏：居中搜索（+ 左右占位，保证窗口级水平居中）。
-    侧边栏收起/展开不影响顶栏布局 -->
-    <header class="buddy-topbar">
-      <!-- 毛玻璃背景层：backdrop-filter 会吞掉同元素的 app-region 拖拽区，独立成层规避 -->
-      <div class="buddy-topbar-glass"></div>
-
-      <!-- 左侧占位列：保持搜索框窗口级水平居中 -->
-      <div class="buddy-topbar-lead"></div>
-
-      <!-- 顶栏搜索（三列 grid 中列，窗口级水平居中） -->
-      <buddy-search ref="search" @select="onSelectChat" />
-      <!-- 右侧：全局设置入口（与 Deck 顶栏同位，占位列保持搜索框窗口级居中） -->
-      <div class="buddy-topbar-tail">
-        <global-topbar-actions />
-      </div>
-    </header>
-
-    <!-- 主体：侧边栏（logo 区 + 菜单 + 任务列表，可拖宽/收起）+ 主区 -->
+    <!-- 主体：侧边栏（红绿灯让位行 + logo 区 + 菜单 + 任务列表，可拖宽/收起）+ 主区 -->
     <div class="buddy-body">
       <aside
         class="buddy-sidebar"
         :class="{ collapsed, dragging }"
         :style="{ width: (collapsed ? collapsedW : sidebarW) + 'px' }"
       >
-        <!-- 顶部：logo + 标题 + 新建任务（红绿灯让位，与主布局侧边栏风格一致） -->
+        <!-- 顶部让位行：macOS 红绿灯独占（与主布局 Sidebar 的 sidebar-topbar 一致，
+             侧栏通到窗口顶部，红绿灯悬浮于侧栏左上） -->
+        <div class="buddy-sidebar-topbar"></div>
+
+        <!-- 顶部：logo + 标题 + 新建任务 -->
         <div class="buddy-sidebar-head">
           <div class="buddy-logo-icon">
             <img src="@/assets/logo.png" alt="OmniDeck" class="buddy-logo-img" />
@@ -137,10 +124,19 @@
         <svg-icon :icon-class="collapsed ? 'expand' : 'fold'" class="buddy-side-toggle-ico" />
       </div>
 
-      <!-- 主区：对话/管理页 -->
+      <!-- 主区：页签行 + 对话/管理页（参考 Deck：Topbar 位换为页签栏 + 设置入口） -->
       <div class="buddy-right">
+        <!-- 顶部页签行：页签本体/设置钮可点，空白处可拖动窗口 -->
+        <div class="buddy-tags-row">
+          <TagsBar side="buddy" class="buddy-tags-row-bar" />
+          <div class="buddy-tags-row-actions">
+            <global-topbar-actions />
+          </div>
+        </div>
         <div class="buddy-main">
-          <router-view />
+          <keep-alive :max="10">
+            <router-view :key="buddyTabKey" />
+          </keep-alive>
         </div>
       </div>
     </div>
@@ -149,15 +145,15 @@
 
 <script>
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
-import BuddySearch from '@/components/buddy/layout/BuddySearch.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
+import TagsBar from '@/components/common/TagsBar.vue'
 import { getItem, setItem, clearAll } from '@/utils/db'
 
 // OmniBuddy 视图壳：与主 Layout 平级的独立视图
-// 侧边栏（新建入口 + 菜单 + 任务列表，可拖宽/收起）+ 顶栏（开关 + 居中搜索）+ 主区（对话/管理页）
+// 顶部页签条（TagsBar + 设置入口）+ 侧边栏（新建入口 + 菜单 + 任务列表，可拖宽/收起）+ 主区（对话/管理页）
 export default {
   name: 'BuddyLayout',
-  components: { BuddyTaskList, BuddySearch, GlobalTopbarActions },
+  components: { BuddyTaskList, GlobalTopbarActions, TagsBar },
   data() {
     return {
       // 侧边栏菜单（分组，置于任务列表上方）：市场独立置顶 → 能力 → 配置 → 用量统计独立
@@ -208,9 +204,24 @@ export default {
     // 当前激活会话 id（由对话页路由 query.s 驱动）
     activeChatId() {
       return this.$route.query.s || ''
+    },
+    // 页签缓存 key：keep-alive 以 vnode.key 缓存，每个页签（每个会话）独立一份组件实例
+    buddyTabKey() {
+      return this.$store.getters['tagsView/keyOf']('buddy', this.$route.fullPath)
     }
   },
-  watch: {},
+  watch: {
+    // 会话列表变化（新建/删除/他处刷新）后同步会话页签标题
+    chats: {
+      handler() {
+        this.syncChatTabTitles()
+      }
+    },
+    // 切换会话页签后补齐新登记页签的标题
+    activeChatId() {
+      this.syncChatTabTitles()
+    }
+  },
   created() {
     this.loadChats()
     // 对话页创建/更新会话后刷新列表
@@ -256,8 +267,6 @@ export default {
         return
       }
       this.chats = await api.listSessions()
-      // 会话列表变化后清空搜索结果缓存
-      if (this.$refs.search) this.$refs.search.clearCache()
     },
     // ===== 侧边栏拖拽调宽 / 收起 =====
     onResizeStart(e) {
@@ -296,6 +305,20 @@ export default {
       this.collapsed = !this.collapsed
       setItem('omnibuddy:sidebar-collapsed', this.collapsed)
     },
+    // ===== 页签联动 =====
+    // 会话页签标题同步：页签登记时仅有路由 meta（OmniBuddy），此处按任务列表补齐会话名
+    syncChatTabTitles() {
+      const tabs = (this.$store.state.tagsView && this.$store.state.tagsView.buddy) || []
+      tabs.forEach(tab => {
+        if (tab.path !== '/omnibuddy') return
+        const id = tab.fullPath.split('s=')[1]
+        if (!id) return
+        const c = this.chats.find(x => x.id === id)
+        if (c && c.title && tab.title !== c.title) {
+          this.$store.commit('tagsView/UPDATE_TAB_TITLE', { side: 'buddy', fullPath: tab.fullPath, title: c.title })
+        }
+      })
+    },
     renameChat(c) {
       this.$prompt('请输入新的任务名称', '重命名任务', {
         confirmButtonText: '保存',
@@ -307,6 +330,8 @@ export default {
         const api = this.buddyApi()
         if (api) await api.renameSession({ id: c.id, title })
         c.title = title
+        // 同步更新该会话的页签标题
+        this.$store.commit('tagsView/UPDATE_TAB_TITLE', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id, title })
       }).catch(() => {})
     },
     // 导出会话（N4）：选择格式 → 主进程写文件（保存对话框）→ 成功后可打开所在目录
@@ -364,9 +389,11 @@ export default {
         const api = this.buddyApi()
         if (api) await api.deleteSession(c.id)
         this.chats = this.chats.filter(x => x.id !== c.id)
+        // 同步移除该会话的页签
+        this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id })
         // 删除的是当前会话：回到新建页
-        if (this.activeChatId === c.id && this.$route.path !== '/omnibuddy') {
-          this.$router.push('/omnibuddy')
+        if (this.activeChatId === c.id) {
+          this.$router.push('/omnibuddy').catch(() => {})
         }
         this.$message.success('已删除')
       }).catch(() => {})
@@ -842,41 +869,44 @@ $buddy-sidebar-w: 260px;
   position: relative;
 }
 
-/* 顶栏（窗口级横贯行）：三列 grid —— 左占位 + 搜索（中，窗口级水平居中）+ 右占位。
-毛玻璃背景独立成层，顶栏本体保持可拖动窗口 */
-.buddy-topbar {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 480px) minmax(0, 1fr);
+/* ===== 主区顶部页签行（参考 Deck：Topbar 位换为页签栏 + 设置入口） =====
+   页签本体/设置钮可点（no-drag），空白处可拖动窗口 */
+.buddy-tags-row {
+  display: flex;
   align-items: stretch;
-  height: $topbar-height;
-  padding: 0 12px;
-  column-gap: 10px;
   flex-shrink: 0;
   -webkit-app-region: drag;
-  z-index: 5;
 }
 
-/* 毛玻璃背景层（backdrop-filter 元素自身会丢失 app-region 拖拽区） */
-.buddy-topbar-glass {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: $topbar-bg;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+/* 页签栏占满行内剩余宽度 */
+.buddy-tags-row-bar {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 右侧：齿轮（Windows 下含窗口控制钮）贴窗口右缘，与 Deck 顶栏同位 */
+.buddy-tags-row-actions {
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 2px;
+  background: $content-bg;
   border-bottom: 1px solid $border-color;
-  pointer-events: none;
+  -webkit-app-region: no-drag;
 }
 
-/* 侧边栏顶部：logo + 标题 + 新建（顶栏在上方，无需红绿灯让位，正常左对齐） */
+/* macOS 交通灯按钮独占行（与主布局 Sidebar 的 sidebar-topbar 一致）：
+   侧栏通到窗口顶部，红绿灯悬浮于本行 */
+.buddy-sidebar-topbar {
+  height: 52px;
+  flex-shrink: 0;
+}
+
+/* 侧边栏顶部：logo + 标题 + 新建（紧随红绿灯让位行，logo 距顶对齐 Deck） */
 .buddy-sidebar-head {
   display: flex;
   align-items: center;
   gap: 10px; /* 与主布局 Sidebar 的 logo↔标题间距一致 */
   padding: 0 12px 0 16px;
-  /* 顶栏 44px + 8px = 主布局红绿灯让位行 52px，logo 距窗口顶部对齐 Deck */
-  margin-top: 8px;
   flex-shrink: 0;
   height: 46px;
 }
@@ -958,18 +988,13 @@ $buddy-sidebar-w: 260px;
   }
 }
 
-.buddy-topbar > .buddy-search-wrap {
+/* 右侧：齿轮贴窗口右缘（与 Deck 顶栏同位），可点击不可拖窗 */
+.buddy-tabstrip-actions {
   position: relative;
   z-index: 1;
-}
-
-/* 右侧列：齿轮贴窗口右缘（与 Deck 顶栏同位），其余区域保持可拖拽 */
-.buddy-topbar-tail {
-  position: relative;
-  z-index: 0;
   display: flex;
-  justify-content: flex-end;
   align-items: center;
+  -webkit-app-region: no-drag;
 }
 
 /* ===== 主区 ===== */

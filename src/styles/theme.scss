@@ -71,31 +71,52 @@ html[data-theme='dark'] {
 }
 
 /* ============ 背景壁纸模式 ============ */
-/* html[data-wallpaper='on'] 由 utils/wallpaper.js 切换：界面表面转半透明 + 毛玻璃，
-   让 AppWallpaper 壁纸层透出；卡片仍保持较高不透明度保证前景可读 */
+/* html[data-wallpaper='on'] 由 utils/wallpaper.js 切换：界面表面转半透明，
+   让 AppWallpaper 壁纸层透出；壁纸铺满全屏（含侧边栏菜单区域）。
+   清晰优先：表面不加背景模糊（仅轻微增饱和），毛玻璃观感由半透明底色承担；
+   次级文字加深一档，保证花哨壁纸下灰字可读 */
 html[data-wallpaper='on'] {
-  --sidebar-bg: rgba(240, 240, 242, 0.74);
-  --content-bg: rgba(251, 252, 253, 0.34);
-  --card-bg: rgba(255, 255, 255, 0.64);
-  --topbar-bg: rgba(255, 255, 255, 0.55);
-  --toggle-bg: rgba(255, 255, 255, 0.72);
+  --sidebar-bg: rgba(247, 247, 249, 0.55);
+  --content-bg: rgba(253, 253, 254, 0.38);
+  --card-bg: rgba(255, 255, 255, 0.66);
+  --topbar-bg: rgba(255, 255, 255, 0.48);
+  --toggle-bg: rgba(255, 255, 255, 0.68);
 
-  /* 主要表面毛玻璃化（类名为全局类，scoped 组件不受影响） */
+  /* 文字加深：灰字在半透明表面上保持对比 */
+  --text-secondary: #55555E;
+  --text-sidebar: #3F3F48;
+
+  /* Buddy 视图：外层底色透明化，避免与侧栏/页签栏背景双层叠加遮死壁纸；
+     主区补齐内容区表面（对齐 Deck 的 .layout-content 角色），内容站在玻璃板上 */
+  .buddy-layout {
+    background: transparent;
+  }
+
+  .buddy-main {
+    background: $content-bg;
+  }
+
+  /* 表面轻增饱和（不模糊，壁纸保持清晰；类名为全局类，scoped 组件不受影响） */
   .layout-content,
   .sidebar,
-  .buddy-layout,
-  .buddy-sidebar {
-    backdrop-filter: blur(24px) saturate(1.35);
-    -webkit-backdrop-filter: blur(24px) saturate(1.35);
+  .buddy-sidebar,
+  .buddy-tags-row,
+  .buddy-main {
+    backdrop-filter: saturate(1.15);
+    -webkit-backdrop-filter: saturate(1.15);
   }
 }
 
 html[data-wallpaper='on'][data-theme='dark'] {
-  --sidebar-bg: rgba(35, 35, 39, 0.78);
-  --content-bg: rgba(27, 27, 31, 0.4);
-  --card-bg: rgba(38, 38, 43, 0.62);
-  --topbar-bg: rgba(35, 35, 39, 0.6);
-  --toggle-bg: rgba(50, 50, 55, 0.8);
+  --sidebar-bg: rgba(35, 35, 39, 0.6);
+  --content-bg: rgba(27, 27, 31, 0.46);
+  --card-bg: rgba(38, 38, 43, 0.64);
+  --topbar-bg: rgba(35, 35, 39, 0.5);
+  --toggle-bg: rgba(50, 50, 55, 0.68);
+
+  /* 深色模式下提亮灰字 */
+  --text-secondary: #B4B4BD;
+  --text-sidebar: #B8B8C2;
 }
 
 /* ============ Element UI 主题色覆盖（CSS 变量驱动） ============ */
@@ -125,6 +146,25 @@ html[data-wallpaper='on'][data-theme='dark'] {
       border-color: var(--primary-color);
       color: #ffffff;
     }
+  }
+}
+
+/* 单选按钮组（el-radio-button）：选中态主题色覆盖（用量统计天数切换等）
+   Element 原生选中态写死 #409EFF，且 box-shadow 带 !important，需同权重覆盖 */
+.el-radio-button__inner:hover {
+  color: var(--primary-color);
+}
+
+.el-radio-button__orig-radio:checked + .el-radio-button__inner {
+  color: #fff;
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  box-shadow: -1px 0 0 0 var(--primary-color) !important;
+
+  &:hover {
+    background-color: var(--primary-color-hover);
+    border-color: var(--primary-color-hover);
+    box-shadow: -1px 0 0 0 var(--primary-color-hover) !important;
   }
 }
 
@@ -405,6 +445,11 @@ html[data-theme='dark'] {
     &.is-plain:focus {
       color: #0F1218;
     }
+  }
+
+  /* 单选按钮组选中态：深色下文字同样改深色（与主按钮一致） */
+  .el-radio-button__orig-radio:checked + .el-radio-button__inner {
+    color: #0F1218;
   }
 
   .el-switch:not(.is-checked) .el-switch__core {

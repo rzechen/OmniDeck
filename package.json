@@ -75,6 +75,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "package.json",
+      "src/config/remote.cjs",
       "node_modules/@tobilu/qmd/**/*",
       "!node_modules/@tobilu/qmd/**/*.md"
     ],

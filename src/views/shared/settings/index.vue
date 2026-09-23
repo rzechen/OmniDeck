@@ -87,14 +87,15 @@
               </div>
             </div>
 
-            <!-- 背景壁纸：本地图/GIF/视频作为全局背景 -->
+            <!-- 背景壁纸：本地壁纸目录 + 市场拉取两种来源 -->
             <div class="settings-row wp-row">
               <div class="row-label">
                 <span class="label-text">背景壁纸</span>
-                <span class="label-desc">选择图片、GIF 或视频作为应用背景，界面自动转为半透明毛玻璃</span>
+                <span class="label-desc">从本地壁纸目录选择图片、GIF 或视频作为应用背景，界面自动转为半透明毛玻璃；也可从壁纸市场一键拉取到本地</span>
               </div>
               <div class="wp-controls">
-                <el-button size="small" round icon="el-icon-picture-outline" @click="pickWallpaper">选择文件</el-button>
+                <el-button size="small" round icon="el-icon-picture-outline" @click="pickWallpaperFiles">选择壁纸</el-button>
+                <el-button size="small" round icon="el-icon-goods" @click="openMarketDrawer">壁纸市场</el-button>
                 <div class="segmented">
                   <div
                     v-for="opt in motionOptions"
@@ -119,7 +120,7 @@
                   :class="{ selected: wpConfig.selectedId === wp.id, video: isVideoWp(wp) }"
                   @click="selectWallpaper(wp)"
                 >
-                  <img v-if="wp._thumb" :src="wp._thumb" alt="" />
+                  <img v-if="wpThumbUrl(wp)" :src="wpThumbUrl(wp)" alt="" @error="onWpThumbError(wp)" />
                   <i v-else class="el-icon-video-play wp-video-badge"></i>
                   <span class="wp-thumb-name" :title="wp.name">{{ wp.name }}</span>
                   <span class="wp-thumb-del" title="删除" @click.stop="deleteWallpaper(wp)">
@@ -624,6 +625,95 @@
         </div>
       </div>
     </transition>
+
+    <!-- 壁纸市场抽屉：本地目录模式（两级结构 + 分类 + 滚动分页） -->
+    <el-drawer
+      :visible.sync="marketVisible"
+      direction="rtl"
+      size="400px"
+      :with-header="false"
+      custom-class="wp-market-drawer"
+      append-to-body
+    >
+      <div class="wp-market">
+        <header class="wp-market-header">
+          <div class="wp-market-title">
+            <i class="el-icon-goods"></i>
+            <span>壁纸市场</span>
+          </div>
+          <div class="wp-market-header-actions">
+            <button class="wp-market-pull-btn" :disabled="wpPullActive || wpPullBusy" @click="pullFromMarket">
+              <i :class="(wpPullActive || wpPullBusy) ? 'el-icon-loading' : 'el-icon-download'"></i>
+              <span>{{ wpPullActive ? '正在拉取中' : '从市场拉取' }}</span>
+            </button>
+            <i class="el-icon-close wp-market-close" @click="marketVisible = false"></i>
+          </div>
+        </header>
+
+        <!-- 下载目录管理条：已记录目录时显示（路径 + 更换） -->
+        <div v-if="marketDir" class="wp-market-dir">
+          <span class="wp-market-dir-path" :title="marketDir">
+            <i class="el-icon-folder"></i>
+            {{ marketDir }}
+          </span>
+          <el-button size="mini" round icon="el-icon-folder-opened" :disabled="wpPullActive" @click="chooseMarketDir()">更换</el-button>
+        </div>
+        <div v-if="marketMissing.length" class="wp-market-warn">未找到「{{ marketMissing.join('」「') }}」子目录</div>
+
+        <!-- 拉取进度条（拉取期间置顶显示；主题色） -->
+        <div v-if="wpPull && wpPull.active" class="wp-market-pullbar">
+          <span class="wp-market-pull-count">{{ wpPull.done }} / {{ wpPull.total }}</span>
+          <el-progress :percentage="wpPullPercent" :stroke-width="6" :show-text="false" :color="primaryColor" class="wp-market-pull-bar" />
+          <span class="wp-market-pull-name" :title="wpPull.name">{{ wpPull.name || '准备中…' }}</span>
+        </div>
+
+        <!-- 分类筛选 -->
+        <div class="wp-market-cats">
+          <div
+            v-for="cat in marketCats"
+            :key="cat.id"
+            class="wp-market-cat"
+            :class="{ active: marketCat === cat.id }"
+            @click="selectMarketCat(cat.id)"
+          >{{ cat.name }}</div>
+        </div>
+        <!-- 网格 + 滚动分页 -->
+        <div ref="marketScroll" class="wp-market-body" @scroll="onMarketScroll">
+          <div v-if="wpPullActive && !marketItems.length" class="wp-market-tip is-loading">
+            <i class="el-icon-loading"></i>
+            <p>正在从市场拉取壁纸…</p>
+          </div>
+          <div v-else-if="!wpPullActive && !marketItems.length" class="wp-market-tip">
+            <i class="el-icon-picture-outline"></i>
+            <p>{{ marketDir ? '目录中暂无壁纸' : '还没有壁纸' }}</p>
+            <p class="wp-market-tip-sub">点击右上角「从市场拉取」开始下载壁纸</p>
+          </div>
+          <div v-else class="wp-market-grid">
+            <div v-for="item in marketItems" :key="item.id" class="wp-market-card">
+              <div class="wp-market-cover">
+                <img v-if="item.coverUrl" :src="item.coverUrl" alt="" />
+                <i v-else class="el-icon-video-play wp-market-cover-empty"></i>
+                <span class="wp-market-res">{{ item.resLabel }}</span>
+                <span v-if="item.added" class="wp-market-added"><i class="el-icon-check"></i> 已添加</span>
+              </div>
+              <div class="wp-market-meta">
+                <span class="wp-market-size" :title="item.name">{{ item.name }}</span>
+                <el-button
+                  size="mini"
+                  round
+                  type="primary"
+                  :disabled="item.added || marketReading"
+                  :loading="marketReadingId === item.id"
+                  @click="applyMarketItem(item)"
+                >{{ item.added ? '已添加' : '使用' }}</el-button>
+              </div>
+            </div>
+          </div>
+          <div v-if="marketLoadingMore" class="wp-market-more"><i class="el-icon-loading"></i> 加载中…</div>
+          <div v-else-if="marketItems.length && !marketHasMore" class="wp-market-more is-end">— 到底了 —</div>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -647,6 +737,16 @@ import {
   applyWallpaperDom,
   isVideoItem
 } from '@/utils/wallpaper'
+import {
+  wpMarketApi,
+  pickWallpaperDirectory,
+  scanLocalWallpaperDir,
+  readPulledFile,
+  getDiskThumbUrl,
+  captureVideoPoster,
+  getSavedWallpaperDir,
+  saveWallpaperDir
+} from '@/utils/wallpaper-market'
 import * as toolHistory from '@/utils/tool-history'
 import { toolCategories } from '@/config/tools'
 
@@ -799,7 +899,26 @@ export default {
         { label: '1 分钟', value: '1m' },
         { label: '5 分钟', value: '5m' }
       ],
-      wpFileInput: null
+      // ===== 壁纸市场（本地目录·纯渲染层） =====
+      wpFileInput: null,     // 隐藏文件选择 input（复用，不 removeChild）
+      marketVisible: false,
+      marketLoadingMore: false,   // 分页追加加载中
+      marketDir: getSavedWallpaperDir(), // 当前壁纸目录（IndexedDB 持久化，重启自动恢复）
+      marketMissing: [],          // 缺失的子目录名（动态壁纸/静态壁纸）
+      marketCats: [
+        { id: 'all', name: '全部' },
+        { id: 'dynamic', name: '动态壁纸' },
+        { id: 'static', name: '静态壁纸' }
+      ],
+      marketCat: 'all',
+      marketRaw: [],              // 全量条目（含派生字段）
+      marketItems: [],            // 当前分类已渲染条目（分页累积）
+      marketPage: 0,
+      marketPageSize: 12,
+      marketReadingId: '',     // 正在读取入库的条目 id
+      wpPull: null,            // 拉取进度 { active, done, total, name }
+      wpThumbRetries: {},      // 壁纸缩略 objectURL 加载失败重试计数（id → 次数，防 error 死循环）
+      wpPullBusy: false        // 清单拉取中（按钮 loading）
     }
   },
   computed: {
@@ -828,7 +947,7 @@ export default {
         {
           title: 'Deck 视图',
           items: [
-            { id: 'search', label: '全局搜索', desc: '唤起或收起顶部搜索，可搜索工具与页面' }
+            { id: 'search', label: '快捷搜索', desc: '打开「快捷搜索」页签并唤起搜索面板，可搜索工具与页面' }
           ]
         },
         {
@@ -903,6 +1022,29 @@ export default {
         }
         return wp
       })
+    },
+    // 当前分类筛选后的全量条目
+    marketFiltered() {
+      return this.marketCat === 'all'
+        ? this.marketRaw
+        : this.marketRaw.filter(i => i.category === this.marketCat)
+    },
+    // 当前分类下是否还有未加载页
+    marketHasMore() {
+      return this.marketPage * this.marketPageSize < this.marketFiltered.length
+    },
+    // 是否有市场壁纸正在读取入库（进行中禁用其他「使用」按钮）
+    marketReading() {
+      return !!this.marketReadingId
+    },
+    // 拉取进度百分比
+    wpPullPercent() {
+      if (!this.wpPull || !this.wpPull.total) return 0
+      return Math.min(100, Math.round((this.wpPull.done / this.wpPull.total) * 100))
+    },
+    // 拉取是否进行中（按钮状态/操作禁用）
+    wpPullActive() {
+      return !!(this.wpPull && this.wpPull.active)
     },
     // ===== 工具执行历史 =====
     // 历史总条数（「清空全部」按钮可用性 + 描述）
@@ -1424,59 +1566,41 @@ export default {
     isVideoWp(wp) {
       return isVideoItem(wp)
     },
-    // 生成缩略图地址：图片直接出 blob URL，视频暂无缩略图（显示播放角标）
+    // 生成缩略图地址：图片出 blob URL；视频优先封面（远程 URL 或本地封面 Blob，均带缓存），否则播放角标
     wpThumbUrl(wp) {
-      if (this.isVideoWp(wp) || !wp.blob) return ''
-      try {
-        return URL.createObjectURL(wp.blob)
-      } catch (e) {
-        return ''
-      }
-    },
-    // 选择文件（隐藏 input[type=file]，多选）
-    pickWallpaper() {
-      if (!this.wpFileInput) {
-        const input = document.createElement('input')
-        input.type = 'file'
-        input.accept = 'image/gif,image/jpeg,image/png,image/webp,image/bmp,video/mp4,video/webm,video/quicktime,.gif,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.webm,.mov,.m4v'
-        input.multiple = true
-        input.style.display = 'none'
-        input.addEventListener('change', () => {
-          const files = Array.from(input.files || [])
-          this.addWallpapers(files)
-          input.value = ''
-        })
-        document.body.appendChild(input)
-        this.wpFileInput = input
-      }
-      this.wpFileInput.click()
-    },
-    async addWallpapers(files) {
-      if (!files.length) return
-      let last = null
-      for (const f of files) {
-        const res = await addWallpaperFile(f)
-        if (res) {
-          last = res
-          this.$store.commit('SET_WALLPAPER_LIST', res.list)
-          this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
+      if (!this.isVideoWp(wp)) {
+        if (!wp._thumb && wp.blob) {
+          try {
+            this.$set(wp, '_thumb', URL.createObjectURL(wp.blob))
+          } catch (e) { /* 忽略 */ }
         }
+        return wp._thumb || ''
       }
-      if (last) {
-        // 首次添加自动开启壁纸
-        if (!last.config.enabled) {
-          this.commitWpConfig({ enabled: true })
+      if (wp.coverUrl) return wp.coverUrl
+      if (wp.coverBlob) {
+        if (!wp._coverThumb) {
+          try {
+            this.$set(wp, '_coverThumb', URL.createObjectURL(wp.coverBlob))
+          } catch (e) { /* 忽略 */ }
         }
-        applyWallpaperDom(this.$store.state.wallpaperConfig)
-        this.$message({ message: '已添加 ' + files.length + ' 张壁纸', type: 'success' })
-      } else {
-        this.$message({ message: '不支持的文件类型', type: 'warning' })
+        return wp._coverThumb || ''
       }
+      return ''
+    },
+    // 缩略 objectURL 加载失败兜底（如历史版本落盘的失效地址）：清缓存重造一次，
+    // 仍失败则保持现状（计数防 img error 死循环）
+    onWpThumbError(wp) {
+      if (!wp) return
+      const tries = (this.wpThumbRetries[wp.id] || 0) + 1
+      this.wpThumbRetries[wp.id] = tries
+      if (tries > 1) return
+      if (wp._thumb) this.$set(wp, '_thumb', '')
+      if (wp._coverThumb) this.$set(wp, '_coverThumb', '')
     },
     // 总开关
     toggleWallpaper(on) {
       if (on && !this.wallpaperList.length) {
-        this.$message({ message: '请先选择壁纸文件', type: 'info' })
+        this.$message({ message: '请先从壁纸市场选择壁纸', type: 'info' })
         return
       }
       this.commitWpConfig({ enabled: !!on })
@@ -1500,6 +1624,316 @@ export default {
       this.$store.commit('SET_WALLPAPER_LIST', res.list)
       this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
       applyWallpaperDom(res.config)
+    },
+    // ===== 壁纸市场（本地目录） =====
+    // 选择壁纸文件（系统文件选择框，图片/视频多选）→ 入库 → 自动选中开启
+    pickWallpaperFiles() {
+      if (!this.wpFileInput) {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = 'image/gif,image/jpeg,image/png,image/webp,image/bmp,video/mp4,video/webm,video/quicktime,.gif,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.webm,.mov,.m4v'
+        input.multiple = true
+        input.style.display = 'none'
+        input.addEventListener('change', () => {
+          const files = Array.from(input.files || [])
+          this.addWallpapers(files)
+          input.value = ''
+        })
+        document.body.appendChild(input)
+        // 不 removeChild：保留隐藏节点复用（移除会使已选 File 句柄失效）
+        this.wpFileInput = input
+      }
+      this.wpFileInput.click()
+    },
+    async addWallpapers(files) {
+      if (!files.length) return
+      let last = null
+      let count = 0
+      for (const f of files) {
+        // 视频壁纸：截取首帧自动生成封面（wp-gallery 列表缩略用）
+        let coverBlob = null
+        if (isVideoItem({ name: f.name, type: f.type })) {
+          coverBlob = await captureVideoPoster(f)
+          // 诊断：Console 可查看截帧结果（成功为 Blob 大小，失败为 null + 原因 warn）
+          console.log('[wp-poster]', f.name, coverBlob ? coverBlob.size + 'B' : 'null')
+        }
+        const res = await addWallpaperFile(f, coverBlob ? { coverBlob } : undefined)
+        if (res) {
+          last = res
+          count++
+          this.$store.commit('SET_WALLPAPER_LIST', res.list)
+          this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
+        }
+      }
+      if (last) {
+        // 自动选中最后一张并开启总开关
+        const added = last.list[last.list.length - 1]
+        this.commitWpConfig({ enabled: true, selectedId: added ? added.id : last.config.selectedId })
+        this.$message({ message: '已添加 ' + count + ' 张壁纸', type: 'success' })
+      } else {
+        this.$message({ message: '不支持的文件类型', type: 'warning' })
+      }
+    },
+    // 选择目录并加载（open = true 时选完自动开抽屉）：原生 dialog → 磁盘扫描 → 磁盘条目列表
+    async chooseMarketDir(open) {
+      if (!wpMarketApi()) {
+        this.$message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
+        return
+      }
+      try {
+        const dir = await pickWallpaperDirectory()
+        if (!dir) return // 用户取消
+        const res = await scanLocalWallpaperDir(dir)
+        this.marketDir = dir
+        saveWallpaperDir(dir) // 持久化，重启后自动恢复
+        this.applyScanResult(res, open)
+      } catch (e) {
+        this.$message({ message: e.message || '选择目录失败', type: 'error' })
+      }
+    },
+    // 打开壁纸市场抽屉浏览：拉取中直接恢复进度；有目录则重新扫描展示；无目录开抽屉空态引导
+    async openMarketDrawer() {
+      if (this.wpPullActive) {
+        this.marketVisible = true
+        return
+      }
+      if (!wpMarketApi()) {
+        this.$message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
+        return
+      }
+      if (this.marketDir) {
+        try {
+          const res = await scanLocalWallpaperDir(this.marketDir)
+          this.applyScanResult(res, true)
+        } catch (e) {
+          this.$message({ message: e.message || '目录扫描失败', type: 'error' })
+        }
+        return
+      }
+      // 未选过目录：直接打开抽屉（空态内有「从市场拉取」引导）
+      this.marketVisible = true
+    },
+    // 应用扫描结果到市场列表（chooseMarketDir / openMarketDrawer 共用；open = 开抽屉）
+    applyScanResult(res, open) {
+      this.marketMissing = res.missing || []
+      this.marketRaw = (res.items || []).map(f => ({
+        id: f.category + ':' + f.name,
+        name: f.name,
+        category: f.category,
+        size: f.size,
+        sizeLabel: fmtBytes(f.size),
+        resLabel: f.category === 'dynamic' ? '动态' : '静态',
+        file: null,               // 磁盘条目：按需读盘
+        diskPath: f.path,
+        coverPath: f.cover || '',
+        coverUrl: '',
+        marketId: 'local:' + f.path,
+        added: false
+      }))
+      this.marketCat = 'all'
+      this.marketPage = 0
+      this.syncMarketAdded()
+      this.marketItems = this.marketFiltered.slice(0, this.marketPageSize)
+      this.ensureThumbs()
+      if (open) this.marketVisible = true
+      this.$nextTick(() => {
+        if (this.$refs.marketScroll) this.$refs.marketScroll.scrollTop = 0
+        this.fillMarketPageIfShort()
+      })
+    },
+    // 已渲染条目不足一屏时自动补页（首屏撑满触发滚动）
+    fillMarketPageIfShort() {
+      const el = this.$refs.marketScroll
+      if (el && el.scrollHeight <= el.clientHeight + 40 && this.marketHasMore) {
+        this.loadMoreMarket()
+      }
+    },
+    // 为当前页条目生成封面/缩略（磁盘条目读盘生成 objectURL，带缓存；动态无封面回退角标）
+    ensureThumbs() {
+      this.marketItems.forEach(it => {
+        if (it.coverUrl) return
+        const p = it.category === 'dynamic' ? it.coverPath : it.diskPath
+        if (!p) return
+        getDiskThumbUrl(p).then(url => {
+          if (url) it.coverUrl = url
+        })
+      })
+    },
+    // 切换分类：重置分页
+    selectMarketCat(id) {
+      if (this.marketCat === id) return
+      this.marketCat = id
+      this.marketPage = 0
+      this.marketItems = this.marketFiltered.slice(0, this.marketPageSize)
+      this.ensureThumbs()
+      this.$nextTick(() => {
+        if (this.$refs.marketScroll) this.$refs.marketScroll.scrollTop = 0
+        this.fillMarketPageIfShort()
+      })
+    },
+    // 滚动触底：追加下一页
+    onMarketScroll() {
+      const el = this.$refs.marketScroll
+      if (!el || this.marketLoadingMore || !this.marketHasMore) return
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) this.loadMoreMarket()
+    },
+    loadMoreMarket() {
+      if (this.marketLoadingMore || !this.marketHasMore) return
+      this.marketLoadingMore = true
+      this.marketPage += 1
+      const next = this.marketFiltered.slice(0, this.marketPage * this.marketPageSize)
+      // 一拍加载间隔，避免瞬间铺满失去滚动反馈
+      setTimeout(() => {
+        this.marketItems = next
+        this.ensureThumbs()
+        this.marketLoadingMore = false
+        this.fillMarketPageIfShort()
+      }, 200)
+    },
+    // 从壁纸市场拉取：远程清单 → 确认（含下载位置）→ 下载写盘（进度 + 实时并入列表）
+    async pullFromMarket() {
+      // 拉取进行中：点击仅重新打开抽屉恢复进度展示
+      if (this.wpPullActive) {
+        this.marketVisible = true
+        return
+      }
+      const api = wpMarketApi()
+      if (!api) {
+        this.$message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
+        return
+      }
+      // 无下载目录：首次拉取前选择下载位置（原生目录选择，选完记录）
+      if (!this.marketDir) {
+        if (!wpMarketApi() || !wpMarketApi().pickDir) {
+          this.$message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
+          return
+        }
+        const dir = await pickWallpaperDirectory()
+        if (!dir) return // 用户取消
+        this.marketDir = dir
+        saveWallpaperDir(dir) // 记录下载位置，下次打开抽屉直接呈现该目录内容
+      }
+      // 拉远程清单
+      this.wpPullBusy = true
+      let res
+      try {
+        res = await api.manifest()
+      } catch (e) {
+        res = null
+      }
+      this.wpPullBusy = false
+      if (!res || !res.ok) {
+        this.$message({ message: (res && res.error) || '市场清单获取失败', type: 'error' })
+        return
+      }
+      const items = (res.data && Array.isArray(res.data.items)) ? res.data.items : []
+      if (!items.length) {
+        this.$message({ message: '壁纸市场暂无可用壁纸', type: 'info' })
+        return
+      }
+      const dyn = items.filter(i => i.type !== 'image').length
+      const sta = items.length - dyn
+      const size = items.reduce((s, i) => s + (i.size || 0), 0)
+      // 确认弹窗：明确展示下载到本地哪里
+      const yes = await this.$confirm(
+        `将拉取 ${items.length} 个壁纸（动态 ${dyn} / 静态 ${sta}，约 ${fmtBytes(size)}）\n下载位置：${this.marketDir}\n（写入「动态壁纸 / 静态壁纸」子目录，相同文件自动跳过）`,
+        '从壁纸市场拉取',
+        { confirmButtonText: '开始拉取', cancelButtonText: '取消' }
+      ).then(() => true).catch(() => false)
+      if (!yes) return
+
+      this.marketVisible = true
+      this.marketCat = 'all'
+      // 订阅进度：更新进度条 + 完成的条目实时并入列表展示
+      const off = api.onProgress(p => {
+        this.wpPull = Object.assign({ active: true }, p)
+        if (p && p.entry) this.appendPulledEntry(p.entry)
+      })
+      this.wpPull = { active: true, done: 0, total: items.length, name: '' }
+      let pullRes
+      try {
+        pullRes = await api.pull({ dir: this.marketDir, ids: items.map(i => i.id) })
+      } catch (e) {
+        pullRes = null
+      }
+      off()
+      this.wpPull = null
+      if (!pullRes || !pullRes.ok) {
+        this.$message({ message: (pullRes && pullRes.error) || '拉取失败', type: 'error' })
+        return
+      }
+      // 条目已在拉取过程中逐个并入；此处仅同步已装状态与汇总提示
+      this.syncMarketAdded()
+      this.$message({
+        message: `已拉取 ${pullRes.pulled.length} 个壁纸${pullRes.skipped ? `（${pullRes.skipped} 个已存在跳过）` : ''}`,
+        type: 'success'
+      })
+    },
+    // 拉取条目实时并入列表（去重；当前分类匹配时立即上屏）
+    appendPulledEntry(f) {
+      const marketId = 'local:' + f.path
+      if (this.marketRaw.some(i => i.marketId === marketId)) return
+      const entry = {
+        id: f.category + ':' + f.name,
+        name: f.name,
+        category: f.category,
+        size: f.size,
+        sizeLabel: fmtBytes(f.size),
+        resLabel: f.category === 'dynamic' ? '动态' : '静态',
+        file: null,
+        diskPath: f.path,
+        coverPath: f.coverPath || '',
+        coverUrl: f.remoteCoverUrl || '',
+        marketId,
+        added: false
+      }
+      this.marketRaw.push(entry)
+      // 当前分类为「全部」或与条目同类时追加到已渲染列表（实时可见）
+      if (this.marketCat === 'all' || this.marketCat === f.category) {
+        this.marketItems.push(entry)
+      }
+    },
+    // 同步「已添加」标记（按 marketId 对照本地壁纸列表）
+    syncMarketAdded() {
+      const list = this.wallpaperList
+      this.marketRaw.forEach(it => {
+        it.added = (list || []).some(w => w && w.marketId === it.marketId)
+      })
+      this.marketItems.forEach(it => {
+        it.added = (list || []).some(w => w && w.marketId === it.marketId)
+      })
+    },
+    // 使用市场壁纸：File（本地选择）或按需读盘（市场拉取）→ 入库（IndexedDB）→ 选中并开启
+    async applyMarketItem(item) {
+      if (this.marketReadingId || item.added) return
+      this.marketReadingId = item.id
+      try {
+        // 本地选择的条目直接持有 File；市场拉取的条目按需从磁盘读取
+        const file = item.file || (item.diskPath ? await readPulledFile(item.diskPath) : null)
+        if (!file) throw new Error('文件不可用')
+        // 封面：本地选择的封面 File / 拉取条目的磁盘封面
+        let coverBlob = item.category === 'dynamic' ? (item.coverFile || null) : null
+        if (!coverBlob && item.category === 'dynamic' && item.coverPath) {
+          try { coverBlob = await readPulledFile(item.coverPath) } catch (e) { /* 无封面时角标 */ }
+        }
+        const res = await addWallpaperFile(file, {
+          marketId: item.marketId,
+          // 视频壁纸附带头像封面 Blob（wp-gallery 列表缩略用；静态壁纸自身即图）
+          coverBlob
+        })
+        if (!res) throw new Error('入库失败（不支持的文件类型）')
+        this.$store.commit('SET_WALLPAPER_LIST', res.list)
+        this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
+        // 选中新壁纸并确保总开关开启
+        const added = res.list[res.list.length - 1]
+        this.commitWpConfig({ enabled: true, selectedId: added ? added.id : res.config.selectedId })
+        this.syncMarketAdded()
+        this.$message({ message: '壁纸已添加并应用', type: 'success' })
+      } catch (e) {
+        this.$message({ message: e.message || '读取文件失败', type: 'error' })
+      } finally {
+        this.marketReadingId = ''
+      }
     },
     // ===== 安全：应用锁定 =====
     async loadLockState() {
@@ -1525,8 +1959,11 @@ export default {
       this.lockSettings.autoLock = val
       this.persistLockSettings()
     },
-    // 触控 ID 开关
-    selectBiometric(val) {
+    // 触控 ID 开关：关闭属敏感操作，需先二次验证身份（开启无需验证）
+    async selectBiometric(val) {
+      if (!val && this.lockSettings.biometric) {
+        if (!(await this.verifyIdentity())) return // 验证失败/取消：保持开启
+      }
       this.lockSettings.biometric = val
       this.persistLockSettings()
     },
@@ -1577,6 +2014,8 @@ export default {
         cancelButtonText: '取消',
         type: 'warning'
       }).then(async () => {
+        // 敏感操作：先二次验证身份（触控 ID 优先，回退密码），防止他人清除
+        if (!(await this.verifyIdentity())) return
         await api.clearPassword()
         this.hasPassword = false
         this.$message.success('应用密码已清除')
@@ -1599,8 +2038,9 @@ export default {
       this.$root.$emit('app-lock:lock-now')
     },
     // ===== 清除本地记录 =====
-    // 身份校验：设置了应用密码（或开启指纹）才需要，否则直接通过
-    async verifyIdentityForReset() {
+    // 通用身份二次验证：设置了应用密码（或开启指纹）才需要，否则直接通过
+    // （清除密码 / 关闭触控 ID / 清除本地记录等敏感操作共用）
+    async verifyIdentity() {
       const api = window.electronAPI && window.electronAPI.appLock
       if (!api || !this.hasPassword) return true
       // 已开启触控 ID：优先指纹校验，取消/失败回退密码输入
@@ -1610,7 +2050,7 @@ export default {
           if (bio && bio.ok) return true
         } catch (e) { /* 回退密码输入 */ }
       }
-      const { value } = await this.$prompt('请输入应用密码以确认清除操作', '身份校验', {
+      const { value } = await this.$prompt('请输入应用密码以确认此操作', '身份校验', {
         confirmButtonText: '确认',
         cancelButtonText: '取消',
         inputType: 'password',
@@ -1633,7 +2073,7 @@ export default {
         { confirmButtonText: '清除', cancelButtonText: '取消', type: 'warning' }
       ).then(() => true).catch(() => false)
       if (!yes) return
-      if (!(await this.verifyIdentityForReset())) return
+      if (!(await this.verifyIdentity())) return
       this.clearing = true
       // 渲染侧：清空 IndexedDB（deck + buddy 全部键）与 localStorage
       await clearAll()
@@ -2334,6 +2774,346 @@ html.reduce-motion .kbd-ghost {
 
   .sec-dialog {
     transform: scale(0.95) translateY(8px);
+  }
+}
+</style>
+
+<style lang="scss">
+/* ===== 壁纸市场抽屉（append-to-body，需全局样式；变量经 vite additionalData 注入） ===== */
+.wp-market-drawer {
+  background: var(--card-bg, #ffffff);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.18);
+
+  .el-drawer__body {
+    height: 100%;
+    overflow: hidden;
+    padding: 0;
+  }
+}
+
+.wp-market-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+/* 顶部拉取按钮：主色浅底胶囊（与分类 chip 同视觉语言） */
+.wp-market-pull-btn {
+  height: 26px;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.1);
+  color: var(--primary-color, #3366FF);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+
+  i {
+    font-size: 13px;
+  }
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.18);
+  }
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: default;
+  }
+}
+
+.wp-market {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.wp-market-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px 10px;
+  flex-shrink: 0;
+}
+
+/* 下载目录管理条 */
+.wp-market-dir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px 10px;
+  flex-shrink: 0;
+  min-height: 36px;
+}
+
+.wp-market-dir-path {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #73737D);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  i {
+    flex-shrink: 0;
+    font-size: 13px;
+  }
+}
+
+.wp-market-warn {
+  padding: 0 18px 8px;
+  font-size: 11.5px;
+  color: #E6A23C;
+  flex-shrink: 0;
+}
+
+/* 拉取进度条（置顶显示） */
+.wp-market-pullbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 18px 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.06);
+  flex-shrink: 0;
+}
+
+.wp-market-pull-bar {
+  flex: 1;
+  min-width: 0;
+}
+
+.wp-market-pull-count {
+  font-size: 11px;
+  color: var(--text-secondary, #73737D);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.wp-market-pull-name {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 40%;
+  font-size: 11px;
+  color: var(--text-secondary, #73737D);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wp-market-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #262628);
+
+  i {
+    color: var(--primary-color, #3366FF);
+    font-size: 17px;
+  }
+}
+
+.wp-market-close {
+  font-size: 18px;
+  color: var(--text-secondary, #73737D);
+  cursor: pointer;
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: var(--text-primary, #262628);
+  }
+}
+
+/* 分类筛选条 */
+.wp-market-cats {
+  display: flex;
+  gap: 8px;
+  padding: 0 18px 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.wp-market-cat {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary, #73737D);
+  background: var(--search-bg, rgba(0, 0, 0, 0.04));
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: var(--search-bg-hover, rgba(0, 0, 0, 0.07));
+    color: var(--text-primary, #262628);
+  }
+
+  &.active {
+    background: var(--primary-color, #3366FF);
+    color: #ffffff;
+    font-weight: 500;
+  }
+}
+
+/* 滚动网格区（flex 纵向：空态提示块经 margin:auto 垂直居中） */
+.wp-market-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 18px 18px;
+  display: flex;
+  flex-direction: column;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb, rgba(0, 0, 0, 0.15));
+    border-radius: 3px;
+  }
+}
+
+.wp-market-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.wp-market-card {
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--search-bg, rgba(0, 0, 0, 0.04));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12), inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+  }
+}
+
+.wp-market-cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: rgba(0, 0, 0, 0.08);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+/* 无封面视频：居中播放角标占位 */
+.wp-market-cover-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.wp-market-res {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.55);
+  letter-spacing: 0.5px;
+}
+
+.wp-market-added {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  color: #ffffff;
+  background: rgba(82, 196, 26, 0.85);
+}
+
+.wp-market-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.wp-market-size {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-secondary, #73737D);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 加载 / 提示态（margin:auto 在 flex 容器内垂直水平居中） */
+.wp-market-tip {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 0;
+  color: var(--text-secondary, #73737D);
+  font-size: 13px;
+
+  i {
+    font-size: 26px;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+/* 网格/加载更多：占满整行，正常流式堆叠 */
+.wp-market-grid,
+.wp-market-more {
+  width: 100%;
+}
+
+.wp-market-tip-sub {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.wp-market-more {
+  padding: 14px 0 4px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary, #73737D);
+
+  &.is-end {
+    opacity: 0.6;
   }
 }
 </style>

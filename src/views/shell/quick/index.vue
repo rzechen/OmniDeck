@@ -1,14 +1,12 @@
 <template>
   <div class="quick-panel">
-    <!-- 头部：品牌（点击打开主窗口）+ 当前工作空间 + 新话题 -->
+    <!-- 头部：品牌标识 + 当前工作空间 + 新话题 / 关闭 -->
     <div class="qp-head">
       <div class="qp-head-left">
         <img
           class="qp-logo"
           src="@/assets/logo.png"
           alt="OmniDeck"
-          title="打开主窗口"
-          @click="openMain"
         />
         <span class="qp-title" :title="workspaceTitle">{{ workspaceLabel }}</span>
       </div>
@@ -16,6 +14,9 @@
         <span class="qp-new" title="开启新会话" @click="newTopic">
           <svg-icon icon-class="plus" />
           <span>新话题</span>
+        </span>
+        <span class="qp-close" title="关闭面板（Esc）" @click="hidePanel">
+          <svg-icon icon-class="close" />
         </span>
       </div>
     </div>
@@ -108,7 +109,7 @@
 // - 复用主窗口对话组件（MessageBubble / AskUserCard / BuddyComposer / ComposerPicker）
 //   与 omnibuddy IPC（sendMessage / replyAskUser / interrupt）
 // - 锁联动：App.vue 全局挂载的 AppLock 组件在本窗口同样生效
-// - Esc 隐藏面板（失焦不隐藏，仅失焦降层级；关闭走 Esc / 快捷键 / 托盘）
+// - Esc 隐藏面板（失焦不隐藏，仅失焦降层级；关闭走头部关闭按钮 / Esc / 快捷键 / 托盘）
 import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
 import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
 import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
@@ -224,10 +225,10 @@ export default {
         if (quick) quick.hide()
       }
     },
-    // 头部 logo 点击：聚焦主窗口（面板 blur 自动隐藏）
-    openMain() {
+    // 关闭按钮：隐藏面板（与 Esc 同路径）
+    hidePanel() {
       const quick = window.electronAPI && window.electronAPI.quick
-      if (quick) quick.showMain()
+      if (quick) quick.hide()
     },
     // ===== 模型 / 工作空间 =====
     loadProviders() {
@@ -662,20 +663,10 @@ export default {
 }
 
 .qp-logo {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-
-  &:hover {
-    transform: scale(1.08);
-    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
-  }
-
-  &:active {
-    transform: scale(0.94);
-  }
+  flex-shrink: 0;
 }
 
 .qp-title {
@@ -687,6 +678,12 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.qp-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .qp-new {
@@ -709,6 +706,29 @@ export default {
 
   &:hover {
     background: rgba(120, 120, 128, 0.17);
+  }
+}
+
+// 关闭按钮（隐藏面板）
+.qp-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  color: #86868b;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+
+  .svg-icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  &:hover {
+    background: rgba(120, 120, 128, 0.16);
+    color: #1d1d1f;
   }
 }
 
@@ -787,6 +807,15 @@ html[data-theme='dark'] .qp-new {
 
   &:hover {
     background: rgba(255, 255, 255, 0.14);
+  }
+}
+
+html[data-theme='dark'] .qp-close {
+  color: #98989d;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #f5f5f7;
   }
 }
 

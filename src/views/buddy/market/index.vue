@@ -413,11 +413,18 @@ export default {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
   padding: 16px 20px;
   background: linear-gradient(135deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
   border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
   border-radius: $radius-lg;
+
+  .ob-hero-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
 
   .ob-hero-title-group {
     display: flex;
@@ -570,3 +577,4 @@ export default {
   }
 }
 </style>
+

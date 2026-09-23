@@ -13,7 +13,7 @@ const STORAGE_KEY = 'appShortcuts'
 // 各快捷键默认值（Electron accelerator 风格语法，扩展支持多普通键）
 // ⌘O 系列：O = OmniDeck / OmniBuddy 品牌首字母
 export const DEFAULT_SHORTCUTS = {
-  // 全局搜索（Deck 视图 Topbar）：⌘O K / Ctrl+O K
+  // 快捷搜索（Deck 视图「快捷搜索」页签）：⌘O K / Ctrl+O K
   search: 'CommandOrControl+O+K',
   // 锁定应用（全局 AppLock）：⌘O L / Ctrl+O L
   lock: 'CommandOrControl+O+L',

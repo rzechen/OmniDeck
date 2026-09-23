@@ -1,5 +1,6 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
+import tagsView from './tagsView'
 
 Vue.use(Vuex)
 
@@ -88,5 +89,8 @@ export default new Vuex.Store({
     }
   },
   actions: {},
-  modules: {}
+  modules: {
+    // 菜单多页签（deck / buddy 双侧独立页签列表）
+    tagsView
+  }
 })

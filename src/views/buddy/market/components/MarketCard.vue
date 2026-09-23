@@ -10,7 +10,9 @@
           {{ item.name }}
         </div>
         <div class="ob-market-meta">
-          v{{ item.version }}<template v-if="item.author"> · {{ item.author }}</template>
+          <!-- 本地目录包：显示文件数；远程语义版本：v 前缀 -->
+          <template v-if="item.version === 'local'">本地包<template v-if="item.fileCount"> · {{ item.fileCount }} 个文件</template></template>
+          <template v-else>v{{ item.version }}<template v-if="item.author"> · {{ item.author }}</template></template>
         </div>
       </div>
       <span v-if="item.hasUpdate" class="ob-market-badge update">可更新</span>

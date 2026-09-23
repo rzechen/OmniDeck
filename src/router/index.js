@@ -2,11 +2,12 @@ import Vue from 'vue'
 import VueRouter from 'vue-router'
 import Layout from '@/layout/index.vue'
 import BuddyLayout from '@/layout/BuddyLayout.vue'
+import store from '@/store'
 
 Vue.use(VueRouter)
 
 const routes = [
-  // OmniBuddy 独立视图：侧边栏为「任务列表（按展示名分组）」，顶栏为多 tab 页签
+  // OmniBuddy 独立视图：侧边栏为「任务列表（按展示名分组）」，主区顶部为多页签（TagsBar）
   {
     path: '/omnibuddy',
     component: BuddyLayout,
@@ -665,6 +666,13 @@ const routes = [
         component: () => import('@/views/shared/settings/index.vue'),
         meta: { title: '设置' }
       },
+      // 快捷搜索（快捷键唤起的搜索面板宿主页签）
+      {
+        path: 'search',
+        name: 'DeckSearch',
+        component: () => import('@/views/deck/search/index.vue'),
+        meta: { title: '快捷搜索' }
+      },
       // 版本
       {
         path: 'version',
@@ -730,6 +738,20 @@ router.beforeEach((to, from, next) => {
 router.afterEach((to) => {
   if (!to.path.startsWith('/omnibuddy') && to.path !== '/quick') {
     router.lastDeckPath = to.path
+  }
+  // 菜单多页签：按所属布局登记页签（deck → Layout、buddy → BuddyLayout；
+  // /quick、截图等独立壳页不挂布局，不登记）。
+  // 注意：按组件身份判断而非 path —— vue-router 会把根路径 '/' 归一化为 ''，
+  // 用 matched[0].path === '/' 判断会漏掉全部 deck 页（页签栏不渲染）
+  const root = to.matched[0]
+  const rootComp = root && root.components && root.components.default
+  const side = rootComp === BuddyLayout ? 'buddy' : rootComp === Layout ? 'deck' : ''
+  if (side) {
+    const meta = (to.matched[to.matched.length - 1].meta) || {}
+    let title = meta.title || to.path
+    // 空白对话页显示「新对话」（有会话 id 时标题由 BuddyLayout 按任务名补齐）
+    if (side === 'buddy' && to.path === '/omnibuddy' && !to.query.s) title = '新对话'
+    store.commit('tagsView/ADD_TAB', { side, path: to.path, fullPath: to.fullPath, title })
   }
 })
 

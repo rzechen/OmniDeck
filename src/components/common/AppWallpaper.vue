@@ -73,9 +73,9 @@ export default {
     underIsVideo() {
       return isVideoItem(this.underItem)
     },
-    // 柔化：壁纸自身模糊 + 轻微放大遮住模糊边缘
+    // 柔化：壁纸自身模糊 + 轻微放大遮住模糊边缘；常规模式微增饱和/对比，画面更清晰鲜明
     layerFilter() {
-      return this.config.soft ? 'blur(18px) saturate(1.1)' : 'none'
+      return this.config.soft ? 'blur(18px) saturate(1.1)' : 'saturate(1.06) contrast(1.04)'
     },
     layerScale() {
       return this.config.soft ? 'scale(1.06)' : 'none'

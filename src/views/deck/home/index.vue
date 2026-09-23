@@ -75,7 +75,7 @@
         <i class="el-icon-arrow-right quick-arrow"></i>
       </div>
 
-      <!-- 本地数据：配额监控 + 每日使用折线 -->
+      <!-- 本地数据：配额监控 -->
       <div class="quick-card stagger-item" style="animation-delay: 160ms" @click="$router.push('/settings')">
         <div class="quick-icon qc-storage">
           <svg-icon icon-class="storage" class="quick-svg" />
@@ -89,42 +89,100 @@
           <div class="quota-bar" v-if="quotaPercent > 0">
             <span class="quota-used" :style="{ width: quotaPercent + '%' }"></span>
           </div>
-          <!-- 近 14 天 IndexedDB 每日净增长折线图（无数据时占位） -->
-          <div class="usage-chart" :title="chartTitle">
-            <svg
-              v-if="hasUsage"
-              :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
-              preserveAspectRatio="none"
-              class="usage-svg"
-            >
-              <!-- 渐变面积填充 -->
-              <defs>
-                <linearGradient id="usage-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#10B981" stop-opacity="0.25" />
-                  <stop offset="100%" stop-color="#10B981" stop-opacity="0" />
-                </linearGradient>
-              </defs>
-              <path :d="areaPath" fill="url(#usage-fill)" />
-              <path :d="linePath" fill="none" stroke="#10B981" stroke-width="1.5"
-                stroke-linecap="round" stroke-linejoin="round" />
-              <!-- 各数据点（无采样日不画） -->
-              <template v-for="(p, i) in chartPoints">
-                <circle
-                  v-if="p.y !== null"
-                  :key="i"
-                  :cx="p.x"
-                  :cy="p.y"
-                  r="1.8"
-                  fill="#10B981"
-                >
-                  <title>{{ p.date }} · 增长 {{ fmtBytes(p.growth) }}</title>
-                </circle>
-              </template>
-            </svg>
-            <span v-else class="usage-empty">暂无每日用量数据（次日起开始记录）</span>
-          </div>
         </div>
         <i class="el-icon-arrow-right quick-arrow"></i>
+      </div>
+    </div>
+
+    <!-- 本地数据：每日存储增长独立折线图（近 30 天 IndexedDB 每日净增长） -->
+    <div class="growth-chart stagger-item" style="animation-delay: 200ms">
+      <div class="gc-head">
+        <div class="gc-head-info">
+          <div class="gc-title"><span class="gc-title-dot"></span>每日存储增长</div>
+          <div class="gc-sub">近 30 天本地数据每日净增长</div>
+        </div>
+        <div class="gc-stats" v-if="hasUsage">
+          <div class="gc-stat">
+            <em>累计</em>
+            <b>{{ fmtBytes(totalGrowth) }}</b>
+          </div>
+          <div class="gc-stat">
+            <em>日均</em>
+            <b>{{ fmtBytes(avgGrowth) }}</b>
+          </div>
+          <div class="gc-stat">
+            <em>单日峰值</em>
+            <b>{{ fmtBytes(peakGrowth) }}</b>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="hasUsage"
+        class="gc-chart"
+        @mousemove="onGrowthMove"
+        @mouseleave="growthHover = null"
+      >
+        <svg :viewBox="`0 0 ${GROWTH_W} ${GROWTH_H}`" preserveAspectRatio="none" class="gc-svg">
+          <!-- y 轴网格线（刻度文字用 HTML 层，避免 SVG 拉伸变形） -->
+          <line
+            v-for="(t, k) in growthTicks"
+            :key="'gt' + k"
+            x1="0" :x2="GROWTH_W" :y1="t.y" :y2="t.y"
+            class="gc-grid"
+          />
+          <!-- 渐变面积填充 -->
+          <defs>
+            <linearGradient id="gc-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#10B981" stop-opacity="0.22" />
+              <stop offset="100%" stop-color="#10B981" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <path :d="growthAreaPath" fill="url(#gc-fill)" />
+          <path :d="growthLinePath" fill="none" stroke="#10B981" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+          <!-- 悬停指示线（数据点用 HTML 层，避免 SVG 拉伸变形） -->
+          <line
+            v-if="hoverPoint"
+            :x1="hoverPoint.x" :x2="hoverPoint.x"
+            y1="0" :y2="GROWTH_H"
+            class="gc-cursor"
+          />
+        </svg>
+        <!-- 悬停数据点（HTML 圆点，不受 viewBox 非等比拉伸影响） -->
+        <span
+          v-if="hoverPoint && hoverPoint.y !== null"
+          class="gc-hover-dot"
+          :style="{
+            left: (hoverPoint.x / GROWTH_W * 100) + '%',
+            top: (hoverPoint.y / GROWTH_H * 100) + '%'
+          }"
+        ></span>
+        <!-- y 轴刻度（左侧） -->
+        <span
+          v-for="(t, k) in growthTicks"
+          :key="'gl' + k"
+          class="gc-ylabel mono"
+          :style="{ top: (t.y / GROWTH_H * 100) + '%' }"
+        >{{ t.label }}</span>
+        <!-- 悬停 tooltip -->
+        <div v-if="hoverPoint" class="gc-tip mono" :style="gcTipStyle">
+          <span class="gc-tip-date">{{ hoverPoint.date }}</span>
+          <b class="gc-tip-val">{{ hoverPoint.growth === null ? '无采样数据' : '+' + fmtBytes(hoverPoint.growth) }}</b>
+        </div>
+      </div>
+      <!-- x 轴日期刻度（与图表左右对齐） -->
+      <div v-if="hasUsage" class="gc-xaxis">
+        <span
+          v-for="(t, k) in growthXTicks"
+          :key="'gx' + k"
+          :class="{ first: t.first, last: t.last }"
+          :style="{ left: t.pct + '%' }"
+        >{{ t.label }}</span>
+      </div>
+      <div v-else class="gc-empty">
+        <svg-icon icon-class="storage" class="gc-empty-icon" />
+        <span>暂无每日用量数据，次日起开始记录</span>
       </div>
     </div>
 
@@ -182,11 +240,13 @@ export default {
       favSiteCount: 0,
       // 本地数据配额：{ usage, quota } 字节数，null 表示不可用
       storageEstimate: null,
-      // 近 14 天 IndexedDB 每日净增长 [{ date, growth }]（旧→新；null = 无采样数据）
+      // 近 30 天 IndexedDB 每日净增长 [{ date, growth }]（旧→新；null = 无采样数据）
       dailyUsage: [],
+      // 折线悬停索引：{ i }，null 表示未悬停
+      growthHover: null,
       // 折线图逻辑尺寸（viewBox）
-      CHART_W: 100,
-      CHART_H: 24
+      GROWTH_W: 560,
+      GROWTH_H: 190
     }
   },
   computed: {
@@ -228,32 +288,37 @@ export default {
       const { usage, quota } = this.storageEstimate
       return `${fmtBytes(usage)} 已用 · 配额 ${fmtBytes(quota)}`
     },
-    // ===== 近 14 天 IndexedDB 每日净增长折线 =====
+    // ===== 近 30 天 IndexedDB 每日净增长折线 =====
     // 是否有增长数据（任一天有非空采样差值）
     hasUsage() {
       return this.dailyUsage.some(d => d.growth !== null)
     },
+    // 有效增长数据（过滤无采样日）
+    validUsage() {
+      return this.dailyUsage.filter(d => d.growth !== null)
+    },
     // 折线数据点（viewBox 坐标）：max 归一化；无采样日（null）跳过该点、折线断开
-    chartPoints() {
-      const max = Math.max(1, ...this.dailyUsage.filter(d => d.growth !== null).map(d => d.growth))
+    growthPoints() {
+      const max = Math.max(1, ...this.validUsage.map(d => d.growth))
       const n = this.dailyUsage.length
-      const W = this.CHART_W
-      const H = this.CHART_H
-      const pad = 2 // 上下留白，避免线条贴边
+      const W = this.GROWTH_W
+      const H = this.GROWTH_H
+      const padT = 10 // 顶部留白，避免线条贴边
+      const padB = 14 // 底部留白，与 x 轴刻度拉开距离
       return this.dailyUsage.map((d, i) => {
         const x = n <= 1 ? W / 2 : (i / (n - 1)) * W
         // 无采样数据的日期：y 置为 null，path 生成时断开
-        if (d.growth === null) return { x, y: null, date: d.date.slice(5), growth: null }
+        if (d.growth === null) return { x, y: null, date: d.date, growth: null }
         const ratio = d.growth / max
-        const y = pad + (1 - ratio) * (H - pad * 2)
-        return { x, y, date: d.date.slice(5), growth: d.growth }
+        const y = padT + (1 - ratio) * (H - padT - padB)
+        return { x, y, date: d.date, growth: d.growth }
       })
     },
     // 折线 path（null 点断线，用 M 重新起笔）
-    linePath() {
+    growthLinePath() {
       let d = ''
       let pen = false // 上一笔是否有效（用于 M/L 切换）
-      this.chartPoints.forEach(p => {
+      this.growthPoints.forEach(p => {
         if (p.y === null) {
           pen = false
           return
@@ -264,9 +329,9 @@ export default {
       return d.trim()
     },
     // 面积 path（每段折线闭合到底部；无有效点返回空）
-    areaPath() {
-      const H = this.CHART_H
-      const pts = this.chartPoints
+    growthAreaPath() {
+      const H = this.GROWTH_H
+      const pts = this.growthPoints
       let d = ''
       let seg = [] // 当前连续段
       const flush = () => {
@@ -287,14 +352,58 @@ export default {
       flush()
       return d.trim()
     },
-    // 悬停提示：区间 + 累计增长
-    chartTitle() {
-      if (!this.hasUsage || !this.dailyUsage.length) return ''
-      const valid = this.dailyUsage.filter(d => d.growth !== null)
-      const total = valid.reduce((s, d) => s + d.growth, 0)
-      const first = this.dailyUsage[0].date.slice(5)
-      const last = this.dailyUsage[this.dailyUsage.length - 1].date.slice(5)
-      return `${first} ~ ${last} IndexedDB 累计增长 ${fmtBytes(total)}`
+    // y 轴刻度（4 档：max → 0；与数据点共用归一化坐标）
+    growthTicks() {
+      const max = Math.max(1, ...this.validUsage.map(d => d.growth))
+      const H = this.GROWTH_H
+      const padT = 10
+      const padB = 14
+      return [1, 2 / 3, 1 / 3, 0].map(r => ({
+        y: padT + (1 - r) * (H - padT - padB),
+        label: fmtBytes(Math.round(max * r))
+      }))
+    },
+    // x 轴日期刻度（间隔采样 + 首尾）
+    growthXTicks() {
+      const pts = this.growthPoints
+      const n = pts.length
+      if (!n) return []
+      const step = Math.max(1, Math.ceil(n / 7))
+      const idx = []
+      for (let i = 0; i < n; i += step) idx.push(i)
+      if (idx[idx.length - 1] !== n - 1) idx.push(n - 1)
+      return idx.map(i => ({
+        pct: n <= 1 ? 50 : (i / (n - 1)) * 100,
+        label: pts[i].date.slice(5), // MM-DD
+        first: i === 0,
+        last: i === n - 1
+      }))
+    },
+    // 统计：区间累计增长
+    totalGrowth() {
+      return this.validUsage.reduce((s, d) => s + d.growth, 0)
+    },
+    // 统计：日均增长
+    avgGrowth() {
+      if (!this.validUsage.length) return 0
+      return Math.round(this.totalGrowth / this.validUsage.length)
+    },
+    // 统计：单日峰值增长
+    peakGrowth() {
+      return this.validUsage.length ? Math.max(...this.validUsage.map(d => d.growth)) : 0
+    },
+    // 悬停命中的数据点
+    hoverPoint() {
+      if (!this.growthHover) return null
+      return this.growthPoints[this.growthHover.i] || null
+    },
+    // 悬停 tooltip 定位（x 百分比 clamp 防溢出；点靠上时下移）
+    gcTipStyle() {
+      const p = this.hoverPoint
+      if (!p) return {}
+      const left = Math.min(84, Math.max(16, (p.x / this.GROWTH_W) * 100))
+      const top = Math.max(22, ((p.y === null ? this.GROWTH_H - 24 : p.y) / this.GROWTH_H) * 100)
+      return { left: left + '%', top: top + '%' }
     },
     todayKey() {
       const d = this.now
@@ -314,6 +423,8 @@ export default {
     if (this.timer) clearInterval(this.timer)
   },
   methods: {
+    // 字节数人性化：暴露给模板 tooltip 使用
+    fmtBytes,
     // 核心入口统计：今日待办数 / 收藏数
     loadQuickStats() {
       const todos = getItem('todoItems', [])
@@ -334,11 +445,21 @@ export default {
         }
       } catch (e) { /* 不支持时保持 null，卡片显示「不可用」 */ }
     },
-    // 近 14 天 IndexedDB 每日净增长（同步读 KV 内存缓存）
+    // 近 30 天 IndexedDB 每日净增长（同步读 KV 内存缓存）
     loadDailyUsage() {
       try {
-        this.dailyUsage = getDailyGrowth(14)
+        this.dailyUsage = getDailyGrowth(30)
       } catch (e) { /* 忽略 */ }
+    },
+    // 图表 mousemove：换算 viewBox x 坐标 → 最近数据点索引
+    onGrowthMove(evt) {
+      const pts = this.growthPoints
+      if (pts.length < 2) return
+      const rect = evt.currentTarget.getBoundingClientRect()
+      const vx = ((evt.clientX - rect.left) / rect.width) * this.GROWTH_W
+      const step = this.GROWTH_W / (pts.length - 1)
+      const i = Math.max(0, Math.min(pts.length - 1, Math.round(vx / step)))
+      if (!this.growthHover || this.growthHover.i !== i) this.growthHover = { i }
     },
     goBuddy() {
       this.$router.push('/omnibuddy')
@@ -640,24 +761,206 @@ export default {
   text-align: center;
 }
 
-// 近 14 天使用折线图
-.usage-chart {
-  margin-top: 6px;
-  height: 24px;
+// ===== 每日存储增长：独立折线图面板 =====
+.growth-chart {
+  margin-top: 12px;
+  padding: 16px 18px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: $card-bg;
+  box-shadow: $shadow-sm;
+}
+
+.gc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gc-head-info {
+  min-width: 0;
+}
+
+.gc-title {
   display: flex;
   align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: $text-primary;
 }
 
-.usage-svg {
-  width: 100%;
-  height: 24px;
-  display: block;
+.gc-title-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #10B981, #059669);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
 }
 
-.usage-empty {
-  font-size: 10.5px;
+.gc-sub {
+  margin-top: 4px;
+  font-size: 11.5px;
   color: $text-secondary;
-  opacity: 0.7;
+}
+
+.gc-stats {
+  display: flex;
+  gap: 22px;
+  flex-shrink: 0;
+}
+
+.gc-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+
+  em {
+    font-style: normal;
+    font-size: 10.5px;
+    color: $text-secondary;
+  }
+
+  b {
+    font-size: 14px;
+    font-weight: 700;
+    color: #059669;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+// 图表主体（左右留白给 y 轴刻度）
+.gc-chart {
+  position: relative;
+  height: 190px;
+  margin: 14px 46px 0 48px;
+  cursor: crosshair;
+}
+
+.gc-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.gc-grid {
+  stroke: var(--border-color);
+  stroke-width: 0.6;
+  stroke-dasharray: 3 4;
+}
+
+.gc-cursor {
+  stroke: var(--text-secondary);
+  stroke-width: 0.8;
+  opacity: 0.45;
+  stroke-dasharray: 3 3;
+}
+
+// y 轴刻度（左侧 HTML 层，不受 SVG 拉伸变形影响；宽度自适应不换行）
+.gc-ylabel {
+  position: absolute;
+  right: calc(100% + 8px);
+  white-space: nowrap;
+  transform: translateY(-50%);
+  font-size: 10px;
+  line-height: 1;
+  color: $text-secondary;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+// 悬停数据点（HTML 圆点，保持正圆不受 SVG 非等比拉伸影响）
+.gc-hover-dot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #10B981;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.28);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 4;
+}
+
+// 悬停 tooltip（深色毛玻璃，同 finance 图表风格）
+.gc-tip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: rgba(29, 29, 31, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  color: #f5f5f7;
+  font-size: 11px;
+  transform: translate(-50%, -135%);
+}
+
+.gc-tip-date {
+  color: rgba(245, 245, 247, 0.65);
+}
+
+.gc-tip-val {
+  font-weight: 700;
+  color: #34D399;
+}
+
+// x 轴日期刻度（与图表左右对齐）
+.gc-xaxis {
+  position: relative;
+  height: 16px;
+  margin: 5px 46px 0 48px;
+
+  span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: $text-secondary;
+    white-space: nowrap;
+
+    &.first {
+      transform: none;
+    }
+
+    &.last {
+      transform: translateX(-100%);
+    }
+  }
+}
+
+// 无数据占位
+.gc-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 120px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: $text-secondary;
+}
+
+.gc-empty-icon {
+  width: 18px;
+  height: 18px;
+  opacity: 0.5;
+}
+
+// 等宽数字/文本（图表刻度与 tooltip）
+.mono {
+  font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
 }
 
 .quick-info {

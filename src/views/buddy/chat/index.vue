@@ -353,6 +353,8 @@ export default {
         })
         sessionId = session.id
         this.$router.replace({ query: { s: sessionId } })
+        // 会话创建后移除空白「新对话」页签（由 ?s= 会话页签接管）
+        this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy' })
         this.$root.$emit('omnibuddy:sessions-changed')
       }
 

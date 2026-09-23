@@ -5,14 +5,20 @@
 
     <!-- 右侧主区域 -->
     <div class="layout-main">
-      <!-- 顶部栏 -->
-      <Topbar />
+      <!-- 顶部页签行（参考 Buddy：移除搜索顶栏，页签直接置顶；
+           页签本体/设置钮可点，空白处可拖动窗口） -->
+      <div class="layout-tags-row">
+        <TagsBar side="deck" class="layout-tags-row-bar" />
+        <div class="layout-tags-row-actions">
+          <global-topbar-actions />
+        </div>
+      </div>
 
       <!-- 内容区：路由切换淡入 + 上浮过渡 -->
       <div class="layout-content">
         <transition name="page" mode="out-in">
           <keep-alive>
-            <router-view />
+            <router-view :key="deckTabKey" />
           </keep-alive>
         </transition>
       </div>
@@ -33,22 +39,47 @@
 
 <script>
 import Sidebar from './components/Sidebar.vue'
-import Topbar from './components/Topbar.vue'
+import TagsBar from '@/components/common/TagsBar.vue'
+import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
+import { getShortcut, matchesShortcut } from '@/utils/shortcuts'
 
 export default {
   name: 'Layout',
-  components: { Sidebar, Topbar },
+  components: { Sidebar, TagsBar, GlobalTopbarActions },
   computed: {
     collapsed() {
       return this.$store.state.sidebarCollapsed
     },
     toggleLeft() {
       return this.collapsed ? '46px' : '200px'
+    },
+    // 页签缓存 key：keep-alive 以 vnode.key 缓存，每个页签独立一份组件实例
+    // （同组件多实例并存，如同时打开两只基金详情页签）
+    deckTabKey() {
+      return this.$store.getters['tagsView/keyOf']('deck', this.$route.fullPath)
     }
+  },
+  mounted() {
+    // Deck 视图全局搜索快捷键：打开「快捷搜索」页签并唤起搜索面板
+    document.addEventListener('keydown', this.handleKeydown)
+  },
+  beforeDestroy() {
+    document.removeEventListener('keydown', this.handleKeydown)
   },
   methods: {
     toggleSidebar() {
       this.$store.commit('TOGGLE_SIDEBAR')
+    },
+    // ⌘OK / Ctrl+O+K（可在设置页改键）：跳转搜索页签（首次由页面 mounted 自动弹面板），
+    // 已在页签时通过事件让缓存的页面实例重新唤起
+    handleKeydown(e) {
+      if (matchesShortcut(e, getShortcut('search'))) {
+        e.preventDefault()
+        if (this.$route.path !== '/search') {
+          this.$router.push('/search').catch(() => {})
+        }
+        this.$root.$emit('deck:search-open')
+      }
     }
   }
 }
@@ -69,6 +100,31 @@ export default {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* ===== 主区顶部页签行（参考 Buddy：移除搜索顶栏，页签置顶） =====
+   页签本体/设置钮可点（no-drag），空白处可拖动窗口 */
+.layout-tags-row {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+/* 页签栏占满行内剩余宽度 */
+.layout-tags-row-bar {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 右侧：齿轮 + Windows 窗口控制贴窗口右缘，与 Buddy 页签行同位 */
+.layout-tags-row-actions {
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 2px;
+  background: $content-bg;
+  border-bottom: 1px solid $border-color;
+  -webkit-app-region: no-drag;
 }
 
 // 侧边栏折叠按钮（优化视觉与微交互）

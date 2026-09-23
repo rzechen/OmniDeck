@@ -779,6 +779,14 @@ export default {
       try {
         const h = await fetchHistory(this.code)
         this.name = h.name
+        // 多页签：标题带上基金名，便于区分同时打开的多只基金页签
+        if (h.name) {
+          this.$store.commit('tagsView/UPDATE_TAB_TITLE', {
+            side: 'deck',
+            fullPath: this.$route.fullPath,
+            title: h.name + ' · ' + this.code
+          })
+        }
         this.histPoints = h.points
         this.managers = h.managers || []
         this.histError = ''
