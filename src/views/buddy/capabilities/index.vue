@@ -122,7 +122,10 @@
 
 <script>
 // OmniBuddy 能力清单：呈现当前 Agent 可用工具的分类目录
-// 数据源：主进程 omnibuddy:capability:list（核心 / 扩展 / 交互任务 / 连接器，静态目录与工具注册处同步维护）
+// 数据源：主进程 omnibuddy:capability:list（核心 / 扩展 / 交互任务 / 语义记忆 / 连接器，静态目录与工具注册处同步维护）
+// 分组元数据与权限策略下拉共用 categories.js（一处定义，两处消费）
+import { CAPABILITY_CATEGORIES } from './categories'
+
 export default {
   name: 'OmniBuddyCapabilities',
   data() {
@@ -130,6 +133,8 @@ export default {
       loading: false,
       loaded: false,
       groups: { core: [], builtin: [], ui: [], memory: [], connectors: [] },
+      // 分类元信息（共享定义，与权限策略下拉一致）
+      categories: CAPABILITY_CATEGORIES,
       // 预装依赖弹窗：当前查看的运行时工具及其依赖分组
       deps: {
         visible: false,
@@ -140,44 +145,7 @@ export default {
         modules: [],
         groups: [],
         tools: []
-      },
-      categories: [
-        {
-          key: 'core',
-          label: '核心工具',
-          desc: 'Agent 运行时内置的文件读写与命令执行工具',
-          icon: 'code',
-          logo: 'logo-skill'
-        },
-        {
-          key: 'builtin',
-          label: '扩展工具',
-          desc: 'OmniBuddy 随应用注册的增强工具',
-          icon: 'magic-stick',
-          logo: 'logo-skill'
-        },
-        {
-          key: 'ui',
-          label: '交互与任务',
-          desc: '与界面协作的提问、任务清单与子任务工具',
-          icon: 'view',
-          logo: 'logo-skill'
-        },
-        {
-          key: 'memory',
-          label: '语义记忆',
-          desc: 'pi-memory 提供的跨会话记忆：长期记忆、每日日志、草稿板与语义检索',
-          icon: 'memory',
-          logo: 'logo-skill'
-        },
-        {
-          key: 'connectors',
-          label: '连接器',
-          desc: '已接入的 MCP 服务提供的扩展能力（系统内置的随包启用，自行登记的在「连接器」页管理）',
-          icon: 'mcp',
-          logo: 'logo-connector'
-        }
-      ]
+      }
     }
   },
   computed: {

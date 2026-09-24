@@ -87,25 +87,9 @@
 // OmniBuddy 权限策略编辑页：表单化编辑 pi-permission-system 的 config.json
 // 序列化约定：同一 surface 单条 * 规则 → 标量；多条（或非 * pattern）→ 对象
 // authorizerChain 固定指向 OmniBuddy 确认卡片桥接，不在本页暴露
-const DEFAULT_ROWS = [
-  { surface: 'read', pattern: '*', action: 'allow' },
-  { surface: 'ask_user', pattern: '*', action: 'allow' },
-  { surface: 'todo_write', pattern: '*', action: 'allow' },
-  { surface: 'todo_read', pattern: '*', action: 'allow' },
-  { surface: 'cd', pattern: '*', action: 'allow' },
-  { surface: 'write', pattern: '*', action: 'ask' },
-  { surface: 'edit', pattern: '*', action: 'ask' },
-  { surface: 'bash', pattern: '*', action: 'ask' },
-  { surface: 'python', pattern: '*', action: 'ask' },
-  { surface: 'node', pattern: '*', action: 'ask' },
-  { surface: 'curl', pattern: '*', action: 'ask' },
-  { surface: 'mcp', pattern: '*', action: 'ask' },
-  { surface: 'path', pattern: '*', action: 'allow' },
-  { surface: 'path', pattern: '*.env', action: 'deny' },
-  { surface: 'path', pattern: '*.env.*', action: 'deny' },
-  { surface: 'path', pattern: '*.env.example', action: 'allow' },
-  { surface: 'path', pattern: '.ssh/*', action: 'deny' }
-]
+// 「平衡」预设 = 主进程 defaultConfig（经 permission:config 下发快照，一处定义两处消费）
+// 对象下拉的分组定义与能力中心共用 categories.js（一处定义，两处消费）
+import { CAPABILITY_CATEGORIES } from '../capabilities/categories'
 
 export default {
   name: 'OmniBuddyPermissions',
@@ -116,6 +100,8 @@ export default {
       saving: false,
       rows: [],
       savedRowsJson: '',
+      // 默认策略快照（主进程 defaultConfig().permission，「平衡」预设取用）
+      defaultPermission: null,
       // 对象下拉选项（来自能力清单：工具名 + 特殊面），支持 allow-create 手动输入
       surfaceOptions: [],
       activePreset: 'balanced',
@@ -133,7 +119,7 @@ export default {
         {
           key: 'balanced',
           name: '平衡（推荐）',
-          desc: '读取放行，执行与写入逐次确认，敏感文件禁用'
+          desc: '读取与 curl 请求放行，bash 执行与写入逐次确认，敏感文件禁用'
         },
         {
           key: 'relaxed',
@@ -162,6 +148,7 @@ export default {
       try {
         const res = await api.permissionConfig()
         const config = (res && res.config) || {}
+        this.defaultPermission = (res && res.defaultPermission) || null
         this.applyConfig(config)
         this.loaded = true
       } finally {
@@ -170,6 +157,8 @@ export default {
       await this.loadSurfaceOptions()
     },
     // 能力清单 → 对象下拉分组选项（工具名 + 特殊面；清单不可用时下拉仍可手输）
+    // 分组动态全量遍历（与能力中心共用 categories.js 的分组定义）：
+    // 主进程 capabilities.js 新增分组自动出现在两处，不再出现"能力清单有、下拉没有"的偏差
     async loadSurfaceOptions() {
       const api = this.api()
       if (!api || !api.capabilityList) return
@@ -179,20 +168,27 @@ export default {
         const groups = res.groups || {}
         const special = res.specialSurfaces || []
         const map = t => ({ value: t.name, label: t.name + ' · ' + t.label + (t.disabled ? '（已禁用）' : '') })
-        const out = []
-        if (groups.core && groups.core.length) out.push({ label: '核心工具', items: groups.core.map(map) })
-        if (groups.builtin && groups.builtin.length) out.push({ label: '扩展工具', items: groups.builtin.map(map) })
-        if (groups.ui && groups.ui.length) out.push({ label: '交互与任务', items: groups.ui.map(map) })
+        // 分组标签取共享定义；未登记的新分组按 key 兜底
+        // asSurface === false 的分组不直接作为操作面（如连接器走特殊面 mcp 的 pattern 匹配）
+        const metaOf = key => CAPABILITY_CATEGORIES.find(c => c.key === key) || null
+        const out = Object.keys(groups)
+          .filter(k => Array.isArray(groups[k]) && groups[k].length)
+          .filter(k => {
+            const meta = metaOf(k)
+            return !meta || meta.asSurface !== false
+          })
+          .map(k => {
+            const meta = metaOf(k)
+            return { label: (meta && meta.label) || k, items: groups[k].map(map) }
+          })
         if (special.length) out.push({ label: '特殊面', items: special.map(map) })
         this.surfaceOptions = out
       } catch (e) { /* 忽略：保留手动输入能力 */ }
     },
-    // config.permission（标量/嵌套对象混合）展平为规则行
-    applyConfig(config) {
-      this.savedRowsJson = ''
+    // permission 对象（标量/嵌套混合）展平为规则行（读取配置与默认快照共用）
+    flattenPermission(perm) {
       const rows = []
-      const perm = config.permission || {}
-      Object.keys(perm).forEach(surface => {
+      Object.keys(perm || {}).forEach(surface => {
         const v = perm[surface]
         if (typeof v === 'string') {
           rows.push({ surface, pattern: '*', action: v })
@@ -202,7 +198,12 @@ export default {
           })
         }
       })
-      this.rows = rows
+      return rows
+    },
+    // config.permission（标量/嵌套对象混合）展平为规则行
+    applyConfig(config) {
+      this.savedRowsJson = ''
+      this.rows = this.flattenPermission(config.permission)
       this.savedRowsJson = JSON.stringify(this.rows)
       this.activePreset = ''
     },
@@ -251,7 +252,9 @@ export default {
     applyPreset(p) {
       this.activePreset = p.key
       if (p.key === 'balanced') {
-        this.rows = JSON.parse(JSON.stringify(DEFAULT_ROWS))
+        // 与主进程 defaultConfig 共用同一份默认规则（permission:config 下发快照）；
+        // 快照缺失（异常环境）时兜底为最小规则
+        this.rows = this.flattenPermission(this.defaultPermission || { '*': 'ask' })
       } else if (p.key === 'readonly') {
         this.rows = [
           { surface: 'read', pattern: '*', action: 'allow' },
@@ -294,7 +297,8 @@ export default {
           { surface: '*', pattern: '*', action: 'allow' }
         ]
       }
-      this.markDirty()
+      // 不走 markDirty()：它会清空 activePreset 导致选中态丢失；
+      // 此处 rows 整组替换，isDirty 依赖 this.rows 引用变化自然重算
     },
     addRow() {
       this.rows.push({ surface: '', pattern: '*', action: 'ask' })

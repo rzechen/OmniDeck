@@ -27,6 +27,10 @@ export default {
   name: 'App',
   components: { BuddySpotlight, AppLock, AppWallpaper },
   created() {
+    // OmniBuddy 会话状态池：全局单点订阅主进程流式事件
+    // （组件不再各自订阅，切页签/返回 deck/关页签期间事件不丢）
+    this.$store.dispatch('buddyChat/init')
+
     // 截图/剪贴板记录 IndexedDB 持久化桥（仅主窗生效，内部按路由自排除）
     initCaptureStore()
 

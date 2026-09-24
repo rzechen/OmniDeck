@@ -1,5 +1,6 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
+import buddyChat from './buddyChat'
 import tagsView from './tagsView'
 
 Vue.use(Vuex)
@@ -91,6 +92,8 @@ export default new Vuex.Store({
   actions: {},
   modules: {
     // 菜单多页签（deck / buddy 双侧独立页签列表）
-    tagsView
+    tagsView,
+    // OmniBuddy 会话状态池（对话状态提升，组件实例只是视图层）
+    buddyChat
   }
 })

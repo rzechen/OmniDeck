@@ -90,7 +90,6 @@
               @select-chat="onSelectChat"
               @rename-chat="renameChat"
               @delete-chat="confirmDeleteChat"
-              @export-chat="exportChat"
             />
           </div>
         </div>
@@ -223,18 +222,46 @@ export default {
     // 切换会话页签后补齐新登记页签的标题
     activeChatId() {
       this.syncChatTabTitles()
+    },
+    // 会话池 UI 事件（与 chat 实例共用 claim 认领去重）：
+    // perm-pending = 权限确认到达但当前页签不是该会话（浮动条不可见），
+    // 弹持续通知引导跳转，避免隐形挂起直到主进程超时拒绝
+    '$store.state.buddyChat.notice': {
+      immediate: true,
+      deep: true,
+      handler(list) {
+        this.consumePermNotices(list)
+      }
     }
   },
   created() {
     this.loadChats()
     // 对话页创建/更新会话后刷新列表
     this.$root.$on('omnibuddy:sessions-changed', this.loadChats)
+    // 自动标题：主进程 LLM 生成新标题后实时刷新侧栏（store 事件池只写会话状态不外发，
+    // 此处独立订阅；preload onEvent 返回退订函数，与 store 的订阅互不影响）
+    const api = this.buddyApi()
+    if (api && api.onEvent) {
+      this._unsubTitle = api.onEvent(e => {
+        if (!e || e.type !== 'title') return
+        const c = this.chats.find(x => x.id === e.sessionId)
+        if (c && c.title !== e.title) {
+          c.title = e.title
+          // chats 为浅 watch（不感知对象内部属性变化），手动同步页签标题
+          this.syncChatTabTitles()
+        }
+      })
+    }
     // 拖拽调宽的全局监听
     document.addEventListener('mousemove', this.onResizeMove)
     document.addEventListener('mouseup', this.onResizeEnd)
   },
   beforeDestroy() {
     this.$root.$off('omnibuddy:sessions-changed', this.loadChats)
+    if (this._unsubTitle) {
+      this._unsubTitle()
+      this._unsubTitle = null
+    }
     document.removeEventListener('mousemove', this.onResizeMove)
     document.removeEventListener('mouseup', this.onResizeEnd)
   },
@@ -309,6 +336,28 @@ export default {
       setItem('omnibuddy:sidebar-collapsed', this.collapsed)
     },
     // ===== 页签联动 =====
+    // 认领并消费权限待确认通知（claim 与 chat 实例的 notice 消费互斥去重）
+    async consumePermNotices(list) {
+      for (const n of (list || []).slice()) {
+        if (n.kind !== 'perm-pending') continue
+        // 过期通知（布局重建回放历史队列时）直接认领丢弃
+        const stale = Date.now() - (n.ts || 0) > 60000
+        const ok = await this.$store.dispatch('buddyChat/claim', n.nid)
+        if (!ok || stale) continue
+        // 该会话已在当前页签：浮动条可见，无需全局通知
+        if (this.activeChatId === n.sessionId) continue
+        const c = this.chats.find(x => x.id === n.sessionId)
+        this.$notify({
+          title: '权限确认待处理',
+          message: '任务「' + (c ? c.title : '未命名') + '」等待你的授权确认，点击前往处理',
+          type: 'warning',
+          duration: 8000,
+          onClick: () => {
+            this.onSelectChat(n.sessionId)
+          }
+        })
+      }
+    },
     // 会话页签标题同步：页签登记时仅有路由 meta（OmniBuddy），此处按任务列表补齐会话名
     syncChatTabTitles() {
       const tabs = (this.$store.state.tagsView && this.$store.state.tagsView.buddy) || []
@@ -337,52 +386,6 @@ export default {
         this.$store.commit('tagsView/UPDATE_TAB_TITLE', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id, title })
       }).catch(() => {})
     },
-    // 导出会话（N4）：选择格式 → 主进程写文件（保存对话框）→ 成功后可打开所在目录
-    exportChat(c) {
-      const h = this.$createElement
-      this.$msgbox({
-        title: '导出会话「' + c.title + '」',
-        message: h('div', { style: 'display:flex;gap:10px;justify-content:center;margin-top:6px' }, [
-          h('el-button', {
-            props: { round: true, type: 'primary', plain: true },
-            on: { click: () => { this.$msgbox.close(); this.doExportChat(c, 'md') } }
-          }, 'Markdown / ZIP'),
-          h('el-button', {
-            props: { round: true, type: 'primary' },
-            on: { click: () => { this.$msgbox.close(); this.doExportChat(c, 'html') } }
-          }, 'HTML（自包含）')
-        ]),
-        showCancelButton: true,
-        cancelButtonText: '取消',
-        showConfirmButton: false
-      }).catch(() => {})
-    },
-    async doExportChat(c, format) {
-      const api = this.buddyApi()
-      if (!api || !api.exportSession) {
-        this.$message.error('导出需要 OmniDeck 桌面端')
-        return
-      }
-      try {
-        const res = await api.exportSession({ id: c.id, format })
-        if (!res || !res.ok) {
-          if (res && res.canceled) return
-          this.$message.error((res && res.error) || '导出失败')
-          return
-        }
-        this.$notify({
-          title: '导出成功',
-          message: (res.note ? res.note + ' · ' : '') + res.filePath,
-          type: 'success',
-          duration: 6000,
-          onClick: () => {
-            if (api.exportReveal) api.exportReveal(res.filePath)
-          }
-        })
-      } catch (e) {
-        this.$message.error('导出请求异常')
-      }
-    },
     confirmDeleteChat(c) {
       this.$confirm('删除后该任务的记录将一并移除，确定删除吗？', '删除任务', {
         confirmButtonText: '删除',
@@ -392,8 +395,9 @@ export default {
         const api = this.buddyApi()
         if (api) await api.deleteSession(c.id)
         this.chats = this.chats.filter(x => x.id !== c.id)
-        // 同步移除该会话的页签
+        // 同步移除该会话的页签，并清理会话状态池（防泄漏）
         this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id })
+        this.$store.commit('buddyChat/DROP_SESSION', c.id)
         // 删除的是当前会话：回到新建页
         if (this.activeChatId === c.id) {
           this.$router.push('/omnibuddy').catch(() => {})

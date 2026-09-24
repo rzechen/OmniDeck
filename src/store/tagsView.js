@@ -32,6 +32,17 @@ export default {
       const i = tabs.findIndex(t => t.fullPath === fullPath)
       if (i > -1) tabs.splice(i, 1)
     },
+    // 页签原位换 fullPath 但保留 uid：keep-alive 缓存 key 不变，组件实例不重建
+    // （新对话发送首条消息后 replace 为 ?s= 会话页，避免正在流式的组件被销毁重建）
+    REBIND_TAB(state, { side, from, to, path, title }) {
+      const tabs = state[side]
+      if (!tabs) return
+      const tab = tabs.find(t => t.fullPath === from)
+      if (!tab) return
+      tab.fullPath = to
+      if (path) tab.path = path
+      if (title) tab.title = title
+    },
     // 关闭除 keepFullPath（当前页签）外的全部页签
     CLOSE_OTHERS(state, { side, keepFullPath }) {
       const tabs = state[side]

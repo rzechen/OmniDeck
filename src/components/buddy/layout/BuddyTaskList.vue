@@ -27,17 +27,10 @@
         @mouseenter="onChatEnter"
         @mouseleave="onChatLeave"
       >
-        <svg-icon
-          :icon-class="c.branch ? 'share' : 'chat-dot-round'"
-          :style="c.branch ? 'color: var(--primary-color)' : ''"
-        />
+        <!-- 分叉创建的会话用 fork 图标（与气泡分叉按钮同图标，不做常亮高亮） -->
+        <svg-icon :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
         <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
         <span class="buddy-chat-actions" @click.stop>
-          <svg-icon
-            icon-class="arrow-down"
-            title="导出会话"
-            @click.stop="$emit('export-chat', c)"
-          />
           <svg-icon icon-class="edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
           <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="$emit('delete-chat', c)" />
         </span>

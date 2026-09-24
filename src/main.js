@@ -1,5 +1,5 @@
 import Vue from 'vue'
-import ElementUI from 'element-ui'
+import ElementUI, { Dialog, Drawer, MessageBox } from 'element-ui'
 import { PopupManager } from 'element-ui/lib/utils/popup'
 import 'element-ui/lib/theme-chalk/index.css'
 import App from './App.vue'
@@ -19,6 +19,15 @@ import './styles/buddy-settings-global.scss'
 Vue.use(ElementUI, { size: 'small' })
 Vue.component('svg-icon', SvgIcon)
 Vue.config.productionTip = false
+
+// 弹窗统一交互：点击弹窗外遮罩区域一律不关闭弹窗（全局默认）
+// - Dialog：改组件 props 默认值，模板中的 el-dialog 全部生效
+// - Drawer：el-drawer 无 closeOnClickModal，对应 prop 为 wrapperClosable
+// - MessageBox（$confirm / $prompt / $msgbox）：注入全局默认参数
+// - 个别弹窗如需恢复遮罩关闭，可在模板属性/调用参数中显式传 true 覆盖
+Dialog.props.closeOnClickModal.default = false
+Drawer.props.wrapperClosable.default = false
+MessageBox.setDefaults({ closeOnClickModal: false })
 
 // Element 弹层（日期/时间面板、select 下拉、MessageBox、Dialog 等）挂在 body 下，
 // 默认 z-index 从 2000 起算，低于自定义弹窗遮罩（z-index: 3100）时会被压在遮罩下层

@@ -1,7 +1,7 @@
 <template>
   <!-- 用户 / 助手消息（豆包风格：无头像，用户右侧气泡，助手左侧纯内容） -->
   <div class="ob-msg" :class="message.role">
-    <div class="ob-msg-bubble">
+    <div class="ob-msg-bubble" :class="{ editing: message.role === 'user' && editing }">
       <!-- 助手：上下文压缩摘要分界（自动压缩产物，正文即早期对话的总结） -->
       <div v-if="message.compaction" class="ob-compaction">
         <div class="ob-compaction-line">
@@ -36,8 +36,8 @@
         class="ob-md"
         v-html="rendered"
       ></div>
-      <!-- 用户：图片附件缩略图（截图提问） -->
-      <div v-if="message.role === 'user' && message.images && message.images.length" class="ob-msg-images">
+      <!-- 用户：图片附件缩略图（截图提问；编辑态隐藏 —— 编辑重问仅发送文本） -->
+      <div v-if="message.role === 'user' && !editing && message.images && message.images.length" class="ob-msg-images">
         <img
           v-for="img in message.images"
           :key="img.id"
@@ -48,8 +48,8 @@
           draggable="false"
         />
       </div>
-      <!-- 用户：文件附件卡片（文本/PDF 与文件导入图片，P1-7） -->
-      <div v-if="fileAttachmentList.length" class="ob-msg-files">
+      <!-- 用户：文件附件卡片（文本/PDF 与文件导入图片，P1-7；编辑态隐藏） -->
+      <div v-if="!editing && fileAttachmentList.length" class="ob-msg-files">
         <div v-for="f in fileAttachmentList" :key="f.id" class="ob-msg-file">
           <img v-if="f.kind === 'image' && f.thumb" class="ob-msg-file-thumb" :src="f.thumb" alt="" draggable="false" />
           <svg-icon v-else :icon-class="f.kind === 'pdf' ? 'doc' : 'document'" class="ob-msg-file-ico" />
@@ -59,13 +59,73 @@
           </div>
         </div>
       </div>
-      <template v-if="message.role === 'user'">{{ message.content }}</template>
+      <!-- 用户：编辑重问（会话内分支）—— 替换正文为编辑框，回车或按钮提交 -->
+      <div v-if="message.role === 'user' && editing" class="ob-edit-area">
+        <textarea
+          ref="editBox"
+          v-model="editText"
+          class="ob-edit-input"
+          rows="3"
+          placeholder="修改后重新提问，将创建新分支"
+          @keydown.enter.exact.prevent="submitEdit"
+        ></textarea>
+        <div class="ob-edit-btns">
+          <span class="ob-edit-btn cancel" @click="editing = false">取消</span>
+          <span class="ob-edit-btn go" @click="submitEdit">
+            <svg-icon icon-class="promotion" />
+            <span>重新提问</span>
+          </span>
+        </div>
+      </div>
+      <template v-else-if="message.role === 'user'">{{ message.content }}</template>
+
+      <!-- 用户：分支切换器（该问题存在多个分支变体时常驻显示，点击切换线路） -->
+      <div v-if="message.role === 'user' && !editing && branchInfo" class="ob-branch-switch">
+        <span class="ob-branch-tag">分支</span>
+        <span
+          class="ob-branch-arrow"
+          title="上一条分支"
+          @click="$emit('switch-branch', { headId: branchInfo.headId, dir: -1 })"
+        >
+          <svg-icon icon-class="arrow-right" class="ob-flip" />
+        </span>
+        <span class="ob-branch-count" :title="'共 ' + branchInfo.total + ' 条分支'">{{ branchInfo.index }}/{{ branchInfo.total }}</span>
+        <span
+          class="ob-branch-arrow"
+          title="下一条分支"
+          @click="$emit('switch-branch', { headId: branchInfo.headId, dir: 1 })"
+        >
+          <svg-icon icon-class="arrow-right" />
+        </span>
+      </div>
       <span v-if="showCursor" class="ob-cursor"></span>
 
-      <!-- 助手 meta 行（回答完成后呈现：复制 / token 用量 / 时间，定高不抖动） -->
+      <!-- 助手 meta 行（回答完成后呈现：复制 / 点赞 / 点踩 / 分支 / 导出 / token 用量 / 时间，定高不抖动） -->
       <div v-if="message.role === 'assistant' && !message.streaming" class="ob-msg-meta">
         <span class="ob-meta-copy" title="复制全文" @click="copyContent">
           <svg-icon icon-class="copy" />
+        </span>
+        <span
+          class="ob-meta-act"
+          :class="{ on: message.feedback === 'like' }"
+          :title="message.feedback === 'like' ? '取消点赞' : '点赞'"
+          @click="setFeedback('like')"
+        >
+          <svg-icon :icon-class="message.feedback === 'like' ? 'like-fill' : 'like'" />
+        </span>
+        <span
+          class="ob-meta-act"
+          :class="{ on: message.feedback === 'dislike' }"
+          :title="message.feedback === 'dislike' ? '取消点踩' : '点踩'"
+          @click="setFeedback('dislike')"
+        >
+          <svg-icon :icon-class="message.feedback === 'dislike' ? 'notlike-fill' : 'notlike'" />
+        </span>
+        <span v-if="message.id" class="ob-meta-act" title="以此为分叉点复制完整上下文，创建新会话（当前会话保留）" @click="$emit('branch')">
+          <svg-icon icon-class="fork" />
+        </span>
+        <span class="ob-meta-act" title="导出本条回答为 Markdown" @click="exportContent">
+          <svg-icon icon-class="export" />
         </span>
         <span v-if="tokensText" class="ob-meta-text">{{ tokensText }}</span>
         <span v-if="contextText" class="ob-meta-ctx" :title="'上下文占用 ' + contextPercent + '%（接近上限将自动整理早期对话）'">
@@ -75,18 +135,15 @@
         <span v-if="timeText" class="ob-meta-text">{{ timeText }}</span>
       </div>
 
-      <!-- 用户消息 hover：复制 / 时间 / 回退重发 / 创建分支（绝对定位，不占文档流）
-           复制与时间无需消息 id（实时消息即有）；回退/分支依赖落盘 id -->
+      <!-- 用户消息 hover：时间 / 复制 / 编辑重问（分支）（绝对定位，不占文档流）
+           复制与时间无需消息 id（实时消息即有）；编辑重问依赖落盘 id -->
       <div v-if="message.role === 'user' && !streaming" class="ob-msg-actions">
+        <span class="ob-msg-time">{{ timeText }}</span>
         <span class="ob-user-copy" title="复制" @click="copyContent">
           <svg-icon icon-class="copy" />
         </span>
-        <span class="ob-msg-time">{{ timeText }}</span>
-        <span v-if="message.id" class="ob-msg-action" title="丢弃此消息及之后的记录，重新提问" @click="$emit('truncate')">
-          <svg-icon icon-class="refresh-left" /> 重新提问
-        </span>
-        <span v-if="message.id" class="ob-msg-action" title="以此为分叉点创建分支会话（当前会话保留）" @click="$emit('branch')">
-          <svg-icon icon-class="share" /> 创建分支
+        <span v-if="message.id && !editing" class="ob-user-copy" title="编辑并重新提问（创建分支）" @click="startEdit">
+          <svg-icon icon-class="edit" />
         </span>
       </div>
     </div>
@@ -112,7 +169,25 @@ export default {
       default: false
     }
   },
+  data() {
+    return {
+      // 编辑重问（会话内分支）：编辑态与草稿
+      editing: false,
+      editText: ''
+    }
+  },
+  watch: {
+    // 切换分支变体 / 消息变化时退出编辑态
+    'message.id'() {
+      this.editing = false
+    }
+  },
   computed: {
+    // 分支信息（仅用户消息的组头位置携带：{ headId, total, index }，多分支才显示切换器）
+    branchInfo() {
+      const b = this.message._branch
+      return (b && b.total > 1) ? b : null
+    },
     rendered() {
       return renderMarkdown(this.message.content)
     },
@@ -162,7 +237,7 @@ export default {
       if (!c || (!c.tokensBefore && !c.tokensAfter)) return ''
       return '上下文 ' + this.formatTokens(c.tokensBefore) + ' → ' + this.formatTokens(c.tokensAfter) + ' tokens'
     },
-    // 消息时间（今天 HH:mm，更早 MM-dd HH:mm）
+    // 消息时间（统一 mm-dd HH:mm:ss）
     timeText() {
       return this.formatTime(this.message.createdAt)
     },
@@ -173,6 +248,31 @@ export default {
     }
   },
   methods: {
+    // ===== 编辑重问（会话内分支）=====
+    // 进入编辑态：预填当前问题文本并聚焦
+    startEdit() {
+      this.editText = this.message.content || ''
+      this.editing = true
+      this.$nextTick(() => {
+        const box = this.$refs.editBox
+        if (box) {
+          box.focus()
+          // 光标置于末尾
+          const len = box.value.length
+          try { box.setSelectionRange(len, len) } catch (e) { /* 忽略 */ }
+        }
+      })
+    },
+    // 提交编辑：上抛页面层（创建分支变体并重新提问）
+    submitEdit() {
+      const text = String(this.editText || '').trim()
+      if (!text) {
+        this.$message.warning('内容不能为空')
+        return
+      }
+      this.editing = false
+      this.$emit('edit-resend', { message: this.message, text })
+    },
     formatTokens(n) {
       const v = Number(n) || 0
       return v >= 10000 ? (v / 1000).toFixed(1) + 'k' : String(v)
@@ -192,11 +292,9 @@ export default {
     formatTime(ts) {
       if (!ts) return ''
       const d = new Date(ts)
-      const now = new Date()
       const pad = x => String(x).padStart(2, '0')
-      const hm = pad(d.getHours()) + ':' + pad(d.getMinutes())
-      if (d.toDateString() === now.toDateString()) return hm
-      return (d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hm
+      return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+        pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
     },
     // 复制助手正文
     copyContent() {
@@ -210,6 +308,27 @@ export default {
       } else {
         this.$message.error('当前环境不支持复制')
       }
+    },
+    // 点赞 / 点踩（互斥切换，再次点击取消）：本地即时生效并提示，
+    // 有落盘 id 时上抛页面层持久化到主进程（重开会话仍保留）
+    setFeedback(v) {
+      const next = this.message.feedback === v ? '' : v
+      this.$set(this.message, 'feedback', next)
+      this.$message.success(next === 'like' ? '已点赞' : next === 'dislike' ? '已点踩，感谢反馈' : '已取消')
+      if (this.message.id) this.$emit('feedback', { message: this.message, value: next })
+    },
+    // 导出本条回答为 Markdown 文件（渲染层 Blob 下载）
+    exportContent() {
+      const text = this.message.content || ''
+      if (!text) return
+      const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'OmniBuddy-' + this.formatTime(this.message.createdAt).replace(/[: ]/g, '-') + '.md'
+      a.click()
+      URL.revokeObjectURL(url)
+      this.$message.success('已导出')
     }
   }
 }
@@ -238,11 +357,14 @@ export default {
   padding: 0;
   border: none;
   background: transparent;
-  font-size: 13.5px;
+  /* 问答内容统一字号（用户消息文本与助手 Markdown 正文均继承） */
+  font-size: 14px;
   line-height: 1.7;
   color: var(--text-primary);
   word-break: break-word;
   user-select: text;
+  /* hover 操作条（absolute）的定位基准：缺失时会相对 .buddy-right 定位而被裁剪，完全不可见 */
+  position: relative;
 }
 
 /* 用户消息图片附件缩略图（气泡内文字上方） */
@@ -253,6 +375,135 @@ export default {
   margin-bottom: 6px;
 
   &:empty { margin-bottom: 0; }
+}
+
+/* ===== 编辑重问（会话内分支）：普通输入框 ===== */
+/* 编辑态：去除用户气泡的渐变背景，仅呈现普通输入框本身 */
+.ob-msg.user .ob-msg-bubble.editing {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+}
+
+.ob-edit-area {
+  width: 100%;
+  min-width: 300px;
+}
+
+.ob-edit-input {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  max-height: 240px;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  outline: none;
+  border-radius: 8px;
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 8px 11px;
+
+  &:focus {
+    border-color: var(--primary-color);
+  }
+
+  &::placeholder {
+    color: var(--text-secondary);
+  }
+}
+
+.ob-edit-btns {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  user-select: none;
+}
+
+.ob-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.12s ease;
+
+  .svg-icon {
+    font-size: 12px;
+  }
+
+  &.cancel {
+    color: var(--text-secondary);
+
+    &:hover {
+      color: var(--text-primary);
+    }
+  }
+
+  &.go {
+    background: var(--primary-color);
+    color: #fff;
+    font-weight: 500;
+
+    &:hover {
+      background: var(--primary-color-hover);
+    }
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+/* ===== 分支切换器（用户气泡内、多分支时常驻显示） ===== */
+.ob-branch-switch {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 7px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.24);
+  color: rgba(255, 255, 255, 0.88);
+  user-select: none;
+}
+
+.ob-branch-tag {
+  font-size: 10.5px;
+  opacity: 0.72;
+  margin-right: 2px;
+}
+
+.ob-branch-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ob-branch-arrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px;
+  cursor: pointer;
+  transition: color 0.12s ease;
+
+  .svg-icon {
+    font-size: 12px;
+  }
+
+  /* 左箭头 = 右箭头水平翻转（图标库未提供 arrow-left） */
+  .ob-flip {
+    transform: rotate(180deg);
+  }
+
+  &:hover {
+    color: #fff;
+  }
 }
 
 .ob-msg-img {
@@ -386,25 +637,29 @@ export default {
   50% { opacity: 0; }
 }
 
-/* 用户消息 hover 操作：绝对定位在气泡外下方，不占文档流（避免气泡多余空行） */
+/* 用户消息 hover 操作：紧贴气泡下缘（padding 内置视觉间距，鼠标划过不丢 hover），
+   绝对定位不占文档流（避免气泡多余空行）；nowrap 保证时间较长时不换行 */
 .ob-msg-actions {
   position: absolute;
-  top: calc(100% + 3px);
+  top: 100%;
   right: 0;
+  padding-top: 3px;
   display: flex;
   align-items: center;
   gap: 10px;
+  white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   z-index: 2;
   transition: opacity 0.15s ease;
 }
 
-/* 用户消息时间（hover 与操作一起浮现） */
+/* 用户消息时间（hover 与操作一起浮现，永不换行、允许向左溢出短气泡） */
 .ob-msg-time {
   font-size: 11px;
   color: var(--text-secondary);
   user-select: none;
+  white-space: nowrap;
 }
 
 /* 用户消息复制 icon（hover 与操作一起浮现） */
@@ -433,7 +688,8 @@ export default {
   user-select: none;
 }
 
-.ob-meta-copy {
+.ob-meta-copy,
+.ob-meta-act {
   display: inline-flex;
   align-items: center;
   cursor: pointer;
@@ -446,6 +702,11 @@ export default {
   &:hover {
     color: var(--primary-color);
   }
+}
+
+/* 点赞/点踩选中态：高亮当前项（两者互斥，未选中项保持灰色） */
+.ob-meta-act.on {
+  color: var(--primary-color);
 }
 
 .ob-meta-text {
@@ -523,35 +784,11 @@ export default {
   }
 }
 
-.ob-msg.user:hover .ob-msg-actions {
+/* 悬停显示：气泡 hover 或操作条自身 hover 均保持（鼠标从气泡移入按钮不中断） */
+.ob-msg.user:hover .ob-msg-actions,
+.ob-msg-actions:hover {
   opacity: 1;
   pointer-events: auto;
-}
-
-.ob-msg.user .ob-msg-action {
-  color: rgba(255, 255, 255, 0.72);
-
-  &:hover {
-    color: #fff;
-  }
-}
-
-.ob-msg-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
-
-  .svg-icon {
-    font-size: 12px;
-  }
-
-  &:hover {
-    color: var(--primary-color);
-  }
 }
 
 /* ===== Markdown 渲染 ===== */

@@ -7,8 +7,10 @@
         :key="(m.id || i) + '-msg'"
         :message="m"
         :streaming="streaming"
-        @truncate="$emit('truncate', m)"
         @branch="$emit('branch', m)"
+        @feedback="payload => $emit('feedback', payload)"
+        @edit-resend="payload => $emit('edit-resend', payload)"
+        @switch-branch="payload => $emit('switch-branch', payload)"
       />
 
       <ask-user-card
