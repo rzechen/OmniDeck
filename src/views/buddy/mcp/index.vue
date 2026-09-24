@@ -39,8 +39,9 @@
       <!-- 服务卡片网格 -->
       <section v-else class="ob-connector-section">
         <div class="ob-cards-grid">
-          <div v-if="mcpLoading" class="ob-ext-loading">
-            <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+          <!-- 加载中：卡片骨架占位 -->
+          <div v-if="mcpLoading" class="ob-sk-wrap">
+            <buddy-skeleton type="cards" :count="8" />
           </div>
           <mcp-card
             v-for="s in mcpServers"
@@ -100,11 +101,12 @@
 // 卡片与新增/编辑弹窗已拆分至 ./components/（McpCard / McpFormDialog）
 import McpCard from './components/McpCard.vue'
 import McpFormDialog from './components/McpFormDialog.vue'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApi, buddyApiSection } from '@/utils/buddy-api'
 
 export default {
   name: 'OmniBuddyMcp',
-  components: { McpCard, McpFormDialog },
+  components: { McpCard, McpFormDialog, BuddySkeleton },
   data() {
     return {
       mcpServers: [],
@@ -326,6 +328,11 @@ export default {
 /* 分区结构 */
 .ob-connector-section {
   margin-bottom: 26px;
+}
+
+/* 加载骨架容器内边距 */
+.ob-sk-wrap {
+  padding: 18px 4px;
 }
 
 /* 凭证引导提示条 */

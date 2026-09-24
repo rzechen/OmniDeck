@@ -4,8 +4,13 @@
     <div class="ob-main-col">
       <!-- 对话主体（滚动位置写入会话池 atBottom，决定新消息是否自动跟滚） -->
       <div ref="body" class="ob-body" @scroll="onBodyScroll">
+        <!-- 历史加载骨架（会话存在但历史未拉完，避免闪现欢迎占位再跳变） -->
+        <div v-if="historyLoading" class="ob-history-skel">
+          <buddy-skeleton type="chat" :count="6" />
+        </div>
+
         <!-- 空会话欢迎占位 -->
-        <chat-placeholder v-if="!sessionId || !messages.length" />
+        <chat-placeholder v-else-if="!sessionId || !messages.length" />
 
         <!-- 消息列表（气泡分发在 ChatMessageList 内完成；分支过滤见 branchView computed） -->
         <chat-message-list
@@ -163,6 +168,7 @@
 
 <script>
 import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import ChatPlaceholder from '@/components/buddy/chat/ChatPlaceholder.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
 import ChatMessageList from './components/ChatMessageList.vue'
@@ -174,7 +180,7 @@ import { computeBranchView } from '@/utils/branchView'
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
 export default {
   name: 'OmniBuddyChat',
-  components: { BuddyComposer, ChatPlaceholder, ComposerPicker, ChatMessageList, CheckpointDrawer },
+  components: { BuddyComposer, BuddySkeleton, ChatPlaceholder, ComposerPicker, ChatMessageList, CheckpointDrawer },
   data() {
     return {
       // 实例绑定的会话 id：初始化时快照路由 query.s（keep-alive 一签一实例，
@@ -199,6 +205,10 @@ export default {
     // 本实例的会话状态（store 会话池；模板/子组件经下方代理读取）
     sess() {
       return this.$store.getters['buddyChat/session'](this.sid)
+    },
+    // 历史加载中（会话已创建但历史未拉完）：显示对话骨架而非欢迎占位
+    historyLoading() {
+      return !!(this.sess && this.sid && !this.sess.loaded)
     },
     // 模板兼容：会话 id（实例绑定值，不随全局路由变化）
     sessionId() {
@@ -647,6 +657,16 @@ export default {
     async loadWorkspaces() {
       const list = await this.api().listWorkspaces()
       this.workspaces = (list || []).filter(w => w.available)
+      this.validateWorkspaceLink()
+    },
+    // 空间被解绑后的回落：未锁定会话的关联三元组失效时清空（锁定会话存路径快照，不受影响）
+    validateWorkspaceLink() {
+      if (this.workspaceLocked) return
+      const link = this.workspaceLink
+      if (link.workspaceId && !this.workspaces.some(w => w.id === link.workspaceId)) {
+        this.commitPatch({ workspaceLink: { dir: '', name: '', workspaceId: '' } })
+        setItem('omnibuddy:workspace-link', this.workspaceLink)
+      }
     },
     // 上拉选择已登记工作空间：同步关联三元组并持久化（会话已锁定时不可切换）
     onSelectWorkspace(id) {
@@ -693,7 +713,7 @@ export default {
     },
     // ===== 回退与分支（M4） =====
     branchAt(m) {
-      this.$confirm('将以此处为分叉点复制完整上下文（含本条回答）创建新会话，当前会话保留。继续吗？', '创建分叉', {
+      this.$confirm('将以此处为分叉点复制完整上下文创建新会话，当前会话保留。继续吗？', '创建分叉', {
         confirmButtonText: '创建分叉',
         cancelButtonText: '取消',
         type: 'info'
@@ -848,6 +868,14 @@ export default {
   &::-webkit-scrollbar {
     width: 5px;
   }
+}
+
+/* 历史加载骨架：与消息列表同宽同 padding，占位形状贴合真实对话 */
+.ob-history-skel {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 40px 28px 12px;
 }
 
 /* ===== 输入区 ===== */

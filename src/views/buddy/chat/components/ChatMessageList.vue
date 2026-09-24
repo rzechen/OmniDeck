@@ -1,5 +1,5 @@
 <template>
-  <!-- 消息列表：按 role 分发气泡（正文 / ask_user 表单 / todo 卡片） -->
+  <!-- 消息列表：按 role 分发气泡（正文 / todo 卡片）；ask_user 表单内嵌于深度思考区 -->
   <div class="ob-messages">
     <template v-for="(m, i) in messages">
       <message-bubble
@@ -11,13 +11,7 @@
         @feedback="payload => $emit('feedback', payload)"
         @edit-resend="payload => $emit('edit-resend', payload)"
         @switch-branch="payload => $emit('switch-branch', payload)"
-      />
-
-      <ask-user-card
-        v-else-if="m.role === 'ask_user'"
-        :key="(m.id || i) + '-ask'"
-        :message="m"
-        @answer="(msg, value) => $emit('answer', msg, value)"
+        @ask-answer="(msg, value) => $emit('answer', msg, value)"
       />
 
       <!-- 权限确认历史（只读状态行：交互在输入框上方浮动条完成，不进消息流） -->
@@ -45,15 +39,14 @@
 
 <script>
 import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
-import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
 import TodoCard from '@/components/buddy/chat/TodoCard.vue'
 
-// OmniBuddy 消息列表容器：按 role 分发气泡（正文 / ask_user / 权限历史 / todo），交互事件原样上抛给页面处理
+// OmniBuddy 消息列表容器：按 role 分发气泡（正文 / 权限历史 / todo），交互事件原样上抛给页面处理
 export default {
   name: 'ChatMessageList',
-  components: { MessageBubble, AskUserCard, TodoCard },
+  components: { MessageBubble, TodoCard },
   props: {
-    // 归一化后的消息数组（user / assistant / ask_user / todo）
+    // 归一化后的消息数组（user / assistant / todo）
     messages: {
       type: Array,
       required: true

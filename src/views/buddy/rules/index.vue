@@ -33,7 +33,7 @@
         <div class="ob-editor-pane">
           <div class="ob-pane-head">预览</div>
           <div class="ob-pane-body">
-            <div v-if="form.content.trim()" class="md-preview ob-rule-preview" v-html="previewHtml"></div>
+            <div v-if="form.content.trim()" class="md-preview ob-rule-preview" v-html="previewHtml" @click="onMdClick"></div>
             <div v-else class="ob-preview-empty">暂无内容，开始编写后此处实时预览</div>
           </div>
         </div>
@@ -58,9 +58,9 @@
 
       <!-- 内容区（hero 固定，仅此区域滚动） -->
       <div class="ob-page-body">
-        <!-- 加载中 -->
-        <div v-if="loading" class="ob-ext-loading">
-          <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+        <!-- 加载中：骨架屏占位（项目规则行列表形态） -->
+        <div v-if="loading" class="ob-sk-wrap">
+          <buddy-skeleton type="rows" :count="4" />
         </div>
 
         <!-- 规则目标卡片网格：全局 + 各工作空间 -->
@@ -126,11 +126,13 @@
 <script>
 // 项目规则（P1-10）：全局 / 工作空间规则编辑页（内嵌分栏编辑器，左编辑右预览）
 // pi SDK DefaultResourceLoader 自动装载规则注入系统提示词，本页仅做读写，无需向用户暴露规则文件
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
 import { downloadText } from '@/utils/download'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
 export default {
   name: 'OmniBuddyRules',
+  components: { BuddySkeleton },
   data() {
     return {
       loading: false,
@@ -176,6 +178,12 @@ export default {
     this.loadTargets()
   },
   methods: {
+    // Markdown 预览点击委托：代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+    onMdClick(e) {
+      handleCodeCopy(e).then(ok => {
+        if (ok) this.$message.success('已复制')
+      })
+    },
     api() {
       return (window.electronAPI && window.electronAPI.omnibuddy) || null
     },
@@ -267,6 +275,11 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 加载骨架容器 */
+.ob-sk-wrap {
+  padding: 20px 4px;
+}
 
 /* ============ 编辑态：内嵌分栏编辑器 ============ */
 /* 编辑态页面容器：占满可用区域、内部滚动 */
@@ -473,6 +486,15 @@ export default {
       font-size: 0.88em;
       font-family: 'SF Mono', Menlo, Consolas, monospace;
       color: #C41A16;
+    }
+
+    /* 代码块容器内 pre 复位（工具条/边框/圆角由全局 .ob-code 承载） */
+    .ob-code pre {
+      margin: 0;
+      padding: 13px 15px;
+      border: none;
+      border-radius: 0;
+      background: transparent;
     }
 
     pre {

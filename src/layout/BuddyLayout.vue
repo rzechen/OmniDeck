@@ -87,6 +87,7 @@
               v-else
               :chats="chats"
               :active-chat-id="activeChatId"
+              :loading="chatsLoading"
               @select-chat="onSelectChat"
               @rename-chat="renameChat"
               @delete-chat="confirmDeleteChat"
@@ -191,6 +192,8 @@ export default {
       ],
       // 会话列表（主进程 JSONL 持久化，按更新时间倒序）
       chats: [],
+      // 会话列表首次加载中，侧栏显示骨架
+      chatsLoading: true,
       // ===== 侧边栏宽度 / 收起 =====
       // 展开宽度（可拖拽调整，持久化）
       sidebarW: getItem('omnibuddy:sidebar-w', 260),
@@ -291,12 +294,17 @@ export default {
       return (window.electronAPI && window.electronAPI.omnibuddy) || null
     },
     async loadChats() {
-      const api = this.buddyApi()
-      if (!api) {
-        this.chats = []
-        return
+      this.chatsLoading = true
+      try {
+        const api = this.buddyApi()
+        if (!api) {
+          this.chats = []
+          return
+        }
+        this.chats = await api.listSessions()
+      } finally {
+        this.chatsLoading = false
       }
-      this.chats = await api.listSessions()
     },
     // ===== 侧边栏拖拽调宽 / 收起 =====
     onResizeStart(e) {

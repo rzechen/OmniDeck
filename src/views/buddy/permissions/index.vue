@@ -18,9 +18,9 @@
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
     <div class="ob-page-body">
-      <!-- 加载中 -->
-      <div v-if="loading" class="ob-ext-loading">
-        <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+      <!-- 加载中：骨架屏占位（权限规则行列表形态） -->
+      <div v-if="loading" class="ob-sk-wrap">
+        <buddy-skeleton type="rows" :count="5" />
       </div>
 
       <template v-else>
@@ -90,9 +90,11 @@
 // 「平衡」预设 = 主进程 defaultConfig（经 permission:config 下发快照，一处定义两处消费）
 // 对象下拉的分组定义与能力中心共用 categories.js（一处定义，两处消费）
 import { CAPABILITY_CATEGORIES } from '../capabilities/categories'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
 export default {
   name: 'OmniBuddyPermissions',
+  components: { BuddySkeleton },
   data() {
     return {
       loading: false,
@@ -319,6 +321,11 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 加载骨架容器 */
+.ob-sk-wrap {
+  padding: 20px 4px;
+}
 
 .ob-hero-actions {
   display: flex;

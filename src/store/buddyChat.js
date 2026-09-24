@@ -23,7 +23,8 @@ function blankSession() {
     branchActive: {},      // 会话内分支切换状态：组头id -> 激活变体id（缺省取组内最新）
     turnAnchors: [],       // 当前流式轮次的分支线路（ask_user 等实时消息归属标记）
     atBottom: true,        // 滚动位置标记（在底部时新消息自动跟滚）
-    loaded: false          // 历史已拉取标记（防止重复 IPC）
+    loaded: false,         // 历史已拉取标记（防止重复 IPC）
+    lastFinishedMsg: null  // 刚被中断的本轮消息（供中断后迟到的 assistant_end 回填 id/用量）
   }
 }
 
@@ -47,10 +48,29 @@ function normalizeHistory(list) {
   const out = []
   // 当前轮次的助手消息（归并目标）：permission / ask_user / todo 等展示行不打断归并
   let lastAssistant = null
+  // 暂存的 ask_user 问答（其落盘早于 tool(ask_user) 记录，等 tool 记录到达时挂接）
+  let pendingAsk = null
+  // 把暂存的问答挂到本轮「询问用户」工具条目上；无工具条目时追加独立条目
+  const attachAsk = () => {
+    if (!pendingAsk) return
+    if (lastAssistant) {
+      const items = lastAssistant.items || (lastAssistant.items = [])
+      let attached = false
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].type === 'tool' && items[i].toolName === 'ask_user' && !items[i].ask) {
+          items[i].ask = pendingAsk
+          attached = true
+          break
+        }
+      }
+      if (!attached) items.push(pendingAsk)
+    }
+    pendingAsk = null
+  }
   for (const m of list) {
     if (m.role === 'tool') {
       if (lastAssistant && sameAnchors(m.anchors, lastAssistant.anchors)) {
-        lastAssistant.items.push({
+        const item = {
           type: 'tool',
           toolCallId: '',
           toolName: m.toolName,
@@ -59,13 +79,34 @@ function normalizeHistory(list) {
           result: m.result || '',
           isError: !!m.isError,
           fileChange: m.fileChange || null
-        })
+        }
+        lastAssistant.items.push(item)
+        // ask_user 工具记录到达：挂接暂存的问答（落盘顺序问答在前、工具在后）
+        if (m.toolName === 'ask_user' && pendingAsk) {
+          item.ask = pendingAsk
+          pendingAsk = null
+        }
+      }
+      continue
+    }
+    // ask_user 问答记录：暂存，待本轮 tool(ask_user) 记录到达时挂接（与实时路径一致）
+    if (m.role === 'ask_user') {
+      pendingAsk = {
+        type: 'ask',
+        callId: '',
+        question: m.question || '',
+        options: m.options || [],
+        multiSelect: !!m.multiSelect,
+        answered: true,
+        answer: m.answer || '',
+        _input: ''
       }
       continue
     }
     if (m.role === 'assistant') {
       // 压缩摘要（compaction 分界）独立成条，且不作为后续助手记录的归并目标
       if (m.compaction) {
+        attachAsk()
         lastAssistant = null
         out.push(Object.assign({}, m, { items: [] }))
         continue
@@ -94,10 +135,15 @@ function normalizeHistory(list) {
       lastAssistant = msg
       continue
     }
-    // 用户消息开启新一轮问答，重置归并目标
-    if (m.role === 'user') lastAssistant = null
+    // 用户消息开启新一轮问答，重置归并目标（先挂接上一轮暂存的问答）
+    if (m.role === 'user') {
+      attachAsk()
+      lastAssistant = null
+    }
     out.push(Object.assign({}, m))
   }
+  // 末轮问答无后续 user：挂接残留
+  attachAsk()
   return out
 }
 
@@ -146,6 +192,12 @@ function findToolItem(s, toolCallId) {
   }
   return null
 }
+
+// 流式轮次内事件集合：仅在 streaming=true 时有效（结束后到达即视为迟到丢弃）
+const TURN_EVENTS = [
+  'assistant_start', 'delta', 'thinking', 'skill',
+  'tool_start', 'tool_update', 'tool_end', 'assistant_end'
+]
 
 export default {
   namespaced: true,
@@ -271,7 +323,45 @@ export default {
     handleEvent({ state, commit, dispatch }, e) {
       const s = state.sessions[e.sessionId]
       if (!s) return
+      // 中断后迟到的 assistant_end：pi 中止后仍会送达本轮落盘回执（含消息 id、
+      // 上下文快照等）——回填到刚被中断的消息（restore id/用量，不新建气泡）
+      if (!s.streaming && e.type === 'assistant_end' && s.lastFinishedMsg) {
+        const m = s.lastFinishedMsg
+        s.lastFinishedMsg = null
+        if (s.messages.indexOf(m) >= 0) {
+          if (!m.id && e.messageId) Vue.set(m, 'id', e.messageId)
+          if (e.usage && (e.usage.input || e.usage.output || e.usage.contextTokens)) {
+            const prev = m.usage || { input: 0, output: 0 }
+            Vue.set(m, 'usage', {
+              input: prev.input + (e.usage.input || 0),
+              output: prev.output + (e.usage.output || 0),
+              contextTokens: e.usage.contextTokens,
+              contextWindow: e.usage.contextWindow
+            })
+          }
+        }
+        return
+      }
+      // 迟到的轮次内事件防护：中断（interrupted）/错误已结束流式态后，
+      // 主进程仍可能送达迟到的 assistant_start / tool_end 等（时序错位）。
+      // 此时 ensureTurnMessage 会凭空新建一条空助手消息（表现为中断后
+      // 出现两行 meta 操作行），一律忽略
+      if (!s.streaming && TURN_EVENTS.indexOf(e.type) >= 0) return
       switch (e.type) {
+        // 用户消息落盘回执：回填 id 到前端乐观消息（发送时无 id，
+        // 编辑重问 / 分支切换按钮依赖 id 判定可用）
+        case 'user_message': {
+          const rec = e.message || {}
+          if (!rec.id) break
+          for (let i = s.messages.length - 1; i >= 0; i--) {
+            const m = s.messages[i]
+            if (m.role === 'user' && !m.id && m.content === rec.content) {
+              Vue.set(m, 'id', rec.id)
+              break
+            }
+          }
+          break
+        }
         case 'assistant_start': {
           // 助手消息开始（工具调用后模型会再次开始）：复用本轮消息，开启新的思考块
           const msg = ensureTurnMessage(s)
@@ -330,7 +420,7 @@ export default {
         }
         case 'tool_start': {
           const msg = ensureTurnMessage(s)
-          msg.items.push({
+          const tool = {
             type: 'tool',
             toolCallId: e.toolCallId,
             toolName: e.toolName,
@@ -339,7 +429,20 @@ export default {
             partial: '',
             result: '',
             isError: false
-          })
+          }
+          msg.items.push(tool)
+          // ask_user 卡片反向挂接：ask_user 事件先到时暂存的独立条目
+          // （type:'ask'）归位到本工具条目上，消除错位
+          if (e.toolName === 'ask_user') {
+            for (let i = msg.items.length - 2; i >= 0; i--) {
+              const it = msg.items[i]
+              if (it.type === 'ask' && !it.answered) {
+                Vue.set(tool, 'ask', it)
+                msg.items.splice(i, 1)
+                break
+              }
+            }
+          }
           break
         }
         case 'tool_update': {
@@ -357,18 +460,34 @@ export default {
           }
           break
         }
-        case 'ask_user':
-          s.messages.push({
-            role: 'ask_user',
+        case 'ask_user': {
+          // 归位：挂接到思考区「询问用户」工具条目上（卡片与工具条目一体）；
+          // tool_start 未到时暂存独立条目，由 tool_start 到达时反向挂接
+          const ask = {
+            type: 'ask',
             callId: e.callId,
             question: e.question,
             options: e.options || [],
+            multiSelect: !!e.multiSelect,
             answered: false,
-            _input: '',
-            // 归属本轮分支线路（历史重开按线路过滤显示）
-            anchors: (s.turnAnchors && s.turnAnchors.length) ? s.turnAnchors.slice() : undefined
-          })
+            _input: ''
+          }
+          const msg = ensureTurnMessage(s)
+          const items = msg.items || (msg.items = [])
+          let attached = false
+          for (let i = items.length - 1; i >= 0; i--) {
+            const it = items[i]
+            if (it.type === 'tool' && it.toolName === 'ask_user' && !it.ask) {
+              Vue.set(it, 'ask', ask)
+              attached = true
+              break
+            }
+          }
+          // tool_start 尚未到达（事件先于工具条目）：暂存独立条目，
+          // tool_start 到达时反向挂接并移除
+          if (!attached) items.push(ask)
           break
+        }
         case 'permission_ask':
           // 确认模式：进入待确认队列（输入框上方浮动条逐条处理，不进消息流）
           s.permQueue.push({
@@ -438,6 +557,8 @@ export default {
           break
         case 'done':
           s.streaming = false
+          // 正常完成：上一轮残留的中断回填标记失效（若有）
+          s.lastFinishedMsg = null
           finishTurn(s)
           commit('NOTICE', { sessionId: e.sessionId, kind: 'sessions-changed' })
           break
@@ -451,12 +572,23 @@ export default {
                   it.status = 'done'
                   if (!it.result) it.result = '已停止生成'
                 }
+                // 未回答的提问卡片标记中断（主进程已按取消应答，表单不再可交互）；
+                // 兼容独立条目（type:'ask'）与挂接在工具条目上（it.ask）两种形态
+                const ask = it.type === 'ask' ? it : it.ask
+                if (ask && !ask.answered) {
+                  ask.answered = true
+                  ask.answer = '（已中断）'
+                }
               }
             }
             // 空回复（无正文且无内容块）直接移除占位气泡
             if (!msg.content && (!msg.items || !msg.items.length)) {
               const idx = s.messages.indexOf(msg)
               if (idx >= 0) s.messages.splice(idx, 1)
+            } else {
+              // 记录被中断的消息：pi 中止后可能仍送达迟到的 assistant_end
+              // 落盘回执（消息 id / 上下文快照），届时回填到这条消息上
+              s.lastFinishedMsg = msg
             }
           }
           // 待确认队列随中断清空（主进程已按拒绝应答）

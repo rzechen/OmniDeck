@@ -1,12 +1,17 @@
 <template>
   <!-- 深度思考区（可折叠）：思考文本 + Skill 激活 + 工具/MCP 调用，聚合于助手回复上方 -->
   <div class="ob-think">
-    <!-- 折叠头部：静态星形图标（思考中主色），结束后显示已完成与步骤数 -->
-    <div class="ob-think-header" :class="{ thinking: isThinking }" @click="toggleCollapse">
+    <!-- 折叠头部：思考中 / 正文生成中均保持动态（星形脉动 + 文案呼吸，标识轮次未结束），
+         全部结束后恢复静态并显示步骤数 -->
+    <div
+      class="ob-think-header"
+      :class="{ thinking: isThinking, streaming: isStreaming && !isThinking }"
+      @click="toggleCollapse"
+    >
       <svg-icon icon-class="sparkle" class="ob-think-hico" />
-      <span class="ob-think-title">{{ isThinking ? '深度思考中…' : '已深度思考' }}</span>
-      <span v-if="!isThinking && stepCount > 0" class="ob-think-count">{{ stepCount }} 个步骤</span>
-      <span v-if="!isThinking && fileChangeCount > 0" class="ob-think-count ob-think-files">
+      <span class="ob-think-title">{{ headerTitle }}</span>
+      <span v-if="!isThinking && !isStreaming && stepCount > 0" class="ob-think-count">{{ stepCount }} 个步骤</span>
+      <span v-if="!isThinking && !isStreaming && fileChangeCount > 0" class="ob-think-count ob-think-files">
         <svg-icon icon-class="edit" class="ob-think-file-ico" />{{ fileChangeCount }} 个文件变更
       </span>
       <svg-icon
@@ -19,13 +24,13 @@
     <!-- 内容主体（思考中 / 流式中自动展开，不随折叠收起） -->
     <div v-show="!collapsed || isThinking || isStreaming" class="ob-think-body">
       <template v-for="(item, i) in items">
-        <!-- 思考文本 -->
+        <!-- 思考文本（click 委托承接代码块复制按钮） -->
         <div
           v-if="item.type === 'thinking'"
           :key="'thinking-' + i"
           class="ob-think-text"
         >
-          <div class="ob-think-md" v-html="rendered(item.content)"></div>
+          <div class="ob-think-md" v-html="rendered(item.content)" @click="onMdClick"></div>
           <span v-if="isThinking && i === items.length - 1" class="ob-cursor"></span>
         </div>
 
@@ -35,6 +40,15 @@
           <span class="ob-skill-label">SKILL</span>
           <span class="ob-skill-name">{{ item.skillName }}</span>
         </div>
+
+        <!-- ask_user 提问卡片（归位于思考区内，与工具条目同级；问答记录随思考区折叠） -->
+        <ask-user-card
+          v-else-if="item.type === 'ask'"
+          :key="'ask-' + i"
+          class="ob-think-ask"
+          :message="item"
+          @answer="(msg, value) => $emit('ask-answer', msg, value)"
+        />
 
         <!-- 工具调用（含 MCP 工具） -->
         <div v-else-if="item.type === 'tool'" :key="'tool-' + i" class="ob-tool">
@@ -62,6 +76,14 @@
               :class="{ open: isToolOpen(item) }"
             />
           </div>
+
+          <!-- ask_user 提问卡片：挂接在「询问用户」工具条目上（挂起中可交互，已答显示答案） -->
+          <ask-user-card
+            v-if="item.ask"
+            class="ob-think-ask"
+            :message="item.ask"
+            @answer="(msg, value) => $emit('ask-answer', msg, value)"
+          />
 
           <!-- 详情：文件变更对比 + 参数区 + 结果区（左侧竖线缩进） -->
           <div v-if="isToolOpen(item)" class="ob-tool-detail">
@@ -129,28 +151,39 @@
 </template>
 
 <script>
-// OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) 的聚合渲染
-import { renderMarkdown } from '@/utils/markdown'
+// OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) / ask_user 提问 的聚合渲染
+import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
+import AskUserCard from './AskUserCard.vue'
 
-// 内置工具的中文短名（MCP 工具走 mcpServerLabel + 原始工具名）
+// 内置工具的中文短名（与 builtin-tools.js / pi.js registerTool 的 label 对齐；
+// MCP 工具走 mcpServerLabel + 原始工具名）
 const TOOL_LABELS = {
   read: '读取文件',
   write: '写入文件',
   edit: '编辑文件',
+  multi_edit: '批量编辑',
+  append: '追加内容',
+  mkdir: '创建目录',
   bash: '执行命令',
   powershell: '执行命令(PowerShell)',
+  python: '运行 Python',
+  node: '运行 Node.js',
+  curl: '发起请求',
   find: '查找文件',
   glob: '查找文件',
   grep: '搜索内容',
   ls: '列出目录',
+  cd: '切换目录',
   todo_write: '更新任务清单',
+  todo_read: '查看任务清单',
   ask_user: '询问用户'
 }
 
 export default {
   name: 'ThinkingSection',
+  components: { AskUserCard },
   props: {
-    // 有序内容块：{ type: 'thinking' | 'skill' | 'tool', ... }
+    // 有序内容块：{ type: 'thinking' | 'skill' | 'tool' | 'ask', ... }
     items: {
       type: Array,
       default: () => []
@@ -180,6 +213,12 @@ export default {
     // 本轮文件变更数（写工具产生的有效变更）
     fileChangeCount() {
       return this.items.filter(i => i.type === 'tool' && i.fileChange).length
+    },
+    // 头部文案：思考中 / 正文生成中 / 已完成（与动态类同步区分轮次阶段）
+    headerTitle() {
+      if (this.isThinking) return '深度思考中…'
+      if (this.isStreaming) return '回答生成中…'
+      return '已深度思考'
     }
   },
   methods: {
@@ -187,6 +226,12 @@ export default {
       // 思考中 / 流式中不允许收起，避免过程被隐藏
       if (this.isThinking || this.isStreaming) return
       this.collapsed = !this.collapsed
+    },
+    // Markdown 区点击委托：代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+    onMdClick(e) {
+      handleCodeCopy(e).then(ok => {
+        if (ok) this.$message.success('已复制')
+      })
     },
     rendered(text) {
       return renderMarkdown(text || '')
@@ -269,7 +314,9 @@ export default {
     },
     // 结果文本：超 500 字截断加省略号
     truncatedResult(item) {
-      const s = String(item.partial || item.result || '')
+      const raw = item.partial || item.result || ''
+      // 兜底：结构化结果序列化展示（正常已由主进程规整为字符串）
+      const s = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2)
       return s.length > 500 ? s.slice(0, 500) + '…' : s
     },
     // 结果仍在流式输出（运行中且有 partial）：尾部显示光标
@@ -343,8 +390,17 @@ export default {
     color: var(--text-secondary);
   }
 
-  &.thinking .ob-think-hico {
-    color: var(--primary-color);
+  /* 思考中 / 正文流式生成中：星形主色 + 呼吸脉动（标识本轮问答尚未结束） */
+  &.thinking,
+  &.streaming {
+    .ob-think-hico {
+      color: var(--primary-color);
+      animation: ob-think-pulse 1.2s ease-in-out infinite;
+    }
+
+    .ob-think-title {
+      animation: ob-think-breath 1.2s ease-in-out infinite;
+    }
   }
 
   .ob-think-title {
@@ -377,6 +433,41 @@ export default {
   gap: 4px;
 }
 
+/* 思考中呼吸动画：星形脉动 / 标题明暗（标识生成未结束） */
+@keyframes ob-think-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.22);
+    opacity: 0.55;
+  }
+}
+
+@keyframes ob-think-breath {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* 思考区内的 ask_user 卡片：清除独立消息态的左移避让（思考区已有缩进）；
+   挂接态（工具条目内）与头部摘要行拉开间距 */
+.ob-think-ask {
+  margin-top: 5px;
+
+  ::v-deep .ob-ask-card {
+    margin-left: 0;
+  }
+}
+
 /* 思考文本 */
 .ob-think-text {
   font-size: 13px;
@@ -387,6 +478,60 @@ export default {
     ::v-deep {
       p { margin: 0 0 4px; }
       p:last-child { margin-bottom: 0; }
+
+      /* 代码块（与正文 .ob-code 同构，思考区整体小一号、底色更淡） */
+      .ob-code {
+        margin: 6px 0;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(0, 0, 0, 0.025);
+      }
+
+      .ob-code-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 2px 4px 2px 10px;
+        background: rgba(0, 0, 0, 0.04);
+        border-bottom: 1px solid var(--border-color);
+        user-select: none;
+      }
+
+      .ob-code-lang {
+        font-size: 10.5px;
+        color: var(--text-secondary);
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+      }
+
+      .ob-code-copy {
+        font-size: 11px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 1px 7px;
+        border-radius: 5px;
+        transition: all 0.12s ease;
+
+        &:hover {
+          color: var(--primary-color);
+          background: rgba(var(--primary-color-rgb), 0.09);
+        }
+      }
+
+      .ob-code pre {
+        margin: 0;
+        padding: 7px 10px;
+        border-radius: 0;
+        background: transparent;
+        font-size: 11.5px;
+        line-height: 1.55;
+
+        code {
+          background: transparent;
+          padding: 0;
+          font-family: 'SF Mono', Menlo, Consolas, monospace;
+        }
+      }
     }
   }
 }

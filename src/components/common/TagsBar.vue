@@ -9,9 +9,11 @@
         :title="tab.title"
         @click="go(tab)"
         @auxclick="onAuxClick($event, tab)"
+        @mouseenter="onTabEnter"
+        @mouseleave="onTabLeave"
       >
         <svg-icon v-if="iconFor(tab)" :icon-class="iconFor(tab)" class="tags-ico" />
-        <span class="tags-label">{{ tab.title }}</span>
+        <span class="tags-label"><span class="tags-label-inner">{{ tab.title }}</span></span>
         <span
           v-if="tabs.length > 1"
           class="tags-close"
@@ -167,6 +169,24 @@ export default {
       if (!this.$el || !this.$el.querySelector) return
       const el = this.$el.querySelector('.tags-item.active')
       if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    },
+    // ===== 页签标题 hover 滚动（超长省略号时从右向左滚完展示，与侧栏任务列表同款） =====
+    onTabEnter(e) {
+      const wrap = e.currentTarget.querySelector('.tags-label')
+      const inner = wrap && wrap.firstElementChild
+      if (!wrap || !inner) return
+      const diff = inner.scrollWidth - wrap.clientWidth
+      wrap.classList.remove('scrolling')
+      if (diff > 4) {
+        // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
+        wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
+        void wrap.offsetWidth // 强制 reflow 以重启动画
+        wrap.classList.add('scrolling')
+      }
+    },
+    onTabLeave(e) {
+      const wrap = e.currentTarget.querySelector('.tags-label')
+      if (wrap) wrap.classList.remove('scrolling')
     }
   }
 }
@@ -252,7 +272,30 @@ export default {
   min-width: 0;
   text-align: center;
   overflow: hidden;
-  text-overflow: ellipsis;
+
+  /* 内层承载文字：默认省略号截断，hover 超长时从右向左滚动展示 */
+  .tags-label-inner {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    will-change: transform;
+  }
+
+  &.scrolling .tags-label-inner {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    animation: tags-label-scroll 3.5s ease-in-out 0.35s forwards;
+  }
+}
+
+/* 标题滚动动画（滚动量由 --scroll-x 变量按溢出宽度注入） */
+@keyframes tags-label-scroll {
+  to {
+    transform: translateX(var(--scroll-x, 0));
+  }
 }
 
 .tags-close {

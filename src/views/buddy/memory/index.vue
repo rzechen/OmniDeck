@@ -36,9 +36,9 @@
 
     <!-- 内容区（hero 固定；split 内部各自滚动） -->
     <div class="ob-page-body">
-      <!-- 加载中 -->
-      <div v-if="loading" class="ob-ext-loading">
-        <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+      <!-- 加载中：骨架屏占位（记忆条目行列表形态） -->
+      <div v-if="loading" class="ob-sk-wrap">
+        <buddy-skeleton type="rows" :count="5" />
       </div>
 
       <!-- 主体：左文件列表 + 右内容编辑 -->
@@ -170,8 +170,11 @@
 // 记忆管理（P1-8 增强）：pi-memory 记忆文件的查看 / 编辑页
 // 数据源：主进程 omnibuddy:memory:*（memory.js 读写 agentDir/memory 下的 markdown；
 // recovery 恢复记录只读展示；status 提供 pi-memory / qmd / collection 就绪状态）
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
+
 export default {
   name: 'OmniBuddyMemory',
+  components: { BuddySkeleton },
   data() {
     return {
       loading: false,
@@ -444,6 +447,11 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 加载骨架容器 */
+.ob-sk-wrap {
+  padding: 20px 4px;
+}
 
 /* ============ 状态条（Hero 内）：就绪状态 + 操作 ============ */
 .ob-mem-status {

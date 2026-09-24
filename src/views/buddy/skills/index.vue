@@ -39,8 +39,9 @@
 
       <!-- Skill 卡片网格 -->
       <div v-else class="ob-cards-grid">
-        <div v-if="skillLoading" class="ob-ext-loading">
-          <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+        <!-- 加载中：卡片骨架占位 -->
+        <div v-if="skillLoading" class="ob-sk-wrap">
+          <buddy-skeleton type="cards" :count="8" />
         </div>
         <skill-card
           v-for="s in skillList"
@@ -121,11 +122,12 @@ import ItemDetailDialog from '@/components/buddy/ItemDetailDialog.vue'
 import SkillCard from './components/SkillCard.vue'
 import SkillImportDialog from './components/SkillImportDialog.vue'
 import SkillCredDialog from './components/SkillCredDialog.vue'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApi } from '@/utils/buddy-api'
 
 export default {
   name: 'OmniBuddySkills',
-  components: { ItemDetailDialog, SkillCard, SkillImportDialog, SkillCredDialog },
+  components: { ItemDetailDialog, SkillCard, SkillImportDialog, SkillCredDialog, BuddySkeleton },
   data() {
     return {
       // ===== 技能管理 =====
@@ -276,5 +278,10 @@ export default {
 /* 技能卡片更宽：承载完整名称与更多行描述 */
 .ob-cards-grid {
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+}
+
+/* 加载骨架容器内边距 */
+.ob-sk-wrap {
+  padding: 18px 4px;
 }
 </style>

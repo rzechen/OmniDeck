@@ -31,6 +31,7 @@
         @create-file="createFile"
         @import="importDialog"
         @refresh="load"
+        @unbind="confirmUnbind"
       />
 
       <!-- 面包屑 -->
@@ -38,8 +39,10 @@
 
       <!-- 主体 -->
       <div class="sp-body">
-        <!-- 加载中 -->
-        <div v-if="loading" class="sp-state"><svg-icon icon-class="loading" class="sp-spin" /></div>
+        <!-- 加载中：卡片骨架占位 -->
+        <div v-if="loading" class="ob-sk-wrap">
+          <buddy-skeleton type="cards" :count="4" />
+        </div>
 
         <!-- 空目录 -->
         <space-blank
@@ -110,12 +113,13 @@ import SpaceGrid from '@/components/buddy/space/SpaceGrid.vue'
 import SpaceList from '@/components/buddy/space/SpaceList.vue'
 import SpaceContextMenu from '@/components/buddy/space/SpaceContextMenu.vue'
 import SpaceFilePreview from '@/components/buddy/space/SpaceFilePreview.vue'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { isTextEntry } from '@/utils/file-meta'
 import { getItem, setItem } from '@/utils/db'
 
 export default {
   name: 'OmniBuddyWorkspace',
-  components: { SpaceBlank, SpaceToolbar, SpaceCrumbs, SpaceGrid, SpaceList, SpaceContextMenu, SpaceFilePreview },
+  components: { SpaceBlank, SpaceToolbar, SpaceCrumbs, SpaceGrid, SpaceList, SpaceContextMenu, SpaceFilePreview, BuddySkeleton },
   data() {
     return {
       // 已关联的工作空间列表（由对话关联磁盘路径时登记）
@@ -246,6 +250,39 @@ export default {
         this.currentDir = ''
         this.entries = []
       }
+    },
+    // 解绑当前工作空间：二次确认后解除登记并删除该空间全部任务记录（含检查点）；
+    // 磁盘文件不受影响，记忆摘要照常留档
+    confirmUnbind() {
+      const ws = this.active
+      if (!ws) return
+      const name = this.displayName(ws)
+      this.$confirm(
+        '解绑后「' + name + '」将从列表移除，该空间下的任务记录（含对话与检查点）将一并删除；磁盘文件不受影响。',
+        '解绑工作空间',
+        { confirmButtonText: '解绑', cancelButtonText: '取消', type: 'warning' }
+      ).then(async () => {
+        const api = window.electronAPI && window.electronAPI.omnibuddy
+        if (!api) return
+        const res = await api.removeWorkspace(ws.id)
+        if (!res || !res.ok) {
+          this.$message.error((res && res.error) || '解绑失败')
+          return
+        }
+        const removed = res.removedSessions || []
+        // 被删会话：清理页签与会话状态池，当前正在查看的会话命中则回新建页
+        for (const sid of removed) {
+          this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + sid })
+          this.$store.commit('buddyChat/DROP_SESSION', sid)
+        }
+        if (removed.includes(this.$route.query.s)) {
+          this.$router.push('/omnibuddy').catch(() => {})
+        }
+        await this.loadWorkspaces()
+        this.$root.$emit('omnibuddy:sessions-changed')
+        this.$root.$emit('omnibuddy:workspaces-changed')
+        this.$message.success(removed.length ? '已解绑，删除任务记录 ' + removed.length + ' 条' : '已解绑')
+      }).catch(() => {})
     },
     async load() {
       if (!this.currentDir) return
@@ -501,6 +538,11 @@ export default {
     background: var(--scrollbar-thumb, rgba(0, 0, 0, 0.15));
     border-radius: 3px;
   }
+}
+
+/* 加载骨架容器内边距 */
+.ob-sk-wrap {
+  padding: 18px 4px;
 }
 
 /* 加载中 */

@@ -83,6 +83,10 @@
       <button class="sp-icon-btn" title="刷新" @click="$emit('refresh')">
         <svg-icon icon-class="refresh-left" :class="{ spinning: loading }" />
       </button>
+      <!-- 解绑当前工作空间（连带删除该空间任务记录，二次确认在页面层） -->
+      <button class="sp-icon-btn" title="解绑此空间" @click="$emit('unbind')">
+        <svg-icon icon-class="delete" />
+      </button>
     </div>
   </header>
 </template>

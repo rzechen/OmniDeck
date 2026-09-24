@@ -15,9 +15,9 @@
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
     <div class="ob-page-body">
-      <!-- 加载中 -->
-      <div v-if="loading" class="ob-ext-loading">
-        <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+      <!-- 加载中：骨架屏占位（能力分组卡片网格形态） -->
+      <div v-if="loading" class="ob-sk-wrap">
+        <buddy-skeleton type="cards" :count="8" />
       </div>
 
       <template v-else>
@@ -125,9 +125,11 @@
 // 数据源：主进程 omnibuddy:capability:list（核心 / 扩展 / 交互任务 / 语义记忆 / 连接器，静态目录与工具注册处同步维护）
 // 分组元数据与权限策略下拉共用 categories.js（一处定义，两处消费）
 import { CAPABILITY_CATEGORIES } from './categories'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
 export default {
   name: 'OmniBuddyCapabilities',
+  components: { BuddySkeleton },
   data() {
     return {
       loading: false,
@@ -217,8 +219,19 @@ export default {
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
 
+/* 加载骨架容器 */
+.ob-sk-wrap {
+  padding: 20px 4px;
+}
+
 .ob-cap-section {
   margin-bottom: 22px;
+
+  /* 卡片右缘与滚动条让位：滚动容器（ob-page-body）右缘有 6px 滚动条，
+     卡片 hover 阴影/边框贴叠滚动条，右移网格留出间隙 */
+  .ob-cards-grid {
+    padding-right: 8px;
+  }
 }
 
 .ob-cap-head {

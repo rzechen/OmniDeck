@@ -11,12 +11,13 @@
         <div v-if="compactionText" class="ob-compaction-meta">{{ compactionText }}</div>
       </div>
 
-      <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP） -->
+      <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP + ask_user 提问） -->
       <thinking-section
         v-if="hasSection"
         :items="message.items || []"
         :is-thinking="!!message.isThinking"
         :is-streaming="!!message.streaming"
+        @ask-answer="(msg, value) => $emit('ask-answer', msg, value)"
       />
 
       <!-- 助手：模型/供应商调用错误（原封不动展示，便于排查） -->
@@ -25,16 +26,17 @@
         <div class="ob-msg-error-text">{{ message.error }}</div>
       </div>
 
-      <!-- 助手：等待首个内容块的思考占位（静态星形图标 + 秒计时） -->
+      <!-- 助手：等待首个内容块的思考占位（转圈 + 秒计时；ask_user 待回答期间持续显示） -->
       <div v-if="showThinkingPlaceholder" class="ob-thinking">
-        <svg-icon icon-class="sparkle" class="ob-think-hico" />
+        <svg-icon icon-class="loading" class="ob-think-spin" />
         <span>思考中</span><span class="ob-thinking-sec">{{ message.seconds }}s</span>
       </div>
-      <!-- 助手：正文 Markdown -->
+      <!-- 助手：正文 Markdown（click 委托承接代码块复制按钮） -->
       <div
         v-else-if="message.role === 'assistant' && message.content"
         class="ob-md"
         v-html="rendered"
+        @click="onMdClick"
       ></div>
       <!-- 用户：图片附件缩略图（截图提问；编辑态隐藏 —— 编辑重问仅发送文本） -->
       <div v-if="message.role === 'user' && !editing && message.images && message.images.length" class="ob-msg-images">
@@ -59,29 +61,31 @@
           </div>
         </div>
       </div>
-      <!-- 用户：编辑重问（会话内分支）—— 替换正文为编辑框，回车或按钮提交 -->
-      <div v-if="message.role === 'user' && editing" class="ob-edit-area">
+      <!-- 用户：编辑重问（会话内分支）—— 替换正文为编辑框（按钮嵌在框内底栏），回车或按钮提交；
+           焦点移出编辑框（点击其它区域）自动退出编辑恢复原样式 -->
+      <div v-if="message.role === 'user' && editing" class="ob-edit-area" @focusout="onEditFocusout">
         <textarea
           ref="editBox"
           v-model="editText"
           class="ob-edit-input"
           rows="3"
           placeholder="修改后重新提问，将创建新分支"
-          @keydown.enter.exact.prevent="submitEdit"
+          @compositionstart="isComposing = true"
+          @compositionend="isComposing = false"
+          @keydown.enter.exact.prevent="onEnterEdit"
+          @keydown.esc="editing = false"
         ></textarea>
         <div class="ob-edit-btns">
-          <span class="ob-edit-btn cancel" @click="editing = false">取消</span>
-          <span class="ob-edit-btn go" @click="submitEdit">
-            <svg-icon icon-class="promotion" />
-            <span>重新提问</span>
-          </span>
+          <!-- mousedown.prevent：阻止点击按钮时 textarea 先失焦导致编辑区被移除、click 落空 -->
+          <span class="ob-edit-btn cancel" @mousedown.prevent @click="editing = false">取消</span>
+          <span class="ob-edit-btn go" @mousedown.prevent @click="submitEdit">重新提问</span>
         </div>
       </div>
       <template v-else-if="message.role === 'user'">{{ message.content }}</template>
 
-      <!-- 用户：分支切换器（该问题存在多个分支变体时常驻显示，点击切换线路） -->
+      <!-- 用户：分支切换器（该问题存在多个分支变体时常驻显示，点击切换线路）
+           居中胶囊分页器 ‹ 1/2 ›，仅多分支时出现 -->
       <div v-if="message.role === 'user' && !editing && branchInfo" class="ob-branch-switch">
-        <span class="ob-branch-tag">分支</span>
         <span
           class="ob-branch-arrow"
           title="上一条分支"
@@ -89,7 +93,7 @@
         >
           <svg-icon icon-class="arrow-right" class="ob-flip" />
         </span>
-        <span class="ob-branch-count" :title="'共 ' + branchInfo.total + ' 条分支'">{{ branchInfo.index }}/{{ branchInfo.total }}</span>
+        <span class="ob-branch-count" :title="'共 ' + branchInfo.total + ' 条分支，点击箭头切换'">{{ branchInfo.index }} / {{ branchInfo.total }}</span>
         <span
           class="ob-branch-arrow"
           title="下一条分支"
@@ -152,7 +156,7 @@
 
 <script>
 // OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标 + meta 行）
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
 import ThinkingSection from './ThinkingSection.vue'
 
 export default {
@@ -173,7 +177,9 @@ export default {
     return {
       // 编辑重问（会话内分支）：编辑态与草稿
       editing: false,
-      editText: ''
+      editText: '',
+      // 中文输入法组合中（组合态回车 = 确认候选词，不触发提交）
+      isComposing: false
     }
   },
   watch: {
@@ -248,6 +254,12 @@ export default {
     }
   },
   methods: {
+    // Markdown 区点击委托：代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+    onMdClick(e) {
+      handleCodeCopy(e).then(ok => {
+        if (ok) this.$message.success('已复制')
+      })
+    },
     // ===== 编辑重问（会话内分支）=====
     // 进入编辑态：预填当前问题文本并聚焦
     startEdit() {
@@ -262,6 +274,19 @@ export default {
           try { box.setSelectionRange(len, len) } catch (e) { /* 忽略 */ }
         }
       })
+    },
+    // 焦点移出编辑区：退出编辑恢复原气泡（点击输入框外任意区域即取消）。
+    // relatedTarget 仍在编辑区内（textarea ↔ 按钮间切换）不取消；
+    // 点击不可聚焦区域（空白处/图标）时 relatedTarget 为 null → 取消
+    onEditFocusout(e) {
+      const to = e.relatedTarget
+      if (to && e.currentTarget.contains(to)) return
+      this.editing = false
+    },
+    // 回车提交编辑：输入法组合中（确认候选词）不提交
+    onEnterEdit(e) {
+      if (this.isComposing || e.isComposing) return
+      this.submitEdit()
     },
     // 提交编辑：上抛页面层（创建分支变体并重新提问）
     submitEdit() {
@@ -377,8 +402,8 @@ export default {
   &:empty { margin-bottom: 0; }
 }
 
-/* ===== 编辑重问（会话内分支）：普通输入框 ===== */
-/* 编辑态：去除用户气泡的渐变背景，仅呈现普通输入框本身 */
+/* ===== 编辑重问（会话内分支）：卡片式输入框，操作按钮嵌在框内底栏 ===== */
+/* 编辑态：去除用户气泡的渐变背景，仅呈现编辑框卡片本身 */
 .ob-msg.user .ob-msg-bubble.editing {
   background: transparent;
   border: none;
@@ -388,6 +413,11 @@ export default {
 .ob-edit-area {
   width: 100%;
   min-width: 300px;
+  border: 1.5px solid rgba(var(--primary-color-rgb), 0.55);
+  border-radius: 14px;
+  background: var(--card-bg, #fff);
+  box-shadow: 0 2px 12px rgba(var(--primary-color-rgb), 0.1);
+  overflow: hidden;
 }
 
 .ob-edit-input {
@@ -395,48 +425,39 @@ export default {
   width: 100%;
   min-height: 64px;
   max-height: 240px;
-  resize: vertical;
-  border: 1px solid var(--border-color);
+  overflow-y: auto;
+  resize: none;
+  border: none;
   outline: none;
-  border-radius: 8px;
-  background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: 14px;
   line-height: 1.6;
-  padding: 8px 11px;
-
-  &:focus {
-    border-color: var(--primary-color);
-  }
+  padding: 10px 13px 4px;
 
   &::placeholder {
     color: var(--text-secondary);
   }
 }
 
+/* 框内底栏：右侧纯文字按钮（取消 / 重新提问） */
 .ob-edit-btns {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
-  margin-top: 8px;
+  gap: 4px;
+  padding: 4px 8px 8px;
   user-select: none;
 }
 
 .ob-edit-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-radius: 7px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
+  padding: 3px 10px;
+  border-radius: 7px;
   transition: all 0.12s ease;
-
-  .svg-icon {
-    font-size: 12px;
-  }
+  user-select: none;
 
   &.cancel {
     color: var(--text-secondary);
@@ -447,50 +468,52 @@ export default {
   }
 
   &.go {
-    background: var(--primary-color);
-    color: #fff;
-    font-weight: 500;
+    color: var(--primary-color);
+    font-weight: 600;
 
     &:hover {
-      background: var(--primary-color-hover);
+      background: rgba(var(--primary-color-rgb), 0.09);
     }
   }
 
   &:active {
-    transform: scale(0.97);
+    transform: scale(0.95);
   }
 }
 
-/* ===== 分支切换器（用户气泡内、多分支时常驻显示） ===== */
+/* ===== 分支切换器（用户气泡内、多分支时常驻显示）：居中胶囊分页器 ===== */
 .ob-branch-switch {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 7px;
-  padding-top: 5px;
-  border-top: 1px solid rgba(255, 255, 255, 0.24);
-  color: rgba(255, 255, 255, 0.88);
+  gap: 1px;
+  width: fit-content;
+  margin: 9px auto 0;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(4px);
   user-select: none;
 }
 
-.ob-branch-tag {
-  font-size: 10.5px;
-  opacity: 0.72;
-  margin-right: 2px;
-}
-
 .ob-branch-count {
+  min-width: 34px;
+  text-align: center;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .ob-branch-arrow {
   display: inline-flex;
   align-items: center;
-  padding: 1px;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
   cursor: pointer;
-  transition: color 0.12s ease;
+  color: rgba(255, 255, 255, 0.85);
+  transition: all 0.12s ease;
 
   .svg-icon {
     font-size: 12px;
@@ -502,7 +525,12 @@ export default {
   }
 
   &:hover {
+    background: rgba(255, 255, 255, 0.26);
     color: #fff;
+  }
+
+  &:active {
+    transform: scale(0.88);
   }
 }
 
@@ -608,11 +636,22 @@ export default {
   color: var(--text-secondary);
   user-select: none;
 
-  /* 与深度思考区头部一致的星形图标（静态） */
-  .ob-think-hico {
-    font-size: 12px;
+  /* 主色转圈：等待模型首个内容块（含 ask_user 待回答期间） */
+  .ob-think-spin {
+    font-size: 13px;
     margin-right: 3px;
     color: var(--primary-color);
+    animation: ob-think-rotate 0.9s linear infinite;
+  }
+}
+
+@keyframes ob-think-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -796,6 +835,14 @@ export default {
   ::v-deep {
     p { margin: 0 0 8px; }
     p:last-child { margin-bottom: 0; }
+
+    /* 代码块容器内 pre 复位（工具条/边框/圆角由全局 .ob-code 承载；
+       本组件旧 pre 样式特异性更高，需在此覆盖） */
+    .ob-code pre {
+      margin: 0;
+      border-radius: 0;
+      background: transparent;
+    }
 
     pre {
       background: rgba(0, 0, 0, 0.06);

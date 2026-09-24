@@ -1,6 +1,56 @@
 /* OmniBuddy 管理页全局样式（el-dialog append-to-body / ZIP 上传区）
    需全局生效：el-dialog 挂载在 body 下，scoped 样式无法命中 */
 
+/* ===== Markdown 代码块（markdown-it fence 自定义渲染，v-html 内容须全局命中） =====
+   结构：.ob-code > .ob-code-head（.ob-code-lang + .ob-code-copy）+ pre>code
+   使用方：聊天气泡 / 思考区 / 规则预览 / 详情弹窗 */
+.ob-code {
+  margin: 8px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.ob-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 4px 12px;
+  background: rgba(0, 0, 0, 0.045);
+  border-bottom: 1px solid var(--border-color);
+  user-select: none;
+}
+
+.ob-code-lang {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.ob-code-copy {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+  transition: all 0.12s ease;
+
+  &:hover {
+    color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.09);
+  }
+}
+
+/* 容器内 pre 复位（边框/圆角/底色由 .ob-code 统一承载） */
+.ob-code pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 12px;
+}
+
 .ob-el-dialog {
   border-radius: 16px !important;
   border: 1px solid var(--border-color);

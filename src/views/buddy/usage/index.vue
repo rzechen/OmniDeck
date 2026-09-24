@@ -15,20 +15,27 @@
       </div>
     </div>
 
-    <div v-loading="loading" class="ob-usage-body">
-      <!-- 顶部数字卡：今日 / 窗口合计 / 会话数 -->
-      <usage-stat-cards :summary="summary" :days="days" />
-
-      <!-- 日用量柱状图 -->
-      <daily-bar-chart :days="summary.daily" />
-
-      <div class="ob-usage-cols">
-        <!-- 会话 TOP5 -->
-        <top-sessions :sessions="top5" />
-
-        <!-- 模型分布 -->
-        <model-pie-chart :models="summary.models" />
+    <div class="ob-usage-body">
+      <!-- 加载骨架：指标卡 + 行（替代 v-loading 遮罩） -->
+      <div v-if="loading" class="ob-sk-wrap" style="padding: 18px 4px">
+        <buddy-skeleton type="stats" :count="6" />
       </div>
+
+      <template v-else>
+        <!-- 顶部数字卡：今日 / 窗口合计 / 会话数 -->
+        <usage-stat-cards :summary="summary" :days="days" />
+
+        <!-- 日用量柱状图 -->
+        <daily-bar-chart :days="summary.daily" />
+
+        <div class="ob-usage-cols">
+          <!-- 会话 TOP5 -->
+          <top-sessions :sessions="top5" />
+
+          <!-- 模型分布 -->
+          <model-pie-chart :models="summary.models" />
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -37,6 +44,7 @@
 // 用量统计（N4 / §18.2）：主进程 summarize 聚合好三维数据，页面只做数据编排；
 // 卡片 / 柱状图 / 饼图 / TOP5 榜单拆分为 components/ 下 co-locate 子组件
 import { buddyApi } from '@/utils/buddy-api'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import UsageStatCards from './components/UsageStatCards.vue'
 import DailyBarChart from './components/DailyBarChart.vue'
 import ModelPieChart from './components/ModelPieChart.vue'
@@ -44,7 +52,7 @@ import TopSessions from './components/TopSessions.vue'
 
 export default {
   name: 'OmniBuddyUsage',
-  components: { UsageStatCards, DailyBarChart, ModelPieChart, TopSessions },
+  components: { BuddySkeleton, UsageStatCards, DailyBarChart, ModelPieChart, TopSessions },
   data() {
     return {
       loading: false,

@@ -97,9 +97,9 @@
     </div>
 
     <!-- ===== 全页状态（加载中 / 加载失败 / 空索引） ===== -->
-    <div v-if="loading" class="ob-empty">
-      <svg-icon icon-class="loading" class="ob-spin" />
-      <div class="ob-empty-title">正在获取资源市场索引…</div>
+    <!-- 加载中：卡片骨架占位 -->
+    <div v-if="loading" class="ob-sk-wrap">
+      <buddy-skeleton type="cards" :count="9" />
     </div>
 
     <div v-else-if="error" class="ob-empty">
@@ -176,11 +176,12 @@ import ItemDetailDialog from '@/components/buddy/ItemDetailDialog.vue'
 import MarketCard from './components/MarketCard.vue'
 import MarketSidebar from './components/MarketSidebar.vue'
 import MarketToolbar from './components/MarketToolbar.vue'
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApiSection } from '@/utils/buddy-api'
 
 export default {
   name: 'OmniBuddyMarket',
-  components: { ItemDetailDialog, MarketCard, MarketSidebar, MarketToolbar },
+  components: { ItemDetailDialog, MarketCard, MarketSidebar, MarketToolbar, BuddySkeleton },
   data() {
     return {
       loading: false,
@@ -410,6 +411,11 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 加载骨架容器内边距 */
+.ob-sk-wrap {
+  padding: 18px 4px;
+}
 
 /* ===== 顶部精细 Header ===== */
 .ob-market-hero {

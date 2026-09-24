@@ -1,8 +1,11 @@
 <template>
   <!-- 任务列表：按工作空间展示名分组（无展示名按磁盘路径） -->
   <div class="buddy-tasks">
+    <!-- 加载骨架：会话首次拉取期间替代列表与空态 -->
+    <buddy-skeleton v-if="loading" type="rows" :count="5" />
+
     <!-- 空状态：在剩余区域内垂直水平居中 -->
-    <div v-if="!groups.length" class="buddy-chat-empty">
+    <div v-else-if="!groups.length" class="buddy-chat-empty">
       <div class="buddy-chat-empty-icon">
         <svg-icon icon-class="chat-dot-round" />
       </div>
@@ -27,8 +30,20 @@
         @mouseenter="onChatEnter"
         @mouseleave="onChatLeave"
       >
+        <!-- 实时状态标记（store 会话池）：流式输出中 = 主色转圈；待权限确认 = 黄点 -->
+        <svg-icon
+          v-if="stateOf(c) === 'streaming'"
+          icon-class="loading"
+          class="buddy-state-spin"
+          title="回答生成中"
+        />
+        <span
+          v-else-if="stateOf(c) === 'pending'"
+          class="buddy-state-pending"
+          title="等待权限确认"
+        ></span>
         <!-- 分叉创建的会话用 fork 图标（与气泡分叉按钮同图标，不做常亮高亮） -->
-        <svg-icon :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
+        <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
         <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
         <span class="buddy-chat-actions" @click.stop>
           <svg-icon icon-class="edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
@@ -42,8 +57,11 @@
 <script>
 // OmniBuddy 侧边栏任务列表：按会话工作空间的展示名（displayName）分组
 // 分组名 = displayName || workspaceDir（快照自会话元数据），纯展示组件
+import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
+
 export default {
   name: 'BuddyTaskList',
+  components: { BuddySkeleton },
   props: {
     // 会话列表（主进程持久化，含 workspaceDir/displayName）
     chats: {
@@ -53,6 +71,11 @@ export default {
     activeChatId: {
       type: String,
       default: ''
+    },
+    // 会话列表加载中（侧栏以骨架替代列表与空态）
+    loading: {
+      type: Boolean,
+      default: false
     }
   },
   computed: {
@@ -76,6 +99,14 @@ export default {
     }
   },
   methods: {
+    // 会话实时状态（store 会话池快照）：streaming = 流式输出中 / pending = 待权限确认
+    stateOf(c) {
+      const s = this.$store.getters['buddyChat/session'](c.id)
+      if (!s) return ''
+      if (s.streaming) return 'streaming'
+      if (s.permQueue && s.permQueue.length) return 'pending'
+      return ''
+    },
     // ===== 对话名称 hover 滚动（超长标题从右向左滚动展示） =====
     onChatEnter(e) {
       const wrap = e.currentTarget.querySelector('.buddy-chat-name')
@@ -103,6 +134,31 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+
+/* 加载骨架微调：贴合任务行视觉（小图标 + 细行文字，替代骨架默认的 34px 大块） */
+::v-deep .ob-skeleton.sk-rows {
+  .sk-row {
+    padding: 8px 10px 8px 16px;
+  }
+
+  .sk-dot {
+    width: 15px;
+    height: 15px;
+    border-radius: 5px;
+  }
+
+  .sk-lines {
+    gap: 5px;
+  }
+
+  .sk-line {
+    height: 11px;
+
+    &.sm {
+      height: 9px;
+    }
+  }
 }
 
 /* 分组容器 */
@@ -286,5 +342,34 @@ export default {
       color: #F5222D;
     }
   }
+}
+
+/* ===== 实时状态标记 ===== */
+/* 流式输出中：主色转圈（行首图标位替换） */
+.buddy-state-spin {
+  font-size: 13px;
+  color: var(--primary-color);
+  flex-shrink: 0;
+  animation: buddy-task-spin 0.9s linear infinite;
+}
+
+@keyframes buddy-task-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 待权限确认：琥珀色圆点（带柔光晕，行首图标位替换） */
+.buddy-state-pending {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e6a23c;
+  box-shadow: 0 0 0 3px rgba(230, 162, 60, 0.2);
+  flex-shrink: 0;
 }
 </style>

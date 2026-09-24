@@ -43,7 +43,7 @@
       <!-- 描述（Markdown 渲染，SKILL.md 正文可直接呈现标题/代码块/表格） -->
       <div class="ob-detail-section" v-if="item.details || item.description">
         <div class="ob-detail-section-title">描述</div>
-        <div class="ob-detail-text ob-md" v-html="renderedDetails"></div>
+        <div class="ob-detail-text ob-md" v-html="renderedDetails" @click="onMdClick"></div>
       </div>
 
       <!-- 标签 -->
@@ -77,7 +77,7 @@
 <script>
 // 市场页与技能页共享的资源详情弹窗：
 // 徽标头 + 信息网格 + 描述（Markdown 渲染）+ 标签 + 版本历史；操作按钮经 actions slot 注入
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
 
 export default {
   name: 'ItemDetailDialog',
@@ -114,6 +114,12 @@ export default {
     }
   },
   methods: {
+    // Markdown 区点击委托：代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+    onMdClick(e) {
+      handleCodeCopy(e).then(ok => {
+        if (ok) this.$message.success('已复制')
+      })
+    },
     formatDate(v) {
       if (!v) return ''
       const d = new Date(v)
@@ -285,6 +291,14 @@ export default {
   ::v-deep {
     p { margin: 0 0 8px; }
     p:last-child { margin-bottom: 0; }
+
+    /* 代码块容器内 pre 复位（工具条/边框/圆角由全局 .ob-code 承载） */
+    .ob-code pre {
+      margin: 0;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+    }
 
     pre {
       background: rgba(0, 0, 0, 0.06);

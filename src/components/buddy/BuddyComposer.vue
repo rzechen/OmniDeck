@@ -22,7 +22,8 @@
         </div>
       </div>
 
-      <!-- 多行输入：自动增高（粘贴文件转附件）；流式生成中禁用输入 -->
+      <!-- 多行输入：自动增高（粘贴文件转附件）；流式生成中禁用输入；
+           composition 事件跟踪中文输入法组合态（组合中回车 = 确认候选词，不发送） -->
       <textarea
         ref="ta"
         class="bc-textarea"
@@ -33,7 +34,9 @@
         @input="onInput"
         @focus="isFocus = true"
         @blur="isFocus = false"
-        @keydown.enter.exact.prevent="onSend"
+        @compositionstart="isComposing = true"
+        @compositionend="isComposing = false"
+        @keydown.enter.exact.prevent="onEnter"
         @paste="onPaste"
       ></textarea>
 
@@ -67,7 +70,7 @@
           title="停止生成"
           @click="$emit('stop')"
         >
-          <svg-icon icon-class="video-pause" />
+          <svg-icon icon-class="stop" />
         </button>
       </div>
     </div>
@@ -111,7 +114,9 @@ export default {
   data() {
     return {
       isFocus: false,
-      isDrag: false
+      isDrag: false,
+      // 中文输入法组合中（组合态回车 = 确认候选词，不触发发送）
+      isComposing: false
     }
   },
   computed: {
@@ -135,6 +140,13 @@ export default {
   methods: {
     onInput(e) {
       this.$emit('input', e.target.value)
+    },
+    // 回车发送：输入法组合中（确认候选词的回车）不发送。
+    // Chrome 下确认候选词时 keydown 先于 compositionend 触发且 isComposing 仍为 true，
+    // 自维护标志与事件原生 isComposing 双重判定兜底（Safari 时序差异）
+    onEnter(e) {
+      if (this.isComposing || e.isComposing) return
+      this.onSend()
     },
     // 粘贴含文件时转为附件（P1-7）：拦截默认行为，交主进程落盘
     onPaste(e) {

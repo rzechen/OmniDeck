@@ -267,6 +267,9 @@
   }
 }
 
+/* 注：Markdown 代码块（.ob-code 系列）样式在 buddy-settings-global.scss —— 本文件
+   被各页面 scoped @import，v-html 生成的 DOM 无 scoped 属性无法命中 */
+
 .ob-section-header {
   margin-bottom: 14px;
 }
