@@ -34,6 +34,16 @@
           <span v-if="isThinking && i === items.length - 1" class="ob-cursor"></span>
         </div>
 
+        <!-- 过程说明（中途正文归位：本段正文之后仍有工具调用，收尾正文才进气泡） -->
+        <div
+          v-else-if="item.type === 'narration'"
+          :key="'narration-' + i"
+          class="ob-think-text ob-narration"
+        >
+          <div class="ob-narration-tag">过程说明</div>
+          <div class="ob-think-md" v-html="rendered(item.content)" @click="onMdClick"></div>
+        </div>
+
         <!-- Skill 激活 -->
         <div v-else-if="item.type === 'skill'" :key="'skill-' + i" class="ob-skill">
           <svg-icon icon-class="magic-stick" class="ob-skill-ico" />
@@ -554,6 +564,15 @@ export default {
       p { margin: 0 0 4px; }
       p:last-child { margin-bottom: 0; }
 
+      /* 有序/无序列表：与正文 .ob-md 同款缩进（浏览器默认 40px 过大，
+         编号会凸出思考文本对齐线，视觉上脱离思考区） */
+      ul, ol {
+        padding-left: 18px;
+        margin: 4px 0;
+
+        li { margin: 2px 0; }
+      }
+
       /* 代码块（与正文 .ob-code 同构，思考区整体小一号、底色更淡） */
       .ob-code {
         margin: 6px 0;
@@ -608,6 +627,20 @@ export default {
         }
       }
     }
+  }
+}
+
+/* 过程说明（中途正文归位块）：思考文本样式 + 小标签区分 */
+.ob-narration {
+  .ob-narration-tag {
+    display: inline-block;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+    padding: 0 6px;
+    margin-bottom: 3px;
   }
 }
 

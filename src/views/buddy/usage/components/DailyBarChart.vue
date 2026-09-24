@@ -43,6 +43,13 @@ export default {
       if (!el) return
       if (!this._bar) this._bar = echarts.init(el)
       const daily = this.days || []
+      // echarts 为 canvas 渲染，不解析 CSS 变量：itemStyle.color 里写
+      // rgba(var(--primary-color-rgb), x) 是非法颜色（静态绘制碰巧沿用上下文
+      // 残留样式，hover 触发 emphasis 重绘时赋色失败 → 柱子消失）。
+      // 此处读计算值合成合法 rgba
+      const cs = window.getComputedStyle(el)
+      const rgb = (cs.getPropertyValue('--primary-color-rgb') || '').trim() || '64, 133, 255'
+      const primaryColor = 'rgba(' + rgb + ', 0.85)'
       this._bar.setOption({
         grid: { left: 56, right: 16, top: 32, bottom: 28 },
         tooltip: { trigger: 'axis' },
@@ -57,7 +64,7 @@ export default {
           axisLabel: { fontSize: 10, formatter: v => (v >= 1000 ? (v / 1000) + 'k' : v) }
         },
         series: [
-          { name: '输入', type: 'bar', stack: 't', barMaxWidth: 18, data: daily.map(d => d.input), itemStyle: { color: 'rgba(var(--primary-color-rgb), 0.85)' } },
+          { name: '输入', type: 'bar', stack: 't', barMaxWidth: 18, data: daily.map(d => d.input), itemStyle: { color: primaryColor } },
           { name: '输出', type: 'bar', stack: 't', barMaxWidth: 18, data: daily.map(d => d.output), itemStyle: { color: '#67c23a' } }
         ]
       })

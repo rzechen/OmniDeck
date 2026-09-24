@@ -564,6 +564,155 @@ html[data-theme='dark'] {
   }
 }
 
+/* ============ el-date-picker 全局定制：与 el-select 同款 macOS 配方 ============ */
+/* 弹层（.el-picker-panel / .el-time-panel）挂载于 body 下，须全局覆盖；
+   Element 默认交互色 #409EFF 全部替换为主题色 */
+
+/* 触发器：与 el-select 输入框一致（浅底圆角 + 主题色聚焦光环） */
+.el-date-editor.el-input {
+  .el-input__inner {
+    background: var(--search-bg);
+    border-color: var(--border-color);
+    border-radius: 10px;
+    color: var(--text-primary);
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+
+    &:hover {
+      border-color: rgba(var(--primary-color-rgb), 0.35);
+    }
+
+    &:focus {
+      border-color: rgba(var(--primary-color-rgb), 0.5);
+      box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.1);
+    }
+
+    &::placeholder {
+      color: var(--text-secondary);
+    }
+  }
+
+  .el-input__prefix,
+  .el-input__suffix {
+    color: var(--text-secondary);
+  }
+}
+
+/* 日期面板：大圆角 + 毛玻璃（同 el-select-dropdown 配方） */
+.el-picker-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
+  color: var(--text-primary);
+
+  .popper__arrow {
+    display: none;
+  }
+
+  /* 头部：年月标签与前后翻页图标 */
+  .el-date-picker__header-label {
+    color: var(--text-primary);
+
+    &:hover {
+      color: var(--primary-color);
+    }
+  }
+
+  .el-picker-panel__icon-btn {
+    color: var(--text-secondary);
+
+    &:hover {
+      color: var(--primary-color);
+    }
+  }
+
+  /* 日历表：星期行 / 今天 / 悬停 / 选中（默认蓝全量替换为主题色） */
+  .el-date-table,
+  .el-month-table,
+  .el-year-table {
+    th {
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    td.available:hover {
+      color: var(--primary-color);
+    }
+
+    td.today span,
+    td.today .cell {
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+
+    td.current:not(.disabled) span {
+      background: var(--primary-color);
+      color: #fff;
+    }
+
+    td.current:not(.disabled) .cell {
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+  }
+
+  /* 底部按钮（此刻 / 确定）：确定按钮为主题色实底 */
+  .el-picker-panel__footer {
+    background: transparent;
+    border-top: none;
+
+    .el-picker-panel__link-btn {
+      color: var(--text-secondary);
+
+      &:hover {
+        color: var(--primary-color);
+      }
+    }
+
+    .el-button--primary {
+      background: var(--primary-color);
+      border-color: var(--primary-color);
+
+      &:hover,
+      &:focus {
+        background: rgba(var(--primary-color-rgb), 0.85);
+        border-color: rgba(var(--primary-color-rgb), 0.85);
+      }
+    }
+  }
+}
+
+/* 时间选择面板（datetime 的时/分/秒弹层，同样挂载于 body） */
+.el-time-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
+
+  .el-time-spinner__item {
+    color: var(--text-primary);
+
+    &.active:not(.disabled) {
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+
+    &:not(.disabled):hover {
+      color: var(--primary-color);
+    }
+  }
+
+  .el-time-panel__footer .el-time-panel__btn {
+    color: var(--text-secondary);
+
+    &.confirm {
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+  }
+}
+
 /* ============ el-dropdown 全局定制：macOS 菜单风格 ============ */
 /* 与 el-select-dropdown 同款配方：大圆角 + 毛玻璃 + 柔和阴影 + 胶囊菜单项 */
 

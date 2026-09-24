@@ -112,8 +112,15 @@ function normalizeHistory(list) {
         continue
       }
       if (lastAssistant && sameAnchors(m.anchors, lastAssistant.anchors)) {
-        if (m.content) lastAssistant.content = lastAssistant.content ? lastAssistant.content + '\n\n' + m.content : m.content
-        if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking })
+        // 中途旁白记录（mid：该轮流式以工具调用收尾）：思考与过程说明按原顺序
+        // 归位思考区，正文不并入（与实时渲染语义一致）
+        if (m.mid) {
+          if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking })
+          if (m.content) lastAssistant.items.push({ type: 'narration', content: m.content })
+        } else {
+          if (m.content) lastAssistant.content = lastAssistant.content ? lastAssistant.content + '\n\n' + m.content : m.content
+          if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking })
+        }
         // token 用量累加（工具循环中被归并的多条助手记录）
         if (m.usage) {
           lastAssistant.usage = lastAssistant.usage || { input: 0, output: 0 }
@@ -131,6 +138,11 @@ function normalizeHistory(list) {
       }
       const msg = Object.assign({}, m, { items: [] })
       if (m.thinking) msg.items.push({ type: 'thinking', content: m.thinking })
+      // 首条即为中途旁白（本轮开场即工具调用）：正文归位思考区
+      if (m.mid && m.content) {
+        msg.items.push({ type: 'narration', content: m.content })
+        msg.content = ''
+      }
       out.push(msg)
       lastAssistant = msg
       continue
@@ -402,6 +414,13 @@ export default {
           const msg = ensureTurnMessage(s)
           msg.isThinking = false
           msg.content = s.cycleBase + (e.content || '')
+          // 中途正文（本轮流式以工具调用收尾，mid 由主进程按 stopReason 判定）：
+          // 移入思考区作为「过程说明」，正文气泡仅为回合最终回复保留
+          if (e.mid && (msg.content || '').trim()) {
+            msg.items.push({ type: 'narration', content: msg.content })
+            msg.content = ''
+            s.cycleBase = ''
+          }
           Vue.delete(msg, 'thinking')
           // 回填本轮首条落盘记录 id（仅首次）：实时聚合消息与重开归并消息
           // 指向同一条记录，点赞/点踩持久化与分支据此定位
@@ -431,6 +450,14 @@ export default {
         }
         case 'tool_start': {
           const msg = ensureTurnMessage(s)
+          // 兜底封存：assistant_end 未带 mid 标记时（供应商 stopReason 缺失等），
+          // 工具开始执行即视为此前正文为中途旁白（正常路径已在 assistant_end 封存，
+          // 此处 content 为空直接跳过，幂等）
+          if ((msg.content || '').trim()) {
+            msg.items.push({ type: 'narration', content: msg.content })
+            msg.content = ''
+            s.cycleBase = ''
+          }
           const tool = {
             type: 'tool',
             toolCallId: e.toolCallId,

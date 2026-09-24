@@ -28,7 +28,7 @@
         <!-- 回到底部悬浮按钮：用户上滚离开底部后出现，点击平滑滚回并恢复自动跟滚 -->
         <transition name="ob-scroll-btn">
           <div v-if="showBackToBottom" class="ob-back-to-bottom" @click="backToBottom">
-            <svg-icon icon-class="top" class="ob-btb-ico" />
+            <svg-icon icon-class="arrow-down" class="ob-btb-ico" />
             <span v-if="streaming" class="ob-btb-dot"></span>
           </div>
         </transition>
@@ -912,8 +912,9 @@ export default {
 .ob-back-to-bottom {
   position: sticky;
   bottom: 12px;
-  margin-left: auto;
-  margin-right: 20px;
+  // 居中悬浮于输入框上方：flex-shrink 0 防止被长内容压缩压扁
+  align-self: center;
+  flex-shrink: 0;
   width: 34px;
   height: 34px;
   border-radius: 50%;

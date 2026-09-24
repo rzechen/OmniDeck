@@ -354,10 +354,17 @@ export default {
         if (!ok || stale) continue
         // 该会话已在当前页签：浮动条可见，无需全局通知
         if (this.activeChatId === n.sessionId) continue
-        const c = this.chats.find(x => x.id === n.sessionId)
+        let c = this.chats.find(x => x.id === n.sessionId)
+        if (!c) {
+          // 列表未含该会话（他窗创建 / 冷启动后列表未刷新）：拉取一次再定位，
+          // 避免任务已有名称却回落显示「未命名」
+          await this.loadChats()
+          c = this.chats.find(x => x.id === n.sessionId)
+        }
+        const title = (c && c.title) || ''
         this.$notify({
           title: '权限确认待处理',
-          message: '任务「' + (c ? c.title : '未命名') + '」等待你的授权确认，点击前往处理',
+          message: (title ? '任务「' + title + '」' : '一个任务') + '等待你的授权确认，点击前往处理',
           type: 'warning',
           duration: 8000,
           onClick: () => {
