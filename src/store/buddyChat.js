@@ -270,13 +270,24 @@ export default {
   },
   actions: {
     // 全局单点订阅主进程流式事件 + 启动思考秒计时（幂等，App 启动时调用一次）
-    init({ state, dispatch }) {
+    init({ state, dispatch, commit }) {
       if (state._unsub) return
       const api = window.electronAPI && window.electronAPI.omnibuddy
       if (api && api.onEvent) {
         state._unsub = api.onEvent(e => dispatch('handleEvent', e))
       }
       state._tick = setInterval(() => dispatch('tick'), 1000)
+      // 恢复未决权限确认：渲染层重载（HMR/刷新）会丢失一次性推送的
+      // permission_ask 事件，就绪后主动拉取重新入队（会话不在池中先建池）
+      if (api && api.pendingPermissions) {
+        api.pendingPermissions().then(list => {
+          for (const e of (Array.isArray(list) ? list : [])) {
+            if (!e || !e.askId || !e.sessionId) continue
+            commit('ENSURE', e.sessionId)
+            dispatch('handleEvent', { type: 'permission_ask', askId: e.askId, sessionId: e.sessionId, surface: e.surface, value: e.value, toolName: e.toolName, command: e.command, path: e.path, preview: e.preview })
+          }
+        }).catch(() => {})
+      }
     },
     // 思考计时：为「计时中」的轮次每秒递增秒数（组件切走期间照常累计）
     tick({ state }) {
@@ -500,7 +511,7 @@ export default {
             preview: e.preview
           })
           // 全局待确认通知：当前激活页签不是该会话时，浮动条不可见，
-          // 由布局层弹持续引导（点击跳转），避免隐形挂起直到主进程超时拒绝
+          // 由布局层弹持续引导（点击跳转），避免隐形挂起
           commit('NOTICE', { sessionId: e.sessionId, kind: 'perm-pending', surface: e.surface || '', value: e.command || e.path || e.value || '' })
           break
         case 'todo_update': {

@@ -30,8 +30,13 @@
               <svg-icon :icon-class="it.svg || 'menu'" class="ob-pop-svg" />
             </span>
             <span class="ob-pop-text">{{ it.label }}</span>
+            <!-- 选中对勾：tag 左侧、固定占位（未选中隐藏但保留宽度，tag 列纵向对齐） -->
+            <svg-icon
+              icon-class="check"
+              class="ob-pop-check"
+              :class="{ on: it.value === modelValue }"
+            />
             <span v-if="it.tag" class="ob-pop-tag">{{ it.tag }}</span>
-            <svg-icon v-if="it.value === modelValue" icon-class="check" class="ob-pop-check" />
           </div>
         </div>
 
@@ -282,7 +287,8 @@ html[data-theme='dark'] .ob-select-pop {
     text-overflow: ellipsis;
   }
 
-  // 次要信息弱化标签（如「未关联」），中性色不用警示色
+  // 次要信息弱化标签（如「未关联」），中性色不用警示色；
+  // 定宽居中：不同字数的 tag 等宽对齐（如「仅查看」「自主执行」「推荐」），避免错乱
   .ob-pop-tag {
     flex-shrink: 0;
     font-size: 10px;
@@ -290,13 +296,22 @@ html[data-theme='dark'] .ob-select-pop {
     background: var(--search-bg);
     border-radius: 999px;
     padding: 1px 7px;
+    min-width: 58px;
+    text-align: center;
+    box-sizing: border-box;
   }
 
+  // 选中对勾（tag 左侧）：固定占位，未选中隐藏但保留宽度，保证 tag 列纵向对齐
   .ob-pop-check {
     font-size: 12px;
     font-weight: 600;
     color: var(--primary-color);
     flex-shrink: 0;
+    visibility: hidden;
+
+    &.on {
+      visibility: visible;
+    }
   }
 
   &:hover {

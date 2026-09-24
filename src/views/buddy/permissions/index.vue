@@ -24,6 +24,15 @@
       </div>
 
       <template v-else>
+        <!-- 策略与权限模式的关系说明 -->
+        <div class="ob-relation-tip">
+          <i class="el-icon-info ob-relation-tip-ico" />
+          <div class="ob-relation-tip-body">
+            <p><b>权限策略（本页）</b>：决定每个工具 / 路径是「允许 / 需确认 / 拒绝」。其中允许与拒绝的规则直接执行，不经过权限模式。</p>
+            <p><b>权限模式（对话输入框切换）</b>：只裁决策略中「需确认」的操作——每次确认：弹卡询问；自动：直接放行；只读：直接拒绝。</p>
+          </div>
+        </div>
+
         <!-- 预设 -->
         <div class="ob-preset-row">
           <div
@@ -335,6 +344,36 @@ export default {
 }
 
 /* ============ 预设卡片 ============ */
+/* 策略与权限模式的关系说明（macOS 浅底信息条） */
+.ob-relation-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: $card-bg;
+  font-size: 12px;
+  line-height: 1.7;
+  color: $text-secondary;
+
+  .ob-relation-tip-ico {
+    font-size: 15px;
+    color: var(--primary-color);
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  .ob-relation-tip-body p {
+    margin: 0;
+
+    b {
+      color: $text-primary;
+      font-weight: 600;
+    }
+  }
+}
+
 .ob-preset-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

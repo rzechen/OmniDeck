@@ -104,10 +104,10 @@ PYEOF
 
 fail=0
 shopt -s nullglob
-files=("$DIR"/OmniDeck-*.zip "$DIR"/OmniDeck-*.exe "$DIR"/OmniDeck-*.blockmap "$DIR"/latest*.yml)
+files=("$DIR"/OmniDeck-*.dmg "$DIR"/OmniDeck-*.zip "$DIR"/OmniDeck-*.exe "$DIR"/OmniDeck-*.blockmap "$DIR"/latest*.yml)
 shopt -u nullglob
 
-[ ${#files[@]} -gt 0 ] || { echo "release/ 下没有可上传的产物（OmniDeck-*.zip/exe/blockmap、latest*.yml）"; exit 1; }
+[ ${#files[@]} -gt 0 ] || { echo "release/ 下没有可上传的产物（OmniDeck-*.dmg/zip/exe/blockmap、latest*.yml）"; exit 1; }
 
 for f in "${files[@]}"; do
   upload_one "$f" || fail=$((fail + 1))

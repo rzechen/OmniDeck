@@ -51,14 +51,14 @@
         <i class="el-icon-arrow-right quick-arrow"></i>
       </div>
 
-      <!-- 理财 -->
-      <div class="quick-card stagger-item" style="animation-delay: 80ms" @click="$router.push('/finance/fund')">
+      <!-- 贵金属 -->
+      <div class="quick-card stagger-item" style="animation-delay: 80ms" @click="$router.push('/finance/gold')">
         <div class="quick-icon qc-fund">
-          <svg-icon icon-class="fund" class="quick-svg" />
+          <svg-icon icon-class="gold" class="quick-svg" />
         </div>
         <div class="quick-info">
-          <div class="quick-title">理财</div>
-          <div class="quick-desc">基金持仓 · 实时估值 · 收益追踪</div>
+          <div class="quick-title">贵金属</div>
+          <div class="quick-desc">金银铂钯 · 实时行情 · 克价换算</div>
         </div>
         <i class="el-icon-arrow-right quick-arrow"></i>
       </div>

@@ -17,6 +17,7 @@
         :items="message.items || []"
         :is-thinking="!!message.isThinking"
         :is-streaming="!!message.streaming"
+        :perm-pending="permPending"
         @ask-answer="(msg, value) => $emit('ask-answer', msg, value)"
       />
 
@@ -171,6 +172,11 @@ export default {
     streaming: {
       type: Boolean,
       default: false
+    },
+    // 队首待确认权限（透传给思考区工具卡片显示"等待授权"状态）
+    permPending: {
+      type: Object,
+      default: null
     }
   },
   data() {
@@ -254,8 +260,16 @@ export default {
     }
   },
   methods: {
-    // Markdown 区点击委托：代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+    // Markdown 区点击委托：链接拦截 + 代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
     onMdClick(e) {
+      // 链接不导航应用窗口（伪链接如 http://entries.md 会白屏）：合法外链交系统浏览器
+      const anchor = e.target.closest && e.target.closest('a')
+      if (anchor) {
+        e.preventDefault()
+        const href = anchor.getAttribute('href') || ''
+        if (/^https?:\/\//i.test(href)) window.open(href, '_blank')
+        return
+      }
       handleCodeCopy(e).then(ok => {
         if (ok) this.$message.success('已复制')
       })

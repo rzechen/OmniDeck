@@ -7,6 +7,7 @@
         :key="(m.id || i) + '-msg'"
         :message="m"
         :streaming="streaming"
+        :perm-pending="permPending"
         @branch="$emit('branch', m)"
         @feedback="payload => $emit('feedback', payload)"
         @edit-resend="payload => $emit('edit-resend', payload)"
@@ -32,6 +33,7 @@
         v-else-if="m.role === 'todo'"
         :key="(m.id || i) + '-todo'"
         :todos="m.todos"
+        :streaming="streaming"
       />
     </template>
   </div>
@@ -55,6 +57,11 @@ export default {
     streaming: {
       type: Boolean,
       default: false
+    },
+    // 队首待确认权限（透传给工具卡片显示"等待授权"状态；null 表示无）
+    permPending: {
+      type: Object,
+      default: null
     }
   },
   methods: {

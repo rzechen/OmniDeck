@@ -22,10 +22,19 @@
       </div>
 
       <div class="update-card">
-        <!-- 检查中 -->
-        <div v-if="updateState.checking" class="update-status">
-          <i class="el-icon-loading"></i>
-          <span>正在检查更新…</span>
+        <!-- 检查中：骨架屏（模拟新版本横幅形态） -->
+        <div v-if="updateState.checking" class="nv-skel">
+          <div class="sk sk-icon"></div>
+          <div class="sk-body">
+            <div class="sk sk-line w-s"></div>
+            <div class="sk sk-line sk-big w-xs"></div>
+            <div class="sk sk-line w-l"></div>
+            <div class="sk sk-line w-m"></div>
+            <div class="sk-btns">
+              <div class="sk sk-btn"></div>
+              <div class="sk sk-btn"></div>
+            </div>
+          </div>
         </div>
 
         <!-- 无更新 / 已是最新 -->
@@ -36,72 +45,85 @@
           </div>
         </template>
 
-        <!-- 发现新版本 -->
+        <!-- 发现新版本：专属横幅卡片 -->
         <template v-else-if="updateState.checked && updateState.hasUpdate">
-          <div class="update-status is-new">
-            <i class="el-icon-upload"></i>
-            <span>
-              发现新版本
-              <b class="new-version">v{{ updateState.release.tag }}</b>
-              <span class="from-version">（当前 v{{ appVersion }}）</span>
-            </span>
+          <div class="nv-banner">
+            <div class="nv-icon">
+              <i class="el-icon-top"></i>
+            </div>
+
+            <div class="nv-body">
+              <div class="nv-head">
+                <span class="nv-title">发现新版本</span>
+                <span class="nv-pill">NEW</span>
+                <span v-if="releaseDateText" class="nv-date">{{ releaseDateText }} 发布</span>
+              </div>
+
+              <div class="nv-versions">
+                <span class="nv-old">v{{ appVersion }}</span>
+                <i class="el-icon-right nv-arrow"></i>
+                <span class="nv-new">v{{ updateState.release.tag }}</span>
+              </div>
+
+              <!-- 更新说明：Release body 逐行展示 -->
+              <ul v-if="updateNotes.length" class="update-notes nv-notes">
+                <li v-for="(note, i) in updateNotes" :key="i">{{ note }}</li>
+              </ul>
+
+              <!-- N5 阶段二：全自动通道（win）——下载 → 进度 → 重启安装 -->
+              <template v-if="updateState.fullAuto">
+                <div v-if="dlState.status === 'downloading'" class="dl-progress">
+                  <el-progress
+                    :percentage="dlState.percent"
+                    :stroke-width="8"
+                    :show-text="true"
+                    class="dl-bar"
+                  />
+                  <span class="dl-speed">{{ dlSpeedText }}</span>
+                </div>
+                <div v-else-if="dlState.status === 'ready'" class="update-status is-ok nv-line">
+                  <i class="el-icon-circle-check"></i>
+                  <span>v{{ dlState.version || updateState.release.tag }} 已下载完成，重启后自动安装</span>
+                </div>
+                <div v-else-if="dlState.status === 'error'" class="update-status is-err nv-line">
+                  <i class="el-icon-warning-outline"></i>
+                  <span>下载失败：{{ dlState.error || '网络异常' }}（可改用手动下载）</span>
+                </div>
+                <div class="update-actions nv-actions">
+                  <el-button
+                    v-if="dlState.status === 'ready'"
+                    type="primary"
+                    size="small"
+                    round
+                    @click="installUpdate"
+                  >重启并安装</el-button>
+                  <el-button
+                    v-else-if="dlState.status !== 'downloading'"
+                    type="primary"
+                    size="small"
+                    round
+                    :loading="dlStarting"
+                    @click="startDownload"
+                  >自动下载更新</el-button>
+                  <el-button size="small" round @click="goDownload">手动下载</el-button>
+                  <el-button v-if="!updateState.skipped" size="small" round @click="skipUpdate">
+                    下次再说
+                  </el-button>
+                </div>
+              </template>
+              <!-- 阶段一：引导下载（mac 未签名等场景） -->
+              <template v-else>
+                <div class="update-actions nv-actions">
+                  <el-button type="primary" size="small" round @click="goDownload">
+                    前往 GitCode 下载
+                  </el-button>
+                  <el-button v-if="!updateState.skipped" size="small" round @click="skipUpdate">
+                    下次再说
+                  </el-button>
+                </div>
+              </template>
+            </div>
           </div>
-          <!-- 更新说明：Release body 逐行展示 -->
-          <ul v-if="updateNotes.length" class="update-notes">
-            <li v-for="(note, i) in updateNotes" :key="i">{{ note }}</li>
-          </ul>
-          <!-- N5 阶段二：全自动通道（win）——下载 → 进度 → 重启安装 -->
-          <template v-if="updateState.fullAuto">
-            <div v-if="dlState.status === 'downloading'" class="dl-progress">
-              <el-progress
-                :percentage="dlState.percent"
-                :stroke-width="8"
-                :show-text="true"
-                class="dl-bar"
-              />
-              <span class="dl-speed">{{ dlSpeedText }}</span>
-            </div>
-            <div v-else-if="dlState.status === 'ready'" class="update-status is-ok">
-              <i class="el-icon-circle-check"></i>
-              <span>v{{ dlState.version || updateState.release.tag }} 已下载完成，重启后自动安装</span>
-            </div>
-            <div v-else-if="dlState.status === 'error'" class="update-status is-err">
-              <i class="el-icon-warning-outline"></i>
-              <span>下载失败：{{ dlState.error || '网络异常' }}（可改用手动下载）</span>
-            </div>
-            <div class="update-actions">
-              <el-button
-                v-if="dlState.status === 'ready'"
-                type="primary"
-                size="small"
-                round
-                @click="installUpdate"
-              >重启并安装</el-button>
-              <el-button
-                v-else-if="dlState.status !== 'downloading'"
-                type="primary"
-                size="small"
-                round
-                :loading="dlStarting"
-                @click="startDownload"
-              >自动下载更新</el-button>
-              <el-button size="small" round @click="goDownload">手动下载</el-button>
-              <el-button v-if="!updateState.skipped" size="small" round @click="skipUpdate">
-                下次再说
-              </el-button>
-            </div>
-          </template>
-          <!-- 阶段一：引导下载（mac 未签名等场景） -->
-          <template v-else>
-            <div class="update-actions">
-              <el-button type="primary" size="small" round @click="goDownload">
-                前往 GitCode 下载
-              </el-button>
-              <el-button v-if="!updateState.skipped" size="small" round @click="skipUpdate">
-                下次再说
-              </el-button>
-            </div>
-          </template>
         </template>
 
         <!-- 检查失败 -->
@@ -199,6 +221,15 @@ export default {
     }
   },
   computed: {
+    // Release 发布日期（ISO → 年-月-日，无数据返回空）
+    releaseDateText() {
+      const t = this.updateState.release && this.updateState.release.createdAt
+      if (!t) return ''
+      const d = new Date(t)
+      if (isNaN(d.getTime())) return ''
+      const pad = n => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    },
     // Release body → 更新说明行数组（空行/标题符清理）
     updateNotes() {
       const r = this.updateState.release
@@ -407,11 +438,6 @@ export default {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  background: $card-bg;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-base;
-  padding: 14px 18px;
-  box-shadow: $shadow-base;
 
   .check-btn {
     margin-left: auto;
@@ -435,24 +461,279 @@ export default {
     color: var(--success-color, #67c23a);
   }
 
-  &.is-new i {
-    color: $primary-color;
-  }
-
   &.is-err i {
     color: var(--danger-color, #f56c6c);
   }
+}
 
-  .new-version {
+/* ============ 发现新版本横幅 ============ */
+.nv-banner {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 8px;
+  /* 与更新记录 tl-card 同规格（12px 16px + $radius-base），保证边界对齐 */
+  padding: 12px 16px;
+  border-radius: $radius-base;
+  border: 1px solid rgba(var(--primary-color-rgb), 0.22);
+  background: linear-gradient(
+    115deg,
+    rgba(var(--primary-color-rgb), 0.13) 0%,
+    rgba(var(--primary-color-rgb), 0.05) 55%,
+    transparent 100%
+  );
+  position: relative;
+  overflow: hidden;
+
+  /* 顶部主题色高光条 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(var(--primary-color-rgb), 0.55),
+      transparent
+    );
+  }
+
+  /* 横幅内部子块去掉对齐旧状态行的 24px 缩进 */
+  .update-notes,
+  .update-actions,
+  .dl-progress {
+    margin-left: 0;
+  }
+
+  .nv-line,
+  .nv-actions,
+  .dl-progress {
+    margin-top: 12px;
+  }
+
+  .update-notes {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(var(--primary-color-rgb), 0.2);
+  }
+}
+
+.nv-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    145deg,
+    rgba(var(--primary-color-rgb), 0.18),
+    rgba(var(--primary-color-rgb), 0.06)
+  );
+  border: 1px solid rgba(var(--primary-color-rgb), 0.25);
+  box-shadow: 0 2px 10px rgba(var(--primary-color-rgb), 0.16);
+  animation: nv-float 2.6s ease-in-out infinite;
+
+  i {
+    font-size: 20px;
+    color: $primary-color;
+  }
+}
+
+@keyframes nv-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.nv-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.nv-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  .nv-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: $text-primary;
+  }
+
+  .nv-pill {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #fff;
+    background: linear-gradient(135deg, $primary-color, rgba(var(--primary-color-rgb), 0.72));
+    padding: 1px 8px;
+    border-radius: 999px;
+    line-height: 1.5;
+    box-shadow: 0 1px 4px rgba(var(--primary-color-rgb), 0.32);
+    animation: nv-pulse 1.8s ease-in-out infinite;
+  }
+
+  .nv-date {
+    margin-left: auto;
+    font-size: 12px;
+    color: $text-secondary;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes nv-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.nv-versions {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-top: 7px;
+
+  .nv-old {
+    font-size: 13px;
+    color: $text-secondary;
+    font-family: 'SF Mono', Menlo, monospace;
+  }
+
+  .nv-arrow {
+    font-size: 13px;
+    color: $primary-color;
+    animation: nv-nudge 1.4s ease-in-out infinite;
+  }
+
+  .nv-new {
+    font-size: 22px;
+    font-weight: 700;
     color: $primary-color;
     font-family: 'SF Mono', Menlo, monospace;
-    margin: 0 2px;
+    letter-spacing: 0.3px;
+    line-height: 1;
+  }
+}
+
+@keyframes nv-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+}
+
+/* 「减弱动态效果」：关闭横幅装饰动画 */
+html.reduce-motion .nv-icon,
+html.reduce-motion .nv-pill,
+html.reduce-motion .nv-arrow {
+  animation: none;
+}
+
+/* ============ 检查中骨架屏（与新版本横幅同形态） ============ */
+.nv-skel {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-base;
+}
+
+.sk {
+  /* 与基金详情页骨架屏同款波浪 shimmer */
+  background: linear-gradient(90deg, var(--search-bg) 25%, var(--border-color) 37%, var(--search-bg) 63%);
+  background-size: 400% 100%;
+  animation: sk-wave 1.3s ease infinite;
+}
+
+@keyframes sk-wave {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+.sk-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 12px;
+}
+
+.sk-body {
+  flex: 1;
+  min-width: 0;
+
+  .sk-line {
+    height: 12px;
+    border-radius: 6px;
+    margin-top: 10px;
+
+    &.sk-big {
+      height: 18px;
+      margin-top: 7px;
+      border-radius: 9px;
+    }
+
+    &.w-xs {
+      width: 22%;
+    }
+
+    &.w-s {
+      width: 38%;
+    }
+
+    &.w-m {
+      width: 62%;
+    }
+
+    &.w-l {
+      width: 80%;
+    }
   }
 
-  .from-version {
-    color: $text-secondary;
-    font-size: 12px;
+  .sk-btns {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+
+    .sk-btn {
+      width: 88px;
+      height: 26px;
+      border-radius: 999px;
+
+      &:first-child {
+        width: 108px;
+      }
+    }
   }
+}
+
+/* 「减弱动态效果」：骨架屏停止 shimmer */
+html.reduce-motion .sk {
+  animation: none;
 }
 
 .update-notes {

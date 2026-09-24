@@ -32,7 +32,7 @@
           type="textarea"
           :rows="7"
           class="ob-textarea-mono"
-          :placeholder="isEdit ? '已加密保存，不回显；留空保存 = 保持现有值' : '{&quot;API_KEY&quot;: &quot;xxx&quot;}'"
+          placeholder="{&quot;API_KEY&quot;: &quot;xxx&quot;}"
           @blur="formatEnv"
         />
       </div>
@@ -58,8 +58,8 @@
 </template>
 
 <script>
-// 技能凭据弹窗：已有凭据 → update（env 留空传 null 保持原值）；首次 → create（type 固定 'skill'）
-// 明文 env 不回显，删除带二次确认
+// 技能凭据弹窗：已有凭据 → update；首次 → create（type 固定 'skill'）
+// 编辑时通过 credentials.resolve 拉取明文 env 回显，删除带二次确认
 import { parseJsonField } from '@/utils/json-field'
 import { buddyApi } from '@/utils/buddy-api'
 
@@ -84,7 +84,9 @@ export default {
   },
   data() {
     return {
-      credForm: { name: '', envStr: '' }
+      credForm: { name: '', envStr: '' },
+      // 明文 env 是否成功回显：成功后留空保存 = 清除 env；未成功时留空 = 保持原值（防误清空）
+      envLoaded: false
     }
   },
   computed: {
@@ -102,7 +104,7 @@ export default {
     }
   },
   watch: {
-    // 打开时初始化：已有凭据回填名称（明文 env 不回显），否则预置默认名
+    // 打开时初始化：回填名称；编辑时异步拉取明文 env 回显
     visible(val) {
       if (val) this.initForm()
     }
@@ -115,6 +117,30 @@ export default {
         name: e ? e.name : (s ? s.name + '-creds' : ''),
         envStr: ''
       }
+      this.envLoaded = false
+      if (e && e.id) this.loadEnvText(e.id)
+    },
+    // 编辑回显：resolve 解密拿明文 env，格式化为 JSON 文本；失败时保持空并提示
+    async loadEnvText(id) {
+      const api = buddyApi()
+      const cred = api && api.credentials
+      if (!cred || !cred.resolve) return
+      let res = null
+      try {
+        res = await cred.resolve(id)
+      } catch (err) {
+        res = null
+      }
+      if (!res || !res.ok) {
+        this.$message.error((res && res.error) || '凭据环境变量读取失败')
+        return
+      }
+      this.envLoaded = true
+      const env = res.secret && res.secret.env
+      // 无环境变量（或空对象）时保持空文本，不回显 "{}"
+      this.credForm.envStr = env && Object.keys(env).length
+        ? JSON.stringify(env, null, 2)
+        : ''
     },
     // 格式化环境变量 JSON（非法 JSON 提示）
     formatEnv() {
@@ -139,11 +165,15 @@ export default {
         this.$message.error('请输入凭据名称')
         return
       }
-      // 环境变量：非空时必须为合法 JSON 对象；留空表示保持现有值
+      // 环境变量：非空时必须为合法 JSON 对象
+      // 回显成功后留空 = 清除全部环境变量（传空对象整体替换）；
+      // 回显失败（未成功加载）时留空 = 保持原值（传 null）
       let env = null
       if (this.credForm.envStr.trim()) {
         env = parseJsonField(this, this.credForm.envStr, '环境变量', 'object')
         if (env === false) return
+      } else if (this.isEdit && this.envLoaded) {
+        env = {}
       }
       const api = buddyApi()
       const cred = api && api.credentials

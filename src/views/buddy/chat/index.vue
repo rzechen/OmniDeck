@@ -17,12 +17,21 @@
           v-else
           :messages="messages"
           :streaming="streaming"
+          :perm-pending="pendingPerm"
           @branch="branchAt"
           @feedback="onFeedback"
           @answer="answerAsk"
           @edit-resend="editResend"
           @switch-branch="switchBranch"
         />
+
+        <!-- 回到底部悬浮按钮：用户上滚离开底部后出现，点击平滑滚回并恢复自动跟滚 -->
+        <transition name="ob-scroll-btn">
+          <div v-if="showBackToBottom" class="ob-back-to-bottom" @click="backToBottom">
+            <svg-icon icon-class="top" class="ob-btb-ico" />
+            <span v-if="streaming" class="ob-btb-dot"></span>
+          </div>
+        </transition>
       </div>
 
       <!-- 底部：输入框（磁盘路径/模型选择内嵌于对话框工具栏） -->
@@ -148,7 +157,23 @@
                 :items="permissionModeItems"
                 @toggle="toggleSelect('permission')"
                 @select="onSelectPermissionMode"
-              />
+              >
+                <template slot="footer">
+                  <!-- 关系说明收进 hover 提示：默认只占一行 tips 入口，不铺文案 -->
+                  <div class="ob-perm-mode-note">
+                    <el-tooltip placement="top" popper-class="ob-perm-mode-tip" :open-delay="150">
+                      <div slot="content">
+                        <p><b>权限策略</b>：决定每个工具 / 路径是「允许 / 需确认 / 拒绝」。允许与拒绝的规则直接执行，不经过权限模式。</p>
+                        <p><b>权限模式（此处）</b>：只裁决「需确认」的操作——每次确认：弹卡询问；自动：直接放行；只读：直接拒绝。</p>
+                      </div>
+                      <span class="ob-perm-mode-note-trigger">
+                        <svg-icon icon-class="tips" class="ob-perm-mode-note-ico" />
+                        <span>模式与策略的关系</span>
+                      </span>
+                    </el-tooltip>
+                  </div>
+                </template>
+              </composer-picker>
 
             </template>
           </buddy-composer>
@@ -228,6 +253,10 @@ export default {
     },
     streaming() {
       return !!(this.sess && this.sess.streaming)
+    },
+    // 离开底部（用户手动上滚）时显示「回到底部」悬浮按钮
+    showBackToBottom() {
+      return !!(this.sess && !this.sess.atBottom)
     },
     // 待发送文件附件（[{id,name,size,kind,thumb,path}]，P1-7）
     fileAttachments() {
@@ -316,16 +345,17 @@ export default {
   },
   watch: {
     // 消息条数变化（用户消息/新占位/非流式新消息）：
-    // 流式进行中始终跟滚呈现最新输出；非流式时仅在底部（atBottom）自动跟滚
+    // 仅在「贴底」时自动跟滚 —— 用户手动上滚后（atBottom=false）以用户操作为最高优先级，
+    // 不再强制滚到底，回看历史不被新内容打断
     'messages.length'() {
-      if (this.streaming || (this.sess && this.sess.atBottom)) this.scrollToBottom()
+      if (this.sess && this.sess.atBottom) this.scrollToBottom()
     },
     // 本轮消息内容更新（delta 正文 / 思考块 / 工具块，均不改 messages.length）：
-    // 流式期间始终跟滚，保证输出始终可见
+    // 同样只在贴底时跟滚，保证用户上滚后输出不打扰回看
     'sess.turnMsg': {
       deep: true,
       handler() {
-        if (this.streaming) this.scrollToBottom()
+        if (this.sess && this.sess.atBottom) this.scrollToBottom()
       }
     },
     // store 会话池的 UI 事件（$message / $root 广播 / 检查点刷新）：
@@ -553,7 +583,7 @@ export default {
       this.$store.commit('buddyChat/PUSH_MSG', { id: sid, msg: placeholder })
       this.$store.commit('buddyChat/PATCH', {
         id: sid,
-        patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true }
+        patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, atBottom: true }
       })
       this.scrollToBottom()
 
@@ -796,7 +826,7 @@ export default {
       this.$store.commit('buddyChat/PUSH_MSG', { id: this.sid, msg: placeholder })
       this.$store.commit('buddyChat/PATCH', {
         id: this.sid,
-        patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, turnAnchors: anchors }
+        patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, turnAnchors: anchors, atBottom: true }
       })
       this.scrollToBottom()
 
@@ -826,6 +856,14 @@ export default {
       this.$nextTick(() => {
         const body = this.$refs.body
         if (body) body.scrollTop = body.scrollHeight
+      })
+    },
+    // 回到底部（悬浮按钮）：恢复贴底标记（此后新内容恢复自动跟滚）+ 平滑滚动
+    backToBottom() {
+      this.commitPatch({ atBottom: true })
+      this.$nextTick(() => {
+        const body = this.$refs.body
+        if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' })
       })
     }
   }
@@ -868,6 +906,60 @@ export default {
   &::-webkit-scrollbar {
     width: 5px;
   }
+}
+
+/* ===== 回到底部悬浮按钮（用户上滚离开底部后出现） ===== */
+.ob-back-to-bottom {
+  position: sticky;
+  bottom: 12px;
+  margin-left: auto;
+  margin-right: 20px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  z-index: 5;
+  transition: color 0.15s ease, transform 0.15s ease;
+
+  .ob-btb-ico {
+    font-size: 16px;
+  }
+
+  &:hover {
+    color: var(--primary-color);
+    transform: translateY(-1px);
+  }
+}
+
+/* 流式进行中：按钮右下角小圆点提示「有新输出」 */
+.ob-btb-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  border: 2px solid var(--card-bg, #fff);
+}
+
+/* 悬浮按钮显隐过渡（Vue2 过渡类名） */
+.ob-scroll-btn-enter-active,
+.ob-scroll-btn-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.ob-scroll-btn-enter,
+.ob-scroll-btn-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 /* 历史加载骨架：与消息列表同宽同 padding，占位形状贴合真实对话 */
@@ -1115,6 +1207,36 @@ export default {
   gap: 8px;
 }
 
+/* ===== 权限模式浮层底部：关系说明入口（hover 出提示） ===== */
+.ob-perm-mode-note {
+  padding: 5px 9px 3px;
+
+  .ob-perm-mode-note-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: $text-secondary;
+    border-radius: 6px;
+    padding: 2px 4px;
+    margin-left: -4px;
+    cursor: help;
+    user-select: none;
+    transition: color 0.12s ease;
+
+    &:hover {
+      color: var(--text-primary);
+    }
+  }
+
+  .ob-perm-mode-note-ico {
+    font-size: 13px;
+    flex-shrink: 0;
+    color: var(--primary-color);
+  }
+}
+
 /* ===== 工作空间浮层底部「关联新路径」入口 ===== */
 .ob-ws-add {
   display: flex;
@@ -1142,6 +1264,28 @@ export default {
     .ob-ws-add-ico {
       color: var(--primary-color);
     }
+  }
+}
+</style>
+
+<style lang="scss">
+/* 权限模式 tips 提示（popper 挂 body，须全局）：限宽换行 + 段落间距 */
+.ob-perm-mode-tip.el-tooltip__popper {
+  max-width: 300px;
+  white-space: normal;
+  line-height: 1.7;
+  font-size: 12px;
+
+  p {
+    margin: 0 0 6px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  b {
+    font-weight: 600;
   }
 }
 </style>

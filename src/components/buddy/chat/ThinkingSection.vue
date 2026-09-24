@@ -21,8 +21,8 @@
       />
     </div>
 
-    <!-- 内容主体（思考中 / 流式中自动展开，不随折叠收起） -->
-    <div v-show="!collapsed || isThinking || isStreaming" class="ob-think-body">
+    <!-- 内容主体（生成中默认展开、箭头朝下；用户可随时展开收起，待回答 ask 时不允许收起） -->
+    <div v-show="!collapsed" class="ob-think-body">
       <template v-for="(item, i) in items">
         <!-- 思考文本（click 委托承接代码块复制按钮） -->
         <div
@@ -62,6 +62,12 @@
             <span v-if="isMcp(item)" class="ob-tool-server">{{ mcpServerLabel(item) }}</span>
             <span class="ob-tool-name">{{ friendlyToolName(item) }}</span>
             <span v-if="rawToolTag(item)" class="ob-tool-tag">{{ rawToolTag(item) }}</span>
+            <!-- 等待授权徽标：该工具正在等权限确认（确认条在输入框上方），醒目提示防隐形挂起 -->
+            <span
+              v-if="item.status === 'running' && matchesPerm(item)"
+              class="ob-tool-perm-wait"
+              title="等待权限确认：请在输入框上方的确认条中处理"
+            >等待授权</span>
             <!-- 文件变更摘要：目标文件 + 类型徽章 + 增删行数 -->
             <template v-if="item.fileChange">
               <span class="ob-fc-file" :title="item.fileChange.file">{{ fcFileShort(item.fileChange) }}</span>
@@ -197,11 +203,18 @@ export default {
     isStreaming: {
       type: Boolean,
       default: false
+    },
+    // 队首待确认权限（工具卡片据此显示"等待授权"：tool_execution_start 先于权限检查
+    // 发射，等待授权的工具卡片与执行中外观一致，用户无从得知回合卡在确认上）
+    permPending: {
+      type: Object,
+      default: null
     }
   },
   data() {
     return {
-      collapsed: true,
+      // 生成中（思考/流式）默认展开，历史消息默认收起；此后由用户自由展开收起
+      collapsed: !(this.isThinking || this.isStreaming),
       toolOpenOverrides: {}
     }
   },
@@ -210,25 +223,47 @@ export default {
     stepCount() {
       return this.items.filter(i => i.type === 'tool' || i.type === 'skill').length
     },
+    // 是否存在待回答的 ask_user 卡片（独立暂存条目或挂接在工具条目上）：
+    // 系统正等待用户输入，思考区不允许被折叠隐藏
+    hasPendingAsk() {
+      return this.items.some(i =>
+        (i.type === 'ask' && !i.answered) || (i.type === 'tool' && i.ask && !i.ask.answered)
+      )
+    },
     // 本轮文件变更数（写工具产生的有效变更）
     fileChangeCount() {
       return this.items.filter(i => i.type === 'tool' && i.fileChange).length
     },
-    // 头部文案：思考中 / 正文生成中 / 已完成（与动态类同步区分轮次阶段）
+    // 头部文案：思考中 / 执行操作中（有运行中工具，含等待授权）/ 正文生成中 / 已完成
+    // （与动态类同步区分轮次阶段；interleaved 输出下正文已出现但工具仍在跑时，
+    //   "回答生成中"会误导用户以为卡在正文生成，实际在等工具/权限）
     headerTitle() {
       if (this.isThinking) return '深度思考中…'
+      if (this.isStreaming && this.hasRunningTool) return '正在执行操作…'
       if (this.isStreaming) return '回答生成中…'
       return '已深度思考'
+    },
+    // 是否有运行中的工具（含等待授权：status 均为 running）
+    hasRunningTool() {
+      return this.items.some(i => i.type === 'tool' && i.status === 'running')
     }
   },
   methods: {
     toggleCollapse() {
-      // 思考中 / 流式中不允许收起，避免过程被隐藏
-      if (this.isThinking || this.isStreaming) return
+      // 存在待回答的 ask 卡片时不允许收起（提问卡片不能被折叠隐藏）
+      if (!this.collapsed && this.hasPendingAsk) return
       this.collapsed = !this.collapsed
     },
-    // Markdown 区点击委托：代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+    // Markdown 区点击委托：链接拦截 + 代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
     onMdClick(e) {
+      // 链接不导航应用窗口（伪链接如 http://entries.md 会白屏）：合法外链交系统浏览器
+      const anchor = e.target.closest && e.target.closest('a')
+      if (anchor) {
+        e.preventDefault()
+        const href = anchor.getAttribute('href') || ''
+        if (/^https?:\/\//i.test(href)) window.open(href, '_blank')
+        return
+      }
       handleCodeCopy(e).then(ok => {
         if (ok) this.$message.success('已复制')
       })
@@ -237,36 +272,60 @@ export default {
       return renderMarkdown(text || '')
     },
     isMcp(item) {
-      return !!(item.toolName && item.toolName.indexOf('mcp_') === 0)
+      const name = item.toolName
+      if (!name) return false
+      // 单代理工具名即为 'mcp'（server 在 args.server）；其余为 mcp__ 前缀变体
+      return name === 'mcp' || name.indexOf('mcp_') === 0
     },
-    // mcp_<server>__<tool> → server
+    // server 名提取（展示连接器 label，如 playwright，而非 'mcp' 字样）：
+    // 单代理 'mcp' → args.server；命名空间代理 'mcp__playwright' → playwright；
+    // 三段式 'mcp__server__tool' → server
     mcpServerLabel(item) {
       const name = item.toolName
-      if (!name || name.indexOf('mcp_') !== 0) return ''
-      const rest = name.slice(4)
-      const sep = rest.indexOf('__')
-      return sep >= 0 ? rest.slice(0, sep) : rest
+      if (!name) return ''
+      if (name === 'mcp') return (item.args && item.args.server) || 'MCP'
+      if (name.indexOf('mcp_') === 0) {
+        const rest = name.slice(4).replace(/^_+/, '')
+        const sep = rest.indexOf('__')
+        return sep >= 0 ? rest.slice(0, sep) : rest
+      }
+      return ''
     },
-    // 原始工具名 tag（MCP 取 __ 之后的片段；与主标题相同时不显示）
+    // 底层工具名提取：代理/命名空间代理调用优先 args.tool，三段式从名称尾部提取
+    mcpToolName(item) {
+      const at = item.args && item.args.tool
+      if (typeof at === 'string' && at) return at
+      const name = item.toolName
+      if (name && name.indexOf('mcp_') === 0) {
+        const rest = name.slice(4).replace(/^_+/, '')
+        const sep = rest.indexOf('__')
+        if (sep >= 0) return rest.slice(sep + 2)
+      }
+      return ''
+    },
+    // 原始工具名 tag（与主标题相同时不显示）
     rawToolTag(item) {
       const name = item.toolName
       if (!name) return ''
       let raw = name
-      if (name.indexOf('mcp_') === 0) {
-        const rest = name.slice(4)
-        const sep = rest.indexOf('__')
-        raw = sep >= 0 ? rest.slice(sep + 2) : rest
+      if (name === 'mcp' || name.indexOf('mcp_') === 0) {
+        raw = this.mcpToolName(item)
       }
       return raw && raw !== this.friendlyToolName(item) ? raw : ''
     },
     friendlyToolName(item) {
       const name = item.toolName
       if (!name) return '工具调用'
-      if (name.indexOf('mcp_') === 0) {
-        const rest = name.slice(4)
-        const sep = rest.indexOf('__')
-        const toolPart = sep >= 0 ? rest.slice(sep + 2) : rest
-        return TOOL_LABELS[toolPart] || toolPart || rest
+      if (name === 'mcp' || name.indexOf('mcp_') === 0) {
+        const server = this.mcpServerLabel(item)
+        let tool = this.mcpToolName(item)
+        // 底层工具名可能带 server 前缀（如 playwright_browser_navigate），剥离保持简洁
+        if (tool && server && server !== 'MCP' && tool.indexOf(server + '_') === 0) {
+          tool = tool.slice(server.length + 1)
+        }
+        if (tool) return TOOL_LABELS[tool] || tool
+        // 无底层工具名（search / status 等网关操作）
+        return '连接器操作'
       }
       return TOOL_LABELS[name] || name
     },
@@ -275,6 +334,17 @@ export default {
       if (item.status === 'running') return 'loading'
       if (item.isError) return 'warning-outline'
       return 'check'
+    },
+    // 运行中的工具是否即当前待确认权限的目标：bash 类按 command、文件类按 path 匹配，
+    // 其余按工具名兜底（并发工具时区分"在执行"与"在等授权"）
+    matchesPerm(item) {
+      const p = this.permPending
+      if (!p) return false
+      const args = item.args || {}
+      if (p.command && args.command === p.command) return true
+      if (p.path && (args.file_path === p.path || args.path === p.path)) return true
+      if (p.toolName && item.name === p.toolName) return true
+      return false
     },
     hasArgs(item) {
       return !!(item.args && typeof item.args === 'object' && Object.keys(item.args).length)
@@ -433,6 +503,11 @@ export default {
   gap: 4px;
 }
 
+/* 工具运行中图标旋转 */
+@keyframes ob-tool-rotate {
+  to { transform: rotate(360deg); }
+}
+
 /* 思考中呼吸动画：星形脉动 / 标题明暗（标识生成未结束） */
 @keyframes ob-think-pulse {
   0%,
@@ -583,7 +658,11 @@ export default {
     flex-shrink: 0;
     color: #10B981;
 
-    &.spin { color: var(--primary-color); }
+    /* 运行中：loading 图标持续旋转（与正文思考占位 ob-think-spin 同构） */
+    &.spin {
+      color: var(--primary-color);
+      animation: ob-tool-rotate 0.9s linear infinite;
+    }
   }
 
   &.error .ob-tool-ico { color: #EF4444; }
@@ -613,6 +692,26 @@ export default {
     white-space: nowrap;
     flex-shrink: 0;
     font-family: 'SF Mono', Menlo, Consolas, monospace;
+  }
+
+  /* 等待授权徽标：琥珀色 pill + 呼吸动画，提示回合卡在权限确认而非命令执行 */
+  .ob-tool-perm-wait {
+    font-size: 10.5px;
+    color: #b45309;
+    background: rgba(245, 158, 11, 0.14);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: 4px;
+    padding: 0 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 16px;
+    cursor: help;
+    animation: ob-perm-wait-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes ob-perm-wait-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
   }
 
   .ob-tool-arrow {

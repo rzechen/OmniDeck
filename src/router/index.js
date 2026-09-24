@@ -533,7 +533,7 @@ const routes = [
         component: () => import('@/views/deck/tools/life/relationship.vue'),
         meta: { title: '亲戚称谓', group: 'tools' }
       },
-      // 理财分组：基金
+      // 贵金属分组：基金
       {
         path: 'finance/fund',
         name: 'Fund',
@@ -546,12 +546,12 @@ const routes = [
         component: () => import('@/views/deck/finance/detail.vue'),
         meta: { title: '基金详情', group: 'finance' }
       },
-      // 理财分组：黄金（TODO 占位）
+      // 贵金属分组：行情
       {
         path: 'finance/gold',
         name: 'Gold',
         component: () => import('@/views/deck/finance/gold.vue'),
-        meta: { title: '黄金', group: 'finance' }
+        meta: { title: '贵金属', group: 'finance' }
       },
       // 旧基金路径重定向（兼容收藏等历史入口）
       { path: 'fund', redirect: '/finance/fund' },

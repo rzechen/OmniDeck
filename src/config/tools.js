@@ -180,7 +180,7 @@ export const favoriteItem = {
   iconSvg: 'star'
 }
 
-// 理财分组下的模块（与工具集平级的独立分组）
+// 贵金属分组下的模块（与工具集平级的独立分组）
 // todo: true 表示规划中的占位模块，侧边栏显示 TODO 徽标，页面显示敬请期待
 const financeCategories = [
   {
@@ -194,11 +194,10 @@ const financeCategories = [
   {
     name: 'Gold',
     path: '/finance/gold',
-    title: '黄金',
-    desc: '实时金价行情与走势',
+    title: '贵金属',
+    desc: '金银铂钯实时行情、人民币克价换算与走势参考',
     iconSvg: 'gold',
-    color: '#FAAD14',
-    todo: true
+    color: '#FAAD14'
   }
 ]
 
@@ -266,7 +265,7 @@ export const menuGroups = [
   },
   {
     key: 'finance',
-    title: '理财',
+    title: '贵金属',
     iconSvg: 'finance',
     children: financeCategories
   }
