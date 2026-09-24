@@ -46,7 +46,8 @@ function openDB() {
         resolve()
       }
       req.onerror = () => {
-        // 降级：仅用内存缓存
+        // 降级：仅用内存缓存（刷新后数据丢失，须在控制台留痕便于排查）
+        console.warn('[omnideck:db] IndexedDB 打开失败，本次运行仅内存缓存：', req.error && req.error.message)
         db = null
         resolve()
       }

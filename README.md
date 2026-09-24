@@ -36,25 +36,95 @@
 ## 快速开始
 
 ```bash
-# 环境要求：Node.js ≥ 16、npm；Electron 构建依赖需可访问网络
+# 环境要求：Node.js ≥ 16、npm；首次装配与 Electron 构建需可访问网络
 npm install
 
-# 开发（Vite + Electron 主进程热更新）
+# ① 装配内置运行时（首次 / 切换目标平台时执行一次，详见下节）
+bash scripts/provision-runtime.sh install
+
+# ② 开发调试（Vite dev server + Electron 主进程热更新）
 npm run dev
 
-# 打包
+# ③ 打包（前置：① 已完成，否则产物不含内置运行时）
 npm run build:mac   # macOS DMG
 npm run build:win   # Windows NSIS 安装包（x64）
-npm run build:all   # 双平台
+
+# ④ 发版（打包 + 上传 GitCode Release 附件）
+npm run release -- v0.3.0 mac   # 第二参数为 mac | win | all
+npm run release -- local mac    # 仅本地打包，不上传
 ```
 
-产物输出至 `release/`；应用更新走 `package.json → build.publish` 配置的 generic 源。
+| 命令 | 作用 | 出安装包 |
+| --- | --- | --- |
+| `npm run dev` | Vite dev server + Electron 热更新 | — |
+| `npm run build` | 仅 vite build（渲染包 + 主进程） | ❌ |
+| `npm run build:mac` | 构建 + electron-builder 出 macOS DMG | ✅ |
+| `npm run build:win` | 构建 + electron-builder 出 Windows NSIS（x64） | ✅ |
+| `npm run release -- <local\|tag> [mac\|win\|all]` | native 兜底编译 → 构建 → 打包 → 上传 | ✅ |
+
+产物统一输出至 `release/`，命名 `OmniDeck-${version}-${os}-${arch}.${ext}`。
+
+## 内置运行时装配
+
+应用自带 python / node / playwright 运行时，装配到 `runtime/<plat>/`，打包时由 afterPack 拷入安装包 —— **用户装完即用，无需宿主预装任何环境**。装配由 `scripts/provision-runtime.sh` 负责，三命令模型：
+
+```bash
+bash scripts/provision-runtime.sh fetch   [plat]   # 备料：按清单下载装配包至 lib/<plat>/
+bash scripts/provision-runtime.sh install [plat]   # 装配：python/node/node-tools/playwright/npx-cache 落位
+bash scripts/provision-runtime.sh verify  [plat]   # 核对：布局 / 可执行 / 版本 / 预装依赖冒烟
+```
+
+`plat` 省略时取当前平台，可选 `darwin-arm64` `darwin-x86_64` `linux-x86_64` `linux-aarch64` `windows-x86_64`。
+
+- **离线优先**：`lib/<plat>/` 存装配包（python-env / node / node-tools / playwright 浏览器等）。命中本地档即解压，不再联网；缺档才在线下载或 `pip` / `npm -g` 安装，并回存 `lib/` 供后续零网络复用
+- **跨平台备料**：解压型组件（python-env / node / node-tools / playwright / npx-cache 均为 zip）支持在 mac / Linux 宿主上直接为 `windows-x86_64` 落位，执行类冒烟在非 Windows 宿主自动跳过：
+
+  ```bash
+  bash scripts/provision-runtime.sh install windows-x86_64
+  ```
+
+- **平台映射**：`darwin-arm64` ↔ mac(arm64)、`windows-x86_64` ↔ win(x64)，由 `scripts/afterPack.js` 的 `runtimePlat()` 与打包平台自动匹配
+
+预装依赖清单见 `scripts/requirements-sandbox.txt`（python：numpy / pandas / matplotlib / openpyxl / python-docx / pdfplumber / pillow / requests 等）与 `scripts/node-sandbox-tools.txt`（node：sharp / docx / pptxgenjs / pdf-lib / pdfjs-dist / marked）。
+
+## 打包与发版
+
+### 打包链路
+
+```
+vite build（渲染包 → dist/，主进程 → dist-electron/）
+      ↓
+electron-builder（files 白名单 + asarUnpack，输出 release/）
+      ↓
+scripts/afterPack.js 钩子
+  ├─ 拷 runtime/<plat>/ → 应用 Resources/runtime/<plat>/（未装配则跳过，不阻塞打包）
+  └─ macOS：ad-hoc 签名（codesign --force --deep --sign -）
+```
+
+- **afterPack** 在 `package.json → build.afterPack` 配置，把装配好的运行时拷进 `Contents/Resources`（mac）或 `resources`（win / linux），与 `process.resourcesPath` 对应；须在 ad-hoc 签名之前执行，`--deep` 才能覆盖内嵌二进制
+- **mac 签名**：`mac.identity: null` 跳过正式签名（正式签名需连 Apple 时间戳服务器，国内常不可达导致打包失败），改由 afterPack 做 ad-hoc 签名 —— 足以让 Touch ID / safeStorage（keychain）正常工作，仅影响 Gatekeeper 分发提示
+- **native 插件**：`native/build/Release/windows.node`（窗口枚举 NAPI，截图 hover 拾取用）在 `files` 白名单内并列入 `asarUnpack`（NAPI 须真实文件路径，不能从 asar 内加载）；缺失时 `npm run release` 会先自动 `node-gyp rebuild`
+
+### 上传 Release
+
+`npm run release -- v0.3.0 mac` 走 `scripts/release-upload.sh`：
+
+1. GET `/repos/:owner/:repo/releases/:tag/upload_url?file_name=xx` 取预签名 PUT 地址 + 请求头
+2. PUT 文件至预签名地址
+3. 资产落到 `https://gitcode.com/:owner/:repo/releases/download/:tag/:file_name`（匿名 GET 可达）
+
+依赖 git 凭证存储中的 GitCode token（脚本经 `git credential fill` 读取）。上传对象为 `release/` 下的 `OmniDeck-*.zip` / `*.exe` / `*.blockmap` 与 `latest*.yml`。
+
+客户端自动更新走 `package.json → build.publish` 的 generic 源，发版后需将 publish url 的 tag 与本次发版对齐。
 
 ## 目录结构
 
 ```
 OmniDeck/
-├── build/                  # 应用图标与托盘资源（随 extraResources 打包）
+├── build/                  # 应用图标（icon.icns / icon.ico）与托盘资源（随 extraResources 打包）
+├── native/                 # NAPI 插件（windows.cpp：窗口枚举，截图 hover 拾取窗口用）
+├── lib/                    # 运行时离线备料包（fetch 下载，按平台分目录；供零网络复用）
+├── runtime/                # 运行时装配产物（install 生成，按平台分目录；打包时拷进安装包）
 ├── electron/               # Electron 主进程
 │   ├── main.js             # 主入口：窗口 / 托盘 / 快捷键 / 生命周期
 │   ├── preload.js          # contextBridge：window.electronAPI
@@ -62,9 +132,9 @@ OmniDeck/
 │   ├── capture.js          # 屏幕截图
 │   ├── updater.js          # 自动更新
 │   └── agent/              # OmniBuddy Agent 能力（会话 / 工作空间 / MCP / Skill / 用量…）
-├── scripts/                # afterPack 与发布上传脚本
+├── scripts/                # 构建脚本：运行时装配（provision-runtime.sh）/ 发版上传 / 依赖清单 / afterPack 钩子
 ├── public/                 # 静态资源直拷
-└── src/                    # 渲染进程（Vue 2）
+├── src/                    # 渲染进程（Vue 2）
     ├── main.js             # 渲染入口：Element UI / SvgIcon / 主题初始化
     ├── App.vue             # 根组件：壁纸层 / 应用锁 / Spotlight
     ├── layout/             # 双视图布局（index.vue=Deck 布局，BuddyLayout.vue=Buddy 布局）
@@ -85,6 +155,8 @@ OmniDeck/
     ├── utils/              # 工具函数：buddy-api（IPC 桥）/ db / markdown / theme…
     └── assets/             # 图标资源（svg 按 buddy/deck 域划分，space 壁纸球）
 ```
+
+> 构建产物（`dist/` `dist-electron/`）、装配产物（`runtime/` `release/`）与 `node_modules/` 均已 gitignore，不入库；`lib/` 备料包体积大且可重新 fetch，同样不入库。
 
 ## 约定
 

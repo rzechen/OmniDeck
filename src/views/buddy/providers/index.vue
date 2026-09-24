@@ -19,31 +19,34 @@
       ><svg-icon icon-class="plus" class="ob-btn-svg" /><span class="ob-btn-text">新建供应商</span></el-button>
     </header>
 
-    <!-- 空状态 -->
-    <div v-if="!list.length" class="ob-empty">
-      <div class="ob-empty-icon">
-        <svg-icon icon-class="llm" />
+    <!-- 内容区（hero 固定，仅此区域滚动） -->
+    <div class="ob-page-body">
+      <!-- 空状态 -->
+      <div v-if="!list.length" class="ob-empty">
+        <div class="ob-empty-icon">
+          <svg-icon icon-class="llm" />
+        </div>
+        <div class="ob-empty-title">暂无模型供应商</div>
+        <div class="ob-empty-desc">新建一个供应商后，即可在对话中选择对应模型</div>
+        <el-button
+          size="small"
+          round
+          type="primary"
+          @click="openCreate"
+        ><svg-icon icon-class="plus" class="ob-btn-svg" />新建供应商</el-button>
       </div>
-      <div class="ob-empty-title">暂无模型供应商</div>
-      <div class="ob-empty-desc">新建一个供应商后，即可在对话中选择对应模型</div>
-      <el-button
-        size="small"
-        round
-        type="primary"
-        @click="openCreate"
-      ><svg-icon icon-class="plus" class="ob-btn-svg" />新建供应商</el-button>
-    </div>
 
-    <!-- 供应商卡片网格 -->
-    <div v-else class="ob-cards-grid">
-      <provider-card
-        v-for="p in list"
-        :key="p.id"
-        :provider="p"
-        @set-default="setDefault"
-        @edit="openEdit"
-        @remove="removeProvider"
-      />
+      <!-- 供应商卡片网格 -->
+      <div v-else class="ob-cards-grid">
+        <provider-card
+          v-for="p in list"
+          :key="p.id"
+          :provider="p"
+          @set-default="setDefault"
+          @edit="openEdit"
+          @remove="removeProvider"
+        />
+      </div>
     </div>
 
     <!-- 新建/编辑供应商弹窗 -->

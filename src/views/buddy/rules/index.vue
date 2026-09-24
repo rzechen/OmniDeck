@@ -56,13 +56,15 @@
         </div>
       </header>
 
-      <!-- 加载中 -->
-      <div v-if="loading" class="ob-ext-loading">
-        <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
-      </div>
+      <!-- 内容区（hero 固定，仅此区域滚动） -->
+      <div class="ob-page-body">
+        <!-- 加载中 -->
+        <div v-if="loading" class="ob-ext-loading">
+          <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+        </div>
 
-      <!-- 规则目标卡片网格：全局 + 各工作空间 -->
-      <div v-else class="ob-cards-grid">
+        <!-- 规则目标卡片网格：全局 + 各工作空间 -->
+        <div v-else class="ob-cards-grid">
         <div
           v-for="t in targetList"
           :key="t.key"
@@ -114,6 +116,7 @@
               >{{ t.hasRule ? '编辑规则' : '新建规则' }}</el-button>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </template>

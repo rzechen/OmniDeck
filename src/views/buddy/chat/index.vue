@@ -20,6 +20,61 @@
 
       <!-- 底部：输入框（磁盘路径/模型选择内嵌于对话框工具栏） -->
       <div class="ob-composer">
+        <!-- 权限确认浮动条（confirm 模式下有待确认项时显示，不进消息流）：
+             底部滑出面板，与输入框同宽（920px）：问题 + 授权内容 + 四档编号选项（支持键盘 1-4） -->
+        <transition name="ob-perm-bar">
+          <div v-if="pendingPerm" class="ob-perm-bar">
+            <div class="ob-perm-bar-head">
+              <div class="ob-perm-bar-ico">
+                <svg-icon :icon-class="pendingPermIcon" />
+              </div>
+              <div class="ob-perm-bar-title">{{ permQuestion }}</div>
+              <span class="ob-perm-bar-surface">{{ pendingPerm.surface }}</span>
+              <span v-if="permQueueCount > 1" class="ob-perm-bar-queue">还有 {{ permQueueCount - 1 }} 项待确认</span>
+            </div>
+
+            <div class="ob-perm-bar-fields">
+              <div v-if="pendingPerm.path" class="ob-perm-bar-field">
+                <div class="ob-perm-bar-label">授权路径读写权限：</div>
+                <pre class="ob-perm-bar-code">{{ pendingPerm.path }}</pre>
+              </div>
+              <div v-if="pendingPerm.command" class="ob-perm-bar-field">
+                <div class="ob-perm-bar-label">待执行命令：</div>
+                <pre class="ob-perm-bar-code">{{ pendingPerm.command }}</pre>
+              </div>
+              <div
+                v-if="!pendingPerm.path && !pendingPerm.command && (pendingPerm.value || pendingPerm.preview)"
+                class="ob-perm-bar-field"
+              >
+                <div class="ob-perm-bar-label">操作内容：</div>
+                <pre class="ob-perm-bar-code">{{ pendingPerm.value || pendingPerm.preview }}</pre>
+              </div>
+            </div>
+
+            <div class="ob-perm-bar-actions">
+              <button class="ob-perm-btn once" @click="answerPermission(pendingPerm, 'allow')">
+                <span class="ob-perm-btn-no">1</span>
+                <span class="ob-perm-btn-label">仅本次运行</span>
+                <span class="ob-perm-btn-desc">只执行这一次</span>
+              </button>
+              <button class="ob-perm-btn session" @click="answerPermission(pendingPerm, 'allow_session')">
+                <span class="ob-perm-btn-no">2</span>
+                <span class="ob-perm-btn-label">本次会话允许</span>
+                <span class="ob-perm-btn-desc">当前会话内不再询问</span>
+              </button>
+              <button class="ob-perm-btn always" @click="answerPermission(pendingPerm, 'allow_always')">
+                <span class="ob-perm-btn-no">3</span>
+                <span class="ob-perm-btn-label">始终允许</span>
+                <span class="ob-perm-btn-desc">写入权限策略，永久生效</span>
+              </button>
+              <button class="ob-perm-btn deny" @click="answerPermission(pendingPerm, 'deny')">
+                <span class="ob-perm-btn-no">4</span>
+                <span class="ob-perm-btn-label">拒绝执行</span>
+                <span class="ob-perm-btn-desc">阻止本次操作</span>
+              </button>
+            </div>
+          </div>
+        </transition>
         <div class="ob-composer-inner">
           <buddy-composer
             v-model="draft"
@@ -33,14 +88,15 @@
             @import-file="importFile"
           >
             <template slot="tools">
-              <!-- 工作空间（必填，未关联无法发送；上拉切换已登记空间 / 关联新路径） -->
+              <!-- 工作空间（必填，未关联无法发送；会话已绑定空间后锁定不可切换，新对话可选） -->
               <composer-picker
                 picker-key="workspace"
                 :active-key="openSelect"
                 :model-value="workspaceLink.workspaceId"
+                :disabled="workspaceLocked"
                 trigger-icon="folder"
                 :trigger-label="workspaceLabel"
-                :trigger-title="workspaceLink.dir || '选择工作空间（必填）'"
+                :trigger-title="workspaceLocked ? '会话已绑定此工作空间，新建对话可切换' : (workspaceLink.dir || '选择工作空间（必填）')"
                 panel-title="工作空间"
                 :items="workspaceItems"
                 empty-title="暂无可用工作空间"
@@ -73,15 +129,20 @@
                 @select="onSelectProvider"
               />
 
-              <!-- 检查点（N4）：写操作前自动快照，抽屉查看时间线并回滚 -->
-              <div
-                class="ob-cp-entry"
-                :class="{ disabled: !sessionId }"
-                :title="sessionId ? '检查点（写操作自动快照，可回滚）' : '发送首条消息后可用'"
-                @click="openCheckpoints"
-              >
-                <svg-icon icon-class="refresh-left" />
-              </div>
+              <!-- 权限模式（常驻选择器，仿 Trae/WorkBuddy：只读 / 自动 / 每次确认，即时生效） -->
+              <composer-picker
+                picker-key="permission"
+                :active-key="openSelect"
+                :model-value="permissionMode"
+                trigger-icon="key"
+                :trigger-label="permissionModeLabel"
+                trigger-title="权限模式"
+                panel-title="权限模式"
+                :items="permissionModeItems"
+                @toggle="toggleSelect('permission')"
+                @select="onSelectPermissionMode"
+              />
+
             </template>
           </buddy-composer>
         </div>
@@ -122,10 +183,15 @@ export default {
       fileAttachments: [],
       // ===== 关联的本地磁盘路径（必填，未关联无法发送；dir/name/workspaceId） =====
       workspaceLink: { dir: '', name: '', workspaceId: '' },
+      // 会话已绑定工作空间：锁定输入框的空间切换器（pi 会话上下文与空间绑定，中途切换无效）
+      workspaceLocked: false,
       // 已登记工作空间列表（上拉选择器数据源）
       workspaces: [],
-      // 当前展开的选择面板（'workspace' | 'provider' | ''）
+      // 当前展开的选择面板（'workspace' | 'provider' | 'permission' | ''）
       openSelect: '',
+      // ===== 权限模式（只读 / 自动 / 每次确认）与待确认队列（浮动条数据源） =====
+      permissionMode: 'confirm',
+      permQueue: [],
       // 思考计时器（发送后到首个 delta 之间）
       thinkTimer: null,
       // 本轮问答对应的助手消息（一次问答聚合为一条，跨工具调用持续复用）
@@ -161,6 +227,40 @@ export default {
       if (link.name) return link.name
       return String(link.dir).replace(/\/+$/, '').split(/[\\/]/).pop() || link.dir
     },
+    // ===== 权限模式选择器 =====
+    permissionModeLabel() {
+      return { readonly: '只读', auto: '自动', confirm: '每次确认' }[this.permissionMode] || '权限模式'
+    },
+    permissionModeItems() {
+      return [
+        { value: 'readonly', label: '只读', svg: 'view', tag: '仅查看' },
+        { value: 'auto', label: '自动', svg: 'magic-stick', tag: '自主执行' },
+        { value: 'confirm', label: '每次确认', svg: 'key', tag: '推荐' }
+      ]
+    },
+    // 待确认浮动条：展示队列首条
+    pendingPerm() {
+      return this.permQueue.length ? this.permQueue[0] : null
+    },
+    permQueueCount() {
+      return this.permQueue.length
+    },
+    pendingPermIcon() {
+      const s = (this.pendingPerm && this.pendingPerm.surface) || ''
+      if (s === 'bash') return 'monitor'
+      if (s === 'python') return 'code'
+      if (s === 'curl') return 'link'
+      if (['write', 'edit', 'multi_edit', 'append', 'mkdir'].indexOf(s) >= 0) return 'edit'
+      return 'key'
+    },
+    // 权限确认问题文案（按工具面区分场景）
+    permQuestion() {
+      const s = (this.pendingPerm && this.pendingPerm.surface) || ''
+      if (['bash', 'python', 'node', 'curl'].indexOf(s) >= 0) return '是否允许运行这个命令？'
+      if (['write', 'edit', 'multi_edit', 'append', 'mkdir'].indexOf(s) >= 0) return '是否允许修改这个文件？'
+      if (s === 'external_directory' || s === 'external_directory_read') return '是否允许访问工作空间外的路径？'
+      return '是否允许执行此操作？'
+    },
     // 工作空间选择器选项（仅保留目录仍存在的项）
     workspaceItems() {
       return this.workspaces.map(w => ({
@@ -184,6 +284,7 @@ export default {
     this.loadProviders()
     this.loadWorkspaces()
     this.restoreWorkspaceLink()
+    this.loadPermissionMode()
     this.unsubscribe = this.api().onEvent(this.onAgentEvent)
     // 点击面板外关闭
     document.addEventListener('mousedown', this.onDocMouseDown)
@@ -199,6 +300,12 @@ export default {
     // 重新加载列表（loadProviders 内部会保留当前选中，不会打断已选模型）
     this.loadProviders()
     this.loadWorkspaces()
+    // 权限面板键盘 1-4 快捷应答（仅本页签激活时生效；同引用重复注册无害）
+    window.addEventListener('keydown', this.onPermKeydown)
+  },
+  deactivated() {
+    // keep-alive 页签切走：移除快捷键，避免在其他页签误触应答
+    window.removeEventListener('keydown', this.onPermKeydown)
   },
   methods: {
     api() {
@@ -212,6 +319,7 @@ export default {
         interrupt: () => {},
         renameSession: async () => null,
         replyAskUser: async () => ({ ok: false }),
+        replyPermission: async () => ({ ok: false }),
         truncateSession: async () => ({ ok: false, error: '仅桌面端可用' }),
         branchSession: async () => ({ ok: false, error: '仅桌面端可用' }),
         listWorkspaces: async () => [],
@@ -255,56 +363,62 @@ export default {
       this.scrollToBottom()
     },
     // 历史记录归一化为「助手消息内嵌内容块」，与实时聚合模型保持一致：
-    // 1) role:'tool' 记录归并进相邻助手消息的 items
-    // 2) 被工具调用隔开的连续助手记录合并为一条（两轮问答之间必有 user 记录）
+    // 1) role:'tool' 记录归并进本轮助手消息的 items
+    // 2) 被工具调用/权限确认（permission 历史行）隔开的连续助手记录合并为一条
+    //    （两轮问答之间必有 user 记录，遇到 user 即开启新一轮归并）
     normalizeHistory(list) {
       const out = []
+      // 当前轮次的助手消息（归并目标）：permission / ask_user / todo 等展示行不打断归并
+      let lastAssistant = null
       for (const m of list) {
         if (m.role === 'tool') {
-          const last = out[out.length - 1]
-          if (last && last.role === 'assistant') {
-            last.items.push({
+          if (lastAssistant) {
+            lastAssistant.items.push({
               type: 'tool',
               toolCallId: '',
               toolName: m.toolName,
               args: m.args,
               status: 'done',
               result: m.result || '',
-              isError: !!m.isError
+              isError: !!m.isError,
+              fileChange: m.fileChange || null
             })
           }
           continue
         }
         if (m.role === 'assistant') {
-          // 压缩摘要（compaction 分界）独立成条，不与相邻助手消息归并
+          // 压缩摘要（compaction 分界）独立成条，且不作为后续助手记录的归并目标
           if (m.compaction) {
+            lastAssistant = null
             out.push(Object.assign({}, m, { items: [] }))
             continue
           }
-          const last = out[out.length - 1]
-          if (last && last.role === 'assistant') {
-            if (m.content) last.content = last.content ? last.content + '\n\n' + m.content : m.content
-            if (m.thinking) last.items.push({ type: 'thinking', content: m.thinking })
+          if (lastAssistant) {
+            if (m.content) lastAssistant.content = lastAssistant.content ? lastAssistant.content + '\n\n' + m.content : m.content
+            if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking })
             // token 用量累加（工具循环中被归并的多条助手记录）
             if (m.usage) {
-              last.usage = last.usage || { input: 0, output: 0 }
-              last.usage.input += m.usage.input || 0
-              last.usage.output += m.usage.output || 0
+              lastAssistant.usage = lastAssistant.usage || { input: 0, output: 0 }
+              lastAssistant.usage.input += m.usage.input || 0
+              lastAssistant.usage.output += m.usage.output || 0
               // 上下文占用取最新值（快照，不累加）
               if (m.usage.contextTokens != null) {
-                last.usage.contextTokens = m.usage.contextTokens
-                last.usage.contextWindow = m.usage.contextWindow
+                lastAssistant.usage.contextTokens = m.usage.contextTokens
+                lastAssistant.usage.contextWindow = m.usage.contextWindow
               }
             }
             // 供应商错误记录：归并后仍保留展示
-            if (m.error) last.error = m.error
+            if (m.error) lastAssistant.error = m.error
             continue
           }
           const msg = Object.assign({}, m, { items: [] })
           if (m.thinking) msg.items.push({ type: 'thinking', content: m.thinking })
           out.push(msg)
+          lastAssistant = msg
           continue
         }
+        // 用户消息开启新一轮问答，重置归并目标
+        if (m.role === 'user') lastAssistant = null
         out.push(Object.assign({}, m))
       }
       return out
@@ -367,6 +481,8 @@ export default {
         })
         sessionId = session.id
         this.$router.replace({ query: { s: sessionId } })
+        // 会话创建即绑定空间快照：锁定切换器（此后本会话不可换空间）
+        this.workspaceLocked = true
         // 会话创建后移除空白「新对话」页签（由 ?s= 会话页签接管）
         this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy' })
         this.$root.$emit('omnibuddy:sessions-changed')
@@ -547,6 +663,7 @@ export default {
             t.status = 'done'
             t.result = e.result || ''
             t.isError = !!e.isError
+            t.fileChange = e.fileChange || null
           }
           break
         }
@@ -558,6 +675,18 @@ export default {
             options: e.options || [],
             answered: false,
             _input: ''
+          })
+          break
+        case 'permission_ask':
+          // 确认模式：进入待确认队列（输入框上方浮动条逐条处理，不进消息流）
+          this.permQueue.push({
+            askId: e.askId,
+            surface: e.surface,
+            value: e.value,
+            toolName: e.toolName,
+            command: e.command,
+            path: e.path,
+            preview: e.preview
           })
           break
         case 'todo_update': {
@@ -624,6 +753,8 @@ export default {
             const idx = this.messages.indexOf(msg)
             if (idx >= 0) this.messages.splice(idx, 1)
           }
+          // 待确认队列随中断清空（主进程已按拒绝应答）
+          this.permQueue = []
           this.finishTurn()
           this.streaming = false
           break
@@ -653,6 +784,42 @@ export default {
         value: answer
       })
     },
+    // 回答权限确认（浮动条）：仅本次 / 本会话内 / 始终允许 / 拒绝；处理后出队
+    async answerPermission(m, action) {
+      const idx = this.permQueue.indexOf(m)
+      if (idx < 0) return
+      this.permQueue.splice(idx, 1)
+      await this.api().replyPermission({
+        sessionId: this.sessionId,
+        askId: m.askId,
+        action
+      })
+    },
+    // 权限面板键盘快捷键：1 仅本次 / 2 本会话 / 3 始终 / 4 拒绝（可输入元素内不拦截）
+    onPermKeydown(e) {
+      if (!this.pendingPerm) return
+      const map = { 1: 'allow', 2: 'allow_session', 3: 'allow_always', 4: 'deny' }
+      const action = map[e.key]
+      if (!action) return
+      const tag = e.target && e.target.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      e.preventDefault()
+      this.answerPermission(this.pendingPerm, action)
+    },
+    // 权限模式（只读 / 自动 / 每次确认）：切换即时生效，主进程持久化
+    async loadPermissionMode() {
+      const api = this.api()
+      if (!api || !api.getPermissionMode) return
+      const res = await api.getPermissionMode()
+      if (res && res.ok && res.mode) this.permissionMode = res.mode
+    },
+    async onSelectPermissionMode(mode) {
+      if (mode === this.permissionMode) return
+      this.permissionMode = mode
+      await this.api().setPermissionMode(mode)
+      const name = { readonly: '只读', auto: '自动', confirm: '每次确认' }[mode] || mode
+      this.$message.success('权限模式：' + name)
+    },
     interrupt() {
       if (this.sessionId) this.api().interrupt(this.sessionId)
     },
@@ -662,15 +829,18 @@ export default {
       if (this.sessionId) {
         const meta = await this.api().sessionMeta(this.sessionId)
         if (meta && meta.workspaceDir) {
-          // 会话已关联：回显该会话快照的路径与展示名
+          // 会话已关联：回显该会话快照的路径与展示名，并锁定空间切换
           this.workspaceLink = {
             dir: meta.workspaceDir,
             name: meta.displayName || '',
             workspaceId: meta.workspaceId || ''
           }
+          this.workspaceLocked = true
           return
         }
       }
+      // 新会话（或未绑定空间的旧会话）：可自由选择
+      this.workspaceLocked = false
       const saved = getItem('omnibuddy:workspace-link', null)
       if (saved && saved.dir) this.workspaceLink = saved
     },
@@ -679,8 +849,9 @@ export default {
       const list = await this.api().listWorkspaces()
       this.workspaces = (list || []).filter(w => w.available)
     },
-    // 上拉选择已登记工作空间：同步关联三元组并持久化
+    // 上拉选择已登记工作空间：同步关联三元组并持久化（会话已锁定时不可切换）
     onSelectWorkspace(id) {
+      if (this.workspaceLocked) return
       const ws = this.workspaces.find(w => w.id === id)
       if (!ws) return
       this.openSelect = ''
@@ -689,6 +860,7 @@ export default {
     },
     // 浮层底部「关联新路径」：系统目录选择框 → 登记并直接选中（展示名默认末级目录名）
     async linkNewWorkspace() {
+      if (this.workspaceLocked) return
       this.openSelect = ''
       const res = await this.api().addWorkspace()
       if (res && res.ok && res.workspace) {
@@ -754,12 +926,8 @@ export default {
         }
       }).catch(() => {})
     },
-    // ===== 检查点 / 回滚（N4）：列表加载与回滚在 CheckpointDrawer 内自治 =====
-    openCheckpoints() {
-      if (!this.sessionId) return
-      // 抽屉监听 visible 变化自动加载检查点列表
-      this.cpDrawer = true
-    },
+    // ===== 检查点 / 回滚（N4）：入口暂移除（恢复时在 composer 工具区加回入口按钮）；
+    // 抽屉与回滚广播处理保留，列表加载与回滚在 CheckpointDrawer 内自治 =====
     // 抽屉内回滚成功：兜底刷新消息（主进程亦会广播 rolled_back 统一处理）
     onCheckpointRolledBack() {
       this.loadMessages()
@@ -802,6 +970,12 @@ export default {
   display: flex;
   flex-direction: column;
 
+  // 顶部渐隐遮罩：滚动时内容贴近顶部边缘淡出，与页签行保持呼吸间距
+  //（纯 padding 会随内容滚走，渐隐是滚动间距的通行做法；
+  //  首条消息因消息列表 40px 顶部留白位于渐隐区之外，静态展示不受影响）
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 36px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 36px);
+
   &::-webkit-scrollbar {
     width: 5px;
   }
@@ -809,8 +983,230 @@ export default {
 
 /* ===== 输入区 ===== */
 .ob-composer {
+  position: relative;
   flex-shrink: 0;
   padding: 10px 18px 14px;
+}
+
+/* ===== 权限确认面板（输入框上方底部滑出，与输入框/消息列同宽 920px） ===== */
+.ob-perm-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 920px;
+  margin: 0 auto 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(var(--warning-color-rgb, 230, 162, 60), 0.4);
+  border-radius: 18px;
+  background: var(--card-bg, #fff);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-app-region: no-drag;
+}
+
+/* 头部：图标 + 问题标题 + surface 徽标 + 队列计数 */
+.ob-perm-bar-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ob-perm-bar-ico {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #e6a23c;
+  background: rgba(230, 162, 60, 0.12);
+  border: 1px solid rgba(230, 162, 60, 0.25);
+
+  .svg-icon {
+    font-size: 17px;
+  }
+}
+
+.ob-perm-bar-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ob-perm-bar-surface {
+  flex-shrink: 0;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.04);
+  padding: 0 8px;
+  border-radius: 99px;
+  line-height: 1.7;
+}
+
+.ob-perm-bar-queue {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #e6a23c;
+  background: rgba(230, 162, 60, 0.12);
+  border: 1px solid rgba(230, 162, 60, 0.28);
+  padding: 0 7px;
+  border-radius: 99px;
+  line-height: 1.6;
+}
+
+/* 授权内容区：字段标签 + 代码块（路径 / 命令 / 操作内容） */
+.ob-perm-bar-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ob-perm-bar-label {
+  margin-bottom: 5px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.ob-perm-bar-code {
+  margin: 0;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+  user-select: text;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+}
+
+/* 操作区：四档编号选项一行一个（对应键盘 1-4） */
+.ob-perm-bar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ob-perm-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.02));
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: all 0.15s ease;
+
+  .ob-perm-btn-no {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    color: var(--text-secondary);
+    background: rgba(0, 0, 0, 0.06);
+    transition: all 0.15s ease;
+  }
+
+  .ob-perm-btn-label {
+    flex-shrink: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    transition: color 0.15s ease;
+  }
+
+  .ob-perm-btn-desc {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &:active {
+    transform: scale(0.99);
+  }
+
+  &.once:hover,
+  &.session:hover {
+    border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.5);
+    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.07);
+
+    .ob-perm-btn-no {
+      color: #fff;
+      background: var(--primary-color);
+    }
+
+    .ob-perm-btn-label { color: var(--primary-color); }
+  }
+
+  &.always:hover {
+    border-color: rgba(82, 196, 26, 0.5);
+    background: rgba(82, 196, 26, 0.08);
+
+    .ob-perm-btn-no {
+      color: #fff;
+      background: #52C41A;
+    }
+
+    .ob-perm-btn-label { color: #38A10C; }
+  }
+
+  &.deny:hover {
+    border-color: rgba(245, 34, 45, 0.4);
+    background: rgba(245, 34, 45, 0.06);
+
+    .ob-perm-btn-no {
+      color: #fff;
+      background: #F5222D;
+    }
+
+    .ob-perm-btn-label { color: #F5222D; }
+  }
+}
+
+/* 底部滑出：面板自输入框方向整块滑入弹出（Vue2 过渡类名） */
+.ob-perm-bar-enter-active {
+  transition: opacity 0.25s ease, transform 0.28s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+.ob-perm-bar-leave-active {
+  transition: opacity 0.16s ease, transform 0.18s ease;
+}
+
+.ob-perm-bar-enter,
+.ob-perm-bar-leave-to {
+  opacity: 0;
+  transform: translateY(100%);
 }
 
 .ob-composer-inner {
@@ -848,40 +1244,6 @@ export default {
 
     .ob-ws-add-ico {
       color: var(--primary-color);
-    }
-  }
-}
-
-/* ===== 检查点入口（composer 工具区） ===== */
-.ob-cp-entry {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  color: $text-secondary;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-
-  .svg-icon {
-    width: 15px;
-    height: 15px;
-  }
-
-  &:hover {
-    color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb), 0.1);
-  }
-
-  &.disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-
-    &:hover {
-      color: $text-secondary;
-      background: transparent;
     }
   }
 }

@@ -6,6 +6,9 @@
       <svg-icon icon-class="sparkle" class="ob-think-hico" />
       <span class="ob-think-title">{{ isThinking ? '深度思考中…' : '已深度思考' }}</span>
       <span v-if="!isThinking && stepCount > 0" class="ob-think-count">{{ stepCount }} 个步骤</span>
+      <span v-if="!isThinking && fileChangeCount > 0" class="ob-think-count ob-think-files">
+        <svg-icon icon-class="edit" class="ob-think-file-ico" />{{ fileChangeCount }} 个文件变更
+      </span>
       <svg-icon
         icon-class="arrow-down"
         class="ob-think-arrow"
@@ -45,6 +48,13 @@
             <span v-if="isMcp(item)" class="ob-tool-server">{{ mcpServerLabel(item) }}</span>
             <span class="ob-tool-name">{{ friendlyToolName(item) }}</span>
             <span v-if="rawToolTag(item)" class="ob-tool-tag">{{ rawToolTag(item) }}</span>
+            <!-- 文件变更摘要：目标文件 + 类型徽章 + 增删行数 -->
+            <template v-if="item.fileChange">
+              <span class="ob-fc-file" :title="item.fileChange.file">{{ fcFileShort(item.fileChange) }}</span>
+              <span class="ob-fc-type" :class="item.fileChange.type">{{ fcTypeLabel(item.fileChange.type) }}</span>
+              <span v-if="fcAdded(item.fileChange) !== null" class="ob-fc-add">+{{ fcAdded(item.fileChange) }}</span>
+              <span v-if="fcRemoved(item.fileChange) !== null" class="ob-fc-del">-{{ fcRemoved(item.fileChange) }}</span>
+            </template>
             <svg-icon
               v-if="hasDetails(item)"
               icon-class="arrow-down"
@@ -53,8 +63,36 @@
             />
           </div>
 
-          <!-- 详情：参数区 + 结果区（左侧竖线缩进） -->
+          <!-- 详情：文件变更对比 + 参数区 + 结果区（左侧竖线缩进） -->
           <div v-if="isToolOpen(item)" class="ob-tool-detail">
+            <!-- 文件变更对比：双列 diff（左旧右新，hunk 收敛） -->
+            <div v-if="item.fileChange && item.fileChange.rows && item.fileChange.rows.length" class="ob-fc-block">
+              <div class="ob-tool-label">变更对比</div>
+              <div class="ob-fc-diff">
+                <div
+                  v-for="(row, ri) in item.fileChange.rows"
+                  :key="ri"
+                  class="ob-fc-row"
+                  :class="row.type"
+                >
+                  <template v-if="row.type === 'header'">
+                    <span class="ob-fc-hdr">{{ row.text }}</span>
+                  </template>
+                  <template v-else>
+                    <span class="ob-fc-ln">{{ row.left ? row.left.n : '' }}</span>
+                    <span class="ob-fc-txt old">{{ row.left ? row.left.text : '' }}</span>
+                    <span class="ob-fc-ln">{{ row.right ? row.right.n : '' }}</span>
+                    <span class="ob-fc-txt new">{{ row.right ? row.right.text : '' }}</span>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <!-- 变更超限（文件过大无法逐行对比）：给出说明 -->
+            <div v-else-if="item.fileChange && item.fileChange.truncated" class="ob-fc-block">
+              <div class="ob-tool-label">变更对比</div>
+              <div class="ob-fc-skip">文件较大（超过 512KB），仅记录变更类型与行数，未做逐行对比</div>
+            </div>
+
             <!-- 参数区 -->
             <div v-if="hasArgs(item)" class="ob-tool-args">
               <div class="ob-tool-label">参数</div>
@@ -138,6 +176,10 @@ export default {
     // 步骤数：工具与 Skill 计数（思考文本不计）
     stepCount() {
       return this.items.filter(i => i.type === 'tool' || i.type === 'skill').length
+    },
+    // 本轮文件变更数（写工具产生的有效变更）
+    fileChangeCount() {
+      return this.items.filter(i => i.type === 'tool' && i.fileChange).length
     }
   },
   methods: {
@@ -235,7 +277,7 @@ export default {
       return item.status === 'running' && !!item.partial
     },
     hasDetails(item) {
-      return this.hasArgs(item) || this.hasResult(item)
+      return this.hasArgs(item) || this.hasResult(item) || !!item.fileChange
     },
     toolKey(item) {
       return item.toolCallId || (item.toolName + '::' + (item.args ? JSON.stringify(item.args).slice(0, 40) : ''))
@@ -250,6 +292,24 @@ export default {
     },
     toggleTool(item) {
       this.$set(this.toolOpenOverrides, this.toolKey(item), !this.isToolOpen(item))
+    },
+    // ===== 文件变更记录（P2）=====
+    // 变更类型中文标签
+    fcTypeLabel(t) {
+      return { created: '新建', modified: '修改', deleted: '删除', mkdir: '新建目录' }[t] || '变更'
+    },
+    // 摘要行文件名（取末段路径，完整路径见 title 提示）
+    fcFileShort(fc) {
+      const f = fc.file || ''
+      const parts = f.split('/')
+      return parts.length > 1 ? parts[parts.length - 1] : f
+    },
+    // 新增行数（-1 = 超限未知 → 不显示数字）
+    fcAdded(fc) {
+      return typeof fc.added === 'number' && fc.added >= 0 ? fc.added : null
+    },
+    fcRemoved(fc) {
+      return typeof fc.removed === 'number' && fc.removed >= 0 ? fc.removed : null
     }
   }
 }
@@ -544,5 +604,134 @@ export default {
 
 @keyframes ob-think-blink {
   50% { opacity: 0; }
+}
+
+/* ===== 文件变更记录 ===== */
+/* 头部"N 个文件变更"计数 */
+.ob-think-files {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+
+  .ob-think-file-ico {
+    font-size: 11px;
+  }
+}
+
+/* 摘要行：文件名 + 类型徽章 + 增删行数 */
+.ob-fc-file {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.ob-fc-type {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+
+  &.created, &.mkdir {
+    color: #10B981;
+    background: rgba(16, 185, 129, 0.12);
+  }
+
+  &.modified {
+    color: #0284C7;
+    background: rgba(2, 132, 199, 0.12);
+  }
+
+  &.deleted {
+    color: #EF4444;
+    background: rgba(239, 68, 68, 0.12);
+  }
+}
+
+.ob-fc-add,
+.ob-fc-del {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.ob-fc-add { color: #10B981; }
+.ob-fc-del { color: #EF4444; }
+
+/* 变更对比块：双列 diff（等宽字体，hunk 收敛，滚动） */
+.ob-fc-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.ob-fc-diff {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: 280px;
+  overflow-y: auto;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.ob-fc-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px minmax(0, 1fr);
+
+  /* 删除行：左半红调；新增行：右半绿调；上下文行无底色 */
+  &.del .ob-fc-txt.old {
+    background: rgba(239, 68, 68, 0.1);
+    color: #B91C1C;
+  }
+
+  &.add .ob-fc-txt.new {
+    background: rgba(16, 185, 129, 0.1);
+    color: #047857;
+  }
+
+  /* hunk 头横幅行 */
+  &.header {
+    display: block;
+
+    .ob-fc-hdr {
+      display: block;
+      padding: 2px 10px;
+      background: rgba(0, 0, 0, 0.05);
+      color: var(--text-secondary);
+      font-size: 10px;
+    }
+  }
+}
+
+.ob-fc-ln {
+  padding: 0 5px;
+  text-align: right;
+  color: var(--text-secondary);
+  opacity: 0.65;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ob-fc-txt {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-primary);
+}
+
+/* 变更超限说明 */
+.ob-fc-skip {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(230, 162, 60, 0.08);
+  font-size: 11.5px;
+  color: #a06a1b;
 }
 </style>

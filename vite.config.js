@@ -20,7 +20,7 @@ export default defineConfig({
         }
       },
       // agent 模块为 CJS require 互相引用：逐文件构建，保留 require 结构
-      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'skills', 'workspace', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'rules', 'attachments', 'market', 'connectors', 'usage', 'export', 'checkpoints'].map(name => ({
+      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime', 'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'rules', 'memory', 'file-changes', 'attachments', 'market', 'connectors', 'usage', 'export', 'checkpoints'].map(name => ({
         entry: `electron/agent/${name}.js`,
         vite: {
           build: {
@@ -40,47 +40,47 @@ export default defineConfig({
           }
         }
       })),
-      // 快捷入口主进程模块（P0）：与 main.js 同构——独立构建到 dist-electron，
-      // main.js 经 require('./quick-panel') 引用（相对 require 不内联，运行时解析）
+      // 快捷入口主进程模块（P0）：独立构建，产物镜像源码目录（dist-electron/windows/），
+      // main.js 经 require('./windows/quick-panel') 引用（相对 require 不内联，运行时解析）
       {
-        entry: 'electron/quick-panel.js',
+        entry: 'electron/windows/quick-panel.js',
         vite: {
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
               output: {
-                entryFileNames: 'quick-panel.js'
+                entryFileNames: 'windows/quick-panel.js'
               },
               external: ['electron']
             }
           }
         }
       },
-      // 屏幕截取模块（P0-M3）：同 quick-panel 构建模式，main.js / agent 均经相对 require 引用
+      // 屏幕截取模块（P0-M3）：同 quick-panel 构建模式，main.js 经相对 require 引用
       {
-        entry: 'electron/capture.js',
+        entry: 'electron/windows/capture.js',
         vite: {
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
               output: {
-                entryFileNames: 'capture.js'
+                entryFileNames: 'windows/capture.js'
               },
               external: ['electron']
             }
           }
         }
       },
-      // 自动更新模块（N1 检测引导 / N5 electron-updater 全自动）：同 quick-panel 构建模式，main.js 经 require('./updater') 引用
+      // 自动更新模块（N1 检测引导 / N5 electron-updater 全自动）：同 quick-panel 构建模式，main.js 经 require('./core/updater') 引用
       // electron-updater 由 updater.js 运行时 require（node_modules 内），保留原生调用
       {
-        entry: 'electron/updater.js',
+        entry: 'electron/core/updater.js',
         vite: {
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
               output: {
-                entryFileNames: 'updater.js'
+                entryFileNames: 'core/updater.js'
               },
               external: ['electron', 'electron-updater']
             }
@@ -89,30 +89,31 @@ export default defineConfig({
       },
       // 壁纸市场拉取模块：同 quick-panel 构建模式，main.js 经相对 require 引用
       {
-        entry: 'electron/wallpaper-fetch.js',
+        entry: 'electron/services/wallpaper-fetch.js',
         vite: {
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
               output: {
-                entryFileNames: 'wallpaper-fetch.js'
+                entryFileNames: 'services/wallpaper-fetch.js'
               },
               external: ['electron']
             }
           }
         }
       },
-      // 启动依赖预检（P1）：同 quick-panel 构建模式，main.js 经 require('./deps') 引用
+      // 启动依赖预检（P1）：同 quick-panel 构建模式，main.js 经 require('./core/deps') 引用
+      // adm-zip 由 deps.js 运行时 require（Windows 首启解压内置 MinGit），保留原生调用
       {
-        entry: 'electron/deps.js',
+        entry: 'electron/core/deps.js',
         vite: {
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
               output: {
-                entryFileNames: 'deps.js'
+                entryFileNames: 'core/deps.js'
               },
-              external: ['electron']
+              external: ['electron', 'adm-zip']
             }
           }
         }
@@ -136,7 +137,10 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173
+    port: 5173,
+    // 固定端口：IndexedDB 按 origin 隔离，端口漂移（5173→5174…）会读到全新空库，
+    // 表现为"配置刷新后丢失"；端口被占时直接报错，避免数据散落多个 origin
+    strictPort: true
   },
   css: {
     preprocessorOptions: {

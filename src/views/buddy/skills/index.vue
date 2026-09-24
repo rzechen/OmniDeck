@@ -20,39 +20,42 @@
       ><svg-icon icon-class="plus" class="ob-btn-svg" />导入 Skill</el-button>
     </header>
 
-    <!-- 空状态 -->
-    <div v-if="!skillList.length && !skillLoading" class="ob-empty">
-      <div class="ob-empty-icon">
-        <svg-icon icon-class="skill" />
+    <!-- 内容区（hero 固定，仅此区域滚动） -->
+    <div class="ob-page-body">
+      <!-- 空状态 -->
+      <div v-if="!skillList.length && !skillLoading" class="ob-empty">
+        <div class="ob-empty-icon">
+          <svg-icon icon-class="skill" />
+        </div>
+        <div class="ob-empty-title">暂无 Skill</div>
+        <div class="ob-empty-desc">导入一个 Skill（ZIP），让 Agent 掌握特定任务的操作手册</div>
+        <el-button
+          size="small"
+          round
+          type="primary"
+          @click="openSkillCreate"
+        ><svg-icon icon-class="plus" class="ob-btn-svg" />导入 Skill</el-button>
       </div>
-      <div class="ob-empty-title">暂无 Skill</div>
-      <div class="ob-empty-desc">导入一个 Skill（ZIP），让 Agent 掌握特定任务的操作手册</div>
-      <el-button
-        size="small"
-        round
-        type="primary"
-        @click="openSkillCreate"
-      ><svg-icon icon-class="plus" class="ob-btn-svg" />导入 Skill</el-button>
-    </div>
 
-    <!-- Skill 卡片网格 -->
-    <div v-else class="ob-cards-grid">
-      <div v-if="skillLoading" class="ob-ext-loading">
-        <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+      <!-- Skill 卡片网格 -->
+      <div v-else class="ob-cards-grid">
+        <div v-if="skillLoading" class="ob-ext-loading">
+          <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+        </div>
+        <skill-card
+          v-for="s in skillList"
+          v-else
+          :key="s.dir"
+          :skill="s"
+          :cred="credOf(s)"
+          :env-keys="envKeysOf(s)"
+          @detail="openSkillDetail"
+          @export="exportSkill"
+          @cred="openSkillCred"
+          @edit="openSkillEdit"
+          @remove="removeSkill"
+        />
       </div>
-      <skill-card
-        v-for="s in skillList"
-        v-else
-        :key="s.dir"
-        :skill="s"
-        :cred="credOf(s)"
-        :env-keys="envKeysOf(s)"
-        @detail="openSkillDetail"
-        @export="exportSkill"
-        @cred="openSkillCred"
-        @edit="openSkillEdit"
-        @remove="removeSkill"
-      />
     </div>
 
     <!-- 编辑/导入 Skill 弹窗（新建仅 ZIP 导入；编辑为表单） -->
@@ -269,4 +272,9 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 技能卡片更宽：承载完整名称与更多行描述 */
+.ob-cards-grid {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+}
 </style>

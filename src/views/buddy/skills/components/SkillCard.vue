@@ -10,11 +10,6 @@
         </div>
         <div class="ob-card-meta">{{ skill.description || '（无描述）' }}</div>
       </div>
-      <!-- 凭据徽标：已配置（绿）-->
-      <span v-if="cred" class="ob-card-badge ok">
-        <svg-icon icon-class="key" />
-        已配置凭据
-      </span>
     </div>
 
     <!-- 环境变量键名（脱敏，仅键名） -->
@@ -27,7 +22,14 @@
     <p v-else class="ob-card-desc">技能启用时凭据以环境变量方式注入</p>
 
     <div class="ob-card-foot">
-      <div class="ob-foot-info"></div>
+      <div class="ob-foot-info">
+        <!-- 凭据徽标：与操作按钮同行（已配置绿 / 未配置灰） -->
+        <span v-if="cred" class="ob-card-badge ok">
+          <svg-icon icon-class="key" />
+          已配置凭据
+        </span>
+        <span v-else class="ob-card-badge none">未配置凭据</span>
+      </div>
       <div class="ob-card-actions" @click.stop>
         <span class="ob-item-action" title="导出 ZIP" @click="$emit('export', skill)">
           <svg-icon icon-class="download" />
@@ -89,6 +91,34 @@ export default {
     background: rgba(82, 196, 26, 0.1);
     border: 1px solid rgba(82, 196, 26, 0.3);
   }
+
+  /* 未配置：中性灰（仅底部状态行使用） */
+  &.none {
+    color: $text-secondary;
+    background: var(--bg-hover, rgba(0, 0, 0, 0.03));
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  }
+}
+
+/* 名称完整呈现（覆盖共享样式的单行截断，允许换行） */
+.ob-card-name,
+.ob-card-name .ob-name-text {
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: unset;
+  display: block;
+}
+
+/* 描述多行展示（3 行截断，锁定最小高度保持卡片规整） */
+.ob-card-meta {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.5;
+  min-height: 50px;
 }
 
 /* 环境变量键名标签（市场页 tag 风格） */

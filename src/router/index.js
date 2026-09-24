@@ -49,6 +49,24 @@ const routes = [
         meta: { title: '项目规则' }
       },
       {
+        path: 'memory',
+        name: 'OmniBuddyMemory',
+        component: () => import('@/views/buddy/memory/index.vue'),
+        meta: { title: '记忆管理' }
+      },
+      {
+        path: 'capabilities',
+        name: 'OmniBuddyCapabilities',
+        component: () => import('@/views/buddy/capabilities/index.vue'),
+        meta: { title: '能力清单' }
+      },
+      {
+        path: 'permissions',
+        name: 'OmniBuddyPermissions',
+        component: () => import('@/views/buddy/permissions/index.vue'),
+        meta: { title: '权限策略' }
+      },
+      {
         path: 'market',
         name: 'OmniBuddyMarket',
         component: () => import('@/views/buddy/market/index.vue'),

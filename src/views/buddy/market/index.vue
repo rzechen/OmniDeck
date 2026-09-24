@@ -22,8 +22,10 @@
       </el-button>
     </header>
 
-    <!-- ===== 主体：左侧分类边栏 + 右侧内容区 ===== -->
-    <div class="ob-market-layout" v-if="!loading && !error && items.length">
+    <!-- 内容区（hero 固定，仅此区域滚动） -->
+    <div class="ob-page-body">
+      <!-- ===== 主体：左侧分类边栏 + 右侧内容区 ===== -->
+      <div class="ob-market-layout" v-if="!loading && !error && items.length">
       <!-- 左侧垂直边栏：一级类型 + 二级主题分类（Chrome Web Store 式） -->
       <market-sidebar
         :categories="categories"
@@ -115,6 +117,7 @@
       </div>
       <div class="ob-empty-title">市场暂无可用资源</div>
       <div class="ob-empty-desc">官方资源仓库筹备中，敬请期待</div>
+    </div>
     </div>
 
     <!-- ===== 卡片详情弹窗（共享组件）：完整描述 / 版本 / 更新时间 / 版本历史 ===== -->
@@ -413,6 +416,7 @@ export default {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-shrink: 0;
   margin-bottom: 12px;
   padding: 16px 20px;
   background: linear-gradient(135deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);

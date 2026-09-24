@@ -1,12 +1,12 @@
 <template>
   <!-- 输入框底部工具栏的上拉选择器（mac 菜单风浮层，向上弹出） -->
   <div class="ob-select" :class="{ open: isOpen }">
-    <!-- 触发 chip：幽灵按钮（透明底，hover 浮现），无选中时文字弱化 -->
+    <!-- 触发 chip：幽灵按钮（透明底，hover 浮现），无选中时文字弱化；disabled 时禁点（如会话已锁定空间） -->
     <span
       class="ob-inline-chip"
-      :class="{ placeholder: !modelValue }"
+      :class="{ placeholder: !modelValue, disabled }"
       :title="triggerTitle"
-      @click="$emit('toggle')"
+      @click="onToggle"
     >
       <svg-icon :icon-class="triggerIcon" class="ob-chip-icon" />
       <span class="ob-chip-text">{{ triggerLabel }}</span>
@@ -106,11 +106,21 @@ export default {
     emptyDesc: {
       type: String,
       default: ''
+    },
+    // 禁用触发 chip（浮层不可弹出；选中值仍正常展示）
+    disabled: {
+      type: Boolean,
+      default: false
     }
   },
   computed: {
     isOpen() {
-      return this.activeKey === this.pickerKey
+      return !this.disabled && this.activeKey === this.pickerKey
+    }
+  },
+  methods: {
+    onToggle() {
+      if (!this.disabled) this.$emit('toggle')
     }
   }
 }
@@ -147,6 +157,20 @@ export default {
   // 未选择：占位文字弱化（不用警示色，保持简约）
   &.placeholder .ob-chip-text {
     color: var(--text-secondary);
+  }
+
+  // 禁用：弱化且不可点（hover 无反馈、箭头隐藏）
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.75;
+
+    .ob-chip-arrow {
+      display: none;
+    }
+
+    &:hover {
+      background: transparent;
+    }
   }
 
   .ob-chip-arrow {

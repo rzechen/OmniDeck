@@ -1,0 +1,30 @@
+# 沙箱增强 Node 工具链（非 coding 场景 P0，2026-09-18 定稿）
+#
+# 定位：沙箱 node 工具的用户代码预装库（经 NODE_PATH 注入
+# runtime/<plat>/node/node_modules，见 config.paths.NODE_GLOBAL_MODULES_DIR
+# 与 sandbox_tools 注入点；各后端 run 的 extra_env 通道传递）。
+#
+# 与 Python 侧 requirements-sandbox.txt 对偶；装配见
+# scripts/provision-runtime.sh node-tools 组件（npm -g 安装 + lib 存档）。
+#
+# 纳入标准：非 coding 高频且以"库被用户代码 require"为主要形态。
+# 刻意排除：
+# - CLI 工具走 npx 通道（@playwright/mcp 已预热 npx-cache；markdownlint
+#   为 coding 向）
+# - mermaid-cli：puppeteer 拉独立 chromium（~170MB，与 playwright 浏览器
+#   重复），挂账——图表渲染可由 playwright 截图方案替代
+# - coding 向：typescript / ts-node / tsx / react / react-dom（skill 按需拉起）
+
+# ---- 图像 ----
+sharp>=0.33
+
+# ---- Word / PPT 生成 ----
+docx>=9.0
+pptxgenjs>=3.12
+
+# ---- PDF（生成 / 解析）----
+pdf-lib>=1.17
+pdfjs-dist>=4.0
+
+# ---- Markdown → HTML ----
+marked>=14.0

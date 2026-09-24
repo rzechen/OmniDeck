@@ -589,6 +589,11 @@ export default {
         case 'todo_update':
           // 面板空间有限：不渲染 todo 卡片（主窗口完整呈现）
           break
+        case 'permission_ask':
+          // 面板空间有限：确认条在主窗口对话页呈现，此处安全拒绝并提示
+          this.api().replyPermission({ sessionId: e.sessionId, askId: e.askId, action: 'deny' })
+          this.$message.info('权限确认请在主窗口对话页处理，本次已拒绝')
+          break
         case 'sandbox_status':
           if (e.status && e.status.enabled) {
             this.$message.success('沙箱已启用：命令将在受限环境中执行')

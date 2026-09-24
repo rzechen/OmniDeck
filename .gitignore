@@ -6,6 +6,7 @@ native/build
 .dist-trash
 .stale-builds
 release
+runtime
 .DS_Store
 *.log
 .vscode

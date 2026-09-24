@@ -18,39 +18,42 @@
       ><svg-icon icon-class="plus" class="ob-btn-svg" />新增连接器</el-button>
     </header>
 
-    <!-- ===== 连接器（MCP Server） ===== -->
-    <!-- 空状态直接挂在 .ob-manage-page 下，flex:1 占满剩余空间实现垂直居中 -->
-    <div v-if="!mcpServers.length && !mcpLoading" class="ob-empty">
-      <div class="ob-empty-icon">
-        <svg-icon icon-class="mcp" />
-      </div>
-      <div class="ob-empty-title">暂无连接器</div>
-      <div class="ob-empty-desc">接入一个 MCP Server，让 Agent 获得外部工具能力</div>
-      <el-button
-        size="small"
-        round
-        type="primary"
-        @click="openMcpAdd"
-      ><svg-icon icon-class="plus" class="ob-btn-svg" />新增连接器</el-button>
-    </div>
-
-    <!-- 服务卡片网格 -->
-    <section v-else class="ob-connector-section">
-      <div class="ob-cards-grid">
-        <div v-if="mcpLoading" class="ob-ext-loading">
-          <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+    <!-- 内容区（hero 固定，仅此区域滚动） -->
+    <div class="ob-page-body">
+      <!-- ===== 连接器（MCP Server） ===== -->
+      <!-- 空状态直接挂在 .ob-page-body 下，flex:1 占满剩余空间实现垂直居中 -->
+      <div v-if="!mcpServers.length && !mcpLoading" class="ob-empty">
+        <div class="ob-empty-icon">
+          <svg-icon icon-class="mcp" />
         </div>
-        <mcp-card
-          v-for="s in mcpServers"
-          v-else
-          :key="s.name"
-          :item="s"
-          @toggle="toggleMcpEnabled"
-          @edit="openMcpEdit"
-          @remove="removeMcpItem"
-        />
+        <div class="ob-empty-title">暂无连接器</div>
+        <div class="ob-empty-desc">接入一个 MCP Server，让 Agent 获得外部工具能力</div>
+        <el-button
+          size="small"
+          round
+          type="primary"
+          @click="openMcpAdd"
+        ><svg-icon icon-class="plus" class="ob-btn-svg" />新增连接器</el-button>
       </div>
-    </section>
+
+      <!-- 服务卡片网格 -->
+      <section v-else class="ob-connector-section">
+        <div class="ob-cards-grid">
+          <div v-if="mcpLoading" class="ob-ext-loading">
+            <svg-icon icon-class="loading" class="ob-spin" /> 加载中…
+          </div>
+          <mcp-card
+            v-for="s in mcpServers"
+            v-else
+            :key="s.name"
+            :item="s"
+            @toggle="toggleMcpEnabled"
+            @edit="openMcpEdit"
+            @remove="removeMcpItem"
+          />
+        </div>
+      </section>
+    </div>
 
     <!-- 连接器凭证引导弹窗 -->
     <el-dialog

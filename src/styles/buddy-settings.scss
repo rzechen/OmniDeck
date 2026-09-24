@@ -1,11 +1,13 @@
 /* OmniBuddy 管理类页面通用样式（模型供应商 / MCP 服务 / Skills 管理）
    由各页面 scoped style @import 使用 */
 
-/* ===== 顶部 Hero 头卡（市场页同款：极简标题 + 数量徽标 + 描述 + 右侧操作） ===== */
+/* ===== 顶部 Hero 头卡（市场页同款：极简标题 + 数量徽标 + 描述 + 右侧操作） =====
+   参考工作空间页：hero 固定于页面顶部不随内容滚动（滚动发生在 .ob-page-body） */
 .ob-hero {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-shrink: 0;
   margin-bottom: 20px;
   padding: 16px 20px;
   background: linear-gradient(135deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
@@ -62,6 +64,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 14px;
+  // 顶部留白：卡片 hover 上浮 2px 时避免被滚动容器顶部裁切
+  padding-top: 3px;
 }
 
 .ob-grid-card {
@@ -216,11 +220,32 @@
 .ob-manage-page {
   flex: 1;
   min-width: 0;
+  // flex 子元素默认 min-height:auto，内容会撑开容器导致滚动失效，须显式归零
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  // 页面自身不滚动：hero 固定，滚动下放至 .ob-page-body（与工作空间页 sp-body 一致）
+  overflow: hidden;
   padding: 20px 24px;
   -webkit-app-region: no-drag;
+}
+
+/* ===== 管理页内容区：hero 之下的唯一滚动容器 ===== */
+.ob-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb, rgba(0, 0, 0, 0.15));
+    border-radius: 3px;
+  }
 }
 
 .ob-btn-svg {
@@ -433,12 +458,6 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-
-  .ob-item-model-svg {
-    font-size: 12px;
-    color: var(--primary-color);
-    flex-shrink: 0;
-  }
 }
 
 .ob-item-model {

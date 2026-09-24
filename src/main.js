@@ -95,8 +95,13 @@ async function bootstrap() {
   // 减弱动态效果：写入 html 根类，全局 CSS 感知
   document.documentElement.classList.toggle('reduce-motion', store.state.reduceMotion)
 
-  // 复制按钮图标变形：全局点击委托（点击含复制图标的按钮，图标短暂变形为 ✓）
+  // 复制按钮图标变形：全局点击委托（点击含复制图标时，图标短暂变形为 ✓）
   setupCopyMorph()
+
+  // 每日 IndexedDB 用量采样（每天首次启动记一次，首页折线图数据源）。
+  // 必须在挂载前完成：否则首页 mounted 读采样表时尚无"今天"的样本，
+  // 差值全为 null，折线图在每天首次启动时必然显示"暂无数据"
+  await sampleDailyUsage().catch(() => {})
 
   new Vue({
     router,
@@ -110,9 +115,6 @@ async function bootstrap() {
   // 工具执行历史治理：清理过期记录（TTL 30 天）+ 申请持久化存储
   // 后台异步执行，不阻塞启动；失败静默
   purgeToolHistory().catch(() => {})
-
-  // 每日 IndexedDB 用量采样（每天首次启动记一次，首页折线图数据源）
-  sampleDailyUsage().catch(() => {})
 }
 
 bootstrap()

@@ -16,7 +16,6 @@
           </span>
         </div>
         <div class="ob-card-meta">
-          <svg-icon icon-class="llm" class="ob-item-model-svg" />
           <span class="ob-item-model">{{ provider.displayName || provider.model }}</span>
         </div>
       </div>

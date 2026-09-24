@@ -40,12 +40,10 @@
         <slot name="cells" :item="item"></slot>
       </div>
 
-      <!-- 描述 -->
+      <!-- 描述（Markdown 渲染，SKILL.md 正文可直接呈现标题/代码块/表格） -->
       <div class="ob-detail-section" v-if="item.details || item.description">
         <div class="ob-detail-section-title">描述</div>
-        <p class="ob-detail-text">
-          {{ item.details || item.description || '暂无详细描述' }}
-        </p>
+        <div class="ob-detail-text ob-md" v-html="renderedDetails"></div>
       </div>
 
       <!-- 标签 -->
@@ -78,7 +76,9 @@
 
 <script>
 // 市场页与技能页共享的资源详情弹窗：
-// 徽标头 + 信息网格 + 描述 + 标签 + 版本历史；操作按钮经 actions slot 注入
+// 徽标头 + 信息网格 + 描述（Markdown 渲染）+ 标签 + 版本历史；操作按钮经 actions slot 注入
+import { renderMarkdown } from '@/utils/markdown'
+
 export default {
   name: 'ItemDetailDialog',
   props: {
@@ -94,6 +94,10 @@ export default {
       set(val) {
         this.$emit('update:visible', val)
       }
+    },
+    // 描述区 Markdown 渲染结果（纯文本亦兼容：换行保留）
+    renderedDetails() {
+      return renderMarkdown(this.item.details || this.item.description || '暂无详细描述')
     },
     typeOf() {
       const t = this.item && this.item.type
@@ -273,8 +277,78 @@ export default {
   font-size: 12.5px;
   color: $text-secondary;
   line-height: 1.7;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ===== Markdown 渲染（与聊天气泡 .ob-md 同款，标题字号适配弹窗） ===== */
+.ob-md {
+  ::v-deep {
+    p { margin: 0 0 8px; }
+    p:last-child { margin-bottom: 0; }
+
+    pre {
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 10px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+      font-size: 12.5px;
+      line-height: 1.6;
+
+      code {
+        background: transparent;
+        padding: 0;
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+      }
+    }
+
+    code {
+      background: rgba(var(--primary-color-rgb), 0.09);
+      color: var(--primary-color);
+      padding: 1px 5px;
+      border-radius: 5px;
+      font-size: 12.5px;
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+    }
+
+    ul, ol {
+      padding-left: 20px;
+      margin: 6px 0;
+    }
+
+    blockquote {
+      margin: 8px 0;
+      padding: 4px 12px;
+      border-left: 3px solid rgba(var(--primary-color-rgb), 0.45);
+      color: $text-secondary;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin: 8px 0;
+
+      th, td {
+        border: 1px solid var(--border-color);
+        padding: 5px 10px;
+        font-size: 12.5px;
+      }
+    }
+
+    a {
+      color: var(--primary-color);
+    }
+
+    h1, h2, h3, h4 {
+      margin: 12px 0 6px;
+      font-weight: 700;
+      color: $text-primary;
+    }
+
+    h1 { font-size: 16px; }
+    h2 { font-size: 15px; }
+    h3 { font-size: 14px; }
+    h4 { font-size: 13px; }
+  }
 }
 
 .ob-item-tags {

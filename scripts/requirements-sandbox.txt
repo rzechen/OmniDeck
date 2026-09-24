@@ -1,0 +1,46 @@
+# 沙箱增强依赖集（非 coding 场景 P0，2026-09-18 定稿）
+#
+# 定位：runtime python 双角色中的"沙箱用户代码解释器"能力层——
+# 向沙箱 python 工具的用户代码/Skill 提供办公自动化（Excel/Word/PPT/PDF）、
+# 数据处理、图表、网页解析、图像与 Markdown 互转的预装栈。
+# 启动时 PACKAGES.md 按实际 pip 清单自动披露（env_check 既有机制）。
+#
+# 与 requirements.txt（后端自依赖）解耦：本文件只含用户态工具栈，
+# 不含任何后端服务依赖；升级互不牵制。
+#
+# 纳入标准：非 coding 高频（覆盖办公自动化/数据分析 ~90% 场景）。
+# 刻意排除（P2 挂账，场景驱动再引入，见 08 号文档沙箱增强包节）：
+# - 系统二进制依赖项：pytesseract（需 tesseract）/ pdf2image（需 poppler）
+# - 重型项：scikit-learn / scikit-image / opencv / mediapipe / onnxruntime
+# - coding 向：mkdocs / flask（Node 侧 typescript/react 等同理由 npx 按需）
+
+# ---- 表格与数值 ----
+numpy>=1.26
+pandas>=2.2
+
+# ---- Excel ----
+openpyxl>=3.1
+
+# ---- Word / PPT ----
+python-docx>=1.1
+python-pptx>=1.0
+
+# ---- PDF（拆解提取为主）----
+pypdf>=4.0
+pdfplumber>=0.11
+pdfminer.six>=20231228
+
+# ---- 图表 ----
+matplotlib>=3.8
+
+# ---- 网页抓取解析 ----
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.0
+
+# ---- 图像 ----
+pillow>=10.0
+
+# ---- Markdown 互转（Office/PDF → MD，知识库/RAG 前置）----
+markitdown>=0.1
+markdown>=3.5

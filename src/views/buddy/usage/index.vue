@@ -111,15 +111,12 @@ export default {
 .ob-usage {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
+  // 页面自身不滚动：头部固定，滚动下放至 .ob-usage-body（与工作空间页一致）
+  overflow: hidden;
   padding: 22px 26px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-
-  &::-webkit-scrollbar {
-    width: 5px;
-  }
 }
 
 .ob-usage-head {
@@ -153,6 +150,11 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+
+  &::-webkit-scrollbar {
+    width: 5px;
+  }
 }
 
 /* 双列：TOP5 + 模型分布 */

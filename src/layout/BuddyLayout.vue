@@ -47,7 +47,7 @@
             <svg-icon icon-class="plus" />
           </div>
 
-          <!-- 菜单区（分组）：资源市场 → 能力（技能/项目规则/连接器）→ 配置（工作空间/模型供应商/用量统计） -->
+          <!-- 菜单区（分组）：资源市场 → 能力（技能/连接器/项目规则/权限策略）→ 配置（工作空间/模型供应商）→ 用量统计/能力清单 -->
           <nav class="buddy-menu">
             <div
               v-for="(group, gi) in menuGroups"
@@ -170,7 +170,9 @@ export default {
           items: [
             { label: '技能', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
             { label: '连接器', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
-            { label: '项目规则', name: 'OmniBuddyRules', path: '/omnibuddy/rules', icon: 'rules' }
+            { label: '项目规则', name: 'OmniBuddyRules', path: '/omnibuddy/rules', icon: 'rules' },
+            { label: '记忆管理', name: 'OmniBuddyMemory', path: '/omnibuddy/memory', icon: 'memory' },
+            { label: '权限策略', name: 'OmniBuddyPermissions', path: '/omnibuddy/permissions', icon: 'key' }
           ]
         },
         {
@@ -183,7 +185,8 @@ export default {
         {
           title: '',
           items: [
-            { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' }
+            { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' },
+            { label: '能力清单', name: 'OmniBuddyCapabilities', path: '/omnibuddy/capabilities', icon: 'tool' }
           ]
         }
       ],

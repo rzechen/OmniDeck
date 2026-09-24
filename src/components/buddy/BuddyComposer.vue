@@ -22,12 +22,13 @@
         </div>
       </div>
 
-      <!-- 多行输入：自动增高（粘贴文件转附件） -->
+      <!-- 多行输入：自动增高（粘贴文件转附件）；流式生成中禁用输入 -->
       <textarea
         ref="ta"
         class="bc-textarea"
         :value="value"
-        :placeholder="placeholder"
+        :placeholder="actualPlaceholder"
+        :disabled="streaming"
         rows="1"
         @input="onInput"
         @focus="isFocus = true"
@@ -116,6 +117,10 @@ export default {
   computed: {
     canSend() {
       return !!this.value.trim() || this.extraSendable
+    },
+    // 流式生成中锁定输入（placeholder 同步提示，避免误以为可继续提问）
+    actualPlaceholder() {
+      return this.streaming ? '回答生成中，可点击右下角停止…' : this.placeholder
     }
   },
   watch: {
@@ -324,6 +329,12 @@ export default {
 
   &::-webkit-scrollbar {
     width: 4px;
+  }
+
+  /* 流式生成中禁用：不可键入/粘贴，文字弱化提示锁定态 */
+  &:disabled {
+    cursor: not-allowed;
+    -webkit-text-fill-color: var(--text-secondary);
   }
 }
 

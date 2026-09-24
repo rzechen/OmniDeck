@@ -7,12 +7,11 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
+    "dev:clean": "kill -9 $(lsof -ti:5173) 2>/dev/null; vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "build:native": "sh scripts/build-native.sh",
     "build:mac": "vite build && electron-builder --mac",
     "build:win": "vite build && electron-builder --win --x64",
-    "build:all": "vite build && electron-builder --mac && electron-builder --win --x64"
+    "release": "bash scripts/release-upload.sh"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.75",
@@ -111,7 +110,16 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "lib/windows-x86_64",
+          "to": "git",
+          "filter": [
+            "MinGit*.zip"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
