@@ -77,7 +77,7 @@
 <script>
 // 市场页与技能页共享的资源详情弹窗：
 // 徽标头 + 信息网格 + 描述（Markdown 渲染）+ 标签 + 版本历史；操作按钮经 actions slot 注入
-import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
 
 export default {
   name: 'ItemDetailDialog',
@@ -118,6 +118,9 @@ export default {
     onMdClick(e) {
       handleCodeCopy(e).then(ok => {
         if (ok) this.$message.success('已复制')
+      })
+      handleTableCsv(e).then(ok => {
+        if (ok) this.$message.success('已下载 CSV')
       })
     },
     formatDate(v) {

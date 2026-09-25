@@ -28,7 +28,8 @@
   font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
-.ob-code-copy {
+.ob-code-copy,
+.ob-table-csv {
   font-size: 11.5px;
   color: var(--text-secondary);
   cursor: pointer;
@@ -40,6 +41,11 @@
     color: var(--primary-color);
     background: rgba(var(--primary-color-rgb), 0.09);
   }
+}
+
+/* 表格工具条为「表格 | CSV 复制」三项：lang 居左，CSV 与复制相邻居右 */
+.ob-table-csv {
+  margin-left: auto;
 }
 
 /* 容器内 pre 复位（边框/圆角/底色由 .ob-code 统一承载） */

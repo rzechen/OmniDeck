@@ -28,6 +28,7 @@ md.renderer.rules.table_open = () =>
   '<div class="ob-table">' +
   '<div class="ob-code-head">' +
   '<span class="ob-code-lang">表格</span>' +
+  '<span class="ob-table-csv" role="button" title="下载 CSV">CSV</span>' +
   '<span class="ob-code-copy" role="button" title="复制表格">复制</span>' +
   '</div>' +
   '<table>'
@@ -47,18 +48,55 @@ export function renderMarkdown(text) {
 // 表格取各行单元格（tab 分隔、行间换行，可直接粘贴进 Excel / 飞书表格）；
 // 返回 Promise（true = 复制成功，false = 未命中按钮 / 复制失败），
 // 提示（$message）由组件层按返回值弹出
-function tableToText(box) {
+// 提取表格数据为二维数组（行 → 单元格文本，空白折叠为单个空格）
+function tableToRows(box) {
   const table = box.querySelector('table')
-  if (!table) return ''
-  const lines = []
+  const rows = []
+  if (!table) return rows
   table.querySelectorAll('tr').forEach(tr => {
     const cells = []
     tr.querySelectorAll('th, td').forEach(c => {
       cells.push(c.textContent.replace(/\s+/g, ' ').trim())
     })
-    if (cells.length) lines.push(cells.join('\t'))
+    if (cells.length) rows.push(cells)
   })
-  return lines.join('\n')
+  return rows
+}
+
+function tableToText(box) {
+  return tableToRows(box).map(r => r.join('\t')).join('\n')
+}
+
+// CSV 字段转义：含逗号 / 引号 / 换行时双引号包裹，内部引号翻倍
+function csvEscape(v) {
+  const s = String(v == null ? '' : v)
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+}
+
+// 表格下载 CSV 按钮的事件委托处理（与 handleCodeCopy 同挂于 markdown 容器 click）。
+// UTF-8 BOM 头保证 Excel 打开中文不乱码；返回 Promise（true = 已触发下载）
+export function handleTableCsv(e) {
+  const t = e.target
+  if (!t || !t.closest) return Promise.resolve(false)
+  const btn = t.closest('.ob-table-csv')
+  if (!btn) return Promise.resolve(false)
+  const box = btn.closest('.ob-table')
+  const rows = box ? tableToRows(box) : []
+  if (!rows.length) return Promise.resolve(false)
+  const csv = '\ufeff' + rows.map(r => r.map(csvEscape).join(',')).join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const ts = new Date()
+  const p = n => (n < 10 ? '0' + n : '' + n)
+  a.href = url
+  a.download = '表格-' + ts.getFullYear() + p(ts.getMonth() + 1) + p(ts.getDate()) +
+    '-' + p(ts.getHours()) + p(ts.getMinutes()) + p(ts.getSeconds()) + '.csv'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  return Promise.resolve(true)
 }
 
 export function handleCodeCopy(e) {

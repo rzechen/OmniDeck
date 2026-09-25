@@ -163,7 +163,7 @@
 
 <script>
 // OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标 + meta 行）
-import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
 import ThinkingSection from './ThinkingSection.vue'
 import FileChangesPanel from './FileChangesPanel.vue'
 
@@ -284,6 +284,9 @@ export default {
       }
       handleCodeCopy(e).then(ok => {
         if (ok) this.$message.success('已复制')
+      })
+      handleTableCsv(e).then(ok => {
+        if (ok) this.$message.success('已下载 CSV')
       })
     },
     // ===== 编辑重问（会话内分支）=====

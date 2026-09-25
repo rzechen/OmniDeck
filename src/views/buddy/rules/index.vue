@@ -126,7 +126,7 @@
 <script>
 // 项目规则（P1-10）：全局 / 工作空间规则编辑页（内嵌分栏编辑器，左编辑右预览）
 // pi SDK DefaultResourceLoader 自动装载规则注入系统提示词，本页仅做读写，无需向用户暴露规则文件
-import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
 import { downloadText } from '@/utils/download'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
@@ -182,6 +182,9 @@ export default {
     onMdClick(e) {
       handleCodeCopy(e).then(ok => {
         if (ok) this.$message.success('已复制')
+      })
+      handleTableCsv(e).then(ok => {
+        if (ok) this.$message.success('已下载 CSV')
       })
     },
     api() {

@@ -1,6 +1,6 @@
 <template>
-  <div class="ob-manage-page">
-    <!-- 顶部 Hero -->
+  <div class="ob-manage-page perm-page">
+    <!-- 顶部 Hero（共享管理页头） -->
     <header class="ob-hero">
       <div class="ob-hero-content">
         <div class="ob-hero-title-group">
@@ -16,36 +16,31 @@
       </div>
     </header>
 
-    <!-- 内容区（hero 固定，仅此区域滚动） -->
-    <div class="ob-page-body">
+    <!-- 主体左右分栏：左侧预设与说明（固定窄栏）+ 右侧规则表（占满剩余，行区独立滚动） -->
+    <div class="ob-page-body perm-body">
       <!-- 加载中：骨架屏占位（权限规则行列表形态） -->
       <div v-if="loading" class="ob-sk-wrap">
         <buddy-skeleton type="rows" :count="5" />
       </div>
 
       <template v-else>
-        <!-- 策略与权限模式的关系说明 -->
-        <div class="ob-relation-tip">
-          <i class="el-icon-info ob-relation-tip-ico" />
-          <div class="ob-relation-tip-body">
-            <p><b>权限策略（本页）</b>：决定每个工具 / 路径是「允许 / 需确认 / 拒绝」。其中允许与拒绝的规则直接执行，不经过权限模式。</p>
-            <p><b>权限模式（对话输入框切换）</b>：只裁决策略中「需确认」的操作——每次确认：弹卡询问；自动：直接放行；只读：直接拒绝。</p>
-          </div>
-        </div>
-
-        <!-- 预设 -->
-        <div class="ob-preset-row">
+        <aside class="perm-side">
+          <div class="perm-side-label">预设策略</div>
           <div
             v-for="p in presets"
             :key="p.key"
-            class="ob-preset-card"
+            class="perm-preset"
             :class="{ active: activePreset === p.key }"
             @click="applyPreset(p)"
           >
-            <div class="ob-preset-name">{{ p.name }}</div>
-            <div class="ob-preset-desc">{{ p.desc }}</div>
+            <span class="perm-preset-name">{{ p.name }}</span>
+            <span class="perm-preset-desc">{{ p.desc }}</span>
           </div>
-        </div>
+          <div class="perm-note">
+            <i class="el-icon-info" />
+            <p><b>允许 / 拒绝</b>的规则直接执行；<b>每次确认</b>的由对话输入框下方的权限模式裁决（弹卡询问 / 自动放行 / 只读拒绝）。</p>
+          </div>
+        </aside>
 
         <!-- 规则表 -->
         <div class="ob-rules-panel">
@@ -331,9 +326,14 @@ export default {
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
 
-/* 加载骨架容器 */
-.ob-sk-wrap {
-  padding: 20px 4px;
+/* ===== 本页专属布局：hero 保留，主体左右分栏（覆盖管理页共享纵向堆叠） ===== */
+.perm-page {
+  padding: 14px 18px 16px;
+
+  // hero 与主体间距略收紧（共享 20px）
+  .ob-hero {
+    margin-bottom: 14px;
+  }
 }
 
 .ob-hero-actions {
@@ -343,28 +343,90 @@ export default {
   flex-shrink: 0;
 }
 
-/* ============ 预设卡片 ============ */
-/* 策略与权限模式的关系说明（macOS 浅底信息条） */
-.ob-relation-tip {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: $card-bg;
-  font-size: 12px;
-  line-height: 1.7;
-  color: $text-secondary;
+/* 主体分栏：覆盖共享 .ob-page-body 的纵向 flex */
+.perm-body {
+  flex-direction: row;
+  gap: 12px;
+}
 
-  .ob-relation-tip-ico {
-    font-size: 15px;
-    color: var(--primary-color);
-    flex-shrink: 0;
-    margin-top: 3px;
+/* 加载骨架占满主体区 */
+.ob-sk-wrap {
+  flex: 1;
+  padding: 8px 4px;
+}
+
+/* ===== 左侧窄栏：预设垂直列表 + 底部说明 ===== */
+.perm-side {
+  flex-shrink: 0;
+  width: 212px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 2px 2px 2px 0;
+}
+
+.perm-side-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: $text-secondary;
+  padding: 0 10px 2px;
+}
+
+.perm-preset {
+  background: $card-bg;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+
+  &:hover {
+    border-color: rgba(var(--primary-color-rgb), 0.5);
   }
 
-  .ob-relation-tip-body p {
+  &.active {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px var(--primary-color);
+  }
+}
+
+.perm-preset-name {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: $text-primary;
+}
+
+.perm-preset-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: $text-secondary;
+}
+
+/* 关系说明（精简）推到侧栏底部 */
+.perm-note {
+  margin-top: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: $search-bg;
+  font-size: 11px;
+  line-height: 1.6;
+  color: $text-secondary;
+
+  i {
+    font-size: 13px;
+    color: var(--primary-color);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  p {
     margin: 0;
 
     b {
@@ -374,48 +436,7 @@ export default {
   }
 }
 
-.ob-preset-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 14px;
-  // 顶部留白：hover 上浮 1px 时避免被滚动容器顶部裁切
-  padding-top: 2px;
-}
-
-.ob-preset-card {
-  background: $card-bg;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-lg;
-  padding: 13px 15px;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-
-  &:hover {
-    border-color: rgba(var(--primary-color-rgb), 0.5);
-    transform: translateY(-1px);
-  }
-
-  &.active {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 1px var(--primary-color);
-  }
-}
-
-.ob-preset-name {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: $text-primary;
-}
-
-.ob-preset-desc {
-  margin-top: 5px;
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: $text-secondary;
-}
-
-/* ============ 规则表（面板占满剩余高度，行区域独立滚动） ============ */
+/* ============ 规则表（右侧占满剩余宽度，行区域独立滚动） ============ */
 .ob-rules-panel {
   flex: 1;
   // flex 子元素默认 min-height:auto 拒绝收缩，须显式归零才能让内部行区滚动生效
@@ -433,7 +454,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 8px 14px;
   font-size: 12.5px;
   font-weight: 600;
   color: $text-primary;
@@ -455,18 +476,18 @@ export default {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px 14px 12px;
+  padding: 4px 14px 10px;
 }
 
 .ob-rules-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1.1fr) minmax(170px, 1.6fr) 130px 34px;
+  grid-template-columns: minmax(140px, 1fr) minmax(150px, 1.5fr) 120px 32px;
   gap: 8px;
   align-items: center;
-  padding: 5px 0;
+  padding: 4px 0;
 
   &.ob-rules-row-head {
-    padding: 8px 0 4px;
+    padding: 6px 0 3px;
     font-size: 11px;
     font-weight: 600;
     color: $text-secondary;
@@ -483,7 +504,7 @@ export default {
 }
 
 .ob-rules-empty {
-  padding: 18px 0 10px;
+  padding: 14px 0 8px;
   text-align: center;
   font-size: 12px;
   color: $text-secondary;

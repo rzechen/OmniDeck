@@ -141,7 +141,7 @@
 
 <script>
 // OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) / ask_user 提问 的聚合渲染
-import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
 import AskUserCard from './AskUserCard.vue'
 
 // 内置工具的中文短名（与 builtin-tools.js / pi.js registerTool 的 label 对齐；
@@ -259,6 +259,9 @@ export default {
       }
       handleCodeCopy(e).then(ok => {
         if (ok) this.$message.success('已复制')
+      })
+      handleTableCsv(e).then(ok => {
+        if (ok) this.$message.success('已下载 CSV')
       })
     },
     rendered(text) {
