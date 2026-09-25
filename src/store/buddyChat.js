@@ -79,7 +79,10 @@ function normalizeHistory(list) {
           status: 'done',
           result: m.result || '',
           isError: !!m.isError,
-          fileChange: m.fileChange || null
+          fileChange: m.fileChange || null,
+          artifacts: m.artifacts || null,
+          // 深度研究（P3）：workflow 运行标识（后台 runId；前台含最终快照）
+          workflow: m.workflow || null
         }
         lastAssistant.items.push(item)
         // ask_user 工具记录到达：挂接暂存的问答（落盘顺序问答在前、工具在后）
@@ -174,6 +177,7 @@ function ensureTurnMessage(s) {
   }
   // 兜底创建时带上本轮分支线路（正常流程占位消息由页面层先行 push）
   if (s.turnAnchors && s.turnAnchors.length) msg.anchors = s.turnAnchors.slice()
+  console.log('[buddy-diag] 新建 turnMsg（分裂现场）sessionId=', s.id || '(?)', 'turnMsg旧=', s.turnMsg ? '存在' : 'null', 'streaming=', s.streaming) // 临时诊断
   s.messages.push(msg)
   s.turnMsg = msg
   s.cycleBase = ''
@@ -352,6 +356,7 @@ export default {
       // 中断后迟到的 assistant_end：pi 中止后仍会送达本轮落盘回执（含消息 id、
       // 上下文快照等）——回填到刚被中断的消息（restore id/用量，不新建气泡）
       if (!s.streaming && e.type === 'assistant_end' && s.lastFinishedMsg) {
+        console.log('[buddy-diag] 迟到 assistant_end 归并 sessionId=', e.sessionId) // 临时诊断
         const m = s.lastFinishedMsg
         s.lastFinishedMsg = null
         if (s.messages.indexOf(m) >= 0) {
@@ -372,7 +377,20 @@ export default {
       // 主进程仍可能送达迟到的 assistant_start / tool_end 等（时序错位）。
       // 此时 ensureTurnMessage 会凭空新建一条空助手消息（表现为中断后
       // 出现两行 meta 操作行），一律忽略
-      if (!s.streaming && TURN_EVENTS.indexOf(e.type) >= 0) return
+      //
+      // 例外（P3 深度研究）：自发回合 —— 后台 workflow 结果回注对话或自动化
+      // 任务触发的回合没有用户发送动作（streaming=false），assistant_start
+      // 即开启「幽灵回合」，让后续 delta / tool / assistant_end 正常渲染。
+      // 中断后（lastFinishedMsg 残留）仍维持丢弃，避免被中止回合的迟到事件误触发
+      if (e.type === 'assistant_start' && !s.streaming && !s.lastFinishedMsg) {
+        console.log('[buddy-diag] 幽灵回合兜底触发（streaming=false→true）sessionId=', e.sessionId) // 临时诊断
+        s.streaming = true
+        s.lastFinishedMsg = null
+      }
+      if (!s.streaming && TURN_EVENTS.indexOf(e.type) >= 0) {
+        console.log('[buddy-diag] 丢弃迟到事件 type=', e.type, 'sessionId=', e.sessionId) // 临时诊断
+        return
+      }
       switch (e.type) {
         // 用户消息落盘回执：回填 id 到前端乐观消息（发送时无 id，
         // 编辑重问 / 分支切换按钮依赖 id 判定可用）
@@ -414,6 +432,7 @@ export default {
           break
         }
         case 'assistant_end': {
+          console.log('[buddy-diag] 实时 assistant_end mid=', !!e.mid, 'sessionId=', e.sessionId, 'content=', JSON.stringify(String(e.content || '').slice(0, 40))) // 临时诊断
           const msg = ensureTurnMessage(s)
           msg.isThinking = false
           msg.content = s.cycleBase + (e.content || '')
@@ -498,6 +517,34 @@ export default {
             t.result = e.result || ''
             t.isError = !!e.isError
             t.fileChange = e.fileChange || null
+            t.artifacts = e.artifacts || null
+            // 深度研究（P3）：workflow 工具返回 runId（后台）或最终快照（前台）
+            if (e.workflow) {
+              t.workflow = e.workflow
+              if (!e.workflow.background && e.workflow.snapshot) {
+                t.workflow.progress = e.workflow.snapshot
+              }
+            }
+          }
+          break
+        }
+        case 'workflow_progress': {
+          // 深度研究（P3）：后台运行状态轮询推送（主进程 1s 轮询 run 落盘 head）
+          // 目标工具条目可能在已结束的回合里（后台运行跨越回合），全消息扫描
+          const wf = e.workflow || {}
+          if (!wf.runId) break
+          for (let i = s.messages.length - 1; i >= 0; i--) {
+            const m = s.messages[i]
+            if (!m.items) continue
+            for (let j = m.items.length - 1; j >= 0; j--) {
+              const it = m.items[j]
+              if (it.type === 'tool' && it.workflow && it.workflow.runId === wf.runId) {
+                Vue.set(it.workflow, 'progress', wf)
+                i = -1 // 双重跳出
+                break
+              }
+            }
+            if (i === -1) break
           }
           break
         }
@@ -597,6 +644,7 @@ export default {
           commit('NOTICE', { sessionId: e.sessionId, kind: 'warning', text: 'Agent 模式不可用，已回退纯对话：' + (e.error || '') })
           break
         case 'done':
+          console.log('[buddy-diag] done 到达 finishTurn sessionId=', e.sessionId, 'turnMsg=', s.turnMsg ? '有' : '无') // 临时诊断
           s.streaming = false
           // 正常完成：上一轮残留的中断回填标记失效（若有）
           s.lastFinishedMsg = null

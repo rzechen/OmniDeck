@@ -43,6 +43,7 @@
           :key="p.id"
           :provider="p"
           @set-default="setDefault"
+          @set-tier="setTier"
           @edit="openEdit"
           @remove="removeProvider"
         />
@@ -132,6 +133,15 @@ export default {
         p.isDefault = p.id === id
       })
       this.persist()
+    },
+    // 设置深度研究档位（P3）：同档位互斥（新选择顶掉旧配置）；清空则取消参与
+    setTier({ id, tier }) {
+      this.list.forEach(p => {
+        if (p.id === id) this.$set(p, 'tier', tier || '')
+        else if (tier && p.tier === tier) this.$set(p, 'tier', '')
+      })
+      this.persist()
+      if (tier) this.$message.success('已设为深度研究' + { small: '轻量', medium: '标准', big: '强力' }[tier] + '档模型')
     },
     // 删除（带确认；删除默认项后自动指定新的默认）
     removeProvider(p) {

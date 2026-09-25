@@ -149,6 +149,16 @@ export default {
     currentProvider() {
       return this.providers.find(p => p.id === this.currentProviderId) || null
     },
+    // 深度研究（P3）：三档模型映射（与 buddy chat 页同源，providers 页配置）
+    tierMapping() {
+      const map = {}
+      this.providers.forEach(p => {
+        if (p.tier && p.baseUrl && p.model) {
+          map[p.tier] = { baseUrl: p.baseUrl, apiKey: p.apiKey || '', model: p.model }
+        }
+      })
+      return map
+    },
     currentWorkspace() {
       return this.workspaces.find(w => w.id === this.workspaceId) || null
     },
@@ -425,7 +435,8 @@ export default {
         id: sessionId,
         text,
         attachments: files.length ? files : undefined,
-        provider: this.currentProvider,
+        // provider 浅拷贝附加档位映射（不污染本地供应商存储）
+        provider: Object.assign({}, this.currentProvider, { tiers: this.tierMapping }),
         workspaceId: ws.id,
         displayName: QUICK_DISPLAY_NAME
       })

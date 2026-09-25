@@ -1,0 +1,16 @@
+{
+  "name": "ui-agent-demo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "UI-TARS 方案验证 Demo：截屏 → VLM 决策 → 模拟鼠标键盘操作桌面 App",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@nut-tree-fork/nut-js": "^4.2.6"
+  }
+}

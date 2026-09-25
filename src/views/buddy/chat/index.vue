@@ -18,6 +18,7 @@
           :messages="messages"
           :streaming="streaming"
           :perm-pending="pendingPerm"
+          :session-id="sessionId"
           @branch="branchAt"
           @feedback="onFeedback"
           @answer="answerAsk"
@@ -308,6 +309,17 @@ export default {
     },
     currentProvider() {
       return this.providers.find(p => p.id === this.currentProviderId) || null
+    },
+    // 深度研究（P3）：三档模型映射（providers 页为供应商配置 tier 字段），
+    // 随 provider 透传主进程注册（未配置档位由主进程回落主模型）
+    tierMapping() {
+      const map = {}
+      this.providers.forEach(p => {
+        if (p.tier && p.baseUrl && p.model) {
+          map[p.tier] = { baseUrl: p.baseUrl, apiKey: p.apiKey || '', model: p.model }
+        }
+      })
+      return map
     },
     // 模型选择器选项
     providerItems() {
@@ -650,7 +662,8 @@ export default {
         id: sid,
         text,
         attachments: files,
-        provider: this.currentProvider,
+        // provider 浅拷贝附加档位映射（不污染本地供应商存储）
+        provider: Object.assign({}, this.currentProvider, { tiers: this.tierMapping }),
         workspaceId: this.workspaceLink.workspaceId,
         displayName: this.workspaceLink.name,
         anchors

@@ -78,6 +78,13 @@ const routes = [
         component: () => import('@/views/buddy/usage/index.vue'),
         meta: { title: '用量统计' }
       },
+      // 定时任务（P2）：任务列表 + 新建向导；执行结果落系统会话（侧栏「定时任务」分组）
+      {
+        path: 'automation',
+        name: 'OmniBuddyAutomation',
+        component: () => import('@/views/buddy/automation/index.vue'),
+        meta: { title: '定时任务' }
+      },
       // 全局设置：与 Deck 视图 /settings 复用同一组件（应用级配置，双视图均可达）
       {
         path: 'settings',

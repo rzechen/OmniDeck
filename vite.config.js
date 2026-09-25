@@ -20,7 +20,7 @@ export default defineConfig({
         }
       },
       // agent 模块为 CJS require 互相引用：逐文件构建，保留 require 结构
-      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime', 'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'pkg-registry', 'web-search', 'rules', 'memory', 'file-changes', 'attachments', 'market', 'connectors', 'usage', 'export', 'checkpoints', 'branchView'].map(name => ({
+      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime', 'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'pkg-registry', 'web-search', 'rules', 'memory', 'file-changes', 'attachments', 'market', 'connectors', 'usage', 'export', 'doc-export', 'checkpoints', 'branchView', 'scheduler', 'workflows'].map(name => ({
         entry: `electron/agent/${name}.js`,
         vite: {
           build: {

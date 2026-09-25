@@ -22,8 +22,22 @@ export const CAPABILITY_CATEGORIES = [
   {
     key: 'web',
     label: '联网工具',
-    desc: 'pi-web-access 提供的联网搜索与网页抓取（免密钥即可用，多引擎自动降级）',
+    desc: '联网搜索与网页抓取（免密钥即可用，多引擎自动降级）',
     icon: 'search',
+    logo: 'logo-skill'
+  },
+  {
+    key: 'docs',
+    label: '文档交付',
+    desc: '把回答与 Markdown 内容导出为 Word / PDF / HTML 正式文档（Word 支持套用模板样式）',
+    icon: 'doc',
+    logo: 'logo-skill'
+  },
+  {
+    key: 'workflow',
+    label: '深度研究',
+    desc: 'pi-dynamic-workflows 提供的多代理工作流编排（并行搜集与交叉验证）',
+    icon: 'guide',
     logo: 'logo-skill'
   },
   {
@@ -36,7 +50,7 @@ export const CAPABILITY_CATEGORIES = [
   {
     key: 'memory',
     label: '语义记忆',
-    desc: 'pi-memory 提供的跨会话记忆：长期记忆、每日日志、草稿板与语义检索',
+    desc: '跨会话语义记忆：长期记忆、每日日志、草稿板与语义检索',
     icon: 'memory',
     logo: 'logo-skill'
   },

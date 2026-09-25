@@ -8,6 +8,7 @@
         :message="m"
         :streaming="streaming"
         :perm-pending="permPending"
+        :session-id="sessionId"
         @branch="$emit('branch', m)"
         @feedback="payload => $emit('feedback', payload)"
         @edit-resend="payload => $emit('edit-resend', payload)"
@@ -62,6 +63,11 @@ export default {
     permPending: {
       type: Object,
       default: null
+    },
+    // 所属会话 id（透传给气泡内深度研究进度卡片：历史回放拉取运行状态）
+    sessionId: {
+      type: String,
+      default: ''
     }
   },
   methods: {

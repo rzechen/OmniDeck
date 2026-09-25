@@ -200,6 +200,21 @@ html[data-wallpaper='on'][data-theme='dark'] {
   }
 }
 
+/* 朴素按钮（plain）：Element 默认写死 #409EFF（含无 type 与 primary），跟随主题色；
+   排除 danger（保留红色语义）与 disabled（保留置灰态） */
+.el-button.is-plain:not(.el-button--danger):not(.is-disabled):not(:disabled) {
+  color: var(--primary-color);
+  background-color: rgba(var(--primary-color-rgb), 0.05);
+  border-color: rgba(var(--primary-color-rgb), 0.35);
+
+  &:hover,
+  &:focus {
+    color: #fff;
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+  }
+}
+
 /* 按钮统一圆角 */
 .el-button {
   border-radius: 8px;
@@ -443,6 +458,14 @@ html[data-theme='dark'] {
 
     &.is-plain:hover,
     &.is-plain:focus {
+      color: #0F1218;
+    }
+  }
+
+  /* 无 type 朴素按钮（自动化列表「立即运行/编辑」等）：深色下 hover 同样深字 */
+  .el-button.is-plain:not(.el-button--danger):not(.is-disabled):not(:disabled) {
+    &:hover,
+    &:focus {
       color: #0F1218;
     }
   }

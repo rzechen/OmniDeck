@@ -156,7 +156,7 @@ export default {
   components: { BuddyTaskList, GlobalTopbarActions, TagsBar },
   data() {
     return {
-      // 侧边栏菜单（分组，置于任务列表上方）：市场独立置顶 → 能力 → 配置 → 用量统计独立
+      // 侧边栏菜单（分组，置于任务列表上方）：市场独立置顶 → 能力（含定时任务）→ 配置 → 用量统计独立
       // 命名与分组对齐业界（Claude Capabilities / Cursor Customize）：技能+规则+连接器聚合为「能力」
       menuGroups: [
         {
@@ -170,6 +170,7 @@ export default {
           items: [
             { label: '技能', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
             { label: '连接器', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
+            { label: '定时任务', name: 'OmniBuddyAutomation', path: '/omnibuddy/automation', icon: 'auto' },
             { label: '项目规则', name: 'OmniBuddyRules', path: '/omnibuddy/rules', icon: 'rules' },
             { label: '记忆管理', name: 'OmniBuddyMemory', path: '/omnibuddy/memory', icon: 'memory' },
             { label: '权限策略', name: 'OmniBuddyPermissions', path: '/omnibuddy/permissions', icon: 'key' }
@@ -246,12 +247,19 @@ export default {
     const api = this.buddyApi()
     if (api && api.onEvent) {
       this._unsubTitle = api.onEvent(e => {
-        if (!e || e.type !== 'title') return
-        const c = this.chats.find(x => x.id === e.sessionId)
-        if (c && c.title !== e.title) {
-          c.title = e.title
-          // chats 为浅 watch（不感知对象内部属性变化），手动同步页签标题
-          this.syncChatTabTitles()
+        if (!e) return
+        if (e.type === 'title') {
+          const c = this.chats.find(x => x.id === e.sessionId)
+          if (c && c.title !== e.title) {
+            c.title = e.title
+            // chats 为浅 watch（不感知对象内部属性变化），手动同步页签标题
+            this.syncChatTabTitles()
+          }
+          return
+        }
+        // 定时任务开始：侧栏任务列表实时出现新系统会话（「定时任务」分组）
+        if (e.type === 'automation:run') {
+          this.loadChats()
         }
       })
     }

@@ -28,39 +28,29 @@
             <span class="ob-cap-count">{{ cat.items.length }}</span>
             <span class="ob-cap-desc">{{ cat.desc }}</span>
           </div>
-          <div class="ob-cards-grid">
+          <!-- 行式清单（macOS 设置风格）：一行一工具，图标 + 名称 + 标识 + 描述 + 依赖入口 + 状态 -->
+          <div class="ob-cap-list">
             <div
               v-for="t in cat.items"
               :key="t.name"
-              class="ob-grid-card"
+              class="ob-cap-row"
               :class="{ disabled: t.disabled }"
             >
-              <div class="ob-card-head">
-                <div class="ob-card-logo" :class="cat.logo">
-                  <svg-icon :icon-class="cat.icon" />
-                </div>
-                <div class="ob-card-title">
-                  <div class="ob-card-name">
-                    <span class="ob-name-text">{{ t.label }}</span>
-                    <span class="ob-cap-status" :class="{ off: t.disabled }">
-                      {{ t.disabled ? '已禁用' : '可用' }}
-                    </span>
-                  </div>
-                  <div class="ob-card-meta">
-                    <span class="ob-meta-name">{{ t.name }}</span>
-                    <!-- 解释器 / 内置服务（python / node / playwright）：点击查看预装依赖落位 -->
-                    <el-button
-                      v-if="t.runtime"
-                      size="mini"
-                      round
-                      plain
-                      class="ob-deps-btn"
-                      @click="openDeps(t)"
-                    >预装依赖 {{ installedCount(t.runtime) }}/{{ t.runtime.modules.length }}</el-button>
-                  </div>
-                </div>
-              </div>
-              <p class="ob-card-desc">{{ t.description }}</p>
+              <span class="ob-row-ico"><svg-icon :icon-class="cat.icon" /></span>
+              <span class="ob-row-label" :title="t.label">{{ t.label }}</span>
+              <span class="ob-row-name" :title="t.name">{{ t.name }}</span>
+              <span class="ob-row-desc" :title="t.description">{{ t.description }}</span>
+              <el-button
+                v-if="t.runtime && t.runtime.modules"
+                size="mini"
+                round
+                plain
+                class="ob-deps-btn"
+                @click="openDeps(t)"
+              >预装依赖 {{ installedCount(t.runtime) }}/{{ t.runtime.modules.length }}</el-button>
+              <span class="ob-cap-status" :class="{ off: t.disabled }">
+                {{ t.disabled ? '已禁用' : '可用' }}
+              </span>
             </div>
           </div>
         </section>
@@ -134,7 +124,7 @@ export default {
     return {
       loading: false,
       loaded: false,
-      groups: { core: [], builtin: [], web: [], ui: [], memory: [], connectors: [] },
+      groups: { core: [], builtin: [], web: [], docs: [], workflow: [], ui: [], memory: [], connectors: [] },
       // 分类元信息（共享定义，与权限策略下拉一致）
       categories: CAPABILITY_CATEGORIES,
       // 预装依赖弹窗：当前查看的运行时工具及其依赖分组
@@ -205,7 +195,7 @@ export default {
       try {
         const res = await api.capabilityList()
         if (res && res.ok && res.groups) {
-          this.groups = Object.assign({ core: [], builtin: [], web: [], ui: [], memory: [], connectors: [] }, res.groups)
+          this.groups = Object.assign({ core: [], builtin: [], web: [], docs: [], workflow: [], ui: [], memory: [], connectors: [] }, res.groups)
           this.loaded = true
         }
       } finally {
@@ -225,13 +215,7 @@ export default {
 }
 
 .ob-cap-section {
-  margin-bottom: 22px;
-
-  /* 卡片右缘与滚动条让位：滚动容器（ob-page-body）右缘有 6px 滚动条，
-     卡片 hover 阴影/边框贴叠滚动条，右移网格留出间隙 */
-  .ob-cards-grid {
-    padding-right: 8px;
-  }
+  margin-bottom: 20px;
 }
 
 .ob-cap-head {
@@ -274,12 +258,80 @@ export default {
   }
 }
 
-/* 卡片标题：名称过长截断；状态徽标紧随名称且不被压缩 */
-.ob-name-text {
-  min-width: 0;
+/* ===== 行式清单（macOS 设置风格）：圆角面板 + 细分隔线，一行一工具 ===== */
+/* 右缘 8px 让位滚动条（滚动容器 ob-page-body 右缘有 6px 滚动条） */
+.ob-cap-list {
+  margin-right: 8px;
+  border: 1px solid $border-color;
+  border-radius: 12px;
+  background: $card-bg;
+  overflow: hidden;
+}
+
+.ob-cap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 14px;
+  transition: background 0.12s ease;
+
+  & + & {
+    border-top: 1px solid var(--border-light, rgba(0, 0, 0, 0.05));
+  }
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.035);
+  }
+
+  &.disabled {
+    .ob-row-ico,
+    .ob-row-label,
+    .ob-row-name,
+    .ob-row-desc {
+      opacity: 0.55;
+    }
+  }
+}
+
+.ob-row-ico {
+  flex-shrink: 0;
+  display: flex;
+  font-size: 14px;
+  color: var(--primary-color);
+}
+
+.ob-row-label {
+  flex-shrink: 0;
+  max-width: 150px;
+  font-size: 13px;
+  font-weight: 600;
+  color: $text-primary;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 工具标识（权限策略中的对象名）：等宽小字，次要信息 */
+.ob-row-name {
+  flex-shrink: 0;
+  max-width: 140px;
+  font-size: 11px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  color: $text-secondary;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ob-row-desc {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: $text-secondary;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ob-cap-status {
@@ -297,21 +349,7 @@ export default {
   }
 }
 
-/* 卡片元信息行：工具名 + 「预装依赖」入口（python / node / playwright 卡片出现按钮） */
-.ob-card-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-
-  .ob-meta-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-/* 「预装依赖」按钮：紧随工具名，不被压缩 */
+/* 「预装依赖」按钮：行尾、状态徽章左侧，不被压缩 */
 .ob-deps-btn {
   flex-shrink: 0;
   padding: 3px 9px;

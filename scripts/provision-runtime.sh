@@ -3,7 +3,7 @@
 #  OmniDeck — 内置运行时装配脚本（参考 autonomous-agent bin/provision-runtime.sh 裁剪）
 #
 #  目标：装配 OmniDeck 自带运行时到 runtime/<plat>/（python/node/
-#        playwright-browsers/npx-cache + python/node 预装依赖库），
+#        playwright-browsers/pandoc/npx-cache + python/node 预装依赖库），
 #        electron-builder afterPack 打进应用 Resources，安装后开箱
 #        即用（无需宿主装任何环境）。
 #
@@ -57,6 +57,8 @@ PW_FFMPEG_REV=1011
 # playwright Windows 落地依赖 winldd（浏览器进程树清理助手）
 PW_WINLDD_REV=1007
 PW_CFT_BUILD=154.0.8037.0
+# pandoc 文档转换引擎（doc_export 工具 / pi-markdown-preview 依赖）
+PANDOC_VERSION=3.6.3
 
 # ---- 平台目录名 ----
 current_platform() {
@@ -139,6 +141,26 @@ plat_asset_ffmpeg() {
     windows-x86_64) echo win64 ;;
   esac
 }
+# pandoc 官方 release 资产段（GitHub jgm/pandoc）：
+# mac 为 zip、linux 为 tar.gz、windows 为 zip
+plat_asset_pandoc() {
+  case "$1" in
+    linux-x86_64)  echo linux-amd64 ;;
+    linux-aarch64) echo linux-arm64 ;;
+    darwin-arm64)  echo arm64-macOS ;;
+    darwin-x86_64) echo x86_64-macOS ;;
+    windows-x86_64) echo windows-x86_64 ;;
+  esac
+}
+# pandoc 装配包文件名（linux 为 tar.gz，其余 zip）
+pandoc_pkg_file() {  # <plat>
+  local asset
+  asset="$(plat_asset_pandoc "$1")"
+  case "$1" in
+    linux-*) echo "pandoc-$PANDOC_VERSION-$asset.tar.gz" ;;
+    *)       echo "pandoc-$PANDOC_VERSION-$asset.zip" ;;
+  esac
+}
 
 # ---- 装配包清单（官方源优先、国内镜像回退）----
 package_list() {  # <plat> → "file<TAB>url1 url2 ..." 行
@@ -174,6 +196,9 @@ package_list() {  # <plat> → "file<TAB>url1 url2 ..." 行
     "ffmpeg-$ff_asset.zip" \
     "https://playwright.download.prss.microsoft.com/dbazure/download/playwright/builds/ffmpeg/$PW_FFMPEG_REV/ffmpeg-$ff_asset.zip" \
     "https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/$PW_FFMPEG_REV/ffmpeg-$ff_asset.zip"
+  printf '%s\t%s\n' \
+    "$(pandoc_pkg_file "$plat")" \
+    "https://github.com/jgm/pandoc/releases/download/$PANDOC_VERSION/$(pandoc_pkg_file "$plat")"
 }
 
 download_file() {  # <dest> <url...>
@@ -641,6 +666,41 @@ do_playwright() {
   echo "==> 完成: $dir"
 }
 
+# ---- pandoc：文档转换引擎（doc_export 工具 / pi-markdown-preview 依赖）----
+# 官方包布局 pandoc-<ver>-<asset>/bin/pandoc(.exe)（pandoc 为静态单文件），
+# 统一落位 runtime/<plat>/pandoc/bin/，运行时由 runtime.js 定位 + PATH 注入；
+# 解压型资产可跨宿主备料，版本冒烟仅本机平台执行
+do_pandoc() {
+  local plat="$1"
+  check_platform "$plat"
+  local dir pkg tmp found dest_bin
+  dir="$RUNTIME_ROOT/$plat/pandoc"
+  pkg="$(require_lib_pkg "$plat" "$(pandoc_pkg_file "$plat")")"
+  wipe_dir "$dir"
+  echo "==> lib pandoc 解压至 ${dir}"
+  tmp="$(mktemp -d)"
+  case "$pkg" in
+    *.tar.gz) tar -xzf "$pkg" -C "$tmp" ;;
+    *)        safe_unzip "$pkg" -d "$tmp" ;;
+  esac
+  fix_perms "$tmp"
+  found="$(find "$tmp" -type f \( -name pandoc -o -name pandoc.exe \) | head -1)"
+  if [ -z "$found" ]; then
+    echo "错误: 未找到 pandoc 二进制（包布局异常）" >&2
+    rm -rf "$tmp"
+    exit 1
+  fi
+  mkdir -p "$dir/bin"
+  dest_bin="$dir/bin/$(basename "$found")"
+  cp "$found" "$dest_bin"
+  chmod +x "$dest_bin"
+  rm -rf "$tmp"
+  if [ "$(current_platform)" = "$plat" ]; then
+    "$dest_bin" --version | head -1
+  fi
+  echo "==> 完成: $dir"
+}
+
 # ---- npx 缓存预热：@playwright/mcp 进 <plat>/npx-cache（平台无关，
 #      按 plat 目录就近放置便于整目录打包）----
 do_npx_cache() {
@@ -665,14 +725,14 @@ do_npx_cache() {
 }
 
 # ============================================================
-#  install：全量装配（覆盖式幂等可重跑；五组件依次落位）
+#  install：全量装配（覆盖式幂等可重跑；六组件依次落位）
 # ============================================================
 do_install() {
   local plat="$1"
   check_platform "$plat"
   local this_plat
   this_plat="$(current_platform)"
-  # Windows 全组件解压型（python-env/node/node-tools/playwright 均为
+  # Windows 全组件解压型（python-env/node/node-tools/playwright/pandoc 均为
   # zip 离线档），可在任意宿主落位；POSIX 含在线生成路径须本机执行
   if [ "$plat" != windows-x86_64 ] && [ "$plat" != "$this_plat" ]; then
     echo "错误: install 须在目标平台本机执行（当前 ${this_plat}，目标 ${plat}）" >&2
@@ -683,6 +743,7 @@ do_install() {
   do_node "$plat"
   do_node_tools "$plat"
   do_playwright "$plat"
+  do_pandoc "$plat"
   do_npx_cache "$plat"
   echo "==> $plat 装配完成，核对: $0 verify $plat"
 }
@@ -742,6 +803,9 @@ do_verify() {
   [ -d "$RUNTIME_ROOT/$plat/npx-cache/_npx" ] \
     && echo "  ✅ npx-cache: $(ls "$RUNTIME_ROOT/$plat/npx-cache/_npx" | wc -l | tr -d ' ') 个条目" \
     || { echo "  ❌ npx-cache 缺失"; fail=1; }
+  local pd_bin="$RUNTIME_ROOT/$plat/pandoc/bin/pandoc"
+  [ "$plat" = windows-x86_64 ] && pd_bin="${pd_bin}.exe"
+  check_bin "pandoc" "$pd_bin"
   if [ "$cur" = "$plat" ] && [ -e "$py_bin" ]; then
     # python 移动路径冒烟（装配目录与运行目录不同也应可用——conda 前缀推导检查）
     local probe probe_py

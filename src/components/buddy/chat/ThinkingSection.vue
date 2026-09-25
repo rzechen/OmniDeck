@@ -177,7 +177,10 @@ const TOOL_LABELS = {
   // pi-web-access（联网搜索扩展）
   web_search: '联网搜索',
   fetch_content: '抓取网页',
-  source_check: '核实来源'
+  source_check: '核实来源',
+  // 文档交付（P1：doc_export 自研 + pi-markdown-preview）
+  doc_export: '导出文档',
+  preview_export: '生成预览'
 }
 
 export default {

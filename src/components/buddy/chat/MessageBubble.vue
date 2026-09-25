@@ -105,6 +105,21 @@
       </div>
       <span v-if="showCursor" class="ob-cursor"></span>
 
+      <!-- 助手：深度研究任务进度卡片（P3）：workflow 工具启动的多代理运行实时状态；
+           后台运行跨回合，进度由 store 直接写入 item.workflow.progress，卡片天然响应 -->
+      <workflow-panel
+        v-if="message.role === 'assistant' && workflows.length"
+        :workflows="workflows"
+        :session-id="sessionId"
+      />
+
+      <!-- 助手：导出产物卡片（正文末尾、文件变更面板上方；doc_export / preview_export
+           生成的交付文件，数据随消息 items 持久化恢复） -->
+      <artifact-panel
+        v-if="message.role === 'assistant' && !message.streaming && artifacts.length"
+        :artifacts="artifacts"
+      />
+
       <!-- 助手：文件变更汇总面板（正文末尾、meta 操作行上方；数据随消息 items 持久化恢复） -->
       <file-changes-panel
         v-if="message.role === 'assistant' && !message.streaming && fileChanges.length"
@@ -135,8 +150,35 @@
         <span v-if="message.id" class="ob-meta-act" title="以此为分叉点复制完整上下文，创建新会话（当前会话保留）" @click="$emit('branch')">
           <svg-icon icon-class="fork" />
         </span>
-        <span class="ob-meta-act" title="导出本条回答为 Markdown" @click="exportContent">
-          <svg-icon icon-class="export" />
+        <!-- 导出本条回答：点击弹格式菜单（Markdown 前端直下 / Word·PDF·HTML 走 pandoc 管线） -->
+        <span class="ob-meta-export">
+          <span class="ob-meta-act" title="导出本条回答" @click.stop="exportMenu = !exportMenu">
+            <svg-icon icon-class="export" />
+          </span>
+          <transition name="ob-em">
+            <div v-if="exportMenu" class="ob-export-menu" @click.stop>
+              <div class="ob-em-item" @click="exportAs('markdown')">
+                <span class="ob-em-dot md"></span>
+                <span class="ob-em-name">Markdown</span>
+                <span class="ob-em-ext">.md</span>
+              </div>
+              <div class="ob-em-item" @click="exportAs('docx')">
+                <span class="ob-em-dot docx"></span>
+                <span class="ob-em-name">Word 文档</span>
+                <span class="ob-em-ext">.docx</span>
+              </div>
+              <div class="ob-em-item" @click="exportAs('pdf')">
+                <span class="ob-em-dot pdf"></span>
+                <span class="ob-em-name">PDF 文档</span>
+                <span class="ob-em-ext">.pdf</span>
+              </div>
+              <div class="ob-em-item" @click="exportAs('html')">
+                <span class="ob-em-dot html"></span>
+                <span class="ob-em-name">网页</span>
+                <span class="ob-em-ext">.html</span>
+              </div>
+            </div>
+          </transition>
         </span>
         <span v-if="tokensText" class="ob-meta-text">{{ tokensText }}</span>
         <span v-if="contextText" class="ob-meta-ctx" :title="'上下文占用 ' + contextPercent + '%（接近上限将自动整理早期对话）'">
@@ -166,10 +208,13 @@
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
 import ThinkingSection from './ThinkingSection.vue'
 import FileChangesPanel from './FileChangesPanel.vue'
+import ArtifactPanel from './ArtifactPanel.vue'
+import WorkflowPanel from './WorkflowPanel.vue'
+import { buddyApi } from '@/utils/buddy-api'
 
 export default {
   name: 'MessageBubble',
-  components: { ThinkingSection, FileChangesPanel },
+  components: { ThinkingSection, FileChangesPanel, ArtifactPanel, WorkflowPanel },
   props: {
     message: {
       type: Object,
@@ -184,6 +229,11 @@ export default {
     permPending: {
       type: Object,
       default: null
+    },
+    // 所属会话 id（透传给深度研究进度卡片：历史回放拉取运行状态）
+    sessionId: {
+      type: String,
+      default: ''
     }
   },
   data() {
@@ -192,14 +242,24 @@ export default {
       editing: false,
       editText: '',
       // 中文输入法组合中（组合态回车 = 确认候选词，不触发提交）
-      isComposing: false
+      isComposing: false,
+      // 导出格式菜单（meta 行导出按钮；开启期间挂 document 点击监听关闭）
+      exportMenu: false
     }
   },
   watch: {
     // 切换分支变体 / 消息变化时退出编辑态
     'message.id'() {
       this.editing = false
+    },
+    // 菜单开启期间监听全局点击（任意处点击即关闭；按钮自身 .stop 防误关）
+    exportMenu(open) {
+      if (open) document.addEventListener('click', this.closeExportMenu)
+      else document.removeEventListener('click', this.closeExportMenu)
     }
+  },
+  beforeDestroy() {
+    document.removeEventListener('click', this.closeExportMenu)
   },
   computed: {
     // 分支信息（仅用户消息的组头位置携带：{ headId, total, index }，多分支才显示切换器）
@@ -269,6 +329,18 @@ export default {
     fileChanges() {
       if (this.message.role !== 'assistant' || !Array.isArray(this.message.items)) return []
       return this.message.items.filter(it => it.type === 'tool' && it.fileChange).map(it => it.fileChange)
+    },
+    // 本轮深度研究运行列表（工具条目的 workflow：后台 runId + 轮询进度 / 前台快照）
+    workflows() {
+      if (this.message.role !== 'assistant' || !Array.isArray(this.message.items)) return []
+      return this.message.items.filter(it => it.type === 'tool' && it.workflow).map(it => it.workflow)
+    },
+    // 本轮导出产物清单（工具条目的 artifacts，doc_export / preview_export 交付文件）
+    artifacts() {
+      if (this.message.role !== 'assistant' || !Array.isArray(this.message.items)) return []
+      return this.message.items
+        .filter(it => it.type === 'tool' && Array.isArray(it.artifacts))
+        .reduce((acc, it) => acc.concat(it.artifacts), [])
     }
   },
   methods: {
@@ -371,6 +443,10 @@ export default {
       this.$message.success(next === 'like' ? '已点赞' : next === 'dislike' ? '已点踩，感谢反馈' : '已取消')
       if (this.message.id) this.$emit('feedback', { message: this.message, value: next })
     },
+    // 关闭导出格式菜单（document 点击监听回调，引用须稳定供 removeEventListener）
+    closeExportMenu() {
+      this.exportMenu = false
+    },
     // 导出本条回答为 Markdown 文件（渲染层 Blob 下载）
     exportContent() {
       const text = this.message.content || ''
@@ -383,6 +459,26 @@ export default {
       a.click()
       URL.revokeObjectURL(url)
       this.$message.success('已导出')
+    },
+    // 按格式导出本条回答（P1 文档交付）：
+    // Markdown 前端 Blob 直下；Word / PDF / HTML 走主进程 pandoc 管线（弹保存对话框）
+    async exportAs(format) {
+      this.exportMenu = false
+      const text = this.message.content || ''
+      if (!text) return this.$message.warning('内容为空，无可导出内容')
+      if (format === 'markdown') return this.exportContent()
+      const api = buddyApi()
+      if (!api || !api.messageExport) return this.$message.warning('当前环境不支持该格式导出')
+      const base = 'OmniBuddy-' + this.formatTime(this.message.createdAt).replace(/[: ]/g, '-')
+      let res
+      try {
+        res = await api.messageExport({ content: text, format, filename: base })
+      } catch (e) {
+        return this.$message.error('导出失败：' + (e.message || e))
+      }
+      if (!res) return
+      if (res.ok) this.$message.success('已导出：' + res.filePath)
+      else if (!res.canceled) this.$message.error('导出失败：' + (res.error || '未知错误'))
     }
   }
 }
@@ -403,6 +499,12 @@ export default {
       border-radius: 14px;
       padding: 10px 14px;
     }
+  }
+
+  /* 助手气泡撑满问答窗口宽度：产物卡片 / 文件变更面板与窗口对齐
+     （正文长文本本就接近全宽，短回答统一全宽保持视觉一致） */
+  &:not(.user) .ob-msg-bubble {
+    width: 100%;
   }
 }
 
@@ -775,6 +877,80 @@ export default {
 /* 点赞/点踩选中态：高亮当前项（两者互斥，未选中项保持灰色） */
 .ob-meta-act.on {
   color: var(--primary-color);
+}
+
+/* ===== 导出格式菜单（P1 文档交付）：锚定导出按钮下方，macOS 毛玻璃小菜单 ===== */
+.ob-meta-export {
+  position: relative;
+  display: inline-flex;
+}
+
+.ob-export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 3001; /* 高于普通内容，低于 Element 弹窗（3200 起） */
+  min-width: 172px;
+  padding: 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--menu-bg, rgba(255, 255, 255, 0.88));
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  user-select: none;
+}
+
+.ob-em-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.12s ease;
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb), 0.09);
+  }
+
+  &:active {
+    opacity: 0.75;
+  }
+}
+
+/* 格式色点：md 灰 / docx 蓝 / pdf 红 / html 橙（与产物卡片徽章同色系） */
+.ob-em-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+
+  &.md { background: #6b7280; }
+  &.docx { background: #2563eb; }
+  &.pdf { background: #dc2626; }
+  &.html { background: #ea580c; }
+}
+
+.ob-em-ext {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* 菜单浮现：轻微下沉 + 缩放 */
+.ob-em-enter-active,
+.ob-em-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.ob-em-enter,
+.ob-em-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
 }
 
 .ob-meta-text {
