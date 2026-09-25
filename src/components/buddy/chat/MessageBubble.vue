@@ -105,6 +105,12 @@
       </div>
       <span v-if="showCursor" class="ob-cursor"></span>
 
+      <!-- 助手：文件变更汇总面板（正文末尾、meta 操作行上方；数据随消息 items 持久化恢复） -->
+      <file-changes-panel
+        v-if="message.role === 'assistant' && !message.streaming && fileChanges.length"
+        :changes="fileChanges"
+      />
+
       <!-- 助手 meta 行（回答完成后呈现：复制 / 点赞 / 点踩 / 分支 / 导出 / token 用量 / 时间，定高不抖动） -->
       <div v-if="message.role === 'assistant' && !message.streaming" class="ob-msg-meta">
         <span class="ob-meta-copy" title="复制全文" @click="copyContent">
@@ -159,10 +165,11 @@
 // OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标 + meta 行）
 import { renderMarkdown, handleCodeCopy } from '@/utils/markdown'
 import ThinkingSection from './ThinkingSection.vue'
+import FileChangesPanel from './FileChangesPanel.vue'
 
 export default {
   name: 'MessageBubble',
-  components: { ThinkingSection },
+  components: { ThinkingSection, FileChangesPanel },
   props: {
     message: {
       type: Object,
@@ -257,6 +264,11 @@ export default {
     fileAttachmentList() {
       if (this.message.role !== 'user' || !Array.isArray(this.message.fileAttachments)) return []
       return this.message.fileAttachments
+    },
+    // 本轮文件变更列表（工具条目的 fileChange，实时与历史归一化路径均写入 items）
+    fileChanges() {
+      if (this.message.role !== 'assistant' || !Array.isArray(this.message.items)) return []
+      return this.message.items.filter(it => it.type === 'tool' && it.fileChange).map(it => it.fileChange)
     }
   },
   methods: {

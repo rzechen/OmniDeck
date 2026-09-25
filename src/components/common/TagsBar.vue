@@ -159,7 +159,7 @@ export default {
             side: this.side,
             path: home,
             fullPath: home,
-            title: this.side === 'buddy' ? '新对话' : '首页'
+            title: this.side === 'buddy' ? '新任务' : '首页'
           })
         }
       }

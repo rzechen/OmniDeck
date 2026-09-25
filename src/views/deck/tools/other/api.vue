@@ -168,7 +168,7 @@
     </el-drawer>
 
     <!-- 响应详情 -->
-    <el-dialog title="响应详情" :visible.sync="showDetail" width="640px" append-to-body>
+    <el-dialog title="响应详情" :visible.sync="showDetail" width="640px" :close-on-click-modal="false" append-to-body>
       <div v-if="selectedLog" class="api-detail">
         <div class="api-detail-meta">
           <span>输入：<b class="mono">{{ selectedLog.row }}</b></span>

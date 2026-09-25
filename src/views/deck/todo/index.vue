@@ -183,7 +183,7 @@
 
     <!-- 新建/编辑代办弹窗 -->
     <transition name="todo-modal">
-      <div v-if="dialogVisible" class="todo-overlay" @click.self="closeDialog">
+      <div v-if="dialogVisible" class="todo-overlay">
         <div class="todo-dialog">
           <header class="td-dialog-header">
             <h3 class="td-dialog-title">{{ editingId ? '编辑代办' : '新建代办' }}</h3>

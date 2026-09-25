@@ -758,8 +758,8 @@ router.afterEach((to) => {
   if (side) {
     const meta = (to.matched[to.matched.length - 1].meta) || {}
     let title = meta.title || to.path
-    // 空白对话页显示「新对话」（有会话 id 时标题由 BuddyLayout 按任务名补齐）
-    if (side === 'buddy' && to.path === '/omnibuddy' && !to.query.s) title = '新对话'
+    // 空白对话页显示「新任务」（有会话 id 时标题由 BuddyLayout 按任务名补齐）
+    if (side === 'buddy' && to.path === '/omnibuddy' && !to.query.s) title = '新任务'
     store.commit('tagsView/ADD_TAB', { side, path: to.path, fullPath: to.fullPath, title })
   }
 })

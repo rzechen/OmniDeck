@@ -101,36 +101,9 @@
             @answer="(msg, value) => $emit('ask-answer', msg, value)"
           />
 
-          <!-- 详情：文件变更对比 + 参数区 + 结果区（左侧竖线缩进） -->
+          <!-- 详情：参数区 + 结果区（左侧竖线缩进）；文件变更的双列对比移至消息末尾的
+               文件变更汇总面板（点击文件列表弹窗查看，不在思考过程中展开） -->
           <div v-if="isToolOpen(item)" class="ob-tool-detail">
-            <!-- 文件变更对比：双列 diff（左旧右新，hunk 收敛） -->
-            <div v-if="item.fileChange && item.fileChange.rows && item.fileChange.rows.length" class="ob-fc-block">
-              <div class="ob-tool-label">变更对比</div>
-              <div class="ob-fc-diff">
-                <div
-                  v-for="(row, ri) in item.fileChange.rows"
-                  :key="ri"
-                  class="ob-fc-row"
-                  :class="row.type"
-                >
-                  <template v-if="row.type === 'header'">
-                    <span class="ob-fc-hdr">{{ row.text }}</span>
-                  </template>
-                  <template v-else>
-                    <span class="ob-fc-ln">{{ row.left ? row.left.n : '' }}</span>
-                    <span class="ob-fc-txt old">{{ row.left ? row.left.text : '' }}</span>
-                    <span class="ob-fc-ln">{{ row.right ? row.right.n : '' }}</span>
-                    <span class="ob-fc-txt new">{{ row.right ? row.right.text : '' }}</span>
-                  </template>
-                </div>
-              </div>
-            </div>
-            <!-- 变更超限（文件过大无法逐行对比）：给出说明 -->
-            <div v-else-if="item.fileChange && item.fileChange.truncated" class="ob-fc-block">
-              <div class="ob-tool-label">变更对比</div>
-              <div class="ob-fc-skip">文件较大（超过 512KB），仅记录变更类型与行数，未做逐行对比</div>
-            </div>
-
             <!-- 参数区 -->
             <div v-if="hasArgs(item)" class="ob-tool-args">
               <div class="ob-tool-label">参数</div>
@@ -940,75 +913,4 @@ export default {
 
 .ob-fc-add { color: #10B981; }
 .ob-fc-del { color: #EF4444; }
-
-/* 变更对比块：双列 diff（等宽字体，hunk 收敛，滚动） */
-.ob-fc-block {
-  display: flex;
-  flex-direction: column;
-}
-
-.ob-fc-diff {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-  max-height: 280px;
-  overflow-y: auto;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.ob-fc-row {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 34px minmax(0, 1fr);
-
-  /* 删除行：左半红调；新增行：右半绿调；上下文行无底色 */
-  &.del .ob-fc-txt.old {
-    background: rgba(239, 68, 68, 0.1);
-    color: #B91C1C;
-  }
-
-  &.add .ob-fc-txt.new {
-    background: rgba(16, 185, 129, 0.1);
-    color: #047857;
-  }
-
-  /* hunk 头横幅行 */
-  &.header {
-    display: block;
-
-    .ob-fc-hdr {
-      display: block;
-      padding: 2px 10px;
-      background: rgba(0, 0, 0, 0.05);
-      color: var(--text-secondary);
-      font-size: 10px;
-    }
-  }
-}
-
-.ob-fc-ln {
-  padding: 0 5px;
-  text-align: right;
-  color: var(--text-secondary);
-  opacity: 0.65;
-  user-select: none;
-  white-space: nowrap;
-}
-
-.ob-fc-txt {
-  padding: 0 8px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-primary);
-}
-
-/* 变更超限说明 */
-.ob-fc-skip {
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(230, 162, 60, 0.08);
-  font-size: 11.5px;
-  color: #a06a1b;
-}
 </style>

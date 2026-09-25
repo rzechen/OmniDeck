@@ -102,6 +102,7 @@
       :title="previewTitle"
       width="65%"
       top="7vh"
+      :close-on-click-modal="false"
       append-to-body
       custom-class="ss-preview-dialog"
       @closed="previewData = ''"
@@ -126,6 +127,7 @@
       title="文本详情"
       width="55%"
       top="12vh"
+      :close-on-click-modal="false"
       append-to-body
       custom-class="ss-preview-dialog ss-text-dialog"
     >

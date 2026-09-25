@@ -41,8 +41,14 @@ export default {
   },
   data() {
     return {
-      // 默认展开；用户可点击标题收起/展开
-      collapsed: false
+      // 流式进行中默认展开（实时看进度）；回答结束/进入历史对话默认收起
+      collapsed: !this.streaming
+    }
+  },
+  watch: {
+    // 回答结束（streaming true→false）：自动收起（此后用户可自由展开，不再干预）
+    streaming(v) {
+      if (!v) this.collapsed = true
     }
   },
   computed: {
