@@ -128,7 +128,15 @@
             <!-- 结果区：优先展示流式 partial，运行中尾部带光标；错误态红底红字 -->
             <div v-if="hasResult(item)" class="ob-tool-result-block">
               <div class="ob-tool-label" :class="{ error: item.isError }">{{ item.isError ? '错误' : '结果' }}</div>
-              <div class="ob-tool-result" :class="{ error: item.isError }">
+              <!-- web 工具结果按 Markdown 渲染（搜索结果为链接列表，链接交系统浏览器） -->
+              <div
+                v-if="isWebTool(item)"
+                class="ob-tool-result ob-tool-result-md"
+                :class="{ error: item.isError }"
+                v-html="rendered(truncatedResult(item))"
+                @click="onMdClick"
+              ></div>
+              <div v-else class="ob-tool-result" :class="{ error: item.isError }">
                 {{ truncatedResult(item) }}<span v-if="isResultStreaming(item)" class="ob-cursor"></span>
               </div>
             </div>
@@ -165,7 +173,11 @@ const TOOL_LABELS = {
   cd: '切换目录',
   todo_write: '更新任务清单',
   todo_read: '查看任务清单',
-  ask_user: '询问用户'
+  ask_user: '询问用户',
+  // pi-web-access（联网搜索扩展）
+  web_search: '联网搜索',
+  fetch_content: '抓取网页',
+  source_check: '核实来源'
 }
 
 export default {
@@ -377,6 +389,10 @@ export default {
     // 是否有可展示的结果（流式 partial 优先）
     hasResult(item) {
       return !!(item.partial || item.result)
+    },
+    // 联网工具（pi-web-access）：结果为 Markdown（链接列表/网页摘要），按富文本渲染
+    isWebTool(item) {
+      return ['web_search', 'fetch_content', 'source_check'].indexOf(item.toolName) >= 0
     },
     // 结果文本：超 500 字截断加省略号
     truncatedResult(item) {
@@ -850,6 +866,21 @@ export default {
   &.error {
     background: rgba(239, 68, 68, 0.08);
     color: #EF4444;
+  }
+}
+
+/* 联网工具结果：正文体（Markdown 渲染），放宽高度展示链接列表 */
+.ob-tool-result-md {
+  font-family: inherit;
+  white-space: normal;
+  max-height: 260px;
+
+  ::v-deep {
+    p { margin: 0 0 5px; }
+    p:last-child { margin-bottom: 0; }
+    ul, ol { padding-left: 18px; margin: 4px 0; }
+    li { margin: 2px 0; }
+    a { color: var(--primary-color); }
   }
 }
 

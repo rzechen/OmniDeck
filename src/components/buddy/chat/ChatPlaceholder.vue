@@ -1,5 +1,5 @@
 <template>
-  <!-- 空会话欢迎占位（垂直水平居中） -->
+  <!-- 空会话欢迎占位 -->
   <div class="ob-placeholder">
     <div class="ob-icon">
       <img src="@/assets/logo.png" alt="OmniBuddy" class="ob-img" />
@@ -10,7 +10,7 @@
 </template>
 
 <script>
-// OmniBuddy 对话空态欢迎占位：slogan
+// OmniBuddy 对话空态欢迎占位
 export default {
   name: 'ChatPlaceholder'
 }

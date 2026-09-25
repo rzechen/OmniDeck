@@ -20,6 +20,13 @@ export const CAPABILITY_CATEGORIES = [
     logo: 'logo-skill'
   },
   {
+    key: 'web',
+    label: '联网工具',
+    desc: 'pi-web-access 提供的联网搜索与网页抓取（免密钥即可用，多引擎自动降级）',
+    icon: 'search',
+    logo: 'logo-skill'
+  },
+  {
     key: 'ui',
     label: '交互与任务',
     desc: '与界面协作的提问、任务清单与子任务工具',

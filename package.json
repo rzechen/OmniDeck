@@ -36,6 +36,7 @@
     "pdf-parse": "^1.1.1",
     "pi-mcp-adapter": "^2.34.0",
     "pi-subagents": "^0.70.0",
+    "pi-web-access": "^0.31.0",
     "qrcode": "^1.5.4",
     "relationship.js": "^1.2.9",
     "solarlunar": "^2.0.7",

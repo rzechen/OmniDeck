@@ -20,7 +20,7 @@ export default defineConfig({
         }
       },
       // agent 模块为 CJS require 互相引用：逐文件构建，保留 require 结构
-      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime', 'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'rules', 'memory', 'file-changes', 'attachments', 'market', 'connectors', 'usage', 'export', 'checkpoints', 'branchView'].map(name => ({
+      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime', 'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'pkg-registry', 'web-search', 'rules', 'memory', 'file-changes', 'attachments', 'market', 'connectors', 'usage', 'export', 'checkpoints', 'branchView'].map(name => ({
         entry: `electron/agent/${name}.js`,
         vite: {
           build: {
@@ -32,10 +32,11 @@ export default defineConfig({
               // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()；
               // pi-mcp-adapter 随应用打包，mcp.js 以 require.resolve 定位其运行时路径，须保留原生调用；
               // pi-subagents 随应用打包，builtin-tools.js 以 require.resolve 定位其运行时路径，须保留原生调用；
+              // pi-web-access 随应用打包，pkg-registry.js 以 require.resolve 定位其运行时路径，须保留原生调用；
               // adm-zip 由 skills.js 运行时 require（node_modules 内），保留原生调用；
               // pdf-parse 由 attachments.js 运行时 require，保留原生调用；
               // markdown-it 由 export.js 运行时 require（会话导出 HTML 渲染），保留原生调用
-              external: ['electron', '@earendil-works/pi-coding-agent', '@anthropic-ai/sandbox-runtime', 'pi-mcp-adapter', 'pi-subagents', 'adm-zip', 'pdf-parse', 'markdown-it']
+              external: ['electron', '@earendil-works/pi-coding-agent', '@anthropic-ai/sandbox-runtime', 'pi-mcp-adapter', 'pi-subagents', 'pi-web-access', 'adm-zip', 'pdf-parse', 'markdown-it']
             }
           }
         }

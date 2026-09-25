@@ -178,6 +178,20 @@
                 </template>
               </composer-picker>
 
+              <!-- 联网开关（web_search / fetch_content，免密钥即可用，主进程持久化；关闭后新会话屏蔽联网工具） -->
+              <composer-picker
+                picker-key="web"
+                :active-key="openSelect"
+                :model-value="webEnabled ? 'on' : 'off'"
+                trigger-icon="search"
+                :trigger-label="webEnabled ? '联网' : '已断网'"
+                trigger-title="联网搜索：开启后可搜索网页与抓取在线内容，免密钥即可用"
+                panel-title="联网搜索"
+                :items="webItems"
+                @toggle="toggleSelect('web')"
+                @select="onSelectWeb"
+              />
+
             </template>
           </buddy-composer>
         </div>
@@ -229,6 +243,8 @@ export default {
       openSelect: '',
       // ===== 权限模式（只读 / 自动 / 每次确认），主进程持久化 =====
       permissionMode: 'confirm',
+      // ===== 联网开关（web_search / fetch_content），主进程持久化 =====
+      webEnabled: true,
       // ===== 检查点（N4）：抽屉开关（列表加载与回滚在 CheckpointDrawer 内自治） =====
       cpDrawer: false
     }
@@ -319,6 +335,13 @@ export default {
         { value: 'confirm', label: '每次确认', svg: 'key', tag: '推荐' }
       ]
     },
+    // ===== 联网开关选择器 =====
+    webItems() {
+      return [
+        { value: 'on', label: '开启', svg: 'search', tag: '免密钥可用' },
+        { value: 'off', label: '关闭', svg: 'circle_close', tag: '屏蔽联网工具' }
+      ]
+    },
     // 待确认浮动条：展示队列首条
     permQueue() {
       return (this.sess && this.sess.permQueue) || []
@@ -385,6 +408,7 @@ export default {
     this.loadWorkspaces()
     this.restoreWorkspaceLink()
     this.loadPermissionMode()
+    this.loadWebEnabled()
   },
   beforeDestroy() {
     // 仅移除全局监听；不打断流式 —— 主进程继续执行并落盘，回来自会话池/历史恢复
@@ -690,6 +714,23 @@ export default {
       await this.api().setPermissionMode(mode)
       const name = { readonly: '只读', auto: '自动', confirm: '每次确认' }[mode] || mode
       this.$message.success('权限模式：' + name)
+    },
+    // ===== 联网开关：切换即时持久化（新建会话按新状态装载/屏蔽 web 工具） =====
+    async loadWebEnabled() {
+      const api = this.api().webSearch
+      if (!api || !api.get) return
+      try {
+        const cfg = await api.get()
+        this.webEnabled = !!cfg.enabled
+      } catch (e) { /* 保持默认开启 */ }
+    },
+    async onSelectWeb(v) {
+      const next = v === 'on'
+      if (next === this.webEnabled) return
+      this.webEnabled = next
+      const api = this.api().webSearch
+      if (api) await api.setEnabled(next)
+      this.$message.success(next ? '已开启联网：新对话可搜索与抓取网页' : '已关闭联网：新对话屏蔽联网工具')
     },
     // 停止生成（仅用户显式触发；切页签/返回 deck/关页签不再中断，主进程继续执行）
     interrupt() {
