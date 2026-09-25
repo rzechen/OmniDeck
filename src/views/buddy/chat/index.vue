@@ -93,13 +93,16 @@
         </transition>
         <div class="ob-composer-inner">
           <buddy-composer
+            ref="composer"
             v-model="draft"
             :streaming="streaming"
             :files="fileAttachments"
             :extra-sendable="fileAttachments.length > 0"
+            :quote="quote"
             @send="send"
             @stop="interrupt"
             @remove-file="removeFileAttachment"
+            @remove-quote="removeQuote"
             @pick="pickAttachments"
             @import-file="importFile"
           >
@@ -181,6 +184,9 @@
       </div>
     </div>
 
+    <!-- 消息区划选工具条（复制 / 追问）：fixed 定位随选区浮现，作用域限定消息滚动区 -->
+    <selection-toolbar ref="selbar" :get-area="getSelArea" @quote="onQuote" />
+
     <!-- 检查点抽屉（N4）：写操作前自动快照，时间线倒序 + 一键回滚（自治组件，内部加载与回滚） -->
     <checkpoint-drawer
       ref="cp"
@@ -196,6 +202,7 @@ import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import ChatPlaceholder from '@/components/buddy/chat/ChatPlaceholder.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
+import SelectionToolbar from '@/components/buddy/chat/SelectionToolbar.vue'
 import ChatMessageList from './components/ChatMessageList.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
 import { getItem, setItem } from '@/utils/db'
@@ -205,7 +212,7 @@ import { computeBranchView } from '@/utils/branchView'
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
 export default {
   name: 'OmniBuddyChat',
-  components: { BuddyComposer, BuddySkeleton, ChatPlaceholder, ComposerPicker, ChatMessageList, CheckpointDrawer },
+  components: { BuddyComposer, BuddySkeleton, ChatPlaceholder, ComposerPicker, SelectionToolbar, ChatMessageList, CheckpointDrawer },
   data() {
     return {
       // 实例绑定的会话 id：初始化时快照路由 query.s（keep-alive 一签一实例，
@@ -270,6 +277,10 @@ export default {
       set(v) {
         this.commitPatch({ draft: v })
       }
+    },
+    // 划选追问引用（消息区划选后点「追问」写入会话池，随下条消息拼发）
+    quote() {
+      return (this.sess && this.sess.quote) || ''
     },
     // 关联的本地磁盘路径三元组（dir/name/workspaceId）
     workspaceLink() {
@@ -383,6 +394,8 @@ export default {
   mounted() {
     // 首次挂载：流式中或已在底部语义下滚到底（历史异步到达时由 watch 跟滚）
     if (this.streaming || (this.sess && this.sess.atBottom)) this.scrollToBottom()
+    // 消息区划选工具条开始监听（同一函数引用重复注册无害）
+    if (this.$refs.selbar) this.$refs.selbar.setup()
   },
   activated() {
     // keep-alive 页签切回：模型/工作空间可能在其他页签（模型管理、工作空间）有增删，
@@ -396,11 +409,15 @@ export default {
     // 权限面板键盘 1-4 快捷应答（仅本页签激活时生效；同引用重复注册无害）
     window.addEventListener('keydown', this.onPermKeydown)
     document.addEventListener('mousedown', this.onDocMouseDown)
+    // 划选工具条恢复监听
+    if (this.$refs.selbar) this.$refs.selbar.setup()
   },
   deactivated() {
     // keep-alive 页签切走：移除快捷键/面板外点击，避免在其他页签误触
     window.removeEventListener('keydown', this.onPermKeydown)
     document.removeEventListener('mousedown', this.onDocMouseDown)
+    // 划选工具条停止监听并隐藏
+    if (this.$refs.selbar) this.$refs.selbar.teardown()
   },
   methods: {
     api() {
@@ -511,10 +528,28 @@ export default {
     removeFileAttachment(i) {
       this.$store.commit('buddyChat/ATTACH_REMOVE', { id: this.sid, index: i })
     },
+    // ===== 划选追问（消息区划选 → 工具条「追问」）=====
+    // 消息滚动容器（划选工具条作用域，函数实时取值）
+    getSelArea() {
+      return this.$refs.body
+    },
+    // 选中文本写入会话池引用态（切页签不丢）并聚焦输入框续问
+    onQuote(text) {
+      this.commitPatch({ quote: text })
+      if (this.$refs.composer) this.$refs.composer.focus()
+    },
+    // 关闭引用条
+    removeQuote() {
+      this.commitPatch({ quote: '' })
+    },
     async send() {
-      const text = this.draft.trim()
+      const draft = this.draft.trim()
       const files = this.fileAttachments.slice()
-      if ((!text && !files.length) || this.streaming) return
+      // 仍以「有无输入/附件」判定可发送（纯引用不发）；引用随消息拼发，
+      // 气泡显示 / 主进程落盘 / 发送文本三者一致
+      if ((!draft && !files.length) || this.streaming) return
+      const quote = this.quote
+      const text = quote ? ('引用：\n' + quote + '\n\n' + draft) : draft
       if (!window.electronAPI || !window.electronAPI.omnibuddy) {
         this.$message.info('对话能力需要 OmniDeck 桌面端')
         this.commitPatch({ draft: '' })
@@ -526,7 +561,7 @@ export default {
         this.openSelect = 'workspace'
         return
       }
-      this.commitPatch({ draft: '', fileAttachments: [] })
+      this.commitPatch({ draft: '', fileAttachments: [], quote: '' })
 
       // 当前分支线路（消息全量按线路过滤显示，新消息归属当前显示线）
       const anchors = this.branchView.anchors.slice()

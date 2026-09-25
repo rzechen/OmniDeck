@@ -8,6 +8,17 @@
       @dragleave="onDragLeave"
       @drop.prevent="onDrop"
     >
+      <!-- 划选追问引用条（消息区划选后点「追问」：引用原文置顶展示，可关闭） -->
+      <div v-if="quote" class="bc-quote">
+        <div class="bc-quote-body">
+          <div class="bc-quote-label">引用</div>
+          <div class="bc-quote-text" :title="quote">{{ quote }}</div>
+        </div>
+        <button class="bc-quote-close" title="移除引用" @click="$emit('remove-quote')">
+          <svg-icon icon-class="close" />
+        </button>
+      </div>
+
       <!-- 待发送文件附件条（"+"选择/拖拽/粘贴导入：图片缩略图胶囊 + 文本/PDF 文件胶囊） -->
       <div v-if="files && files.length" class="bc-attachments">
         <div v-for="(f, i) in files" :key="f.id || i" class="bc-attachment" :class="{ file: f.kind !== 'image' }">
@@ -109,6 +120,11 @@ export default {
     attachEnabled: {
       type: Boolean,
       default: true
+    },
+    // 划选追问引用的原文（非空时在输入框顶部展示引用条，随消息一并发送）
+    quote: {
+      type: String,
+      default: ''
     }
   },
   data() {
@@ -198,6 +214,14 @@ export default {
       if (!this.canSend) return
       this.$emit('send', this.value)
     },
+    // 聚焦输入框（划选追问引用后调用，直接续问）
+    focus() {
+      const ta = this.$refs.ta
+      if (!ta) return
+      ta.focus()
+      const len = ta.value.length
+      try { ta.setSelectionRange(len, len) } catch (e) { /* 忽略 */ }
+    },
     // 高度自适应：清零后按 scrollHeight 恢复，封顶 220px
     autoResize() {
       const ta = this.$refs.ta
@@ -233,6 +257,70 @@ export default {
   &.focus {
     border-color: rgba(var(--primary-color-rgb), 0.55);
     box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.12), 0 4px 18px rgba(var(--primary-color-rgb), 0.1);
+  }
+}
+
+/* ===== 划选追问引用条（气泡顶部：竖线标 + 引用原文摘要 + 关闭） ===== */
+.bc-quote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 4px 7px 12px;
+  border-left: 3px solid rgba(var(--primary-color-rgb), 0.5);
+  border-radius: 4px 10px 10px 4px;
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
+}
+
+.bc-quote-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bc-quote-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.bc-quote-text {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  user-select: text;
+}
+
+.bc-quote-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.12s ease;
+
+  .svg-icon {
+    font-size: 11px;
+  }
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-primary);
   }
 }
 

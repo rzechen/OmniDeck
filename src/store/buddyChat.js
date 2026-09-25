@@ -18,6 +18,7 @@ function blankSession() {
     permQueue: [],         // 待确认权限队列（浮动条数据源）
     draft: '',             // 输入框草稿
     fileAttachments: [],   // 待发送文件附件
+    quote: '',             // 划选追问引用原文（输入框顶部引用条数据源）
     workspaceLink: { dir: '', name: '', workspaceId: '' }, // 关联磁盘路径三元组
     workspaceLocked: false, // 会话已绑定空间（锁定切换器）
     branchActive: {},      // 会话内分支切换状态：组头id -> 激活变体id（缺省取组内最新）
@@ -248,7 +249,9 @@ export default {
     // 局部更新会话字段（草稿/流式态/空间绑定等）
     PATCH(state, { id, patch }) {
       const s = ensure(state, id)
-      Object.assign(s, patch)
+      // Vue.set 逐字段写入：patch 携带会话骨架未预定义的新字段时仍保持响应式
+      // （Object.assign 新增属性不触发依赖更新）
+      Object.keys(patch).forEach(k => Vue.set(s, k, patch[k]))
     },
     // 追加消息（用户消息 / 占位助手消息）
     PUSH_MSG(state, { id, msg }) {

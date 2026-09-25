@@ -51,6 +51,40 @@
   padding: 10px 12px;
 }
 
+/* ===== Markdown 表格（markdown-it table_open/close 自定义渲染，v-html 内容须全局命中） =====
+   结构：.ob-table > .ob-code-head（固定标识「表格」+ 复制按钮）+ table
+   使用方：聊天气泡 / 思考区 / 规则预览 / 详情弹窗；列宽均匀 + 表头背景 */
+.ob-table {
+  margin: 8px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--card-bg, #fff);
+
+  table {
+    width: 100%;
+    table-layout: fixed; /* 列宽均匀分配 */
+    border-collapse: collapse;
+    margin: 0;
+  }
+
+  th, td {
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    text-align: left;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  thead th {
+    background: rgba(0, 0, 0, 0.045);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+}
+
 .ob-el-dialog {
   border-radius: 16px !important;
   border: 1px solid var(--border-color);

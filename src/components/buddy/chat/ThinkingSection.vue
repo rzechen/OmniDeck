@@ -196,9 +196,19 @@ export default {
   },
   data() {
     return {
-      // 生成中（思考/流式）默认展开，历史消息默认收起；此后由用户自由展开收起
-      collapsed: !(this.isThinking || this.isStreaming),
+      // 默认收起（含生成中；头部仍有动态标识轮次进度）；此后由用户自由展开收起
+      collapsed: true,
       toolOpenOverrides: {}
+    }
+  },
+  watch: {
+    // 系统等待用户回答时思考区不允许保持收起（提问卡片必须可见：
+    // 历史加载时初始即有待回答 ask 的场景）
+    hasPendingAsk: {
+      immediate: true,
+      handler(v) {
+        if (v) this.collapsed = false
+      }
     }
   },
   computed: {

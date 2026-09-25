@@ -519,9 +519,7 @@ export default {
 
     table {
       border-collapse: collapse;
-      margin: 1em 0;
-      width: 100%;
-      font-size: 12.5px;
+      margin: 0; /* 已包装为 .ob-table 容器，间距由容器承载 */
 
       th, td {
         border: 1px solid var(--border-color);

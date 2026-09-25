@@ -907,15 +907,10 @@ export default {
       color: var(--text-secondary);
     }
 
-    table {
-      border-collapse: collapse;
-      margin: 8px 0;
-
-      th, td {
-        border: 1px solid var(--border-color);
-        padding: 5px 10px;
-        font-size: 12.5px;
-      }
+    /* 表格：markdown 渲染已包装为 .ob-table 容器（工具条 / 边框 / 表头背景 / 均匀列宽
+       由全局 .ob-table 承载），此处仅归零组件层旧间距避免双重叠加 */
+    .ob-table table {
+      margin: 0;
     }
 
     a {
