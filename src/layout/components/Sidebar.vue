@@ -341,8 +341,10 @@ export default {
       }
     },
     goBuddy() {
-      if (this.$route.path !== '/omnibuddy') {
-        this.$router.push('/omnibuddy')
+      // 恢复 buddy 侧最后所在页面（无记录时回新任务页）
+      const target = this.$router.lastBuddyPath || '/omnibuddy'
+      if (this.$route.fullPath !== target) {
+        this.$router.push(target).catch(() => {})
       }
     },
     onToggleGroup(group) {

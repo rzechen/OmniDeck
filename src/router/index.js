@@ -748,6 +748,11 @@ router.afterEach((to) => {
   if (!to.path.startsWith('/omnibuddy') && to.path !== '/quick') {
     router.lastDeckPath = to.path
   }
+  // 对称记录 buddy 侧最后所在页面（含会话 query）：从 deck 切回 OmniBuddy 时
+  // 恢复进入前的菜单/会话页（而非固定回「新任务」）
+  if (to.path.startsWith('/omnibuddy')) {
+    router.lastBuddyPath = to.fullPath
+  }
   // 菜单多页签：按所属布局登记页签（deck → Layout、buddy → BuddyLayout；
   // /quick、截图等独立壳页不挂布局，不登记）。
   // 注意：按组件身份判断而非 path —— vue-router 会把根路径 '/' 归一化为 ''，
