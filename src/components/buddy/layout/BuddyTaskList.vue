@@ -352,18 +352,15 @@ export default {
   .svg-icon {
     font-size: 12px;
     margin: 0 3px;
-    border-radius: 6px;
     color: $text-secondary;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease;
 
     &:hover {
-      background: rgba(var(--primary-color-rgb), 0.12);
       color: var(--primary-color);
     }
 
     &.ob-del:hover {
-      background: rgba(245, 34, 45, 0.12);
       color: #F5222D;
     }
   }
