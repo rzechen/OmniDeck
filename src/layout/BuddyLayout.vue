@@ -17,7 +17,7 @@
             <img src="@/assets/logo.png" alt="OmniDeck" class="buddy-logo-img" />
           </div>
           <span v-if="!collapsed" class="buddy-logo-text">OmniBuddy</span>
-          <!-- 新建任务 + 清空本地数据（测试初始化用，两钮并排靠右） -->
+          <!-- 新建任务（清空本地数据入口已收纳至 设置-通用-Buddy 视图） -->
           <div v-if="!collapsed" class="buddy-head-actions">
             <div
               class="buddy-new-icon"
@@ -25,13 +25,6 @@
               @click="onNewChat"
             >
               <svg-icon icon-class="plus" />
-            </div>
-            <div
-              class="buddy-clear-icon"
-              title="清空本地数据（恢复初始化状态并重启）"
-              @click="clearLocalData"
-            >
-              <svg-icon icon-class="delete" />
             </div>
           </div>
         </div>
@@ -147,7 +140,7 @@
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 import TagsBar from '@/components/common/TagsBar.vue'
-import { getItem, setItem, clearAll } from '@/utils/db'
+import { getItem, setItem } from '@/utils/db'
 
 // OmniBuddy 视图壳：与主 Layout 平级的独立视图
 // 顶部页签条（TagsBar + 设置入口）+ 侧边栏（新建入口 + 菜单 + 任务列表，可拖宽/收起）+ 主区（对话/管理页）
@@ -278,25 +271,6 @@ export default {
     document.removeEventListener('mouseup', this.onResizeEnd)
   },
   methods: {
-    // 清空本地数据（测试初始化用）：与设置页「清除本地记录」同逻辑
-    // 清空 IndexedDB/localStorage + 主进程删除 buddy 数据并重启
-    async clearLocalData() {
-      const yes = await this.$confirm(
-        '将清除 OmniDeck 与 OmniBuddy 的全部本地数据（偏好设置、工具收藏、对话记录、空间与模型配置等），清除后应用将自动重启。此操作不可恢复，确定继续吗？',
-        '清空本地数据',
-        { confirmButtonText: '清除', cancelButtonText: '取消', type: 'warning' }
-      ).then(() => true).catch(() => false)
-      if (!yes) return
-      // 渲染侧：清空 IndexedDB 与 localStorage
-      await clearAll()
-      try { localStorage.clear() } catch (e) { /* 忽略 */ }
-      // 主进程：删除全部主进程数据并重启（非桌面端刷新页面兜底）
-      if (window.electronAPI && window.electronAPI.resetAllData) {
-        await window.electronAPI.resetAllData()
-      } else {
-        location.reload()
-      }
-    },
     // ===== 会话（对话）管理 =====
     // preload API（浏览器环境无 electronAPI 时返回空实现）
     buddyApi() {
@@ -667,35 +641,6 @@ $buddy-sidebar-w: 260px;
 
   &:hover {
     filter: brightness(1.1);
-  }
-
-  &:active {
-    transform: scale(0.9);
-  }
-}
-
-/* 清空本地数据 icon：与新建钮同尺寸的次级灰钮 */
-.buddy-clear-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: $text-secondary;
-  background: $sidebar-item-hover;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s ease;
-  -webkit-app-region: no-drag;
-
-  .svg-icon {
-    font-size: 13px;
-  }
-
-  &:hover {
-    color: #d93025;
-    background: rgba(217, 48, 37, 0.1);
   }
 
   &:active {

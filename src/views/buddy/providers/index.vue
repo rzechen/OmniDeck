@@ -43,7 +43,6 @@
           :key="p.id"
           :provider="p"
           @set-default="setDefault"
-          @set-tier="setTier"
           @edit="openEdit"
           @remove="removeProvider"
         />
@@ -110,7 +109,7 @@ export default {
       this.editingProvider = p
       this.dialogVisible = true
     },
-    // 弹窗保存回调：写入编辑项或追加新记录并持久化
+    // 弹窗保存回调：写入编辑项或追加新记录并持久化（tier 保存时同档位自动顶替旧配置）
     applySaved({ editingId, values, item }) {
       if (editingId) {
         const target = this.list.find(x => x.id === editingId)
@@ -121,9 +120,17 @@ export default {
           target.model = values.model
           target.displayName = values.displayName
           target.apiKey = values.apiKey
+          this.$set(target, 'tier', values.tier || '')
         }
       } else if (item) {
         this.list.push(item)
+      }
+      // 同档位互斥：新配置顶掉其它供应商的同档位
+      const source = editingId ? this.list.find(x => x.id === editingId) : item
+      if (source && source.tier) {
+        this.list.forEach(p => {
+          if (p.id !== source.id && p.tier === source.tier) this.$set(p, 'tier', '')
+        })
       }
       this.persist()
     },
@@ -133,15 +140,6 @@ export default {
         p.isDefault = p.id === id
       })
       this.persist()
-    },
-    // 设置深度研究档位（P3）：同档位互斥（新选择顶掉旧配置）；清空则取消参与
-    setTier({ id, tier }) {
-      this.list.forEach(p => {
-        if (p.id === id) this.$set(p, 'tier', tier || '')
-        else if (tier && p.tier === tier) this.$set(p, 'tier', '')
-      })
-      this.persist()
-      if (tier) this.$message.success('已设为深度研究' + { small: '轻量', medium: '标准', big: '强力' }[tier] + '档模型')
     },
     // 删除（带确认；删除默认项后自动指定新的默认）
     removeProvider(p) {

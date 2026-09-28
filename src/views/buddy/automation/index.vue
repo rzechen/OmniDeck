@@ -8,7 +8,7 @@
           <span class="ob-hero-badge" v-if="loaded">{{ tasks.length }} 个任务</span>
         </div>
         <p class="ob-section-desc">
-          定时让助手自动执行任务：到点自动运行，结果保存为会话记录并推送通知
+          定时让助手自动执行任务：到点自动运行，结果保存为会话记录并推送通知；任务将使用你最近一次对话所选的模型自动执行，执行过程可在任务列表「定时任务」分组的会话中查看
         </p>
       </div>
       <div class="ob-hero-actions">
@@ -75,12 +75,6 @@
           <div class="ob-empty-title">还没有定时任务</div>
           <div class="ob-empty-desc">新建任务后，助手会在设定时间自动执行并推送通知</div>
           <el-button size="small" round type="primary" @click="openCreate">新建任务</el-button>
-        </div>
-
-        <!-- 运行提示：任务使用最近一次对话的模型 -->
-        <div class="ob-auto-tip">
-          <svg-icon icon-class="tips" />
-          任务将使用你最近一次对话所选的模型自动执行；执行过程可在任务列表「定时任务」分组的会话中查看
         </div>
       </template>
     </div>
@@ -735,25 +729,6 @@ export default {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-}
-
-// 底部提示条
-.ob-auto-tip {
-  margin-top: 14px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 12px;
-  color: $text-secondary;
-  background: rgba(var(--primary-color-rgb), 0.06);
-
-  .svg-icon {
-    font-size: 14px;
-    color: var(--primary-color);
-    flex-shrink: 0;
-  }
 }
 
 // ===== 向导弹窗 =====

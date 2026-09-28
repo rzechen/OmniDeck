@@ -94,6 +94,36 @@
             />
             <p class="ob-field-error" :class="{ visible: !!errors.apiKey }">{{ errors.apiKey }}</p>
           </div>
+
+          <!-- 深度研究档位（P3）：将该模型映射为深度研究子代理的轻量/标准/强力档；同档位全局唯一 -->
+          <div class="ob-field">
+            <label class="ob-field-label">
+              深度研究档位
+              <el-tooltip placement="top" :open-delay="200">
+                <div slot="content">
+                  深度研究是多代理并行编排（资料搜集、交叉验证、报告撰写）。<br />
+                  在此为子代理的三个档位指派模型：轻量跑检索摘要、标准做日常分析、强力做复杂推理。<br />
+                  同一档位全局仅一个模型（选新顶旧）；不指定则该档回落主对话模型。
+                </div>
+                <svg-icon icon-class="warning-outline" class="ob-tier-help" />
+              </el-tooltip>
+            </label>
+            <el-select
+              v-model="form.tier"
+              size="small"
+              class="ob-field-select"
+              placeholder="不指定（该档回落主对话模型）"
+              clearable
+            >
+              <el-option label="轻量档 · 简单检索与摘要" value="small" />
+              <el-option label="标准档 · 日常分析与写作" value="medium" />
+              <el-option label="强力档 · 复杂推理与长文撰写" value="big" />
+            </el-select>
+            <!-- 同档位已被其它模型占用时提示（保存时自动顶替旧配置） -->
+            <p v-if="tierOccupiedBy" class="ob-field-tip ob-tier-conflict">
+              该档位当前为「{{ tierOccupiedBy.name }}」，保存后将自动替换
+            </p>
+          </div>
         </div>
 
         <footer class="ob-dialog-footer">
@@ -151,7 +181,8 @@ export default {
         name: '',
         apiKey: '',
         baseUrl: '',
-        model: ''
+        model: '',
+        tier: ''
       },
       // 必填字段失焦校验的错误提示
       errors: {
@@ -172,6 +203,13 @@ export default {
       set(v) {
         this.$emit('update:visible', v)
       }
+    },
+    // 同档位占用者（编辑自己时排除自身；用于档位冲突提示）
+    tierOccupiedBy() {
+      const tier = this.form.tier
+      if (!tier) return null
+      const owner = this.list.find(p => p.tier === tier && p.id !== this.editingId)
+      return owner || null
     }
   },
   watch: {
@@ -192,7 +230,8 @@ export default {
           apiKey: p.apiKey || '',
           baseUrl: p.baseUrl,
           model: p.model,
-          displayName: p.displayName || ''
+          displayName: p.displayName || '',
+          tier: p.tier || ''
         }
         : {
           type: 'custom',
@@ -201,7 +240,8 @@ export default {
           apiKey: '',
           baseUrl: '',
           model: '',
-          displayName: ''
+          displayName: '',
+          tier: ''
         }
       this.resetErrors()
     },
@@ -308,6 +348,7 @@ export default {
       const model = this.form.model.trim()
       const displayName = this.form.displayName.trim()
       const apiKey = this.form.apiKey.trim()
+      const tier = this.form.tier || ''
 
       // 保存前测试连接（真实请求验证模型可用性）
       this.testing = true
@@ -322,7 +363,7 @@ export default {
         // 编辑：组装更新数据交父级写入
         this.$emit('saved', {
           editingId: this.editingId,
-          values: { name, apiFormat, baseUrl, model, displayName, apiKey }
+          values: { name, apiFormat, baseUrl, model, displayName, apiKey, tier }
         })
       } else {
         // 新建：组装完整记录（首个自动设默认）交父级写入
@@ -338,6 +379,7 @@ export default {
             model,
             displayName,
             apiKey,
+            tier,
             isDefault: isFirst
           }
         })
@@ -351,4 +393,23 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 档位帮助图标：随标签行内展示 */
+.ob-tier-help {
+  margin-left: 4px;
+  font-size: 12px;
+  color: $text-secondary;
+  cursor: help;
+  vertical-align: -1px;
+
+  &:hover {
+    color: var(--primary-color);
+  }
+}
+
+/* 同档位冲突提示 */
+.ob-tier-conflict {
+  margin-top: 4px;
+  color: #d97706;
+}
 </style>

@@ -333,6 +333,28 @@
               </div>
             </div>
           </div>
+
+          <!-- Buddy 视图专属：OmniBuddy 会话历史管理 -->
+          <div class="settings-sub-header">Buddy 视图</div>
+          <div class="settings-group">
+            <!-- 会话历史管理：清空全部 OmniBuddy 任务会话 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">历史记录管理</span>
+                <span class="label-desc">管理 OmniBuddy 的任务会话记录（当前 {{ buddySessionCount }} 个任务），清空后不可恢复</span>
+              </div>
+              <el-button
+                size="small"
+                round
+                type="danger"
+                plain
+                icon="el-icon-delete"
+                :loading="buddyHistoryClearing"
+                :disabled="!buddySessionCount"
+                @click="clearBuddyHistory"
+              >清空全部历史</el-button>
+            </div>
+          </div>
         </template>
 
         <!-- 快捷键（P0-M4）：全部快捷键可改键 + 恢复默认（全局 / Deck / Buddy 分组） -->
@@ -841,6 +863,11 @@ export default {
       storageEstimate: null,
       // 清空执行中
       historyClearing: false,
+      // ===== Buddy 视图：会话历史管理 =====
+      // OmniBuddy 会话列表（计数展示 + 清空目标）
+      buddySessions: [],
+      // 清空 Buddy 会话执行中
+      buddyHistoryClearing: false,
       // ===== 剪贴板历史上限（主进程 capture-settings.json） =====
       clipKeepOptions: [
         { label: '200 条', value: 200 },
@@ -1057,6 +1084,17 @@ export default {
       const { usage, quota } = this.storageEstimate
       const pct = quota ? Math.min(100, Math.round((usage / quota) * 100)) : 0
       return `本地数据已用 ${fmtBytes(usage)} / 配额 ${fmtBytes(quota)}（${pct}%）`
+    },
+    // ===== Buddy 视图：会话历史 =====
+    // Buddy 会话总数（描述展示 + 清空按钮可用性）
+    buddySessionCount() {
+      return this.buddySessions.length
+    }
+  },
+  watch: {
+    // 切回通用页签时刷新 Buddy 会话计数（页面停留期间任务列表可能已变化）
+    activeTab(v) {
+      if (v === 'general') this.loadBuddySessions()
     }
   },
   mounted() {
@@ -1065,6 +1103,7 @@ export default {
     this.loadTrayMenu()
     this.loadHistoryState()
     this.loadClipKeep()
+    this.loadBuddySessions()
   },
   beforeDestroy() {
     window.removeEventListener('keydown', this.onRecordKeydown, true)
@@ -1158,6 +1197,51 @@ export default {
         this.$message.success('已清空全部执行历史')
       } finally {
         this.historyClearing = false
+      }
+    },
+    // ===== Buddy 视图：会话历史管理 =====
+    // 加载 OmniBuddy 会话列表（计数展示；非桌面端无 API 时保持为空）
+    async loadBuddySessions() {
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api || !api.listSessions) return
+      try {
+        this.buddySessions = (await api.listSessions()) || []
+      } catch (e) { /* 忽略加载失败 */ }
+    },
+    // 清空全部 OmniBuddy 会话历史（复用单会话删除链：记忆摘要照常留档）
+    async clearBuddyHistory() {
+      try {
+        await this.$confirm(
+          `将清空全部 ${this.buddySessionCount} 个任务的会话记录，是否继续？`,
+          '清空全部历史',
+          {
+            confirmButtonText: '全部清空',
+            cancelButtonText: '取消',
+            type: 'warning'
+          }
+        )
+      } catch (e) {
+        return
+      }
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api || !api.deleteSession) return
+      this.buddyHistoryClearing = true
+      try {
+        const removed = this.buddySessions.map(s => s.id)
+        for (const sid of removed) {
+          await api.deleteSession(sid)
+        }
+        // 被删会话：清理页签与会话状态池（防泄漏）
+        for (const sid of removed) {
+          this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + sid })
+          this.$store.commit('buddyChat/DROP_SESSION', sid)
+        }
+        await this.loadBuddySessions()
+        // 通知 Buddy 侧栏刷新任务列表
+        this.$root.$emit('omnibuddy:sessions-changed')
+        this.$message.success('已清空全部任务会话')
+      } finally {
+        this.buddyHistoryClearing = false
       }
     },
 

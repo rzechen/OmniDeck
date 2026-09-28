@@ -40,9 +40,10 @@
           </button>
         </div>
 
-        <!-- Tab：基本信息（分组：基础资料 + 自定义条目；居中单列，一行一个字段，两侧留白） -->
+        <!-- Tab：基本信息（左右分栏：左固定基础资料 / 右动态自定义条目，值多行文本） -->
         <section v-show="activeTab === 'basic'" class="pf-form">
-          <div class="pf-group">
+          <!-- 左列：基础资料（固定字段） -->
+          <div class="pf-group pf-col-fixed">
             <div class="pf-group-head">
               <span class="pf-group-title">基础资料</span>
               <span class="pf-group-hint">姓名、公司、部门等，AI 每次对话自动知晓</span>
@@ -55,13 +56,15 @@
                 type="textarea"
                 :rows="2"
                 :placeholder="f.placeholder"
-                maxlength="500"
+                maxlength="2000"
+                show-word-limit
               />
               <el-input v-else v-model="fields[f.key]" :placeholder="f.placeholder" maxlength="100" />
             </div>
           </div>
 
-          <div class="pf-group">
+          <!-- 右列：自定义条目（动态增删，值为多行文本） -->
+          <div class="pf-group pf-col-custom">
             <div class="pf-group-head">
               <span class="pf-group-title">自定义条目</span>
               <span class="pf-group-hint">任意补充：邮箱、座机、报销习惯、常用收件地址等</span>
@@ -69,9 +72,19 @@
             </div>
             <div v-if="customs.length" class="pf-customs">
               <div v-for="(c, i) in customs" :key="c.id" class="pf-custom">
-                <el-input v-model="c.key" size="small" class="pf-custom-key" placeholder="名称（如：邮箱）" maxlength="30" />
-                <el-input v-model="c.value" size="small" class="pf-custom-val" placeholder="内容" maxlength="500" />
-                <el-button size="mini" round icon="el-icon-delete" class="pf-custom-del" @click="customs.splice(i, 1)" />
+                <div class="pf-custom-top">
+                  <el-input v-model="c.key" size="small" class="pf-custom-key" placeholder="名称（如：邮箱）" maxlength="30" />
+                  <el-button size="mini" round icon="el-icon-delete" class="pf-custom-del" @click="customs.splice(i, 1)" />
+                </div>
+                <el-input
+                  v-model="c.value"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 8 }"
+                  class="pf-custom-val"
+                  placeholder="内容（支持多行，如账号、地址、备注）"
+                  maxlength="2000"
+                  show-word-limit
+                />
               </div>
             </div>
             <div v-else class="pf-empty">暂无自定义条目，点上方「添加」补充</div>
@@ -84,7 +97,6 @@
             <span class="pf-hint">对 AI 行为的全局指令，所有对话生效；如固定回复风格、输出约定</span>
             <div class="pf-toolbar-ops">
               <el-button v-if="globalRule.hasRule" size="mini" round @click="exportGlobalRule">导出</el-button>
-              <el-button v-if="globalRule.hasRule && !ruleOpen" size="mini" round @click="openRule">编辑规则</el-button>
             </div>
           </div>
           <div v-if="ruleOpen" class="pf-rule">
@@ -97,15 +109,15 @@
               @saved="onRuleSaved"
             />
           </div>
+          <!-- 未展开时：空状态（定时任务同款 ob-empty 视觉：图标 + 标题 + 描述 + 主按钮） -->
           <div v-else class="pf-rule-empty">
-            <span v-if="globalRule.hasRule" class="pf-rule-state ok">已配置，点击「编辑规则」修改</span>
-            <span v-else class="pf-rule-state">
-              还没有配置规则，
-              <el-button type="text" size="mini" @click="openRule">立即新建</el-button>
-            </span>
+            <div class="ob-empty-icon"><svg-icon icon-class="rules" /></div>
+            <div class="ob-empty-title">{{ globalRule.hasRule ? '已配置全局规则' : '还没有配置规则' }}</div>
+            <div class="ob-empty-desc">{{ globalRule.hasRule ? '对所有对话自动生效，可随时编辑调整' : '配置后对所有对话生效，如固定回复风格、输出约定' }}</div>
+            <el-button size="small" round type="primary" @click="openRule">{{ globalRule.hasRule ? '编辑规则' : '立即新建' }}</el-button>
           </div>
         </section>
-        <!-- Tab：我的凭据（技能卡片同款视觉的长卡片，满宽排布两侧无留白） -->
+        <!-- Tab：我的凭据（紧凑网格卡片：自适应列数，title 单行不换行） -->
         <section v-show="activeTab === 'cred'">
           <div class="pf-group-head">
             <span class="pf-group-title">凭据列表</span>
@@ -383,15 +395,35 @@ export default {
   }
 }
 
-/* ============ 居中表单（基本信息 tab）：窄列居中、两侧留白 ============ */
+/* ============ 基本信息（左右分栏）：左固定表单 / 右动态表单 ============ */
 .pf-form {
-  width: min(560px, 100%);
-  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
-/* 分组：标题行 + 内容（基础资料 / 自定义条目） */
-.pf-group {
-  &:not(:first-child) {
+/* 左列右留白；右列左留白 + 中缝竖向分隔线 */
+.pf-col-fixed {
+  padding-right: 34px;
+}
+
+.pf-col-custom {
+  padding-left: 34px;
+  border-left: 1px solid var(--border-color);
+}
+
+/* 窄窗口：回退单列堆叠（中缝分隔线转为纵向间距） */
+@media (max-width: 960px) {
+  .pf-form {
+    grid-template-columns: 1fr;
+  }
+
+  .pf-col-fixed {
+    padding-right: 0;
+  }
+
+  .pf-col-custom {
+    padding-left: 0;
+    border-left: none;
     margin-top: 34px;
   }
 }
@@ -462,7 +494,7 @@ export default {
   flex-shrink: 0;
 }
 
-/* ============ 自定义条目 ============ */
+/* ============ 自定义条目（名称行 + 多行内容） ============ */
 .pf-customs {
   display: flex;
   flex-direction: column;
@@ -471,9 +503,9 @@ export default {
 
 .pf-custom {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 10px;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 10px;
@@ -488,13 +520,16 @@ export default {
   }
 }
 
-.pf-custom-key {
-  width: 160px;
-  flex-shrink: 0;
+/* 名称行：名称输入 + 删除按钮 */
+.pf-custom-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.pf-custom-val {
+.pf-custom-key {
   flex: 1;
+  min-width: 0;
 }
 
 .pf-custom-del {
@@ -508,32 +543,59 @@ export default {
   padding: 8px 0 4px;
 }
 
-/* ============ 我的凭据（技能卡同款视觉：三列网格） ============ */
+/* ============ 我的凭据（紧凑网格卡：自适应列数、缩小内距与字号） ============ */
 .pf-creds {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
+  gap: 10px;
 }
 
-/* 卡片：复用技能卡 ob-grid-card 的视觉基因（边框/hover/圆角），网格单元排布 */
+/* 卡片：紧凑版（缩小内距/Logo/字号；title 单行截断不换行） */
 .pf-cred {
   display: flex;
   flex-direction: column;
-  padding: 16px;
+  padding: 11px 12px 10px;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: $radius-lg;
+  border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 
   &:hover {
     border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.35);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
-    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+    transform: translateY(-1px);
 
     .pf-cred-edit {
       opacity: 1;
     }
+  }
+
+  /* 紧凑卡片头：更小 Logo + 更紧间距 */
+  .ob-card-head {
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .ob-card-logo {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+
+    .svg-icon {
+      font-size: 15px;
+    }
+  }
+
+  /* title 强制单行（溢出省略，悬浮看全文） */
+  .ob-card-name {
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+
+  .ob-card-meta {
+    margin-top: 2px;
+    font-size: 10.5px;
   }
 }
 
@@ -543,28 +605,28 @@ export default {
   color: #4365DF;
 }
 
-/* 变量键名标签：等宽字体小标签（技能卡 ob-card-tag 同款） */
+/* 变量键名标签：等宽字体小标签（紧凑版） */
 .pf-cred-keys {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 5px;
+  margin-bottom: 8px;
 }
 
 .pf-cred-key {
-  font-size: 11px;
+  font-size: 10px;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
-  padding: 2px 8px;
+  padding: 1px 6px;
   border-radius: 4px;
   color: $text-secondary;
   background: $search-bg;
   border: 1px solid var(--border-color);
 }
 
-/* 卡片底部：用途徽标居左 + 编辑动作居右（技能卡 ob-card-foot 同款，带上分隔线） */
+/* 卡片底部：用途徽标居左 + 编辑动作居右（紧凑版分隔线） */
 .pf-cred-foot {
   margin-top: auto;
-  padding-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid var(--border-color);
   display: flex;
   align-items: center;
@@ -582,7 +644,7 @@ export default {
 .pf-cred-use {
   font-size: 10px;
   font-weight: 600;
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 5px;
   line-height: 1.6;
   color: var(--primary-color);
@@ -591,7 +653,7 @@ export default {
 }
 
 .pf-cred-edit {
-  font-size: 13px;
+  font-size: 12px;
   color: $text-secondary;
   opacity: 0;
   transition: opacity 0.15s ease;
@@ -612,21 +674,14 @@ export default {
   flex-direction: column;
 }
 
-/* 未展开时的占位提示 */
+/* 未展开时：空状态（定时任务同款 ob-empty 视觉：图标 + 标题 + 描述 + 主按钮） */
 .pf-rule-empty {
   flex: 1;
-  min-height: 200px;
+  min-height: 240px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-}
-
-.pf-rule-state {
-  font-size: 12.5px;
-  color: $text-secondary;
-
-  &.ok {
-    color: #52C41A;
-  }
+  gap: 8px;
 }
 </style>
