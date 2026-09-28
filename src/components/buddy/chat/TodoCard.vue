@@ -1,6 +1,7 @@
 <template>
-  <!-- todo 任务清单卡片（宽度与输入框同宽：负 margin 抵消消息列 padding；可展开收起，默认展开）。
-       清单向「上」展开：列表浮层锚定卡片上缘（卡片常处于消息流末尾，向下展开会顶出视口） -->
+  <!-- todo 任务清单卡片（宽度与输入框同宽；可展开收起，默认展开）。
+       清单向「下」展开：常规文档流布局，卡片处于消息流末尾且贴住输入框，
+       向下生长把上方内容顶上去（页面 ResizeObserver 补偿滚动），不会顶出视口 -->
   <div class="ob-todo-card">
     <!-- 标题行（可点击折叠/展开）：图标 + 任务清单 + 进度摘要 + 箭头 -->
     <div class="ob-todo-title" @click="collapsed = !collapsed">
@@ -83,22 +84,13 @@ export default {
   border-radius: 12px;
   background: var(--card-bg, #fff);
   padding: 10px 14px;
-  // 向上展开：清单浮层的定位锚点
-  position: relative;
 }
 
-// 清单浮层：锚定卡片上缘向上展开（不挤占文档流，避免把后续内容顶出视口）
+// 清单：常规文档流向下展开（卡片处于流末尾贴住输入框，向下生长顶起上方内容）
 .ob-todo-list {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 6px);
-  z-index: 30;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--card-bg, #fff);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  padding: 10px 14px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
   max-height: 280px;
   overflow-y: auto;
 }
@@ -146,8 +138,8 @@ export default {
   font-size: 12px;
   color: var(--text-secondary);
   transition: transform 0.18s ease;
-  // 向上展开：展开态箭头朝上（提示浮层方向），收起态朝右
-  transform: rotate(180deg);
+  // 向下展开：展开态箭头朝下，收起态朝右
+  transform: rotate(0deg);
 
   &.collapsed {
     transform: rotate(-90deg);

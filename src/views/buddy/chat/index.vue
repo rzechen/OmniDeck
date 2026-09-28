@@ -38,6 +38,14 @@
 
       <!-- 底部：输入框（磁盘路径/模型选择内嵌于对话框工具栏） -->
       <div class="ob-composer">
+        <!-- 任务清单面板（固定贴住输入框上方，不随消息流滚动）：
+             会话内仅一张，todo_update 实时替换，与输入框/权限条同宽 920px -->
+        <todo-card
+          v-if="todoTodos && todoTodos.length"
+          class="ob-todo-bar"
+          :todos="todoTodos"
+          :streaming="streaming"
+        />
         <!-- 权限确认浮动条（confirm 模式下有待确认项时显示，不进消息流）：
              底部滑出面板，与输入框同宽（920px）：问题 + 授权内容 + 四档编号选项（支持键盘 1-4） -->
         <transition name="ob-perm-bar">
@@ -203,6 +211,14 @@
     <!-- 消息区划选工具条（复制 / 追问）：fixed 定位随选区浮现，作用域限定消息滚动区 -->
     <selection-toolbar ref="selbar" :get-area="getSelArea" @quote="onQuote" />
 
+    <!-- 问题导航指示器（右侧，圆点列垂直居中常驻）：状态着色（绿完成/红终止/黄输出/灰等待），
+         悬停浮出问题列表面板，点击定位到对应问答位置 -->
+    <question-outline
+      :questions="questions"
+      :active-id="outlineActiveId"
+      @locate="locateQuestion"
+    />
+
     <!-- 检查点抽屉（N4）：写操作前自动快照，时间线倒序 + 一键回滚（自治组件，内部加载与回滚） -->
     <checkpoint-drawer
       ref="cp"
@@ -220,6 +236,8 @@ import ChatPlaceholder from '@/components/buddy/chat/ChatPlaceholder.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
 import SelectionToolbar from '@/components/buddy/chat/SelectionToolbar.vue'
 import ChatMessageList from './components/ChatMessageList.vue'
+import TodoCard from '@/components/buddy/chat/TodoCard.vue'
+import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
 import { getItem, setItem } from '@/utils/db'
 import { computeBranchView } from '@/utils/branchView'
@@ -228,7 +246,7 @@ import { computeBranchView } from '@/utils/branchView'
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
 export default {
   name: 'OmniBuddyChat',
-  components: { BuddyComposer, BuddySkeleton, ChatPlaceholder, ComposerPicker, SelectionToolbar, ChatMessageList, CheckpointDrawer },
+  components: { BuddyComposer, BuddySkeleton, ChatPlaceholder, ComposerPicker, SelectionToolbar, ChatMessageList, TodoCard, QuestionOutline, CheckpointDrawer },
   data() {
     return {
       // 实例绑定的会话 id：初始化时快照路由 query.s（keep-alive 一签一实例，
@@ -248,7 +266,9 @@ export default {
       // ===== 联网开关（web_search / fetch_content），主进程持久化 =====
       webEnabled: true,
       // ===== 检查点（N4）：抽屉开关（列表加载与回滚在 CheckpointDrawer 内自治） =====
-      cpDrawer: false
+      cpDrawer: false,
+      // ===== 问题导航：当前视口所在轮次 id（滚动时更新） =====
+      outlineActiveId: ''
     }
   },
   computed: {
@@ -275,6 +295,30 @@ export default {
     },
     messages() {
       return this.branchView.list
+    },
+    // 任务清单：取当前分支视图里唯一的 todo 消息（固定面板展示，不进消息流）
+    todoTodos() {
+      const m = this.messages.find(x => x.role === 'todo')
+      return m ? m.todos : null
+    },
+    // 问题导航（时间线）：当前分支视图内全部问答轮次。
+    // status 由其后紧邻的助手消息推导：error=红（终止）/ 工具中断=红 /
+    // streaming=黄（输出中）/ 无回答=灰（等待）/ 其余=绿（已完成）
+    questions() {
+      const list = this.messages
+      const out = []
+      for (let i = 0; i < list.length; i++) {
+        const m = list[i]
+        if (m.role !== 'user' || !m.id) continue
+        // 找到该问题后的首条助手消息（本轮回答）
+        let ans = null
+        for (let j = i + 1; j < list.length && !ans; j++) {
+          if (list[j].role === 'assistant') ans = list[j]
+          else if (list[j].role === 'user') break
+        }
+        out.push({ id: m.id, text: this.excerpt(m.content || ''), status: this.turnStatus(ans) })
+      }
+      return out
     },
     streaming() {
       return !!(this.sess && this.sess.streaming)
@@ -431,6 +475,8 @@ export default {
   mounted() {
     // 首次挂载：流式中或已在底部语义下滚到底（历史异步到达时由 watch 跟滚）
     if (this.streaming || (this.sess && this.sess.atBottom)) this.scrollToBottom()
+    // 问题导航侧栏常驻：初始即计算当前高亮轮次（此后随滚动事件更新）
+    this.$nextTick(() => this.updateOutlineActive())
     // 消息区划选工具条开始监听（同一函数引用重复注册无害）
     if (this.$refs.selbar) this.$refs.selbar.setup()
   },
@@ -538,6 +584,51 @@ export default {
       if (!b) return
       const atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 40
       if ((this.sess && this.sess.atBottom) !== atBottom) this.commitPatch({ atBottom })
+      this.updateOutlineActive()
+    },
+    // ===== 问题导航 =====
+    // 问题缩略文本：剥离 markdown 标记后取首行 60 字
+    excerpt(text) {
+      const plain = String(text)
+        .replace(/[#>*`~\[\]()!]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      return plain.length > 60 ? plain.slice(0, 60) + '…' : plain
+    },
+    // 轮次结束状态：error（模型终止）> streaming（输出中）> 工具中断痕迹 > 完成/等待
+    turnStatus(ans) {
+      if (!ans) return 'pending'
+      if (ans.error) return 'stopped'
+      if (ans.streaming) return 'running'
+      if ((ans.items || []).some(it => it.type === 'tool' && it.result === '已停止生成')) return 'stopped'
+      return 'done'
+    },
+    // 大纲面板点击定位：滚动到问题消息顶部（略留呼吸间距），并立即高亮
+    locateQuestion(q) {
+      const b = this.$refs.body
+      if (!b || !q || !q.id) return
+      const el = b.querySelector('[data-mid="' + q.id + '"]')
+      if (!el) return
+      // rect 差值计算（offsetTop 的 offsetParent 未必是滚动容器）
+      const top = b.scrollTop + el.getBoundingClientRect().top - b.getBoundingClientRect().top
+      b.scrollTo({ top: Math.max(0, top - 12), behavior: 'smooth' })
+      this.outlineActiveId = q.id
+    },
+    // 滚动时计算当前视口所在的轮次（首个顶部越过视口上沿 1/4 处的问题；侧栏常驻）
+    updateOutlineActive() {
+      if (!this.questions.length) return
+      const b = this.$refs.body
+      if (!b) return
+      const bTop = b.getBoundingClientRect().top
+      const line = b.scrollTop + b.clientHeight * 0.25
+      let active = ''
+      for (const q of this.questions) {
+        const el = b.querySelector('[data-mid="' + q.id + '"]')
+        if (!el) continue
+        const top = b.scrollTop + el.getBoundingClientRect().top - bTop
+        if (top <= line) active = q.id
+      }
+      this.outlineActiveId = active || this.questions[0].id
     },
     // ===== 文件附件（P1-7）=====
     // “+”按钮：系统文件选择框（多选）
@@ -974,6 +1065,7 @@ export default {
 
 <style lang="scss" scoped>
 .ob-chat {
+  position: relative; // 问题导航指示器（absolute）的定位基准
   flex: 1;
   min-width: 0;
   display: flex;
@@ -984,6 +1076,7 @@ export default {
 
 /* 对话列：主体 + 输入区 */
 .ob-main-col {
+  position: relative; // 问题大纲面板的定位基准
   flex: 1;
   min-width: 0;
   display: flex;
@@ -1065,6 +1158,8 @@ export default {
   transform: translateY(6px);
 }
 
+/* ===== 问题导航侧栏（内嵌常驻，见 QuestionOutline.vue 自身样式） ===== */
+
 /* 历史加载骨架：与消息列表同宽同 padding，占位形状贴合真实对话 */
 .ob-history-skel {
   width: 100%;
@@ -1078,6 +1173,14 @@ export default {
   position: relative;
   flex-shrink: 0;
   padding: 10px 18px 14px;
+}
+
+/* ===== 任务清单固定面板（输入框上方，与输入框/权限条同宽 920px；不随消息流滚动） ===== */
+.ob-todo-bar {
+  max-width: 920px;
+  margin: 0 auto 10px;
+  // 面板可展开收起：展开高度变化时压缩滚动区（ob-body flex 收缩），
+  // 已在流的末尾之外，无需滚动补偿
 }
 
 /* ===== 权限确认面板（输入框上方底部滑出，与输入框/消息列同宽 920px） ===== */

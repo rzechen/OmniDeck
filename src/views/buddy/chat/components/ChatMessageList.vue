@@ -1,10 +1,13 @@
 <template>
-  <!-- 消息列表：按 role 分发气泡（正文 / todo 卡片）；ask_user 表单内嵌于深度思考区 -->
+  <!-- 消息列表：按 role 分发气泡（正文）；todo 卡片已移至输入框上方固定面板（页面层渲染），
+       权限历史为只读状态行；ask_user 表单内嵌于深度思考区 -->
   <div class="ob-messages">
     <template v-for="(m, i) in messages">
+      <!-- data-mid：问题导航定位锚点（页面大纲面板按 id 查找元素滚动定位） -->
       <message-bubble
         v-if="m.role === 'user' || m.role === 'assistant'"
         :key="(m.id || i) + '-msg'"
+        :data-mid="m.id"
         :message="m"
         :streaming="streaming"
         :perm-pending="permPending"
@@ -29,25 +32,18 @@
         <span class="ob-perm-history-value">{{ m.command || m.path || m.value }}</span>
         <span class="ob-perm-history-decision">{{ { allow: '已允许', allow_session: '本会话内允许', allow_always: '始终允许', deny: '已拒绝' }[m.decided] || '' }}</span>
       </div>
-
-      <todo-card
-        v-else-if="m.role === 'todo'"
-        :key="(m.id || i) + '-todo'"
-        :todos="m.todos"
-        :streaming="streaming"
-      />
     </template>
   </div>
 </template>
 
 <script>
 import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
-import TodoCard from '@/components/buddy/chat/TodoCard.vue'
 
-// OmniBuddy 消息列表容器：按 role 分发气泡（正文 / 权限历史 / todo），交互事件原样上抛给页面处理
+// OmniBuddy 消息列表容器：按 role 分发气泡（正文 / 权限历史），交互事件原样上抛给页面处理
+// todo 卡片不在消息流渲染（固定于输入框上方，页面层挂载）
 export default {
   name: 'ChatMessageList',
-  components: { MessageBubble, TodoCard },
+  components: { MessageBubble },
   props: {
     // 归一化后的消息数组（user / assistant / todo）
     messages: {
@@ -105,9 +101,6 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  // 内容不足一屏时沉底贴住输入框（收起思考区后末尾的任务清单不与输入框脱开）；
-  // 超出一屏时 auto 归零不影响滚动布局
-  margin-top: auto;
 }
 
 /* ===== 权限确认历史（只读状态行） ===== */
