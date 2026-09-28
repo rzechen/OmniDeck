@@ -83,6 +83,7 @@
               :loading="chatsLoading"
               @select-chat="onSelectChat"
               @rename-chat="renameChat"
+              @pin-chat="togglePinChat"
               @delete-chat="confirmDeleteChat"
             />
           </div>
@@ -383,6 +384,24 @@ export default {
         // 同步更新该会话的页签标题
         this.$store.commit('tagsView/UPDATE_TAB_TITLE', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id, title })
       }).catch(() => {})
+    },
+    // 置顶/取消置顶：meta.pinned 持久化 + 本地数组同步（groups 计算属性自动重排）
+    async togglePinChat(c) {
+      const api = this.buddyApi()
+      const pinned = !c.pinned
+      if (api) {
+        const meta = await api.pinSession({ id: c.id, pinned })
+        if (!meta) return
+      }
+      // 本地同步（无 API 环境也更新，保持交互一致）
+      if (pinned) {
+        this.$set(c, 'pinned', true)
+        this.$set(c, 'pinnedAt', Date.now())
+      } else {
+        this.$set(c, 'pinned', false)
+        this.$set(c, 'pinnedAt', 0)
+      }
+      this.$message.success(pinned ? '已置顶' : '已取消置顶')
     },
     confirmDeleteChat(c) {
       this.$confirm('删除后该任务的记录将一并移除，确定删除吗？', '删除任务', {

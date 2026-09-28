@@ -10,10 +10,12 @@
 | --- | --- | --- |
 | 对话（流式 / 权限确认 / 检查点回滚 / 分支） | `/omnibuddy` | [chat.md](buddy/chat.md) |
 | 工作空间（网盘式文件管理） | `/omnibuddy/workspace` | [workspace.md](buddy/workspace.md) |
+| 我的资料（基本信息 / 我的凭据 / 全局规则） | `/omnibuddy/profile` | [profile.md](buddy/profile.md) |
 | 模型供应商 | `/omnibuddy/providers` | [providers.md](buddy/providers.md) |
 | 连接器（MCP） | `/omnibuddy/mcp` | [mcp.md](buddy/mcp.md) |
 | 技能 | `/omnibuddy/skills` | [skills.md](buddy/skills.md) |
-| 项目规则（AGENTS.md） | `/omnibuddy/rules` | [rules.md](buddy/rules.md) |
+| 项目规则（全局规则 + 空间规则双入口） | 我的资料 / 工作空间工具栏 | [rules.md](buddy/rules.md) |
+| 定时任务 | `/omnibuddy/automation` | [automation.md](buddy/automation.md) |
 | 记忆管理 | `/omnibuddy/memory` | [memory.md](buddy/memory.md) |
 | 能力清单 | `/omnibuddy/capabilities` | [capabilities.md](buddy/capabilities.md) |
 | 权限策略 | `/omnibuddy/permissions` | [permissions.md](buddy/permissions.md) |

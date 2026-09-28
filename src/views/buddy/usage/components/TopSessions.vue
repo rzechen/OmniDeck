@@ -1,12 +1,13 @@
 <template>
-  <!-- 会话 TOP5 榜单面板（按成本/用量） -->
+  <!-- 任务 TOP5 榜单面板（按成本/用量）；已删除任务显示账本快照名 + 已删除标识 -->
   <div class="ob-panel">
-    <div class="ob-panel-title">会话 TOP5（按成本/用量）</div>
+    <div class="ob-panel-title">任务 TOP5（按成本/用量）</div>
     <div class="ob-top-list">
       <div v-if="!sessions.length" class="ob-empty">暂无数据</div>
       <div v-for="(s, i) in sessions" :key="s.id" class="ob-top-item">
         <span class="ob-top-rank" :class="'rank-' + (i + 1)">{{ i + 1 }}</span>
         <span class="ob-top-title" :title="s.title">{{ s.title }}</span>
+        <span v-if="s.deleted" class="ob-top-deleted">已删除</span>
         <span class="ob-top-tokens">{{ fmtTokens(s.input + s.output) }}</span>
       </div>
     </div>
@@ -14,11 +15,11 @@
 </template>
 
 <script>
-// 会话用量 TOP5 榜单：纯展示，榜单数据由页面 summary.top5 传入
+// 任务用量 TOP5 榜单：纯展示，榜单数据由页面 summary.top5 传入
 export default {
   name: 'TopSessions',
   props: {
-    // TOP 会话数组（[{ id, title, input, output }]）
+    // TOP 任务数组（[{ id, title, deleted, input, output }]，deleted = 任务已删除）
     sessions: {
       type: Array,
       default: () => []
@@ -121,6 +122,17 @@ export default {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: $text-primary;
+}
+
+/* 已删除标识：置灰胶囊（快照名仍展示，仅提示状态） */
+.ob-top-deleted {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: $text-secondary;
+  background: $sidebar-item-hover;
 }
 
 .ob-top-tokens {

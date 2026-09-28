@@ -17,7 +17,7 @@
 │   · 首页仪表盘            │    · 对话（pi Agent 流式执行）        │
 │   · 工具中心（8 分类 74 工具）│    · 工作空间（本地目录读写）        │
 │   · 理财看板（基金/黄金）    │    · 生态：供应商/MCP/技能/市场      │
-│   · 收藏 / 待办 / 剪贴板   │    · 治理：规则/记忆/能力/权限/用量    │
+│   · 收藏 / 待办 / 剪贴板   │    · 治理：资料/规则/记忆/权限/用量    │
 │   侧边栏：工具集 + 理财分组  │    侧边栏：任务列表（按会话分组）      │
 ├──────────────────────────┴───────────────────────────────────┤
 │              独立壳窗（不挂任何 Layout）                        │
@@ -79,7 +79,7 @@ export default categoryPage('Format')
 
 ## 五、OmniBuddy：Agent 能力分层
 
-渲染层 11 个管理页与主进程 `electron/agent/` 模块一一对应；对话能力由 pi Coding Agent 驱动，全部经 `window.electronAPI.omnibuddy`（渲染层统一入口 [buddy-api.js](../src/utils/buddy-api.js)）：
+渲染层管理页与主进程 `electron/agent/` 模块一一对应；对话能力由 pi Coding Agent 驱动，全部经 `window.electronAPI.omnibuddy`（渲染层统一入口 [buddy-api.js](../src/utils/buddy-api.js)）：
 
 ```
 渲染层（views/buddy/*） ──IPC──▶ preload（contextBridge） ──▶ 主进程（agent/*）

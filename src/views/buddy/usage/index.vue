@@ -22,14 +22,14 @@
       </div>
 
       <template v-else>
-        <!-- 顶部数字卡：今日 / 窗口合计 / 会话数 -->
+        <!-- 顶部数字卡：今日 / 窗口合计 / 任务数 -->
         <usage-stat-cards :summary="summary" :days="days" />
 
         <!-- 日用量柱状图 -->
         <daily-bar-chart :days="summary.daily" />
 
         <div class="ob-usage-cols">
-          <!-- 会话 TOP5 -->
+          <!-- 任务 TOP5（已删除任务显示快照名 + 已删除标识） -->
           <top-sessions :sessions="top5" />
 
           <!-- 模型分布 -->

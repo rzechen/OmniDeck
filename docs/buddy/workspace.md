@@ -6,7 +6,7 @@
 
 - **入口路由**：`/omnibuddy/workspace`
 - **源码位置**：[src/views/buddy/workspace/index.vue](../../src/views/buddy/workspace/index.vue)
-- **子组件**：SpaceToolbar / SpaceCrumbs / SpaceGrid / SpaceList / SpaceContextMenu / SpaceFilePreview / SpaceBlank（`components/buddy/space/`）
+- **子组件**：SpaceToolbar / SpaceCrumbs / SpaceGrid / SpaceList / SpaceContextMenu / SpaceFilePreview / SpaceBlank / SpaceRuleDialog（`components/buddy/space/`）
 - **主进程模块**：files.js / workspaces.js
 
 ## 功能定位
@@ -16,11 +16,12 @@
 ## 页面结构
 
 ```
-工具栏（空间下拉 / 视图切换 / 隐藏项 / 搜索 / 新建文件夹·文件 / 导入 / 刷新）
+工具栏（空间下拉 / 视图切换 / 隐藏项 / 搜索 / 新建文件夹·文件 / 导入 / 空间规则 / 刷新 / 解绑）
   ↓
 面包屑（SpaceCrumbs）
   ↓
 主体（网格 SpaceGrid / 列表 SpaceList）+ 右键菜单 + 预览编辑层 + 拖拽遮罩
++ 空间规则弹窗（SpaceRuleDialog）
 ```
 
 ## 核心功能
@@ -30,6 +31,7 @@
 - **新建**：新建文件夹 / 文件（$prompt 输入名）
 - **导入**：对话框选择导入与拖拽导入（`getPathForFile` 取本地路径）
 - **文件操作**：重命名、移到废纸篓（二次确认）、Finder 中显示（reveal）、系统打开
+- **空间规则**：工具栏「空间规则」按钮打开 SpaceRuleDialog，编辑当前空间的 `AGENTS.md`（仅该空间对话生效，复用 RuleEditor 组件，详见 [rules.md](rules.md)）
 - **预览编辑**：文本文件在线预览编辑（read / write）；二进制 / 超大文件转系统打开
 - **右键菜单**：Esc 关闭
 

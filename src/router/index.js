@@ -3,6 +3,7 @@ import VueRouter from 'vue-router'
 import Layout from '@/layout/index.vue'
 import BuddyLayout from '@/layout/BuddyLayout.vue'
 import store from '@/store'
+import { getItem } from '@/utils/db'
 
 Vue.use(VueRouter)
 
@@ -91,6 +92,21 @@ const routes = [
         name: 'OmniBuddySettings',
         component: () => import('@/views/shared/settings/index.vue'),
         meta: { title: '设置' }
+      },
+      // 版本 / 问题反馈：应用级公共页（与 Deck /version、/feedback 复用同一组件）。
+      // 挂到 BuddyLayout 下实现「就近打开」：从 Buddy 设置-关于进入时留在 Buddy 视图页签内，
+      // 不再整页跳去 Deck 视图（旧流向导致上下文丢失）
+      {
+        path: 'version',
+        name: 'OmniBuddyVersion',
+        component: () => import('@/views/deck/version/index.vue'),
+        meta: { title: '版本' }
+      },
+      {
+        path: 'feedback',
+        name: 'OmniBuddyFeedback',
+        component: () => import('@/views/deck/feedback/index.vue'),
+        meta: { title: '问题反馈' }
       }
     ]
   },
@@ -128,8 +144,10 @@ const routes = [
   {
     path: '/',
     component: Layout,
-    // 临时将 OmniBuddy 设为应用主入口（原默认重定向到首页 /home）
-    redirect: '/omnibuddy',
+    // 应用主入口视图（设置-通用-全局「入口视图」）：
+    // 'buddy' → OmniBuddy（默认），'deck' → OmniDeck 首页。
+    // bootstrap 中 loadAll() 先于路由挂载，导航时 IndexedDB 缓存已就绪
+    redirect: () => (getItem('entryView', 'buddy') === 'deck' ? '/home' : '/omnibuddy'),
     children: [
       {
         path: 'home',

@@ -27,8 +27,10 @@ OmniDeck = **OmniBuddy（AI 编程助手）** + **OmniDeck（开发者工具箱�
 | 功能 | 文档 |
 | --- | --- |
 | 对话 / 工作空间 | [chat](buddy/chat.md) · [workspace](buddy/workspace.md) |
-| 模型供应商 / 连接器 / 技能 / 资源市场 | [providers](buddy/providers.md) · [mcp](buddy/mcp.md) · [skills](buddy/skills.md) · [market](buddy/market.md) |
-| 项目规则 / 记忆管理 / 能力清单 / 权限策略 | [rules](buddy/rules.md) · [memory](buddy/memory.md) · [capabilities](buddy/capabilities.md) · [permissions](buddy/permissions.md) |
+| 我的资料 / 模型供应商 | [profile](buddy/profile.md) · [providers](buddy/providers.md) |
+| 连接器 / 技能 / 资源市场 | [mcp](buddy/mcp.md) · [skills](buddy/skills.md) · [market](buddy/market.md) |
+| 项目规则 / 定时任务 | [rules](buddy/rules.md) · [automation](buddy/automation.md) |
+| 记忆管理 / 能力清单 / 权限策略 | [memory](buddy/memory.md) · [capabilities](buddy/capabilities.md) · [permissions](buddy/permissions.md) |
 | 用量统计 | [usage](buddy/usage.md) |
 
 ## 截图索引（`img/`）

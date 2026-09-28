@@ -46,6 +46,14 @@
         <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
         <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
         <span class="buddy-chat-actions" @click.stop>
+          <!-- 置顶：已置顶时常亮显示（hover 外也可见），未置顶时随行 hover 浮现 -->
+          <svg-icon
+            icon-class="pin"
+            class="ob-pin"
+            :class="{ pinned: c.pinned }"
+            :title="c.pinned ? '取消置顶' : '置顶'"
+            @click.stop="$emit('pin-chat', c)"
+          />
           <svg-icon icon-class="edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
           <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="$emit('delete-chat', c)" />
         </span>
@@ -79,23 +87,40 @@ export default {
     }
   },
   computed: {
-    // 按展示名分组（组间按组内最新会话时间倒序，组内按更新时间倒序）
+    // 按展示名分组（组间按组内最新会话时间倒序，组内置顶优先再按更新时间倒序）
     groups() {
       const map = {}
       for (const c of this.chats) {
         const name = (c.displayName && c.displayName.trim()) || c.workspaceDir || '未关联目录'
         if (!map[name]) {
-          map[name] = { key: name, name, dir: c.workspaceDir || '', chats: [], latest: 0 }
+          map[name] = { key: name, name, dir: c.workspaceDir || '', chats: [], latest: 0, hasPinned: false }
         }
         map[name].chats.push(c)
         if (c.updatedAt > map[name].latest) map[name].latest = c.updatedAt
+        if (c.pinned) map[name].hasPinned = true
       }
       return Object.values(map)
         .map(g => {
-          g.chats.sort((a, b) => b.updatedAt - a.updatedAt)
+          // 组内排序：置顶优先（按置顶时间倒序），其余按更新时间倒序
+          g.chats.sort((a, b) => {
+            const pa = a.pinned ? 1 : 0
+            const pb = b.pinned ? 1 : 0
+            if (pa !== pb) return pb - pa
+            if (pa === 1) return (b.pinnedAt || 0) - (a.pinnedAt || 0)
+            return b.updatedAt - a.updatedAt
+          })
           return g
         })
-        .sort((a, b) => b.latest - a.latest)
+        // 组间排序：含置顶任务的组优先（组内最新置顶时间倒序），其余按组内最新会话时间倒序
+        .sort((a, b) => {
+          if (a.hasPinned !== b.hasPinned) return a.hasPinned ? -1 : 1
+          if (a.hasPinned) {
+            const pa = Math.max(...a.chats.filter(c => c.pinned).map(c => c.pinnedAt || 0))
+            const pb = Math.max(...b.chats.filter(c => c.pinned).map(c => c.pinnedAt || 0))
+            return pb - pa
+          }
+          return b.latest - a.latest
+        })
     }
   },
   methods: {
@@ -316,7 +341,7 @@ export default {
   }
 }
 
-/* 对话行内操作：hover 浮现（重命名/删除） */
+/* 对话行内操作：hover 浮现（置顶/重命名/删除） */
 .buddy-chat-actions {
   display: inline-flex;
   align-items: center;
@@ -342,6 +367,12 @@ export default {
       color: #F5222D;
     }
   }
+}
+
+/* 已置顶：置顶钮常亮（hover 区外也可见，主色提示状态） */
+.buddy-chat .ob-pin.pinned {
+  opacity: 1;
+  color: var(--primary-color);
 }
 
 /* ===== 实时状态标记 ===== */

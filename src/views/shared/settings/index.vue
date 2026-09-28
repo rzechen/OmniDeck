@@ -27,6 +27,25 @@
           <!-- 全局：应用级设置，OmniDeck 与 OmniBuddy 两视图共用 -->
           <div class="settings-sub-header">全局</div>
           <div class="settings-group">
+            <!-- 入口视图：应用启动时进入的默认视图，修改后重启生效 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">入口视图</span>
+                <span class="label-desc">应用启动时进入的默认视图，修改后需重启应用生效</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in entryViewOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: entryView === opt.value }"
+                  @click="selectEntryView(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
             <!-- 外观模式：分段选择器 -->
             <div class="settings-row">
               <div class="row-label">
@@ -297,63 +316,6 @@
               </div>
             </div>
 
-            <!-- 工具执行历史管理：按工具清空 / 全局清空 -->
-            <div class="settings-row">
-              <div class="row-label">
-                <span class="label-text">历史记录管理</span>
-                <span class="label-desc">{{ storageUsageDesc }}</span>
-              </div>
-              <div class="lock-actions">
-                <el-dropdown v-if="historyTools.length" trigger="click" @command="clearToolHistory">
-                  <el-button size="small" round icon="el-icon-eraser" class="hist-tool-dropdown">
-                    按工具清空<i class="el-icon-arrow-down el-icon--right"></i>
-                  </el-button>
-                  <el-dropdown-menu slot="dropdown">
-                    <el-dropdown-item
-                      v-for="t in historyTools"
-                      :key="t.path"
-                      :command="t.path"
-                      class="hist-tool-item"
-                    >
-                      <span class="hist-tool-name">{{ t.name }}</span>
-                      <span class="hist-tool-count">{{ t.count }} 条</span>
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </el-dropdown>
-                <el-button
-                  size="small"
-                  round
-                  type="danger"
-                  plain
-                  icon="el-icon-delete"
-                  :loading="historyClearing"
-                  :disabled="!historyTotalCount"
-                  @click="clearAllHistory"
-                >清空全部历史</el-button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Buddy 视图专属：OmniBuddy 会话历史管理 -->
-          <div class="settings-sub-header">Buddy 视图</div>
-          <div class="settings-group">
-            <!-- 会话历史管理：清空全部 OmniBuddy 任务会话 -->
-            <div class="settings-row">
-              <div class="row-label">
-                <span class="label-text">历史记录管理</span>
-                <span class="label-desc">管理 OmniBuddy 的任务会话记录（当前 {{ buddySessionCount }} 个任务），清空后不可恢复</span>
-              </div>
-              <el-button
-                size="small"
-                round
-                type="danger"
-                plain
-                icon="el-icon-delete"
-                :loading="buddyHistoryClearing"
-                :disabled="!buddySessionCount"
-                @click="clearBuddyHistory"
-              >清空全部历史</el-button>
-            </div>
           </div>
         </template>
 
@@ -568,12 +530,52 @@
               </div>
               <el-button size="small" round icon="el-icon-lock" @click="lockNow">锁定应用</el-button>
             </div>
+          </div>
 
-            <!-- 清除本地记录（危险操作） -->
+          <!-- 本地历史记录清除：按视图划分（从「通用」收编而来，危险操作归口安全项） -->
+          <div class="settings-sub-header">历史记录清除</div>
+          <div class="settings-group">
+            <!-- Deck 视图：工具执行历史管理（按工具清空 / 全局清空） -->
             <div class="settings-row">
               <div class="row-label">
-                <span class="label-text">清除本地记录</span>
-                <span class="label-desc">删除 OmniDeck 与 OmniBuddy 的全部本地数据（含偏好设置、工具收藏、对话记录、空间与模型配置），清除后自动重启应用</span>
+                <span class="label-text">Deck 视图</span>
+                <span class="label-desc">{{ storageUsageDesc }}</span>
+              </div>
+              <div class="lock-actions">
+                <el-dropdown v-if="historyTools.length" trigger="click" @command="clearToolHistory">
+                  <el-button size="small" round icon="el-icon-eraser" class="hist-tool-dropdown">
+                    按工具清空<i class="el-icon-arrow-down el-icon--right"></i>
+                  </el-button>
+                  <el-dropdown-menu slot="dropdown">
+                    <el-dropdown-item
+                      v-for="t in historyTools"
+                      :key="t.path"
+                      :command="t.path"
+                      class="hist-tool-item"
+                    >
+                      <span class="hist-tool-name">{{ t.name }}</span>
+                      <span class="hist-tool-count">{{ t.count }} 条</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </el-dropdown>
+                <el-button
+                  size="small"
+                  round
+                  type="danger"
+                  plain
+                  icon="el-icon-delete"
+                  :loading="historyClearing"
+                  :disabled="!historyTotalCount"
+                  @click="clearAllHistory"
+                >清空全部历史</el-button>
+              </div>
+            </div>
+
+            <!-- Buddy 视图：清空全部 OmniBuddy 任务会话 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">Buddy 视图</span>
+                <span class="label-desc">管理 OmniBuddy 的任务会话记录（当前 {{ buddySessionCount }} 个任务），清空后不可恢复</span>
               </div>
               <el-button
                 size="small"
@@ -581,9 +583,10 @@
                 type="danger"
                 plain
                 icon="el-icon-delete"
-                :loading="clearing"
-                @click="clearLocalData"
-              >清除数据</el-button>
+                :loading="buddyHistoryClearing"
+                :disabled="!buddySessionCount"
+                @click="clearBuddyHistory"
+              >清空全部历史</el-button>
             </div>
           </div>
         </template>
@@ -741,7 +744,7 @@
 
 <script>
 import { presetColors, themeModes, applyTheme } from '@/utils/theme'
-import { setItem, getItem, clearAll } from '@/utils/db'
+import { setItem, getItem } from '@/utils/db'
 import { clearMenuOrder } from '@/utils/menu-order'
 import {
   DEFAULT_SHORTCUTS,
@@ -823,6 +826,11 @@ export default {
       ],
       themeModes,
       presetColors,
+      // 入口视图选项（启动时进入的默认视图，重启生效）
+      entryViewOptions: [
+        { label: 'Deck 视图', value: 'deck' },
+        { label: 'Buddy 视图', value: 'buddy' }
+      ],
       // 工具卡片每行个数枚举（'auto' 自适应）
       gridOptions: [
         { label: '自动', value: 'auto' },
@@ -893,8 +901,6 @@ export default {
       // 密码弹窗
       pwdDialogVisible: false,
       pwdForm: { oldPwd: '', newPwd: '', confirmPwd: '' },
-      // 清除本地记录执行中
-      clearing: false,
       // ===== 快捷键：全部可改键（M4 升级） =====
       // 当前快捷键（accelerator 格式；panel / 截图三项为系统级，其余为应用内）
       shortcuts: { panel: '', search: '', lock: '', buddy: '', area: '', screen: '', scroll: '' },
@@ -949,6 +955,10 @@ export default {
     }
   },
   computed: {
+    // 入口视图（启动默认视图）：IndexedDB 直读（非 Vuex 状态，仅重启时消费）
+    entryView() {
+      return getItem('entryView', 'buddy')
+    },
     themeMode() {
       return this.$store.state.themeMode
     },
@@ -1611,14 +1621,18 @@ export default {
         .catch(() => {})
     },
     // ===== 关于 =====
+    // 版本 / 反馈为应用级公共页：在哪个视图的设置里点开就在哪个视图打开
+    //（Buddy → /omnibuddy/* 挂 BuddyLayout 页签内；Deck → /version、/feedback）
     goVersion() {
-      if (this.$route.name !== 'Version') {
-        this.$router.push('/version').catch(() => {})
+      const name = this.$route.path.startsWith('/omnibuddy') ? 'OmniBuddyVersion' : 'Version'
+      if (this.$route.name !== name) {
+        this.$router.push({ name }).catch(() => {})
       }
     },
     goFeedback() {
-      if (this.$route.name !== 'Feedback') {
-        this.$router.push('/feedback').catch(() => {})
+      const name = this.$route.path.startsWith('/omnibuddy') ? 'OmniBuddyFeedback' : 'Feedback'
+      if (this.$route.name !== name) {
+        this.$router.push({ name }).catch(() => {})
       }
     },
     selectColor(color) {
@@ -1634,6 +1648,27 @@ export default {
     selectSidebarDefault(val) {
       this.$store.commit('SET_SIDEBAR_DEFAULT', val)
       setItem('sidebarDefault', val)
+    },
+    // 切换入口视图：二次确认后持久化并重启应用（启动时路由 redirect 消费）
+    async selectEntryView(val) {
+      if (val === this.entryView) return
+      const label = val === 'deck' ? 'Deck 视图' : 'Buddy 视图'
+      const yes = await this.$confirm(
+        `入口视图将切换为「${label}」，修改需重启应用后生效。确定并立即重启吗？`,
+        '切换入口视图',
+        { confirmButtonText: '确定并重启', cancelButtonText: '取消', type: 'warning' }
+      ).then(() => true).catch(() => false)
+      if (!yes) return
+      await setItem('entryView', val)
+      this.$message.success('入口视图已更新，正在重启应用')
+      // 稍候让提示渲染出来，再触发重启（非桌面端刷新页面兜底）
+      setTimeout(() => {
+        if (window.electronAPI && window.electronAPI.relaunchApp) {
+          window.electronAPI.relaunchApp()
+        } else {
+          location.reload()
+        }
+      }, 600)
     },
     // 切换分组默认展开状态（下次启动生效）
     selectSidebarGroupsDefault(val) {
@@ -2123,7 +2158,7 @@ export default {
     },
     // ===== 清除本地记录 =====
     // 通用身份二次验证：设置了应用密码（或开启指纹）才需要，否则直接通过
-    // （清除密码 / 关闭触控 ID / 清除本地记录等敏感操作共用）
+    // （清除密码 / 关闭触控 ID 等敏感操作共用）
     async verifyIdentity() {
       const api = window.electronAPI && window.electronAPI.appLock
       if (!api || !this.hasPassword) return true
@@ -2148,27 +2183,6 @@ export default {
         return false
       }
       return true
-    },
-    // 清除本地记录：二次确认 + 身份校验后清空 deck/buddy 全部本地数据并重启应用
-    async clearLocalData() {
-      const yes = await this.$confirm(
-        '将清除 OmniDeck 与 OmniBuddy 的全部本地数据（偏好设置、工具收藏、对话记录、空间与模型配置等），清除后应用将自动重启。此操作不可恢复，确定继续吗？',
-        '清除本地记录',
-        { confirmButtonText: '清除', cancelButtonText: '取消', type: 'warning' }
-      ).then(() => true).catch(() => false)
-      if (!yes) return
-      if (!(await this.verifyIdentity())) return
-      this.clearing = true
-      // 渲染侧：清空 IndexedDB（deck + buddy 全部键）与 localStorage
-      await clearAll()
-      try { localStorage.clear() } catch (e) { /* 忽略 */ }
-      // 主进程：删除 buddy 会话/Agent 数据并重启应用（非桌面端刷新页面兜底）
-      if (window.electronAPI && window.electronAPI.resetAllData) {
-        await window.electronAPI.resetAllData()
-      } else {
-        location.reload()
-      }
-      this.clearing = false
     }
   }
 }

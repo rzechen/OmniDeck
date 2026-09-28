@@ -10,10 +10,11 @@ Buddy 视图承载 AI 编程助手能力：基于 pi Coding Agent 的对话执�
 | --- | --- | --- | --- |
 | 对话 | `/omnibuddy` | [chat.md](chat.md) | sessions / pi / llm / attachments / permissions / checkpoints / file-changes / sandbox |
 | 工作空间 | `/omnibuddy/workspace` | [workspace.md](workspace.md) | files / workspaces |
+| 我的资料 | `/omnibuddy/profile` | [profile.md](profile.md) | profile / credentials / rules |
 | 模型供应商 | `/omnibuddy/providers` | [providers.md](providers.md) | llm（消费侧） |
 | 连接器 | `/omnibuddy/mcp` | [mcp.md](mcp.md) | mcp / connectors / credentials |
 | 技能 | `/omnibuddy/skills` | [skills.md](skills.md) | skills / credentials |
-| 项目规则 | `/omnibuddy/rules` | [rules.md](rules.md) | rules |
+| 定时任务 | `/omnibuddy/automation` | [automation.md](automation.md) | automation |
 | 记忆管理 | `/omnibuddy/memory` | [memory.md](memory.md) | memory |
 | 能力清单 | `/omnibuddy/capabilities` | [capabilities.md](capabilities.md) | capabilities / runtime |
 | 权限策略 | `/omnibuddy/permissions` | [permissions.md](permissions.md) | permissions |
@@ -27,6 +28,7 @@ Buddy 视图承载 AI 编程助手能力：基于 pi Coding Agent 的对话执�
 | --- | --- |
 | Provider 列表及若干 UI 偏好（providerId / workspace-link / 活跃空间） | IndexedDB |
 | 会话 / 消息 / 检查点 | 主进程 pi 目录（agentDir） |
+| 用户资料（profile.json） | 主进程文件（agentDir 下） |
 | MCP / 技能 / 规则 / 记忆 / 权限 / 市场安装态 / 用量明细 | 主进程文件（agentDir 下） |
 | 凭证（API Key / MCP / Skill 凭据） | 系统钥匙串（safeStorage 加密，明文不回显） |
 

@@ -1,5 +1,5 @@
 <template>
-  <!-- 顶部数字卡：今日输入/输出、窗口合计、活跃会话 -->
+  <!-- 顶部数字卡：今日输入/输出、窗口合计、活跃任务 -->
   <div class="ob-usage-cards">
     <div class="ob-card">
       <div class="ob-card-label">今日输入</div>
@@ -14,14 +14,14 @@
       <div class="ob-card-value">{{ fmtTokens(total.input + total.output) }}</div>
     </div>
     <div class="ob-card">
-      <div class="ob-card-label">活跃会话</div>
+      <div class="ob-card-label">活跃任务</div>
       <div class="ob-card-value">{{ summary.sessionCount || 0 }}</div>
     </div>
   </div>
 </template>
 
 <script>
-// 用量数字卡（今日 / 窗口合计 / 会话数）：纯展示，数据由页面 summary 编排传入
+// 用量数字卡（今日 / 窗口合计 / 任务数）：纯展示，数据由页面 summary 编排传入
 export default {
   name: 'UsageStatCards',
   props: {
