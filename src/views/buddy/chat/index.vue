@@ -24,6 +24,7 @@
           @answer="answerAsk"
           @edit-resend="editResend"
           @switch-branch="switchBranch"
+          @content-resize="onContentResize"
         />
 
         <!-- 回到底部悬浮按钮：用户上滚离开底部后出现，点击平滑滚回并恢复自动跟滚 -->
@@ -947,6 +948,18 @@ export default {
         if (body) body.scrollTop = body.scrollHeight
       })
     },
+    // 列表内容尺寸变化（思考区/工具详情折叠展开等非 store 驱动的局部高度变化）：
+    // 仅贴底时补偿滚动（流式中用户上滚回看同样以 atBottom=false 为最高优先级，
+    // 不强制拉回），保证末尾内容（任务清单）始终贴住输入框。
+    // 收起后内容可能整页放得下（无滚动条，scroll 事件不触发）：直接视为贴底，
+    // 避免 atBottom 残留 false 导致后续流式输出停止跟滚
+    onContentResize() {
+      const b = this.$refs.body
+      if (b && b.scrollHeight <= b.clientHeight && this.sess && !this.sess.atBottom) {
+        this.commitPatch({ atBottom: true })
+      }
+      if (this.sess && this.sess.atBottom) this.scrollToBottom()
+    },
     // 回到底部（悬浮按钮）：恢复贴底标记（此后新内容恢复自动跟滚）+ 平滑滚动
     backToBottom() {
       this.commitPatch({ atBottom: true })
@@ -1055,7 +1068,7 @@ export default {
 /* 历史加载骨架：与消息列表同宽同 padding，占位形状贴合真实对话 */
 .ob-history-skel {
   width: 100%;
-  max-width: 920px;
+  max-width: 976px;
   margin: 0 auto;
   padding: 40px 28px 12px;
 }

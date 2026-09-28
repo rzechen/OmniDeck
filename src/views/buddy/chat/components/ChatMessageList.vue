@@ -70,6 +70,18 @@ export default {
       default: ''
     }
   },
+  mounted() {
+    // 内容尺寸监听：思考区/工具详情的折叠展开只改组件内部状态（不经 store 数据驱动），
+    // 页面层的贴底跟滚 watch 捕捉不到，收起后末尾内容（任务清单）会脱离输入框；
+    // 观察列表根元素尺寸变化上抛，由页面在贴底语义下补偿滚动
+    if (typeof ResizeObserver !== 'undefined') {
+      this._ro = new ResizeObserver(() => this.$emit('content-resize'))
+      this._ro.observe(this.$el)
+    }
+  },
+  beforeDestroy() {
+    if (this._ro) this._ro.disconnect()
+  },
   methods: {
     // 权限记录有效判定：至少有一项可展示信息，且决定合法（历史空数据行不渲染）
     hasPermInfo(m) {
@@ -84,13 +96,18 @@ export default {
 /* ===== 消息列表 ===== */
 .ob-messages {
   width: 100%;
-  max-width: 920px;
+  // 外框 976 = 内容 920 + 两侧 28 padding（border-box）：内容区与输入框
+  // （.ob-composer-inner 920px）严格对齐，消息不再比输入框缩进
+  max-width: 976px;
   margin: 0 auto;
   // 顶部留白 40px：与窗口顶/页签行拉开间距，避免首条消息贴顶
   padding: 40px 28px 12px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  // 内容不足一屏时沉底贴住输入框（收起思考区后末尾的任务清单不与输入框脱开）；
+  // 超出一屏时 auto 归零不影响滚动布局
+  margin-top: auto;
 }
 
 /* ===== 权限确认历史（只读状态行） ===== */

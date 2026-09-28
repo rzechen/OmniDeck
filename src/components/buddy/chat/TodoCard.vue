@@ -78,8 +78,7 @@ export default {
 
 <style lang="scss" scoped>
 .ob-todo-card {
-  // 与输入框同宽：负 margin 抵消消息列 28px 水平 padding（消息列 max-width 920 与输入框一致）
-  margin: 0 -28px;
+  // 消息列已与输入框（920px）严格对齐，卡片直接同宽即可
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: var(--card-bg, #fff);
