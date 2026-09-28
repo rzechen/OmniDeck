@@ -51,7 +51,8 @@ export default {
       return this.$store.state.sidebarCollapsed
     },
     toggleLeft() {
-      return this.collapsed ? '46px' : '200px'
+      // 收起态贴 68px 轨道右缘（与 $sidebar-collapsed-width 同步）
+      return this.collapsed ? '60px' : '200px'
     },
     // 页签缓存 key：keep-alive 以 vnode.key 缓存，每个页签独立一份组件实例
     // （同组件多实例并存，如同时打开两只基金详情页签）

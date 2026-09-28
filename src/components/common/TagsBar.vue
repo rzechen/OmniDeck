@@ -77,7 +77,7 @@ const buddyIconMap = {
   '/omnibuddy/market': 'market',
   '/omnibuddy/skills': 'skill',
   '/omnibuddy/mcp': 'mcp',
-  '/omnibuddy/rules': 'rules',
+  '/omnibuddy/profile': 'user',
   '/omnibuddy/capabilities': 'tool',
   '/omnibuddy/permissions': 'key',
   '/omnibuddy/workspace': 'folder',

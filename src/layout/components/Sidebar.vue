@@ -404,9 +404,9 @@ export default {
   }
 }
 
-// macOS 交通灯按钮独占行
+// macOS 交通灯按钮让位行：与右侧页签行同高（36px），红绿灯垂直居中于本行
 .sidebar-topbar {
-  height: 52px;
+  height: 36px;
   flex-shrink: 0;
 }
 

@@ -30,7 +30,7 @@ $border-color: var(--border-color, #E6E6EB);
 
 // 尺寸（紧凑布局）
 $sidebar-width: 210px;
-$sidebar-collapsed-width: 56px;
+$sidebar-collapsed-width: 68px; /* macOS 红绿灯组（8px 边距 + 52px 宽 + 8px 余量）容得下，收起不溢出 */
 $topbar-height: 44px;
 
 // 圆角

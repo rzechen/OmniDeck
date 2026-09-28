@@ -55,6 +55,13 @@ export const CAPABILITY_CATEGORIES = [
     logo: 'logo-skill'
   },
   {
+    key: 'credentials',
+    label: '凭据取用',
+    desc: '对话中按名取用预录凭据（需在「我的资料 → 我的凭据」录入并开启开关）',
+    icon: 'key',
+    logo: 'logo-skill'
+  },
+  {
     key: 'connectors',
     label: '连接器',
     desc: '已接入的 MCP 服务提供的扩展能力（系统内置的随包启用，自行登记的在「连接器」页管理）',

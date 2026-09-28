@@ -43,10 +43,10 @@ const routes = [
         meta: { title: '技能' }
       },
       {
-        path: 'rules',
-        name: 'OmniBuddyRules',
-        component: () => import('@/views/buddy/rules/index.vue'),
-        meta: { title: '项目规则' }
+        path: 'profile',
+        name: 'OmniBuddyProfile',
+        component: () => import('@/views/buddy/profile/index.vue'),
+        meta: { title: '我的资料' }
       },
       {
         path: 'memory',

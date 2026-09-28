@@ -80,6 +80,8 @@
       <button class="sp-tool-btn" title="新建文件夹" @click="$emit('create-folder')"><svg-icon icon-class="folder-add" /><span>文件夹</span></button>
       <button class="sp-tool-btn" title="新建文件" @click="$emit('create-file')"><svg-icon icon-class="document-add" /><span>文件</span></button>
       <button class="sp-tool-btn" title="从本机导入文件" @click="$emit('import')"><svg-icon icon-class="upload" /><span>导入</span></button>
+      <!-- 空间规则（B 方案收编）：编辑当前工作空间的 AGENTS.md，仅该空间对话生效 -->
+      <button class="sp-tool-btn" title="编辑此空间的规则，仅该空间对话生效" @click="$emit('space-rule')"><svg-icon icon-class="rules" /><span>空间规则</span></button>
       <button class="sp-icon-btn" title="刷新" @click="$emit('refresh')">
         <svg-icon icon-class="refresh-left" :class="{ spinning: loading }" />
       </button>

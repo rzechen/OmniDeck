@@ -171,7 +171,6 @@ export default {
             { label: '技能', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
             { label: '连接器', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
             { label: '定时任务', name: 'OmniBuddyAutomation', path: '/omnibuddy/automation', icon: 'auto' },
-            { label: '项目规则', name: 'OmniBuddyRules', path: '/omnibuddy/rules', icon: 'rules' },
             { label: '记忆管理', name: 'OmniBuddyMemory', path: '/omnibuddy/memory', icon: 'memory' },
             { label: '权限策略', name: 'OmniBuddyPermissions', path: '/omnibuddy/permissions', icon: 'key' }
           ]
@@ -179,6 +178,8 @@ export default {
         {
           title: '配置',
           items: [
+            // 我的资料（B 方案）：结构化个人背景 + 全局规则折叠区（原项目规则页收编）
+            { label: '我的资料', name: 'OmniBuddyProfile', path: '/omnibuddy/profile', icon: 'user' },
             { label: '工作空间', name: 'OmniBuddyWorkspace', path: '/omnibuddy/workspace', icon: 'folder' },
             { label: '模型供应商', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' }
           ]
@@ -199,7 +200,7 @@ export default {
       // 展开宽度（可拖拽调整，持久化）
       sidebarW: getItem('omnibuddy:sidebar-w', 260),
       // 收起宽度：图标缩略栏（与主布局 $sidebar-collapsed-width 一致）
-      collapsedW: 56,
+      collapsedW: 68, // 与主布局收起轨道同宽：容得下 macOS 红绿灯组，收起不溢出
       // 收起状态（持久化）
       collapsed: getItem('omnibuddy:sidebar-collapsed', false),
       // 拖拽中（宽度跟随鼠标，禁用过渡）
@@ -924,10 +925,10 @@ $buddy-sidebar-w: 260px;
   -webkit-app-region: no-drag;
 }
 
-/* macOS 交通灯按钮独占行（与主布局 Sidebar 的 sidebar-topbar 一致）：
-   侧栏通到窗口顶部，红绿灯悬浮于本行 */
+/* macOS 交通灯按钮让位行（与主布局 Sidebar 的 sidebar-topbar 一致）：
+   侧栏通到窗口顶部，红绿灯垂直居中于本行（与右侧 36px 页签行对齐） */
 .buddy-sidebar-topbar {
-  height: 52px;
+  height: 36px;
   flex-shrink: 0;
 }
 

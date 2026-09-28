@@ -62,17 +62,23 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+/* 左侧分类栏：随滚动吸附固定（sticky）——不跟随内容下滑。
+   aside 不参与父容器 stretch（align-self:flex-start）+ 自身不定高，
+   sticky 以滚动容器 .ob-page-body 为参照吸附在其可视顶部 */
 .ob-market-aside {
   width: 168px;
   flex-shrink: 0;
+  align-self: flex-start;
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
 }
 
+/* 卡片本体：分类较多超出视口高度时自身滚动（max-height 防止撑破 sticky） */
 .ob-market-nav {
   flex: 1;
-  position: sticky;
-  top: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -80,6 +86,10 @@ export default {
   background: var(--card-bg, #fff);
   border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
   border-radius: $radius-lg;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
 }
 
 .ob-nav-group-label {

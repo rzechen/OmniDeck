@@ -33,6 +33,16 @@
               />
             </div>
             <div class="ob-field">
+              <label class="ob-field-label">所需变量</label>
+              <el-input
+                v-model="skillForm.envKeys"
+                size="small"
+                clearable
+                placeholder="逗号分隔的环境变量名，如 GITHUB_TOKEN, NOTION_KEY"
+              />
+              <div class="ob-field-hint">技能声明运行所需的变量名；值统一在「我的资料 → 我的凭据」录入并绑定本技能</div>
+            </div>
+            <div class="ob-field">
               <label class="ob-field-label">内容（Markdown 指令手册）</label>
               <el-input
                 v-model="skillForm.content"
@@ -145,7 +155,7 @@ export default {
   },
   data() {
     return {
-      skillForm: { name: '', description: '', content: '' },
+      skillForm: { name: '', description: '', content: '', envKeys: '' },
       // ZIP 导入：文件持有 / 拖拽高亮 / 验证状态 / 导入中 / 随包凭据
       zipFile: null,
       zipDragOver: false,
@@ -192,7 +202,7 @@ export default {
       if (this.editing) {
         this.loadSkill()
       } else {
-        this.skillForm = { name: '', description: '', content: '' }
+        this.skillForm = { name: '', description: '', content: '', envKeys: '' }
         this.zipFile = null
         this.zipValidation = null
         this.zipCred = ''
@@ -213,7 +223,8 @@ export default {
           this.skillForm = {
             name: res.skill.name || target.name,
             description: res.skill.description || '',
-            content: res.skill.content || ''
+            content: res.skill.content || '',
+            envKeys: (res.skill.envKeys || []).join(', ')
           }
         } else {
           this.$message.error((res && res.error) || '读取 Skill 失败')
@@ -320,14 +331,14 @@ export default {
           try {
             await api.credentials.create({
               name: res.skill.name + '-creds',
-              type: 'skill',
+              type: 'credential',
               description: '技能「' + res.skill.name + '」凭据',
               skillNames: [res.skill.name],
               env: credEnv
             })
           } catch (e) {
-            // 凭据绑定失败不阻断导入结果，用户可在卡片上重新配置
-            this.$message.warning('Skill 已导入，但凭据绑定失败，请在卡片上重新配置凭据')
+            // 凭据绑定失败不阻断导入结果，用户可在「我的凭据」重新配置
+            this.$message.warning('Skill 已导入，但凭据绑定失败，请在「我的资料 → 我的凭据」重新配置')
           }
         }
         this.$message.success('Skill「' + res.skill.name + '」导入成功（' + res.skill.files + ' 个文件）')
@@ -352,7 +363,12 @@ export default {
         this.$message.error('技能管理仅桌面端可用')
         return
       }
-      const res = await api.updateSkill({ name, description, content: this.skillForm.content })
+      const res = await api.updateSkill({
+        name,
+        description,
+        content: this.skillForm.content,
+        envKeys: this.skillForm.envKeys.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+      })
       if (res && res.ok) {
         this.dialogVisible = false
         this.$message.success('Skill 已更新，新会话生效')

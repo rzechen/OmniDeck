@@ -32,6 +32,7 @@
         @import="importDialog"
         @refresh="load"
         @unbind="confirmUnbind"
+        @space-rule="openSpaceRule"
       />
 
       <!-- 面包屑 -->
@@ -100,6 +101,16 @@
       @close="preview.visible = false"
       @reveal="revealFile(preview.path)"
     />
+
+    <!-- 空间规则弹窗（B 方案收编）：编辑当前空间 AGENTS.md -->
+    <space-rule-dialog
+      :visible="ruleDialog.visible"
+      :space-id="activeId"
+      :space-name="active ? displayName(active) : ''"
+      :has-rule="ruleDialog.hasRule"
+      @saved="onSpaceRuleSaved"
+      @close="ruleDialog.visible = false"
+    />
   </div>
 </template>
 
@@ -113,13 +124,14 @@ import SpaceGrid from '@/components/buddy/space/SpaceGrid.vue'
 import SpaceList from '@/components/buddy/space/SpaceList.vue'
 import SpaceContextMenu from '@/components/buddy/space/SpaceContextMenu.vue'
 import SpaceFilePreview from '@/components/buddy/space/SpaceFilePreview.vue'
+import SpaceRuleDialog from '@/components/buddy/space/SpaceRuleDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { isTextEntry } from '@/utils/file-meta'
 import { getItem, setItem } from '@/utils/db'
 
 export default {
   name: 'OmniBuddyWorkspace',
-  components: { SpaceBlank, SpaceToolbar, SpaceCrumbs, SpaceGrid, SpaceList, SpaceContextMenu, SpaceFilePreview, BuddySkeleton },
+  components: { SpaceBlank, SpaceToolbar, SpaceCrumbs, SpaceGrid, SpaceList, SpaceContextMenu, SpaceFilePreview, SpaceRuleDialog, BuddySkeleton },
   data() {
     return {
       // 已关联的工作空间列表（由对话关联磁盘路径时登记）
@@ -139,7 +151,9 @@ export default {
       // 拖拽深度（enter/leave 计数，用于遮罩显隐）
       dragDepth: 0,
       // 文件预览 / 编辑
-      preview: { visible: false, path: '', name: '', content: '', size: 0, mtime: 0, saving: false }
+      preview: { visible: false, path: '', name: '', content: '', size: 0, mtime: 0, saving: false },
+      // 空间规则弹窗（hasRule 经 rulesTargets 查询，保存后刷新）
+      ruleDialog: { visible: false, hasRule: false }
     }
   },
   computed: {
@@ -223,6 +237,31 @@ export default {
     displayName(w) {
       const name = (w && w.name) || ''
       return name && name !== w.path ? name : w.path
+    },
+    // 空间规则弹窗：打开前查一次该空间 hasRule 状态
+    async openSpaceRule() {
+      if (!this.activeId) return
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (api && api.rulesTargets) {
+        try {
+          const targets = await api.rulesTargets()
+          const t = (targets || []).find(x => x.key === this.activeId)
+          this.ruleDialog.hasRule = !!(t && t.hasRule)
+        } catch (e) {
+          this.ruleDialog.hasRule = false
+        }
+      }
+      this.ruleDialog.visible = true
+    },
+    // 空间规则保存后：刷新徽标状态
+    async onSpaceRuleSaved() {
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api || !api.rulesTargets) return
+      try {
+        const targets = await api.rulesTargets()
+        const t = (targets || []).find(x => x.key === this.activeId)
+        this.ruleDialog.hasRule = !!(t && t.hasRule)
+      } catch (e) { /* 保持现状 */ }
     },
     async loadWorkspaces() {
       const api = window.electronAPI && window.electronAPI.omnibuddy

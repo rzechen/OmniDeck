@@ -48,11 +48,9 @@
           v-else
           :key="s.dir"
           :skill="s"
-          :cred="credOf(s)"
           :env-keys="envKeysOf(s)"
           @detail="openSkillDetail"
           @export="exportSkill"
-          @cred="openSkillCred"
           @edit="openSkillEdit"
           @remove="removeSkill"
         />
@@ -66,13 +64,21 @@
       @saved="onSkillSaved"
     />
 
-    <!-- 技能详情弹窗（复用市场页共享组件）：描述 / 凭据状态 / 内容预览 -->
+    <!-- 技能详情弹窗（复用市场页共享组件）：描述 / 所需变量 / 内容预览 -->
     <item-detail-dialog :visible.sync="skillDetailVisible" :item="skillDetailItem">
       <template slot="cells" slot-scope="{ item }">
         <div class="ob-detail-cell">
-          <div class="ob-cell-label">凭据</div>
+          <div class="ob-cell-label">所需变量</div>
           <div class="ob-cell-value">
-            {{ item.hasCred ? '已配置' : '未配置' }}
+            <template v-if="item.declaredKeys && item.declaredKeys.length">
+              <span
+                v-for="k in item.declaredKeys"
+                :key="k"
+                class="ob-detail-key"
+                :class="{ miss: !item.providedKeys.includes(k) }"
+              >{{ item.providedKeys.includes(k) ? '✓' : '!' }} {{ k }}</span>
+            </template>
+            <template v-else>（未声明）</template>
           </div>
         </div>
       </template>
@@ -87,11 +93,6 @@
         <el-button
           size="small"
           round
-          @click="openSkillCred(item.raw)"
-        >{{ item.hasCred ? '编辑凭据' : '配置凭据' }}</el-button>
-        <el-button
-          size="small"
-          round
           @click="exportSkill(item.raw)"
         >导出 ZIP</el-button>
         <el-button
@@ -103,31 +104,23 @@
         >删除</el-button>
       </template>
     </item-detail-dialog>
-
-    <!-- 技能凭据弹窗：为单个 Skill 绑定凭据（env 以环境变量方式注入，加密存储） -->
-    <skill-cred-dialog
-      :visible.sync="skillCredModalVisible"
-      :skill="skillCredTarget"
-      :existing="skillCredExisting"
-      @saved="loadSkillCreds"
-    />
   </div>
 </template>
 
 <script>
-// 技能管理独立页：ZIP 导入（上传 → 验证 → 导入 + 随包凭据绑定）+
-// 编辑（SKILL.md 表单）+ 删除 + 技能凭据（加密存储、明文不回显）+ 详情弹窗（复用市场组件）
-// 卡片与弹窗已拆分至 ./components/（SkillCard / SkillImportDialog / SkillCredDialog）
+// 技能管理独立页：ZIP 导入 + 编辑（SKILL.md 表单）+ 删除 + 详情弹窗（复用市场组件）
+// 凭据统一在「我的资料 → 我的凭据」录入（绑定技能注入环境变量）；本页仅展示
+// 技能声明的所需变量名（env-keys frontmatter）与录入状态
+// 卡片与弹窗已拆分至 ./components/（SkillCard / SkillImportDialog）
 import ItemDetailDialog from '@/components/buddy/ItemDetailDialog.vue'
 import SkillCard from './components/SkillCard.vue'
 import SkillImportDialog from './components/SkillImportDialog.vue'
-import SkillCredDialog from './components/SkillCredDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApi } from '@/utils/buddy-api'
 
 export default {
   name: 'OmniBuddySkills',
-  components: { ItemDetailDialog, SkillCard, SkillImportDialog, SkillCredDialog, BuddySkeleton },
+  components: { ItemDetailDialog, SkillCard, SkillImportDialog, BuddySkeleton },
   data() {
     return {
       // ===== 技能管理 =====
@@ -139,12 +132,8 @@ export default {
       // ===== 技能详情弹窗 =====
       skillDetailVisible: false,
       skillDetailItem: null,
-      // ===== 技能凭据（Skills 卡片内配置，type 固定 'skill'） =====
-      skillCredList: [],
-      skillCredModalVisible: false,
-      // 弹窗对应的目标技能与已有凭据（null 表示首次配置）
-      skillCredTarget: null,
-      skillCredExisting: null
+      // ===== 技能凭据（统一在「我的凭据」管理，此处仅读状态用于展示） =====
+      skillCredList: []
     }
   },
   created() {
@@ -186,14 +175,13 @@ export default {
       const content = s.content || ''
       const bodyStart = content.indexOf('---', 3) // 跳过开头 frontmatter
       const details = bodyStart > 0 ? content.slice(bodyStart + 3).trim() : ''
-      const cred = this.credOf(s)
       this.skillDetailItem = {
         name: s.name,
         type: 'skill',
         details: details || s.description || '',
         description: s.description,
-        tags: cred && this.envKeysOf(s).length ? this.envKeysOf(s) : [],
-        hasCred: !!cred,
+        declaredKeys: s.envKeys || [],
+        providedKeys: this.envKeysOf(s),
         raw: s
       }
       this.skillDetailVisible = true
@@ -239,34 +227,31 @@ export default {
         }
       }).catch(() => {})
     },
-    // ===== 技能凭据（长在 Skill 卡片上，加密存储、明文不回显） =====
-    // 加载全部凭证并筛出技能型（type === 'skill'）
+    // ===== 技能凭据（统一在「我的凭据」管理，此处仅读状态） =====
+    // 筛出绑定了技能的凭据（按 skillNames 匹配，兼容 'credential'/'skill' 类型），供卡片/详情展示录入状态
     async loadSkillCreds() {
       const api = buddyApi()
       const cred = api && api.credentials
       try {
         const res = cred ? await cred.list() : []
         const list = Array.isArray(res) ? res : []
-        this.skillCredList = list.filter(c => c.type === 'skill')
+        this.skillCredList = list.filter(c => Array.isArray(c.skillNames) && c.skillNames.length)
       } catch (e) {
         this.skillCredList = []
       }
     },
-    // 技能绑定的已有凭据（按 skillNames 匹配）
-    credOf(skill) {
-      if (!skill) return null
-      return this.skillCredList.find(c => (c.skillNames || []).includes(skill.name)) || null
+    // 绑定该技能的全部凭据（按 skillNames 匹配）
+    credsOf(skill) {
+      if (!skill) return []
+      return this.skillCredList.filter(c => (c.skillNames || []).includes(skill.name))
     },
-    // 该技能凭据的环境变量键名（脱敏视图，仅键名）
+    // 该技能已录入的环境变量键名聚合（脱敏视图，仅键名；多条凭据合并去重）
     envKeysOf(skill) {
-      const c = this.credOf(skill)
-      return (c && c.envKeys) || []
-    },
-    // 打开技能凭据弹窗：传入目标技能与已有凭据，表单初始化由弹窗完成
-    openSkillCred(skill) {
-      this.skillCredTarget = skill
-      this.skillCredExisting = this.credOf(skill)
-      this.skillCredModalVisible = true
+      const keys = []
+      this.credsOf(skill).forEach(c => (c.envKeys || []).forEach(k => {
+        if (!keys.includes(k)) keys.push(k)
+      }))
+      return keys
     }
   }
 }
@@ -283,5 +268,24 @@ export default {
 /* 加载骨架容器内边距 */
 .ob-sk-wrap {
   padding: 18px 4px;
+}
+
+/* 详情弹窗：所需变量标签（✓ 已录入 / ! 缺失）——cells slot 内容带父 scope，需 ::v-deep
+   配色与 SkillCard 的 .ob-card-tag 保持一致 */
+::v-deep .ob-detail-key {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px 6px 2px 0;
+  font-size: 12px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-weight: 500;
+  border-radius: 4px;
+  color: #52C41A;
+  background: rgba(82, 196, 26, 0.08);
+
+  &.miss {
+    color: #F56C6C;
+    background: rgba(245, 108, 108, 0.08);
+  }
 }
 </style>

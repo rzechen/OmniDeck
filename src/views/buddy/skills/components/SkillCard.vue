@@ -12,34 +12,46 @@
       </div>
     </div>
 
-    <!-- 环境变量键名（脱敏，仅键名） -->
-    <div class="ob-card-tags" v-if="cred && envKeys.length">
-      <span v-for="k in envKeys.slice(0, 3)" :key="k" class="ob-card-tag">{{ k }}</span>
-      <span v-if="envKeys.length > 3" class="ob-card-tag more">
-        +{{ envKeys.length - 3 }}
-      </span>
+    <!-- 所需凭据变量：醒目标识（不平铺变量名），点击弹出面板查看清单与录入状态；
+         值统一在「我的资料 → 我的凭据」录入并绑定本技能 -->
+    <div class="ob-card-tags">
+      <el-popover
+        v-if="declaredKeys.length"
+        placement="top"
+        trigger="click"
+        width="250"
+        popper-class="ob-skill-keys-popper"
+      >
+        <!-- 变量清单面板：逐行展示键名 + 录入状态 -->
+        <div class="ob-keys-panel">
+          <div class="ob-keys-head">所需凭据变量（{{ declaredKeys.length }}）</div>
+          <div
+            v-for="k in declaredKeys"
+            :key="k"
+            class="ob-keys-row"
+            :class="{ miss: !providedKeys.includes(k) }"
+          >
+            <span class="ob-keys-state">{{ providedKeys.includes(k) ? '✓' : '!' }}</span>
+            <span class="ob-keys-name">{{ k }}</span>
+            <span class="ob-keys-mark">{{ providedKeys.includes(k) ? '已录入' : '待录入' }}</span>
+          </div>
+          <div class="ob-keys-foot">在「我的资料 → 我的凭据」录入并绑定本技能</div>
+        </div>
+        <span slot="reference" class="ob-card-keybtn" :class="allProvided ? 'ok' : 'miss'" @click.stop>
+          <svg-icon icon-class="key" />
+          需 {{ declaredKeys.length }} 个凭据变量
+          <em v-if="missingCount">{{ missingCount }} 项待录入</em>
+          <em v-else>已录入</em>
+        </span>
+      </el-popover>
+      <span v-else class="ob-card-keybtn none">未声明所需变量</span>
     </div>
-    <p v-else class="ob-card-desc">技能启用时凭据以环境变量方式注入</p>
 
     <div class="ob-card-foot">
-      <div class="ob-foot-info">
-        <!-- 凭据徽标：与操作按钮同行（已配置绿 / 未配置灰） -->
-        <span v-if="cred" class="ob-card-badge ok">
-          <svg-icon icon-class="key" />
-          已配置凭据
-        </span>
-        <span v-else class="ob-card-badge none">未配置凭据</span>
-      </div>
+      <div class="ob-foot-info" />
       <div class="ob-card-actions" @click.stop>
         <span class="ob-item-action" title="导出 ZIP" @click="$emit('export', skill)">
           <svg-icon icon-class="download" />
-        </span>
-        <span
-          class="ob-item-action"
-          :title="cred ? '编辑凭据' : '配置凭据'"
-          @click="$emit('cred', skill)"
-        >
-          <svg-icon icon-class="key" />
         </span>
         <span class="ob-item-action" title="编辑" @click="$emit('edit', skill)">
           <svg-icon icon-class="edit" />
@@ -53,52 +65,36 @@
 </template>
 
 <script>
-// 技能卡片：展示名称/描述 + 凭据状态徽标 + 环境变量键名（脱敏，仅键名）
+// 技能卡片：名称/描述 + 声明的所需环境变量（env-keys，键名级录入状态）
 // 所有操作事件上抛父级，卡片自身不持有业务状态
 export default {
   name: 'SkillCard',
   props: {
     skill: { type: Object, required: true },
-    // 该技能绑定的凭据（null 表示未配置）
-    cred: { type: Object, default: null },
-    // 凭据的环境变量键名列表（脱敏视图）
+    // 已录入的环境变量键名列表（该技能绑定的全部凭据聚合，脱敏视图）
     envKeys: { type: Array, default: () => [] }
+  },
+  computed: {
+    // 技能声明的所需变量名（SKILL.md env-keys）
+    declaredKeys() {
+      return this.skill.envKeys || []
+    },
+    // 已录入的变量名（绑定本技能的凭据 envKeys）
+    providedKeys() {
+      return this.envKeys || []
+    },
+    missingCount() {
+      return this.declaredKeys.filter(k => !this.providedKeys.includes(k)).length
+    },
+    allProvided() {
+      return this.declaredKeys.length > 0 && this.missingCount === 0
+    }
   }
 }
 </script>
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
-
-/* 卡片徽标（凭据状态） */
-.ob-card-badge {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.6;
-  padding: 0 7px;
-  border-radius: 5px;
-
-  .svg-icon {
-    font-size: 11px;
-  }
-
-  &.ok {
-    color: #52C41A;
-    background: rgba(82, 196, 26, 0.1);
-    border: 1px solid rgba(82, 196, 26, 0.3);
-  }
-
-  /* 未配置：中性灰（仅底部状态行使用） */
-  &.none {
-    color: $text-secondary;
-    background: var(--bg-hover, rgba(0, 0, 0, 0.03));
-    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
-  }
-}
 
 /* 名称完整呈现（覆盖共享样式的单行截断，允许换行） */
 .ob-card-name,
@@ -121,25 +117,70 @@ export default {
   min-height: 50px;
 }
 
-/* 环境变量键名标签（市场页 tag 风格） */
+/* 凭据变量标识行：单个醒目按钮（key 图标 + 数量 + 状态），点击弹面板 */
 .ob-card-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 12px;
+  min-height: 24px;
+  align-items: center;
 }
 
-.ob-card-tag {
-  font-size: 10.5px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  color: $text-secondary;
-  background: $search-bg;
+.ob-card-keybtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.7;
+  padding: 0 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
 
-  &.more {
-    color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb), 0.06);
+  .svg-icon {
+    font-size: 12px;
+  }
+
+  /* 后缀状态（N 项待录入 / 已录入） */
+  em {
+    font-style: normal;
+    font-size: 10px;
+    opacity: 0.85;
+    padding-left: 5px;
+    border-left: 1px solid currentColor;
+  }
+
+  /* 缺失：红色醒目（待处理信号最强） */
+  &.miss {
+    color: #F56C6C;
+    background: rgba(245, 108, 108, 0.1);
+    border: 1px solid rgba(245, 108, 108, 0.35);
+
+    &:hover {
+      background: rgba(245, 108, 108, 0.16);
+    }
+  }
+
+  /* 齐备：绿色 */
+  &.ok {
+    color: #52C41A;
+    background: rgba(82, 196, 26, 0.1);
+    border: 1px solid rgba(82, 196, 26, 0.3);
+
+    &:hover {
+      background: rgba(82, 196, 26, 0.16);
+    }
+  }
+
+  /* 未声明：中性虚线弱化 */
+  &.none {
+    color: $text-secondary;
+    background: transparent;
+    border: 1px dashed var(--border-color, rgba(0, 0, 0, 0.15));
+    cursor: default;
   }
 }
 
@@ -153,10 +194,64 @@ export default {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   }
 }
+</style>
 
-/* 无凭据时的占位描述对齐标签区高度 */
-.ob-card-desc {
-  margin-bottom: 12px;
-  min-height: auto;
+<style lang="scss">
+/* 变量清单面板（el-popover 挂 body，需全局样式） */
+.ob-skill-keys-popper {
+  .ob-keys-panel {
+    font-size: 12px;
+  }
+
+  .ob-keys-head {
+    font-weight: 700;
+    padding-bottom: 8px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  }
+
+  .ob-keys-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    color: rgba(0, 0, 0, 0.75);
+
+    /* 缺失行：红色 */
+    &.miss .ob-keys-state,
+    &.miss .ob-keys-mark {
+      color: #F56C6C;
+    }
+  }
+
+  .ob-keys-state {
+    width: 14px;
+    font-weight: 700;
+    color: #52C41A;
+  }
+
+  .ob-keys-name {
+    flex: 1;
+    min-width: 0;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ob-keys-mark {
+    font-size: 10.5px;
+    color: #52C41A;
+    flex-shrink: 0;
+  }
+
+  .ob-keys-foot {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    font-size: 10.5px;
+    color: rgba(0, 0, 0, 0.45);
+  }
 }
 </style>
