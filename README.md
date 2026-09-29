@@ -122,7 +122,7 @@ npm run dev
 npm run build:mac   # macOS DMG
 npm run build:win   # Windows NSIS 安装包（x64）
 
-# ③ 发版（自动合入私有核心仓 ../OmniDeck-core → 打包 → 上传 Release）
+# ③ 发版（自动合入同级核心仓 ../core → 打包 → 上传 Release）
 npm run release -- v0.3.0 mac   # 第二参数为 mac | win | all
 npm run release -- local mac    # 仅本地打包，不上传
 ```
@@ -130,10 +130,10 @@ npm run release -- local mac    # 仅本地打包，不上传
 <details>
 <summary><b>open-core：核心合入机制（维护者参考）</b></summary>
 
-- 闭源核心位于私有仓 `OmniDeck-core`（与本仓库同级，可用 `OMNIDECK_CORE_DIR` 指定），结构与本仓库相对路径一致（`electron/`、`src/config/remote.cjs`）
+- 工作区布局：`OmniDeck/deck`（本公开仓）与 `OmniDeck/core`（核心仓）同级并存，核心仓结构与本仓库相对路径一致（`electron/`、`src/config/remote.cjs`），可用 `OMNIDECK_CORE_DIR` 指定路径
 - `scripts/release-upload.sh` 打包前自动将核心仓文件**逐文件覆盖合入**本工作区；`vite.config.js` 检测到 `electron/main.js` 即自动启用主进程构建，无需改配置
-- 合入文件经 `.git/info/exclude` 本地排除，**请勿提交到本公开仓库**
-- 日常开发：核心代码在私有仓修改后跑一次 `release-upload.sh local`（或手动 `cp` 对应文件），`npm run dev` 即为完整 Electron 开发模式
+- 合入文件已被 `.gitignore` 排除，**不会被提交到本仓库**
+- 日常开发：核心代码改动在 core 仓提交（或在公开工作区直接改后用 core 仓 `sync.sh pull` 收集），`npm run dev` 即为完整 Electron 开发模式
 
 </details>
 

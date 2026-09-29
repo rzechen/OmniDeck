@@ -7,7 +7,7 @@
 #     上传目标缺省 gitcode（现有 feed 链路）；github 发布到 github.com/rzechen/OmniDeck
 #
 # 核心代码合入（build overlay）：
-#   OMNIDECK_CORE_DIR 指向核心代码目录（缺省 ../OmniDeck-core，不存在则跳过），
+#   OMNIDECK_CORE_DIR 指向核心代码目录（缺省 ../core，与本仓同级，不存在则跳过），
 #   构建前将其中的文件（electron/agent 等）按相对路径覆盖到本工作区再打包；
 #   制品上传至 Release 供下载使用。
 #   注意：覆盖进来的文件为未跟踪状态，请勿提交（脚本已自动将相关
@@ -50,8 +50,8 @@ case "$DEST" in
   *) echo "错误: 上传目标须为 gitcode / github / all" >&2; exit 1 ;;
 esac
 
-# 1) 核心代码覆盖合入（overlay：核心目录存在才合入，缺省 ../OmniDeck-core）
-CORE_DIR="${OMNIDECK_CORE_DIR:-$ROOT/../OmniDeck-core}"
+# 1) 核心代码覆盖合入（overlay：核心目录存在才合入，缺省 ../core）
+CORE_DIR="${OMNIDECK_CORE_DIR:-$ROOT/../core}"
 if [ -d "$CORE_DIR" ] && [ -n "$(ls -A "$CORE_DIR" 2>/dev/null)" ]; then
   echo "==> 合入核心代码: $CORE_DIR → $ROOT"
   # 逐文件覆盖（只增改不删，避免误动本仓文件；核心侧删除文件需手动同步）
