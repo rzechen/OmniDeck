@@ -71,7 +71,7 @@ export default {
       this._raf = requestAnimationFrame(step)
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     cancelAnimationFrame(this._raf)
   }
 }

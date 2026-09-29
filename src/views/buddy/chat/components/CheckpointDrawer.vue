@@ -1,11 +1,11 @@
 <template>
   <!-- 检查点抽屉（N4）：写操作前自动快照，时间线倒序 + 一键回滚 -->
   <el-drawer
-    :visible="visible"
+    :model-value="visible"
     title="检查点"
     size="360px"
     append-to-body
-    @update:visible="v => $emit('update:visible', v)"
+    @update:model-value="v => $emit('update:visible', v)"
   >
     <div v-loading="cpLoading" class="ob-cp-list">
       <div v-if="!cpLoading && !checkpoints.length" class="ob-cp-empty">
@@ -25,7 +25,7 @@
               <span v-if="cp.missing" class="ob-cp-missing">快照已丢失</span>
             </div>
             <el-button
-              size="mini"
+              size="small"
               type="text"
               class="ob-cp-rollback"
               :disabled="cp.missing || rollingBack === cp.n"

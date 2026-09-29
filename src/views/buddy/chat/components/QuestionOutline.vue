@@ -153,9 +153,9 @@ export default {
 
   /* 状态配色 */
   &.done { background: #67C23A; }
-  &.stopped { background: #F56C6C; }
+  &.stopped { background: var(--danger-color); }
   &.running {
-    background: #E6A23C;
+    background: var(--warning-color);
     animation: ob-qnav-blink 1.2s ease-in-out infinite;
   }
 
@@ -318,8 +318,8 @@ export default {
   font-size: 10.5px;
 
   .done & { color: #67C23A; }
-  .stopped & { color: #F56C6C; }
-  .running & { color: #E6A23C; }
+  .stopped & { color: var(--danger-color); }
+  .running & { color: var(--warning-color); }
   .pending & { color: var(--text-secondary); }
 }
 

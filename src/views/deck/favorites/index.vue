@@ -30,11 +30,11 @@
         v-model="tabOrder"
         class="fav-tabs"
         animation="150"
+        :item-key="k => k"
         @end="onTabDragEnd"
       >
+        <template #item="{ element: key }">
         <div
-          v-for="key in tabOrder"
-          :key="key"
           class="fav-tab"
           :class="{ active: activeTab === key }"
           @click="activeTab = key"
@@ -43,6 +43,7 @@
           <span>{{ tabMeta[key].label }}</span>
           <span class="tab-count">{{ tabCount(key) }}</span>
         </div>
+        </template>
       </draggable>
       <!-- 网站 Tab 操作：新建分组 + 添加网站 -->
       <div v-if="activeTab === 'site'" class="toolbar-actions">
@@ -66,12 +67,12 @@
         :disabled="!!keyword"
         animation="150"
         ghost-class="fav-ghost"
+        item-key="path"
         @start="onDragStart"
         @end="onDragEnd"
       >
+        <template #item="{ element: item, index: idx }">
         <div
-          v-for="(item, idx) in dragTools"
-          :key="item.path"
           class="fav-card stagger-item"
           :style="{ animationDelay: Math.min(idx, 14) * 35 + 'ms' }"
           :title="item.name"
@@ -94,6 +95,7 @@
             <i class="el-icon-close"></i>
           </span>
         </div>
+        </template>
       </draggable>
       <div v-else-if="keyword" class="section-empty">
         没有与「{{ keyword }}」匹配的工具收藏
@@ -187,12 +189,12 @@
             :disabled="!!keyword"
             animation="150"
             ghost-class="fav-ghost"
+            item-key="url"
             @start="onDragStart"
             @end="onSiteDragEnd"
           >
+            <template #item="{ element: item, index: idx }">
             <div
-              v-for="(item, idx) in g.sites"
-              :key="item.url"
               class="site-chip stagger-item"
               :style="{ animationDelay: Math.min(idx, 11) * 35 + 'ms' }"
               :title="item.name + '\n' + item.url"
@@ -212,6 +214,7 @@
                 <i class="el-icon-close" title="移除" @click.stop="removeSite(item)"></i>
               </span>
             </div>
+            </template>
           </draggable>
           <!-- 空分组投放区 -->
           <div v-else class="group-dropzone">
@@ -240,9 +243,9 @@
     <!-- 添加/编辑网站收藏弹窗：URL 优先，自动获取标题与 favicon -->
     <el-dialog
       :title="editingSite ? '编辑网站收藏' : '添加网站收藏'"
-      :visible.sync="showAddDialog"
+      v-model="showAddDialog"
       width="440px"
-      custom-class="add-site-dialog"
+      class="add-site-dialog"
       append-to-body
       :close-on-click-modal="false"
     >
@@ -252,7 +255,7 @@
         :rules="rules"
         label-width="56px"
         size="small"
-        @submit.native.prevent
+        @submit.prevent
       >
         <el-form-item label="网址" prop="url">
           <el-input
@@ -260,11 +263,12 @@
             placeholder="如：github.com（自动补全 https://）"
             clearable
           >
-            <i
-              v-if="urlChecking"
-              slot="suffix"
-              class="el-icon-loading url-loading"
-            ></i>
+            <template #suffix>
+              <i
+                v-if="urlChecking"
+                class="el-icon-loading url-loading"
+              ></i>
+            </template>
           </el-input>
           <!-- 自动获取状态行：可达性 -->
           <div v-if="urlStatus" class="url-meta" :class="urlStatus.type">
@@ -298,24 +302,26 @@
           </el-select>
         </el-form-item>
       </el-form>
-      <div slot="footer" class="dialog-footer">
-        <el-button size="small" round :disabled="checking" @click="showAddDialog = false">
-          取消
-        </el-button>
-        <el-button size="small" round type="primary" :loading="checking" @click="saveSite">
-          {{ checking ? '检测中…' : '保 存' }}
-        </el-button>
-      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button size="small" round :disabled="checking" @click="showAddDialog = false">
+            取消
+          </el-button>
+          <el-button size="small" round type="primary" :loading="checking" @click="saveSite">
+            {{ checking ? '检测中…' : '保 存' }}
+          </el-button>
+        </div>
+      </template>
     </el-dialog>
 
     <!-- 剪贴板收藏：图片大图预览 -->
     <el-dialog
-      :visible.sync="clipPreviewVisible"
+      v-model="clipPreviewVisible"
       :title="clipPreviewRec ? `图片收藏 · ${clipPreviewRec.width} × ${clipPreviewRec.height}` : '图片收藏'"
       width="65%"
       top="7vh"
       append-to-body
-      custom-class="fav-clip-dialog"
+      class="fav-clip-dialog"
       @closed="clipPreviewData = ''"
     >
       <div class="clip-preview">
@@ -332,12 +338,12 @@
 
     <!-- 剪贴板收藏：文本详情（等宽字体，保留原始换行与缩进） -->
     <el-dialog
-      :visible.sync="clipTextVisible"
+      v-model="clipTextVisible"
       title="文本收藏"
       width="55%"
       top="12vh"
       append-to-body
-      custom-class="fav-clip-dialog is-text"
+      class="fav-clip-dialog is-text"
     >
       <div class="clip-text-preview">
         <pre>{{ clipTextRec ? clipTextRec.text : '' }}</pre>
@@ -539,7 +545,7 @@ export default {
   activated() {
     this.loadFavClips()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearTimeout(this._urlTimer)
     window.removeEventListener('focus', this.onWinFocus)
   },
@@ -1228,8 +1234,8 @@ export default {
     transition: all 0.15s ease;
 
     &:hover {
-      background: rgba(245, 74, 69, 0.12);
-      color: #F54A45;
+      background: rgba(var(--danger-color-rgb),  0.12);
+      color: var(--danger-color);
     }
 
     &:active {
@@ -1346,7 +1352,7 @@ export default {
       }
 
       &.el-icon-delete:hover {
-        color: #F54A45;
+        color: var(--danger-color);
       }
     }
   }
@@ -1452,8 +1458,8 @@ export default {
       }
 
       &.el-icon-close:hover {
-        background: rgba(245, 74, 69, 0.12);
-        color: #F54A45;
+        background: rgba(var(--danger-color-rgb),  0.12);
+        color: var(--danger-color);
       }
     }
   }
@@ -1715,7 +1721,7 @@ export default {
   /* URL 输入框内 loading 后缀 */
   .url-loading {
     line-height: 32px;
-    color: var(--primary-color, #3366FF);
+    color: var(--primary-color);
   }
 
   /* URL 自动获取状态行 */
@@ -1729,11 +1735,11 @@ export default {
     word-break: break-all;
 
     &.ok {
-      color: #52C41A;
+      color: var(--success-color);
     }
 
     &.bad {
-      color: #F54A45;
+      color: var(--danger-color);
     }
 
     i {

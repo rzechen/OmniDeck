@@ -257,7 +257,7 @@ export default {
 }
 
 .item-trunc {
-  color: #E6A23C;
+  color: var(--warning-color);
 }
 
 .item-del {
@@ -274,8 +274,8 @@ export default {
   i { font-size: 11px; }
 
   &:hover {
-    color: #F54A45;
-    background: rgba(245, 74, 69, 0.08);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.08);
   }
 }
 

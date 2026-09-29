@@ -105,7 +105,7 @@ export default {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #E6A23C;
+    background: var(--warning-color);
     border: 2px solid var(--card-bg, #fff);
   }
 }

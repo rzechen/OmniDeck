@@ -238,7 +238,7 @@ export default {
 }
 
 .status-right.is-bad {
-  color: #F54A45;
+  color: var(--danger-color);
 }
 
 .cp-item {
@@ -285,7 +285,7 @@ export default {
   justify-content: center;
   border-radius: 50%;
   font-size: 11px;
-  background: rgba(82, 196, 26, 0.9);
+  background: rgba(var(--success-color-rgb),  0.9);
   color: #fff;
 }
 
@@ -334,7 +334,7 @@ export default {
   transition: opacity 0.15s ease;
 
   &:hover {
-    background: rgba(245, 74, 69, 0.85);
+    background: rgba(var(--danger-color-rgb),  0.85);
   }
 }
 
@@ -391,12 +391,12 @@ export default {
   border-radius: 999px;
   font-size: 10.5px;
   font-weight: 700;
-  background: rgba(245, 74, 69, 0.85);
+  background: rgba(var(--danger-color-rgb),  0.85);
   color: #fff;
   flex-shrink: 0;
 
   &.good {
-    background: rgba(82, 196, 26, 0.9);
+    background: rgba(var(--success-color-rgb),  0.9);
   }
 }
 

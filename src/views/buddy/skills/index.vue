@@ -59,14 +59,14 @@
 
     <!-- 编辑/导入 Skill 弹窗（新建仅 ZIP 导入；编辑为表单） -->
     <skill-import-dialog
-      :visible.sync="skillDialogVisible"
+      v-model:visible="skillDialogVisible"
       :editing="skillEditing"
       @saved="onSkillSaved"
     />
 
     <!-- 技能详情弹窗（复用市场页共享组件）：描述 / 所需变量 / 内容预览 -->
-    <item-detail-dialog :visible.sync="skillDetailVisible" :item="skillDetailItem">
-      <template slot="cells" slot-scope="{ item }">
+    <item-detail-dialog v-model:visible="skillDetailVisible" :item="skillDetailItem">
+      <template #cells="{ item }">
         <div class="ob-detail-cell">
           <div class="ob-cell-label">所需变量</div>
           <div class="ob-cell-value">
@@ -82,7 +82,7 @@
           </div>
         </div>
       </template>
-      <template slot="actions" slot-scope="{ item }">
+      <template #actions="{ item }">
         <el-button
           size="small"
           round
@@ -272,7 +272,7 @@ export default {
 
 /* 详情弹窗：所需变量标签（✓ 已录入 / ! 缺失）——cells slot 内容带父 scope，需 ::v-deep
    配色与 SkillCard 的 .ob-card-tag 保持一致 */
-::v-deep .ob-detail-key {
+:deep(.ob-detail-key){
   display: inline-block;
   padding: 2px 8px;
   margin: 2px 6px 2px 0;
@@ -280,11 +280,11 @@ export default {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-weight: 500;
   border-radius: 4px;
-  color: #52C41A;
-  background: rgba(82, 196, 26, 0.08);
+  color: var(--success-color);
+  background: rgba(var(--success-color-rgb),  0.08);
 
   &.miss {
-    color: #F56C6C;
+    color: var(--danger-color);
     background: rgba(245, 108, 108, 0.08);
   }
 }

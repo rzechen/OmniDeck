@@ -40,7 +40,7 @@
                 <span>每</span>
                 <el-input-number
                   v-model="state[f.key].step"
-                  size="mini"
+                  size="small"
                   :min="1"
                   :max="f.max - f.min + 1"
                   controls-position="right"
@@ -553,7 +553,7 @@ export default {
   word-break: break-all;
 
   &.is-bad {
-    color: #F54A45;
+    color: var(--danger-color);
   }
 }
 
@@ -567,8 +567,8 @@ export default {
 .cron-valid {
   font-size: 11.5px;
 
-  &.ok { color: #52C41A; }
-  &.bad { color: #F54A45; }
+  &.ok { color: var(--success-color); }
+  &.bad { color: var(--danger-color); }
 }
 
 .cron-desc,

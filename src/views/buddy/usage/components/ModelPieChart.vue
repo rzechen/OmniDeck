@@ -33,7 +33,7 @@ export default {
     this.render()
     window.addEventListener('resize', this.resize)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('resize', this.resize)
     if (this._pie) this._pie.dispose()
   },

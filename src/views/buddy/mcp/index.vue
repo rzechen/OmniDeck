@@ -59,10 +59,10 @@
     <!-- 连接器凭证引导弹窗 -->
     <el-dialog
       :title="'连接 ' + (connectDialog.name || '')"
-      :visible.sync="connectDialog.visible"
+      v-model="connectDialog.visible"
       width="480px"
       append-to-body
-      custom-class="ob-el-dialog"
+      class="ob-el-dialog"
       :close-on-click-modal="false"
     >
       <div class="ob-dialog-form">
@@ -80,7 +80,7 @@
           />
         </div>
       </div>
-      <template slot="footer">
+      <template #footer>
         <el-button size="small" round @click="connectDialog.visible = false">取消</el-button>
         <el-button size="small" round type="primary" :loading="connectDialog.busy" @click="confirmConnect">连接并接入</el-button>
       </template>
@@ -88,7 +88,7 @@
 
     <!-- 新增/编辑连接器（MCP Server）弹窗 -->
     <mcp-form-dialog
-      :visible.sync="mcpModalVisible"
+      v-model:visible="mcpModalVisible"
       :editing="mcpEditing"
       :servers="mcpServers"
       @saved="loadMcp"

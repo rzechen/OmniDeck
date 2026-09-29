@@ -230,7 +230,7 @@ export default {
 
 .rel-none {
   font-size: 13px;
-  color: #F54A45;
+  color: var(--danger-color);
 }
 
 .rel-empty {

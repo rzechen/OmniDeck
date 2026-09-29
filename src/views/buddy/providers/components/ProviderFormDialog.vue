@@ -103,8 +103,10 @@
                   <div class="pf-adv-info">
                     <span class="pf-adv-name">
                       模型系列
-                      <el-tooltip placement="top" :open-delay="200">
-                        <div slot="content">针对特定模型系列优化 Prompt 和超参，<br />未选择时使用默认配置</div>
+                      <el-tooltip placement="top" :show-after="200">
+                        <template #content>
+                          <div>针对特定模型系列优化 Prompt 和超参，<br />未选择时使用默认配置</div>
+                        </template>
                         <svg-icon icon-class="warning-outline" class="ob-tier-help" />
                       </el-tooltip>
                     </span>
@@ -178,8 +180,10 @@
                   <div class="pf-adv-info">
                     <span class="pf-adv-name">
                       工具调用轮数
-                      <el-tooltip placement="top" :open-delay="200">
-                        <div slot="content">限制模型连续调用工具的最大轮次，<br />超出后模型须给出最终答复</div>
+                      <el-tooltip placement="top" :show-after="200">
+                        <template #content>
+                          <div>限制模型连续调用工具的最大轮次，<br />超出后模型须给出最终答复</div>
+                        </template>
                         <svg-icon icon-class="warning-outline" class="ob-tier-help" />
                       </el-tooltip>
                     </span>
@@ -192,7 +196,7 @@
                       placeholder="默认 500"
                       class="pf-turns-input"
                     >
-                      <template slot="append">轮</template>
+                      <template #append>轮</template>
                     </el-input>
                   </div>
                 </div>
@@ -231,12 +235,14 @@
                   <div class="pf-adv-info">
                     <span class="pf-adv-name">
                       深度研究档位
-                      <el-tooltip placement="top" :open-delay="200">
-                        <div slot="content">
-                          深度研究是多代理并行编排（资料搜集、交叉验证、报告撰写）。<br />
-                          在此为子代理的三个档位指派模型：轻量跑检索摘要、标准做日常分析、强力做复杂推理。<br />
-                          同一档位全局仅一个模型（选新顶旧）；不指定则该档回落主对话模型。
-                        </div>
+                      <el-tooltip placement="top" :show-after="200">
+                        <template #content>
+                          <div>
+                            深度研究是多代理并行编排（资料搜集、交叉验证、报告撰写）。<br />
+                            在此为子代理的三个档位指派模型：轻量跑检索摘要、标准做日常分析、强力做复杂推理。<br />
+                            同一档位全局仅一个模型（选新顶旧）；不指定则该档回落主对话模型。
+                          </div>
+                        </template>
                         <svg-icon icon-class="warning-outline" class="ob-tier-help" />
                       </el-tooltip>
                     </span>
@@ -816,7 +822,7 @@ export default {
   &.active {
     color: var(--primary-color);
     border-color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 64, 128, 255), 0.08);
+    background: rgba(var(--primary-color-rgb), 0.08);
   }
 }
 

@@ -257,7 +257,7 @@ export default {
       ? window.electronAPI.updater.onDownloadState(st => { this.dlState = { ...st } })
       : null
   },
-  beforeDestroy() {
+  beforeUnmount() {
     if (this.offDownloadState) this.offDownloadState()
   },
   methods: {

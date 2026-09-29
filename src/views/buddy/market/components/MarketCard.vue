@@ -58,7 +58,7 @@
       <div class="ob-foot-action">
         <el-button
           v-if="item.hasUpdate"
-          size="mini"
+          size="small"
           round
           type="warning"
           class="ob-action-btn"
@@ -68,7 +68,7 @@
         >更新</el-button>
         <el-button
           v-else
-          size="mini"
+          size="small"
           round
           :type="item.installed ? 'default' : 'primary'"
           :plain="!item.installed"
@@ -151,7 +151,7 @@ export default {
   cursor: pointer;
 
   &:hover {
-    border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.35);
+    border-color: rgba(var(--primary-color-rgb), 0.35);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
     transform: translateY(-2px);
   }

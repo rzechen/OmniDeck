@@ -176,7 +176,7 @@ export default {
     // 统一 1s tick 驱动倒计时状态机
     this.tickTimer = setInterval(this.onTick, 1000)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearInterval(this.tickTimer)
     Object.values(this.flashTimers || {}).forEach(clearTimeout)
   },
@@ -342,8 +342,8 @@ html.reduce-motion .sk {
   flex-shrink: 0;
   padding: 12px 18px;
   border-radius: 12px;
-  border: 1px solid rgba(250, 173, 20, 0.28);
-  background: linear-gradient(115deg, rgba(250, 173, 20, 0.12) 0%, rgba(250, 173, 20, 0.04) 60%, transparent 100%);
+  border: 1px solid rgba(var(--warning-color-rgb),  0.28);
+  background: linear-gradient(115deg, rgba(var(--warning-color-rgb),  0.12) 0%, rgba(var(--warning-color-rgb),  0.04) 60%, transparent 100%);
 }
 
 .gc-item {
@@ -362,7 +362,7 @@ html.reduce-motion .sk {
 .gc-value {
   font-size: 17px;
   font-weight: 700;
-  color: #FAAD14;
+  color: var(--warning-color);
   font-variant-numeric: tabular-nums;
 
   &.is-plain {
@@ -406,14 +406,14 @@ html.reduce-motion .sk {
 
   // 成功态：绿色反馈
   &.success {
-    border-color: rgba(82, 196, 26, 0.55);
-    color: #52C41A;
+    border-color: rgba(var(--success-color-rgb),  0.55);
+    color: var(--stock-down);
     animation: gold-cd-pop 0.3s ease;
   }
 
   // 失败态：橙色提示
   &.fail {
-    border-color: rgba(250, 140, 22, 0.6);
+    border-color: rgba(var(--warning-color-rgb),  0.6);
     color: #FA8C16;
   }
 }
@@ -485,7 +485,7 @@ html.reduce-motion .is-rotating {
 
   &:hover {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
-    border-color: rgba(250, 173, 20, 0.35);
+    border-color: rgba(var(--warning-color-rgb),  0.35);
   }
 }
 
@@ -542,13 +542,13 @@ html.reduce-motion .is-rotating {
   white-space: nowrap;
 
   &.is-up {
-    color: #F5222D;
+    color: var(--stock-up);
     background: rgba(245, 34, 45, 0.08);
   }
 
   &.is-down {
-    color: #52C41A;
-    background: rgba(82, 196, 26, 0.1);
+    color: var(--stock-down);
+    background: rgba(var(--success-color-rgb),  0.1);
   }
 
   &.is-flat {
@@ -580,7 +580,7 @@ html.reduce-motion .is-rotating {
 }
 
 @keyframes gold-flash-down {
-  0% { background: rgba(82, 196, 26, 0.14); }
+  0% { background: rgba(var(--success-color-rgb),  0.14); }
   100% { background: var(--card-bg); }
 }
 

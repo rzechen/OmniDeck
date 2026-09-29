@@ -190,11 +190,11 @@
   min-width: 0;
 
   &.ok {
-    color: #52C41A;
+    color: var(--success-color);
   }
 
   &.err {
-    color: #F56C6C;
+    color: var(--danger-color);
   }
 }
 

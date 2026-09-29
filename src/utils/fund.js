@@ -282,8 +282,8 @@ export function calcProfit(pos, quote) {
 
 // 涨跌颜色（A股习惯：红涨绿跌），返回 CSS 颜色值
 export function riseColor(val) {
-  if (val > 0) return '#F5222D'
-  if (val < 0) return '#52C41A'
+  if (val > 0) return 'var(--stock-up)'
+  if (val < 0) return 'var(--stock-down)'
   return 'var(--text-secondary)'
 }
 

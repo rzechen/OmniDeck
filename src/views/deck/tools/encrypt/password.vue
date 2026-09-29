@@ -264,18 +264,18 @@ export default {
 .cfg-slider {
   flex: 1;
 
-  ::v-deep .el-slider__runway {
+  :deep(.el-slider__runway){
     margin: 9px 0;
     height: 4px;
     border-radius: 2px;
     background: var(--search-bg);
   }
 
-  ::v-deep .el-slider__bar {
+  :deep(.el-slider__bar){
     background: var(--primary-color);
   }
 
-  ::v-deep .el-slider__button {
+  :deep(.el-slider__button){
     width: 14px;
     height: 14px;
     border: 2px solid var(--primary-color);
@@ -387,15 +387,15 @@ export default {
     transition: all 0.2s ease;
 
     &.weak.on {
-      background: #F54A45;
+      background: var(--danger-color);
     }
 
     &.mid.on {
-      background: #FAAD14;
+      background: var(--warning-color);
     }
 
     &.strong.on {
-      background: #52C41A;
+      background: var(--success-color);
     }
   }
 }

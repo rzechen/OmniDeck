@@ -298,13 +298,13 @@ export default {
   }
 
   &.done {
-    color: #10B981;
-    background: rgba(16, 185, 129, 0.12);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.12);
   }
 
   &.fail {
-    color: #EF4444;
-    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.12);
   }
 
   &.abort {
@@ -341,8 +341,8 @@ export default {
 
   &.run { background: linear-gradient(90deg, #0EA5E9, #0284C7); }
   &.pause { background: #D97706; }
-  &.done { background: #10B981; }
-  &.fail { background: #EF4444; }
+  &.done { background: var(--success-color); }
+  &.fail { background: var(--danger-color); }
   &.abort { background: var(--text-secondary); }
 }
 
@@ -418,7 +418,7 @@ export default {
   color: var(--text-secondary);
 
   .err {
-    color: #EF4444;
+    color: var(--danger-color);
     font-weight: 600;
   }
 }
@@ -433,12 +433,12 @@ export default {
 .ob-wf-hint {
   padding: 5px 10px;
   border-radius: 7px;
-  background: rgba(16, 185, 129, 0.07);
+  background: rgba(var(--success-color-rgb),  0.07);
   font-size: 11.5px;
   color: #047857;
 
   &.err {
-    background: rgba(239, 68, 68, 0.07);
+    background: rgba(var(--danger-color-rgb),  0.07);
     color: #B91C1C;
     word-break: break-all;
   }

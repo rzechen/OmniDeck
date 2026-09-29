@@ -5,10 +5,9 @@
       <svg-icon icon-class="folder" class="sp-crumb-svg" />
       {{ rootName }}
     </span>
-    <template v-for="(c, ci) in crumbs">
-      <svg-icon :key="'i' + ci" icon-class="arrow-right" class="sp-crumb-sep" />
+    <template v-for="(c, ci) in crumbs" :key="ci">
+      <svg-icon icon-class="arrow-right" class="sp-crumb-sep" />
       <span
-        :key="'c' + ci"
         class="sp-crumb"
         :class="{ last: ci === crumbs.length - 1 }"
         @click="$emit('go', ci)"

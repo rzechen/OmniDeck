@@ -8,7 +8,7 @@
     </div>
     <p class="dsp-hint">随时按 {{ shortcutText }} 唤起 · 回车打开选中结果</p>
 
-    <search-palette :visible.sync="showSearch" @select="goTo" />
+    <search-palette v-model:visible="showSearch" @select="goTo" />
   </div>
 </template>
 
@@ -38,15 +38,15 @@ export default {
   mounted() {
     this.openPalette()
     // 已在本页签时再次按快捷键：Layout 广播事件重新唤起面板
-    this.$root.$on('deck:search-open', this.openPalette)
+    this.$bus.on('deck:search-open', this.openPalette)
     this.offShortcutsChanged = onShortcutsChanged(() => { this.shortcutVersion++ })
   },
   // keep-alive：切回页签时自动唤起
   activated() {
     this.openPalette()
   },
-  beforeDestroy() {
-    this.$root.$off('deck:search-open', this.openPalette)
+  beforeUnmount() {
+    this.$bus.off('deck:search-open', this.openPalette)
     if (this.offShortcutsChanged) this.offShortcutsChanged()
   },
   methods: {

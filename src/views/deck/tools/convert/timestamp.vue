@@ -131,7 +131,7 @@ export default {
     this.timeInput = formatDate(new Date())
     this.convertFromTime()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearInterval(this._timer)
   },
   methods: {

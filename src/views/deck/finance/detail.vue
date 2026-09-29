@@ -738,7 +738,7 @@ export default {
   mounted() {
     this._timer = setInterval(() => this.loadQuote(true), isTradingTime() ? 60000 : 300000)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearInterval(this._timer)
   },
   methods: {
@@ -1263,11 +1263,11 @@ export default {
   z-index: 3;
 
   &.up {
-    background: #F5222D;
+    background: var(--stock-up);
   }
 
   &.down {
-    background: #52C41A;
+    background: var(--stock-down);
   }
 }
 
@@ -1515,7 +1515,7 @@ export default {
 .fd-mgr-star {
   font-size: 10.5px;
   font-weight: 600;
-  color: #FAAD14;
+  color: var(--warning-color);
 }
 
 .fd-mgr-meta {

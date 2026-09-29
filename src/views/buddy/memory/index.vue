@@ -23,10 +23,10 @@
             <i class="ob-mem-dot"></i>记忆索引{{ st.collection }}
           </span>
           <span class="ob-mem-actions">
-            <el-button size="mini" round class="ob-mem-op" @click="exportMemory">
+            <el-button size="small" round class="ob-mem-op" @click="exportMemory">
               <svg-icon icon-class="download" /> 导出记忆
             </el-button>
-            <el-button size="mini" round class="ob-mem-op" @click="refresh">
+            <el-button size="small" round class="ob-mem-op" @click="refresh">
               <svg-icon icon-class="refresh-left" /> 刷新
             </el-button>
           </span>
@@ -126,7 +126,7 @@
                   <div v-if="e.ts" class="ob-mem-entry-ts">{{ e.ts }}</div>
                 </div>
                 <el-button
-                  size="mini"
+                  size="small"
                   round
                   class="ob-mem-entry-del"
                   icon="el-icon-delete"
@@ -558,8 +558,8 @@ export default {
 
   &.active {
     color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.09);
-    border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.45);
+    background: rgba(var(--primary-color-rgb), 0.09);
+    border-color: rgba(var(--primary-color-rgb), 0.45);
   }
 }
 
@@ -608,7 +608,7 @@ export default {
 
   &.semantic {
     color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.1);
+    background: rgba(var(--primary-color-rgb), 0.1);
   }
 
   &.episodic {
@@ -742,7 +742,7 @@ export default {
   }
 
   &.active {
-    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.09);
+    background: rgba(var(--primary-color-rgb), 0.09);
   }
 
   &.empty {
@@ -794,7 +794,7 @@ export default {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #faad14;
+  background: var(--warning-color);
 }
 
 /* ---- 右：内容编辑器 ---- */

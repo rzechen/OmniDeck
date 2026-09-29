@@ -63,6 +63,31 @@ function shade(hex, percent) {
   return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`
 }
 
+// 语义状态色基值（与 styles/theme.scss token 保持一致，浅/深两套）
+const SEMANTIC_COLORS = {
+  success: { light: '#52C41A', dark: '#73D13D' },
+  warning: { light: '#FAAD14', dark: '#FFC53D' },
+  danger: { light: '#F54A45', dark: '#FF7875' },
+  // Element Plus 的 error 与 danger 同义（消息/表单校验取 error）
+  error: { light: '#F54A45', dark: '#FF7875' },
+  info: { light: '#909399', dark: '#A6A6AF' }
+}
+
+// 注入 Element Plus 主题变量（组件内部全部经由这些变量取色，覆盖即全局生效）
+// light-3 是 EP 的 hover 色、dark-2 是 active 色，直接对齐业务 hover/active 值；
+// light-5/7/8/9 仅做淡背景（plain 标签/禁用底等），按官方比例与白/黑混合：
+// 浅色向白混、深色向黑混（避免深底下出现刺眼浅色块）
+function setElVars(root, name, base, hover, active, dark) {
+  const mixTo = p => shade(base, dark ? -p : p)
+  root.style.setProperty(`--el-color-${name}`, base)
+  root.style.setProperty(`--el-color-${name}-light-3`, hover || mixTo(30))
+  root.style.setProperty(`--el-color-${name}-light-5`, mixTo(50))
+  root.style.setProperty(`--el-color-${name}-light-7`, mixTo(70))
+  root.style.setProperty(`--el-color-${name}-light-8`, mixTo(80))
+  root.style.setProperty(`--el-color-${name}-light-9`, mixTo(90))
+  root.style.setProperty(`--el-color-${name}-dark-2`, active || shade(base, dark ? 15 : -20))
+}
+
 // 渲染当前主题到全局 CSS 变量
 // 外观与强调色相互独立：任何外观下均可使用任意强调色
 function render() {
@@ -75,10 +100,18 @@ function render() {
   // hover/active 方向也随之反转：深色下 hover 更亮，浅色下 hover 微亮、active 加深
   const base = dark ? shade(currentColor, 20) : currentColor
   const { r, g, b } = hexToRgb(base)
+  const hover = dark ? shade(currentColor, 32) : shade(currentColor, 12)
+  const active = dark ? shade(currentColor, 10) : shade(currentColor, -12)
   root.style.setProperty('--primary-color', base)
   root.style.setProperty('--primary-color-rgb', `${r}, ${g}, ${b}`)
-  root.style.setProperty('--primary-color-hover', dark ? shade(currentColor, 32) : shade(currentColor, 12))
-  root.style.setProperty('--primary-color-active', dark ? shade(currentColor, 10) : shade(currentColor, -12))
+  root.style.setProperty('--primary-color-hover', hover)
+  root.style.setProperty('--primary-color-active', active)
+
+  // Element Plus 主题变量：主色对齐业务 hover/active，语义色按当前外观取基值
+  setElVars(root, 'primary', base, hover, active, dark)
+  for (const [name, pair] of Object.entries(SEMANTIC_COLORS)) {
+    setElVars(root, name, pair[dark ? 'dark' : 'light'], null, null, dark)
+  }
 }
 
 // 应用主题并持久化

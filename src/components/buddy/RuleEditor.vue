@@ -142,7 +142,7 @@ export default {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #FAAD14;
+  background: var(--warning-color);
 }
 
 .ob-editor-split {

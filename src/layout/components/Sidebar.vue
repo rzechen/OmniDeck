@@ -80,9 +80,11 @@
         handle=".nav-group-header"
         animation="200"
         ghost-class="drag-ghost"
+        item-key="key"
         @end="saveGroupOrder"
       >
-        <div v-for="group in groups" :key="group.key" class="nav-group">
+        <template #item="{ element: group }">
+        <div class="nav-group">
           <!-- 组头（拖拽把手 + 展开收起） -->
           <div
             class="nav-group-header"
@@ -108,12 +110,12 @@
             :disabled="collapsed"
             animation="200"
             ghost-class="drag-ghost"
-            @end="saveGroupOrder"
+            item-key="path"
             class="nav-group-children"
+            @end="saveGroupOrder"
           >
+            <template #item="{ element: item }">
             <div
-              v-for="item in group.children"
-              :key="item.path"
               class="nav-item nav-sub-item"
               :class="{ active: isActive(item) }"
               @click="navigate(item)"
@@ -125,8 +127,10 @@
               <!-- 规划中占位模块徽标 -->
               <span v-if="item.todo" class="nav-todo-badge">TODO</span>
             </div>
+            </template>
           </draggable>
         </div>
+        </template>
       </draggable>
     </nav>
 
@@ -247,10 +251,10 @@ export default {
       this.expandedMap = map
     }
     // 设置页「还原排序」动作广播：重建菜单
-    this.$root.$on('menu-order-reset', this.onOrderReset)
+    this.$bus.on('menu-order-reset', this.onOrderReset)
   },
-  beforeDestroy() {
-    this.$root.$off('menu-order-reset', this.onOrderReset)
+  beforeUnmount() {
+    this.$bus.off('menu-order-reset', this.onOrderReset)
     if (this.offShortcutsChanged) this.offShortcutsChanged()
   },
   mounted() {
@@ -711,8 +715,8 @@ export default {
       font-weight: 800;
       letter-spacing: 0.5px;
       color: #D46B08;
-      background: rgba(250, 173, 20, 0.15);
-      border: 1px solid rgba(250, 173, 20, 0.4);
+      background: rgba(var(--warning-color-rgb),  0.15);
+      border: 1px solid rgba(var(--warning-color-rgb),  0.4);
       padding: 1px 6px;
       border-radius: 999px;
       line-height: 1.4;

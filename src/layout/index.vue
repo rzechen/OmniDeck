@@ -64,7 +64,7 @@ export default {
     // Deck 视图全局搜索快捷键：打开「快捷搜索」页签并唤起搜索面板
     document.addEventListener('keydown', this.handleKeydown)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     document.removeEventListener('keydown', this.handleKeydown)
   },
   methods: {
@@ -79,7 +79,7 @@ export default {
         if (this.$route.path !== '/search') {
           this.$router.push('/search').catch(() => {})
         }
-        this.$root.$emit('deck:search-open')
+        this.$bus.emit('deck:search-open')
       }
     }
   }
@@ -189,11 +189,11 @@ export default {
   user-select: none;
 
   // 输入框、代码块保留文本选择（scoped 样式无法穿透子组件，需 ::v-deep）
-  ::v-deep input,
-  ::v-deep textarea,
-  ::v-deep [contenteditable],
-  ::v-deep pre,
-  ::v-deep code {
+  :deep(input),
+  :deep(textarea),
+  :deep([contenteditable]),
+  :deep(pre),
+  :deep(code){
     -webkit-user-select: text;
     user-select: text;
   }

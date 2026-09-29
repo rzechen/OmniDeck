@@ -97,8 +97,8 @@ export default {
 
   &:focus-within {
     background: var(--card-bg, #fff);
-    border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.5);
-    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb, 91, 124, 240), 0.1);
+    border-color: rgba(var(--primary-color-rgb), 0.5);
+    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.1);
 
     .search-icon {
       color: var(--primary-color);

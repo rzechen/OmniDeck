@@ -416,44 +416,44 @@ ${this.renderedHtml}
 }
 
 /* ---- 代码高亮配色（浅色） ---- */
-.md-preview ::v-deep .hljs-keyword,
-.md-preview ::v-deep .hljs-selector-tag,
-.md-preview ::v-deep .hljs-meta-keyword { color: #9B2393; }
-.md-preview ::v-deep .hljs-string,
-.md-preview ::v-deep .hljs-regexp { color: #C41A16; }
-.md-preview ::v-deep .hljs-number,
-.md-preview ::v-deep .hljs-literal { color: #1C00CF; }
-.md-preview ::v-deep .hljs-comment { color: #8A8A93; font-style: italic; }
-.md-preview ::v-deep .hljs-title,
-.md-preview ::v-deep .hljs-title.function_,
-.md-preview ::v-deep .hljs-built_in { color: #326D74; }
-.md-preview ::v-deep .hljs-attr,
-.md-preview ::v-deep .hljs-attribute,
-.md-preview ::v-deep .hljs-variable,
-.md-preview ::v-deep .hljs-template-variable { color: #31595D; }
-.md-preview ::v-deep .hljs-type,
-.md-preview ::v-deep .hljs-class .hljs-title { color: #6F42C1; }
-.md-preview ::v-deep .hljs-tag { color: #2F6F9F; }
-.md-preview ::v-deep .hljs-name { color: #2F6F9F; }
+.md-preview :deep(.hljs-keyword),
+.md-preview :deep(.hljs-selector-tag),
+.md-preview :deep(.hljs-meta-keyword){ color: #9B2393; }
+.md-preview :deep(.hljs-string),
+.md-preview :deep(.hljs-regexp){ color: #C41A16; }
+.md-preview :deep(.hljs-number),
+.md-preview :deep(.hljs-literal){ color: #1C00CF; }
+.md-preview :deep(.hljs-comment){ color: #8A8A93; font-style: italic; }
+.md-preview :deep(.hljs-title),
+.md-preview :deep(.hljs-title.function_),
+.md-preview :deep(.hljs-built_in){ color: #326D74; }
+.md-preview :deep(.hljs-attr),
+.md-preview :deep(.hljs-attribute),
+.md-preview :deep(.hljs-variable),
+.md-preview :deep(.hljs-template-variable){ color: #31595D; }
+.md-preview :deep(.hljs-type),
+.md-preview :deep(.hljs-class .hljs-title){ color: #6F42C1; }
+.md-preview :deep(.hljs-tag){ color: #2F6F9F; }
+.md-preview :deep(.hljs-name){ color: #2F6F9F; }
 
 /* ---- 代码高亮配色（深色：One Dark） ---- */
-html[data-theme='dark'] .md-preview ::v-deep .hljs-keyword,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-selector-tag,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-meta-keyword { color: #C678DD; }
-html[data-theme='dark'] .md-preview ::v-deep .hljs-string,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-regexp { color: #98C379; }
-html[data-theme='dark'] .md-preview ::v-deep .hljs-number,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-literal { color: #D19A66; }
-html[data-theme='dark'] .md-preview ::v-deep .hljs-comment { color: #7F848E; }
-html[data-theme='dark'] .md-preview ::v-deep .hljs-title,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-title.function_,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-built_in { color: #61AFEF; }
-html[data-theme='dark'] .md-preview ::v-deep .hljs-attr,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-attribute,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-variable,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-template-variable { color: #E06C75; }
-html[data-theme='dark'] .md-preview ::v-deep .hljs-type,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-class .hljs-title { color: #E5C07B; }
-html[data-theme='dark'] .md-preview ::v-deep .hljs-tag,
-html[data-theme='dark'] .md-preview ::v-deep .hljs-name { color: #E06C75; }
+html[data-theme='dark'] .md-preview :deep(.hljs-keyword),
+html[data-theme='dark'] .md-preview :deep(.hljs-selector-tag),
+html[data-theme='dark'] .md-preview :deep(.hljs-meta-keyword){ color: #C678DD; }
+html[data-theme='dark'] .md-preview :deep(.hljs-string),
+html[data-theme='dark'] .md-preview :deep(.hljs-regexp){ color: #98C379; }
+html[data-theme='dark'] .md-preview :deep(.hljs-number),
+html[data-theme='dark'] .md-preview :deep(.hljs-literal){ color: #D19A66; }
+html[data-theme='dark'] .md-preview :deep(.hljs-comment){ color: #7F848E; }
+html[data-theme='dark'] .md-preview :deep(.hljs-title),
+html[data-theme='dark'] .md-preview :deep(.hljs-title.function_),
+html[data-theme='dark'] .md-preview :deep(.hljs-built_in){ color: #61AFEF; }
+html[data-theme='dark'] .md-preview :deep(.hljs-attr),
+html[data-theme='dark'] .md-preview :deep(.hljs-attribute),
+html[data-theme='dark'] .md-preview :deep(.hljs-variable),
+html[data-theme='dark'] .md-preview :deep(.hljs-template-variable){ color: #E06C75; }
+html[data-theme='dark'] .md-preview :deep(.hljs-type),
+html[data-theme='dark'] .md-preview :deep(.hljs-class .hljs-title){ color: #E5C07B; }
+html[data-theme='dark'] .md-preview :deep(.hljs-tag),
+html[data-theme='dark'] .md-preview :deep(.hljs-name){ color: #E06C75; }
 </style>

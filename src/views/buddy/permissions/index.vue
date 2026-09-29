@@ -47,7 +47,7 @@
           <div class="ob-rules-head">
             <span>规则明细</span>
             <span class="ob-rules-tip">同一工具多条通配规则按「精确 &gt; 通配」匹配；保存后新对话生效</span>
-            <el-button size="mini" round icon="el-icon-plus" @click="addRow">添加规则</el-button>
+            <el-button size="small" round icon="el-icon-plus" @click="addRow">添加规则</el-button>
           </div>
 
           <div class="ob-rules-table">
@@ -60,7 +60,7 @@
             <div v-for="(r, i) in rows" :key="i" class="ob-rules-row">
               <el-select
                 v-model="r.surface"
-                size="mini"
+                size="small"
                 filterable
                 allow-create
                 default-first-option
@@ -71,13 +71,13 @@
                   <el-option v-for="o in g.items" :key="o.value" :label="o.label" :value="o.value" />
                 </el-option-group>
               </el-select>
-              <el-input v-model.trim="r.pattern" size="mini" placeholder="如 git status / *.env" @input="markDirty" />
-              <el-select v-model="r.action" size="mini" @change="markDirty">
+              <el-input v-model.trim="r.pattern" size="small" placeholder="如 git status / *.env" @input="markDirty" />
+              <el-select v-model="r.action" size="small" @change="markDirty">
                 <el-option label="允许" value="allow" />
                 <el-option label="每次确认" value="ask" />
                 <el-option label="禁用" value="deny" />
               </el-select>
-              <el-button size="mini" type="text" class="ob-row-del" icon="el-icon-delete" @click="removeRow(i)" />
+              <el-button size="small" type="text" class="ob-row-del" icon="el-icon-delete" @click="removeRow(i)" />
             </div>
             <div v-if="!rows.length" class="ob-rules-empty">暂无规则：所有操作均需确认（兜底规则）</div>
           </div>

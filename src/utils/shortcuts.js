@@ -5,7 +5,7 @@
 // - 快捷面板为系统级（主进程 globalShortcut，quick-settings.json，仅支持「修饰键+单键」），不在此管理
 // - 存储：IndexedDB（key: appShortcuts），读取同步（内存缓存），写入异步
 // - 生效方式：设置页改动后 emit('shortcuts:changed')，各监听组件重读配置
-import Vue from 'vue'
+import mitt from 'mitt'
 import { getItem, setItem } from './db'
 
 const STORAGE_KEY = 'appShortcuts'
@@ -21,8 +21,8 @@ export const DEFAULT_SHORTCUTS = {
   buddy: 'CommandOrControl+O+J'
 }
 
-// 事件总线（独立于 $root，避免与业务事件混用）
-const bus = new Vue()
+// 事件总线（独立于 $bus，避免与业务事件混用）
+const bus = mitt()
 
 // 内存缓存（模块级单例，各窗口同源）
 let cache = null
@@ -59,7 +59,7 @@ export async function saveShortcut(id, accelerator) {
   }
   all[id] = accelerator
   await setItem(STORAGE_KEY, all)
-  bus.$emit('shortcuts:changed')
+  bus.emit('shortcuts:changed')
   return { ok: true }
 }
 
@@ -67,7 +67,7 @@ export async function saveShortcut(id, accelerator) {
 export async function resetAllShortcuts() {
   cache = Object.assign({}, DEFAULT_SHORTCUTS)
   await setItem(STORAGE_KEY, cache)
-  bus.$emit('shortcuts:changed')
+  bus.emit('shortcuts:changed')
   return { ok: true }
 }
 
@@ -84,8 +84,8 @@ export function shortcutLabel(id) {
 
 // 订阅快捷键变更（组件 mounted 时调用，返回解绑函数）
 export function onShortcutsChanged(fn) {
-  bus.$on('shortcuts:changed', fn)
-  return () => bus.$off('shortcuts:changed', fn)
+  bus.on('shortcuts:changed', fn)
+  return () => bus.off('shortcuts:changed', fn)
 }
 
 // ---------- 展示格式化 ----------

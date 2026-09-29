@@ -31,14 +31,14 @@
                 <el-input v-model="row.key" size="small" class="ac-row-key" placeholder="键（如 API_TOKEN）" maxlength="50" />
                 <!-- 密码框呈现，点眼睛查看明文；编辑态回显已存值，改动后覆盖 -->
                 <el-input v-model="row.value" size="small" class="ac-row-val" show-password :placeholder="isEdit ? '留空保持原值' : '值'" maxlength="500" />
-                <el-button size="mini" round icon="el-icon-delete" class="ac-row-del" @click="rows.splice(i, 1)" />
+                <el-button size="small" round icon="el-icon-delete" class="ac-row-del" @click="rows.splice(i, 1)" />
               </div>
             </div>
             <!-- addRow() 显式无参调用：原生 @click="addRow" 会把 PointerEvent 当作 presetKey 传入 -->
-            <el-button size="mini" round plain class="ac-add" @click="addRow()"><svg-icon icon-class="plus" /> 添加字段</el-button>
+            <el-button size="small" round plain class="ac-add" @click="addRow()"><svg-icon icon-class="plus" /> 添加字段</el-button>
             <p v-if="suggestedKeys.length" class="ac-tip">
               技能声明需要：{{ suggestedKeys.join('、') }}（点击可快速补齐）
-              <el-button v-for="k in suggestedKeys" :key="k" type="text" size="mini" class="ac-suggest" @click="addRow(k)">{{ k }}</el-button>
+              <el-button v-for="k in suggestedKeys" :key="k" type="text" size="small" class="ac-suggest" @click="addRow(k)">{{ k }}</el-button>
             </p>
           </div>
 
@@ -285,9 +285,9 @@ export default {
   padding: 1px 7px;
   border-radius: 5px;
   line-height: 1.6;
-  color: #52C41A;
-  background: rgba(82, 196, 26, 0.1);
-  border: 1px solid rgba(82, 196, 26, 0.3);
+  color: var(--success-color);
+  background: rgba(var(--success-color-rgb),  0.1);
+  border: 1px solid rgba(var(--success-color-rgb),  0.3);
 }
 
 /* 抽屉 body：滚动与内边距已由 ob-drawer-body 承载，此处仅保留列间距 */
@@ -308,7 +308,7 @@ export default {
 }
 
 .ac-req {
-  color: #F56C6C;
+  color: var(--danger-color);
 }
 
 .ac-tip {

@@ -40,21 +40,24 @@
     <div class="sp-toolbar">
       <el-input
         :value="search"
-        size="mini"
+        size="small"
         class="sp-search"
         placeholder="搜索当前目录"
         @input="$emit('update:search', $event)"
       >
-        <svg-icon slot="prefix" icon-class="search" class="sp-search-prefix" />
-        <svg-icon
-          v-if="search"
-          slot="suffix"
-          icon-class="circle_close"
-          class="sp-search-clear"
-          title="清空搜索"
-          @mousedown.prevent
-          @click="$emit('update:search', '')"
-        />
+        <template #prefix>
+          <svg-icon icon-class="search" class="sp-search-prefix" />
+        </template>
+        <template #suffix>
+          <svg-icon
+            v-if="search"
+            icon-class="circle_close"
+            class="sp-search-clear"
+            title="清空搜索"
+            @mousedown.prevent
+            @click="$emit('update:search', '')"
+          />
+        </template>
       </el-input>
       <div class="sp-seg">
         <button
@@ -148,7 +151,7 @@ export default {
   created() {
     document.addEventListener('mousedown', this.onDocMouseDown)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     document.removeEventListener('mousedown', this.onDocMouseDown)
   },
   methods: {
@@ -177,7 +180,7 @@ export default {
   gap: 16px;
   margin: 12px 20px;
   padding: 14px 20px;
-  background: linear-gradient(135deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
+  background: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
   border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
   border-radius: 12px;
   flex-wrap: wrap;
@@ -291,14 +294,14 @@ export default {
 .sp-search {
   width: 170px;
 
-  ::v-deep .el-input__inner {
+  /* EP 2.x：背景/圆角在 .el-input__wrapper 上 */
+  :deep(.el-input__wrapper) {
     border-radius: 8px;
     background: var(--search-bg);
-    padding-right: 24px;
   }
 
   /* prefix 插槽：svg 搜索图标（替代原 prefix-icon 字体图标） */
-  ::v-deep .el-input__prefix {
+  :deep(.el-input__prefix){
     display: flex;
     align-items: center;
     left: 8px;
@@ -310,7 +313,7 @@ export default {
   }
 
   /* suffix 插槽：svg 清除按钮（替代原 clearable 字体图标） */
-  ::v-deep .el-input__suffix {
+  :deep(.el-input__suffix){
     display: flex;
     align-items: center;
     right: 8px;

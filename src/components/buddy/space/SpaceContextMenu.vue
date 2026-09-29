@@ -108,17 +108,17 @@ html[data-theme='dark'] .sp-menu {
   }
 
   &.danger {
-    color: #F5222D;
+    color: var(--danger-color);
 
     .svg-icon {
-      color: #F5222D;
+      color: var(--danger-color);
     }
 
     &:hover {
       background: rgba(245, 34, 45, 0.08);
 
       .svg-icon {
-        color: #F5222D;
+        color: var(--danger-color);
       }
     }
   }

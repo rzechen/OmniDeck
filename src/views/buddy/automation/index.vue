@@ -62,9 +62,9 @@
                 size="small"
                 @change="v => toggleTask(t, v)"
               />
-              <el-button size="mini" round plain :disabled="t.running" @click="runNow(t)">立即运行</el-button>
-              <el-button size="mini" round plain @click="openEdit(t)">编辑</el-button>
-              <el-button size="mini" round plain type="danger" @click="removeTask(t)">删除</el-button>
+              <el-button size="small" round plain :disabled="t.running" @click="runNow(t)">立即运行</el-button>
+              <el-button size="small" round plain @click="openEdit(t)">编辑</el-button>
+              <el-button size="small" round plain type="danger" @click="removeTask(t)">删除</el-button>
             </div>
           </div>
         </div>
@@ -142,7 +142,7 @@
                 <el-input
                   v-model="wizard.prompt"
                   type="textarea"
-                  :rows="12"
+                  :rows="32"
                   placeholder="描述希望助手自动完成什么，可按场景模板修改"
                   @input="onPromptInput"
                 />
@@ -344,7 +344,7 @@ export default {
       })
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     if (this._unsub) {
       this._unsub()
       this._unsub = null

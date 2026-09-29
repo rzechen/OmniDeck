@@ -426,7 +426,7 @@ export default {
     &.is-fav {
       opacity: 1;
       transform: translateY(-50%) scale(1);
-      color: #FAAD14;
+      color: var(--warning-color);
 
       &:hover {
         color: #EC8C00;

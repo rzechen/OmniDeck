@@ -419,7 +419,7 @@ export default {
     this.loadStorageEstimate()
     this.loadDailyUsage()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     if (this.timer) clearInterval(this.timer)
   },
   methods: {
@@ -692,7 +692,7 @@ export default {
 
     .quick-arrow {
       transform: translateX(2px);
-      color: var(--primary-color, #3366FF);
+      color: var(--primary-color);
       opacity: 1;
     }
   }
@@ -723,7 +723,7 @@ export default {
 }
 
 .qc-fund {
-  background: linear-gradient(135deg, #F5222D, #CF1322);
+  background: linear-gradient(135deg, var(--danger-color), #CF1322);
 }
 
 .qc-fav {
@@ -731,7 +731,7 @@ export default {
 }
 
 .qc-storage {
-  background: linear-gradient(135deg, #10B981, #059669);
+  background: linear-gradient(135deg, var(--success-color), #059669);
 }
 
 // 配额进度条
@@ -746,7 +746,7 @@ export default {
     display: block;
     height: 100%;
     border-radius: 2px;
-    background: linear-gradient(90deg, #10B981, #059669);
+    background: linear-gradient(90deg, var(--success-color), #059669);
     transition: width 0.4s ease;
   }
 }
@@ -799,8 +799,8 @@ export default {
   width: 8px;
   height: 8px;
   border-radius: 3px;
-  background: linear-gradient(135deg, #10B981, #059669);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  background: linear-gradient(135deg, var(--success-color), #059669);
+  box-shadow: 0 0 0 3px rgba(var(--success-color-rgb),  0.15);
 }
 
 .gc-sub {
@@ -882,7 +882,7 @@ export default {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #10B981;
+  background: var(--success-color);
   border: 1.5px solid #fff;
   box-shadow: 0 1px 5px rgba(0, 0, 0, 0.28);
   transform: translate(-50%, -50%);
@@ -1056,7 +1056,7 @@ export default {
     .cat-arrow {
       opacity: 1;
       transform: translateX(2px);
-      color: var(--primary-color, #3366FF);
+      color: var(--primary-color);
     }
   }
 

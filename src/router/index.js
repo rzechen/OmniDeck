@@ -1,11 +1,10 @@
-import Vue from 'vue'
-import VueRouter from 'vue-router'
+import { h } from 'vue'
+import { createRouter, createWebHashHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import Layout from '@/layout/index.vue'
 import BuddyLayout from '@/layout/BuddyLayout.vue'
 import store from '@/store'
 import { getItem } from '@/utils/db'
-
-Vue.use(VueRouter)
 
 const routes = [
   // OmniBuddy 独立视图：侧边栏为「任务列表（按展示名分组）」，主区顶部为多页签（TagsBar）
@@ -746,15 +745,15 @@ const routes = [
   // 兜底路由：任意未匹配的路径（如托盘菜单里手填错的地址）。
   // 组件仅作占位，实际由下方全局守卫回退首页，避免顶层 <router-view> 渲染空白
   {
-    path: '*',
+    path: '/:pathMatch(.*)*',
     name: 'NotFound',
-    component: { render: h => h('div') },
+    component: { render: () => h('div') },
     meta: { title: '页面不存在' }
   }
 ]
 
-const router = new VueRouter({
-  mode: 'hash',
+const router = createRouter({
+  history: createWebHashHistory(),
   routes
 })
 
@@ -765,9 +764,7 @@ router.beforeEach((to, from, next) => {
   if (to.matched.length === 0 || to.name === 'NotFound') {
     const bad = to.fullPath
     next('/home')
-    if (Vue.prototype.$message && Vue.prototype.$message.warning) {
-      Vue.prototype.$message.warning('路由「' + bad + '」不存在，已返回首页')
-    }
+    ElMessage.warning('路由「' + bad + '」不存在，已返回首页')
     return
   }
   next()

@@ -28,6 +28,18 @@ $text-sidebar-active: var(--text-sidebar-active, #1A1A1F);
 // 边框
 $border-color: var(--border-color, #E6E6EB);
 
+// 语义状态色（见 theme.scss；rgb 后缀变量供 rgba(var(--xxx-rgb), a) 组合用）
+$success-color: var(--success-color, #52C41A);
+$success-color-hover: var(--success-color-hover, #73D13D);
+$warning-color: var(--warning-color, #FAAD14);
+$warning-color-hover: var(--warning-color-hover, #FFC53D);
+$danger-color: var(--danger-color, #F54A45);
+$danger-color-hover: var(--danger-color-hover, #FF7875);
+
+// A股涨跌（红涨绿跌，业务语义独立于状态色）
+$stock-up: var(--stock-up, #F5222D);
+$stock-down: var(--stock-down, #52C41A);
+
 // 尺寸（紧凑布局）
 $sidebar-width: 210px;
 $sidebar-collapsed-width: 68px; /* macOS 红绿灯组（8px 边距 + 52px 宽 + 8px 余量）容得下，收起不溢出 */

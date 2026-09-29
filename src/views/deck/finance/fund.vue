@@ -216,10 +216,10 @@
     <!-- 添加 / 编辑弹窗 -->
     <el-dialog
       :title="dialog.code ? '编辑持仓' : '添加持仓'"
-      :visible.sync="dialog.visible"
+      v-model="dialog.visible"
       width="440px"
       append-to-body
-      custom-class="fp-dialog"
+      class="fp-dialog"
       :close-on-click-modal="false"
     >
       <!-- 基金代码：输入满 6 位后自动查询（仅添加时） -->
@@ -269,12 +269,12 @@
           </el-form-item>
           <el-form-item :label="dialog.mode === 'shares' ? '持有份额' : '投入金额'">
             <el-input v-model="dialog.inputVal" class="fp-num-input">
-              <template slot="append">{{ dialog.mode === 'shares' ? '份' : '元' }}</template>
+              <template #append>{{ dialog.mode === 'shares' ? '份' : '元' }}</template>
             </el-input>
           </el-form-item>
           <el-form-item label="成本单价">
             <el-input v-model="dialog.costPrice" class="fp-num-input" @input="onCostInput">
-              <template slot="append">元/份</template>
+              <template #append>元/份</template>
             </el-input>
             <div class="fp-form-hint">
               默认取最新净值{{ dialog.nav ? '（' + dialog.nav.toFixed(4) + '）' : '' }}，可手动修改
@@ -289,10 +289,12 @@
         </el-form>
       </template>
 
-      <div slot="footer" class="dialog-footer">
-        <el-button size="small" round @click="dialog.visible = false">取消</el-button>
-        <el-button size="small" round type="primary" :disabled="!canSubmit" @click="submit">保 存</el-button>
-      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button size="small" round @click="dialog.visible = false">取消</el-button>
+          <el-button size="small" round type="primary" :disabled="!canSubmit" @click="submit">保 存</el-button>
+        </div>
+      </template>
     </el-dialog>
   </tool-shell>
 </template>
@@ -436,7 +438,7 @@ export default {
     // 统一 1s tick 驱动倒计时状态机
     this._tick = setInterval(this.onTick, 1000)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearInterval(this._tick)
     clearTimeout(this._timer)
     clearTimeout(this._successTimer)
@@ -764,7 +766,7 @@ export default {
 
 @keyframes fp-flash-down {
   0% {
-    background: rgba(82, 196, 26, 0.16);
+    background: rgba(var(--success-color-rgb),  0.16);
   }
   100% {
     background: transparent;
@@ -879,7 +881,7 @@ export default {
   // 交易中：绿色 + 呼吸点
   &.open {
     color: #389E0D;
-    background: rgba(82, 196, 26, 0.12);
+    background: rgba(var(--success-color-rgb),  0.12);
 
     .chip-dot {
       animation: fp-chip-blink 1.6s ease infinite;
@@ -889,7 +891,7 @@ export default {
   // 午间休市：橙色
   &.break {
     color: #D46B08;
-    background: rgba(250, 140, 22, 0.12);
+    background: rgba(var(--warning-color-rgb),  0.12);
   }
 
   // 已收盘 / 非交易日 / 未开盘：灰色
@@ -1097,8 +1099,8 @@ export default {
   }
 
   &.is-danger:hover {
-    color: #F54A45;
-    border-color: rgba(245, 74, 69, 0.5);
+    color: var(--danger-color);
+    border-color: rgba(var(--danger-color-rgb),  0.5);
   }
 }
 
@@ -1255,14 +1257,14 @@ export default {
 
   // 成功态：绿色闪烁反馈
   &.success {
-    border-color: rgba(82, 196, 26, 0.55);
-    color: #52C41A;
+    border-color: rgba(var(--success-color-rgb),  0.55);
+    color: var(--stock-down);
     animation: fp-cd-pop 0.3s ease;
   }
 
   // 失败态：橙色提示
   &.fail {
-    border-color: rgba(250, 140, 22, 0.6);
+    border-color: rgba(var(--warning-color-rgb),  0.6);
     color: #FA8C16;
   }
 }

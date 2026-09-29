@@ -116,7 +116,7 @@
             @pick="pickAttachments"
             @import-file="importFile"
           >
-            <template slot="tools">
+            <template #tools>
               <!-- 工作空间（必填，未关联无法发送；会话已绑定空间后锁定不可切换，新对话可选） -->
               <composer-picker
                 picker-key="workspace"
@@ -133,7 +133,7 @@
                 @toggle="toggleSelect('workspace')"
                 @select="onSelectWorkspace"
               >
-                <template slot="footer">
+                <template #footer>
                   <div class="ob-ws-add" @click="linkNewWorkspace">
                     <svg-icon icon-class="folder-add" class="ob-ws-add-ico" />
                     <span>关联新路径</span>
@@ -171,14 +171,16 @@
                 @toggle="toggleSelect('permission')"
                 @select="onSelectPermissionMode"
               >
-                <template slot="footer">
+                <template #footer>
                   <!-- 关系说明收进 hover 提示：默认只占一行 tips 入口，不铺文案 -->
                   <div class="ob-perm-mode-note">
-                    <el-tooltip placement="top" popper-class="ob-perm-mode-tip" :open-delay="150">
-                      <div slot="content">
-                        <p><b>权限策略</b>：决定每个工具 / 路径是「允许 / 需确认 / 拒绝」。允许与拒绝的规则直接执行，不经过权限模式。</p>
-                        <p><b>权限模式（此处）</b>：只裁决「需确认」的操作——每次确认：弹卡询问；自动：直接放行；只读：直接拒绝。</p>
-                      </div>
+                    <el-tooltip placement="top" popper-class="ob-perm-mode-tip" :show-after="150">
+                      <template #content>
+                        <div>
+                          <p><b>权限策略</b>：决定每个工具 / 路径是「允许 / 需确认 / 拒绝」。允许与拒绝的规则直接执行，不经过权限模式。</p>
+                          <p><b>权限模式（此处）</b>：只裁决「需确认」的操作——每次确认：弹卡询问；自动：直接放行；只读：直接拒绝。</p>
+                        </div>
+                      </template>
                       <span class="ob-perm-mode-note-trigger">
                         <svg-icon icon-class="tips" class="ob-perm-mode-note-ico" />
                         <span>模式与策略的关系</span>
@@ -222,7 +224,7 @@
     <!-- 检查点抽屉（N4）：写操作前自动快照，时间线倒序 + 一键回滚（自治组件，内部加载与回滚） -->
     <checkpoint-drawer
       ref="cp"
-      :visible.sync="cpDrawer"
+      v-model:visible="cpDrawer"
       :session-id="sessionId"
       @rolled-back="onCheckpointRolledBack"
     />
@@ -471,10 +473,10 @@ export default {
     this.loadPermissionMode()
     this.loadWebEnabled()
     // 工作空间重命名后同步底部空间名：主进程已级联更新会话快照与登记表
-    this.$root.$on('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
+    this.$bus.on('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
   },
-  beforeDestroy() {
-    this.$root.$off('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
+  beforeUnmount() {
+    this.$bus.off('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
     // 仅移除全局监听；不打断流式 —— 主进程继续执行并落盘，回来自会话池/历史恢复
     window.removeEventListener('keydown', this.onPermKeydown)
     document.removeEventListener('mousedown', this.onDocMouseDown)
@@ -571,9 +573,9 @@ export default {
         const ok = await this.$store.dispatch('buddyChat/claim', n.nid)
         if (!ok) continue
         if (n.kind === 'sessions-changed') {
-          this.$root.$emit('omnibuddy:sessions-changed')
+          this.$bus.emit('omnibuddy:sessions-changed')
         } else if (n.kind === 'rolled_back') {
-          this.$root.$emit('omnibuddy:sessions-changed')
+          this.$bus.emit('omnibuddy:sessions-changed')
           this.$message.success('已回滚到检查点')
           if (this.cpDrawer && this.$refs.cp) this.$refs.cp.loadCheckpoints()
         } else if (n.kind === 'success') {
@@ -725,7 +727,7 @@ export default {
           to: '/omnibuddy?s=' + sid
         })
         this.$router.replace({ query: { s: sid } })
-        this.$root.$emit('omnibuddy:sessions-changed')
+        this.$bus.emit('omnibuddy:sessions-changed')
       }
 
       this.$store.commit('buddyChat/PUSH_MSG', {
@@ -930,7 +932,7 @@ export default {
         await this.loadWorkspaces()
         this.commitPatch({ workspaceLink: { dir: ws.path, name: ws.name || '', workspaceId: ws.id } })
         setItem('omnibuddy:workspace-link', this.workspaceLink)
-        this.$root.$emit('omnibuddy:workspaces-changed')
+        this.$bus.emit('omnibuddy:workspaces-changed')
         this.$message.success('已关联：' + ws.path)
       } else if (res && !res.canceled && res.error) {
         this.$message.error(res.error)
@@ -956,7 +958,7 @@ export default {
         const res = await this.api().branchSession({ id: this.sid, messageId: m.id })
         if (res && res.ok && res.session) {
           this.$message.success('分叉已创建，请在左侧列表打开')
-          this.$root.$emit('omnibuddy:sessions-changed')
+          this.$bus.emit('omnibuddy:sessions-changed')
         } else {
           this.$message.error((res && res.error) || '创建失败')
         }
@@ -1055,7 +1057,7 @@ export default {
     // 抽屉内回滚成功：兜底刷新消息（主进程亦会广播 rolled_back 统一处理）
     onCheckpointRolledBack() {
       this.$store.dispatch('buddyChat/loadHistory', { id: this.sid, force: true })
-      this.$root.$emit('omnibuddy:sessions-changed')
+      this.$bus.emit('omnibuddy:sessions-changed')
     },
     scrollToBottom() {
       this.$nextTick(() => {
@@ -1239,7 +1241,7 @@ export default {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #e6a23c;
+  color: var(--warning-color);
   background: rgba(230, 162, 60, 0.12);
   border: 1px solid rgba(230, 162, 60, 0.25);
 
@@ -1274,7 +1276,7 @@ export default {
   flex-shrink: 0;
   font-size: 10.5px;
   font-weight: 600;
-  color: #e6a23c;
+  color: var(--warning-color);
   background: rgba(230, 162, 60, 0.12);
   border: 1px solid rgba(230, 162, 60, 0.28);
   padding: 0 7px;
@@ -1377,8 +1379,8 @@ export default {
 
   &.once:hover,
   &.session:hover {
-    border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.5);
-    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.07);
+    border-color: rgba(var(--primary-color-rgb), 0.5);
+    background: rgba(var(--primary-color-rgb), 0.07);
 
     .ob-perm-btn-no {
       color: #fff;
@@ -1389,12 +1391,12 @@ export default {
   }
 
   &.always:hover {
-    border-color: rgba(82, 196, 26, 0.5);
-    background: rgba(82, 196, 26, 0.08);
+    border-color: rgba(var(--success-color-rgb),  0.5);
+    background: rgba(var(--success-color-rgb),  0.08);
 
     .ob-perm-btn-no {
       color: #fff;
-      background: #52C41A;
+      background: var(--success-color);
     }
 
     .ob-perm-btn-label { color: #38A10C; }
@@ -1406,10 +1408,10 @@ export default {
 
     .ob-perm-btn-no {
       color: #fff;
-      background: #F5222D;
+      background: var(--danger-color);
     }
 
-    .ob-perm-btn-label { color: #F5222D; }
+    .ob-perm-btn-label { color: var(--danger-color); }
   }
 }
 

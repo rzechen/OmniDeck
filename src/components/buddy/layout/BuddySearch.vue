@@ -70,7 +70,7 @@ export default {
       this.runSearch(q)
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearTimeout(this.timer)
   },
   methods: {

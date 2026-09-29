@@ -10,10 +10,10 @@
             <span class="sp-dialog-meta">{{ formatSize(file.size) }} · {{ formatTime(file.mtime) }}</span>
           </div>
           <div class="sp-dialog-acts">
-            <el-button size="mini" round @click="$emit('reveal')">
+            <el-button size="small" round @click="$emit('reveal')">
               <svg-icon icon-class="monitor" class="sp-btn-svg" />访达
             </el-button>
-            <el-button size="mini" round type="primary" :disabled="file.saving" @click="$emit('save')">
+            <el-button size="small" round type="primary" :disabled="file.saving" @click="$emit('save')">
               <svg-icon v-if="file.saving" icon-class="loading" class="sp-btn-svg sp-btn-saving" />
               <svg-icon v-else icon-class="check" class="sp-btn-svg" />保存
             </el-button>
@@ -171,7 +171,7 @@ export default {
   overflow: hidden;
   display: flex;
 
-  ::v-deep .code-editor {
+  :deep(.code-editor){
     flex: 1;
     min-width: 0;
 

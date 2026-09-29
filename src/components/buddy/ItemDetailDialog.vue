@@ -297,7 +297,7 @@ export default {
   border-radius: 4px;
   font-weight: 600;
   color: var(--primary-color);
-  background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.1);
+  background: rgba(var(--primary-color-rgb), 0.1);
 
   &.cat {
     color: #2E8B63;
@@ -346,7 +346,7 @@ export default {
   .ob-ai-dim-fill {
     height: 100%;
     border-radius: 3px;
-    background: linear-gradient(90deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.55), var(--primary-color));
+    background: linear-gradient(90deg, rgba(var(--primary-color-rgb), 0.55), var(--primary-color));
   }
 
   .ob-ai-dim-value {
@@ -375,7 +375,7 @@ export default {
 
 /* 信息格：加 ::v-deep 使 cells slot 传入的页面侧格子（如安装状态）同样命中
    —— slot 内容只带父组件 scope 属性，普通 scoped 选择器匹配不到 */
-::v-deep .ob-detail-cell {
+:deep(.ob-detail-cell){
   padding: 10px 12px;
   background: var(--bg-hover, rgba(0, 0, 0, 0.03));
   border-radius: 8px;

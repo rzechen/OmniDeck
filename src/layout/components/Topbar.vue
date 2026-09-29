@@ -34,11 +34,11 @@
 
     <!-- 搜索弹窗（Spotlight 风格命令面板） -->
     <el-dialog
-      :visible.sync="showSearch"
+      v-model="showSearch"
       :show-close="false"
       :modal="true"
       append-to-body
-      custom-class="search-dialog"
+      class="search-dialog"
       width="680px"
       top="12vh"
     >
@@ -169,7 +169,7 @@ export default {
       })
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     document.removeEventListener('keydown', this.handleKeydown)
     if (this.offMaximized) this.offMaximized()
     if (this.offShortcutsChanged) this.offShortcutsChanged()

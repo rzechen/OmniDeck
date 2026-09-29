@@ -20,9 +20,9 @@
       <space-toolbar
         :space="activeSpace"
         :count="visibleEntries.length"
-        :view.sync="view"
-        :show-hidden.sync="showHidden"
-        :search.sync="search"
+        v-model:view="view"
+        v-model:show-hidden="showHidden"
+        v-model:search="search"
         :loading="loading"
         :workspaces="workspaceItems"
         :active-id="activeId"
@@ -222,13 +222,13 @@ export default {
   created() {
     this.loadWorkspaces()
     // 对话关联/展示名更新后同步
-    this.$root.$on('omnibuddy:workspaces-changed', this.loadWorkspaces)
+    this.$bus.on('omnibuddy:workspaces-changed', this.loadWorkspaces)
     // 全局点击 / Esc 关闭右键菜单
     document.addEventListener('mousedown', this.onDocMouseDown)
     document.addEventListener('keydown', this.onKeydown)
   },
-  beforeDestroy() {
-    this.$root.$off('omnibuddy:workspaces-changed', this.loadWorkspaces)
+  beforeUnmount() {
+    this.$bus.off('omnibuddy:workspaces-changed', this.loadWorkspaces)
     document.removeEventListener('mousedown', this.onDocMouseDown)
     document.removeEventListener('keydown', this.onKeydown)
   },
@@ -307,7 +307,7 @@ export default {
       const res = await api.renameWorkspace({ id: ws.id, name })
       if (res && res.ok) {
         ws.name = name
-        this.$root.$emit('omnibuddy:workspaces-changed')
+        this.$bus.emit('omnibuddy:workspaces-changed')
         this.$message.success('已重命名')
       } else {
         this.$message.error((res && res.error) || '重命名失败')
@@ -341,8 +341,8 @@ export default {
           this.$router.push('/omnibuddy').catch(() => {})
         }
         await this.loadWorkspaces()
-        this.$root.$emit('omnibuddy:sessions-changed')
-        this.$root.$emit('omnibuddy:workspaces-changed')
+        this.$bus.emit('omnibuddy:sessions-changed')
+        this.$bus.emit('omnibuddy:workspaces-changed')
         this.$message.success(removed.length ? '已解绑，删除任务记录 ' + removed.length + ' 条' : '已解绑')
       }).catch(() => {})
     },

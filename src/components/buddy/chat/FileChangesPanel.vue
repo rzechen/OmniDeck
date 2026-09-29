@@ -42,8 +42,8 @@
          脱离消息滚动区的 mask 层叠上下文（否则 fixed 被裁剪且无法置顶） -->
     <el-dialog
       v-if="groupIndex !== null"
-      :visible.sync="dialogVisible"
-      custom-class="ob-fcd-dialog"
+      v-model="dialogVisible"
+      class="ob-fcd-dialog"
       width="min(1180px, 92vw)"
       append-to-body
       @closed="groupIndex = null; changeIndex = -1"
@@ -207,9 +207,9 @@ export default {
   gap: 6px;
   width: 100%;
   padding: 5px 12px 5px 15px;
-  border: 1px dashed rgba(16, 185, 129, 0.5);
+  border: 1px dashed rgba(var(--success-color-rgb),  0.5);
   border-radius: 7px;
-  background: rgba(16, 185, 129, 0.05);
+  background: rgba(var(--success-color-rgb),  0.05);
   font-size: 12.5px;
   font-weight: 500;
   color: var(--text-secondary);
@@ -217,14 +217,14 @@ export default {
   transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: rgba(16, 185, 129, 0.1);
-    border-color: rgba(16, 185, 129, 0.8);
+    background: rgba(var(--success-color-rgb),  0.1);
+    border-color: rgba(var(--success-color-rgb),  0.8);
     color: var(--text-primary);
   }
 
   .ob-fcp-trigger-ico {
     font-size: 12px;
-    color: #10B981;
+    color: var(--success-color);
   }
 
   .ob-fcp-trigger-text {
@@ -251,8 +251,8 @@ export default {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
-.ob-fcp-add { color: #10B981; }
-.ob-fcp-del { color: #EF4444; }
+.ob-fcp-add { color: var(--success-color); }
+.ob-fcp-del { color: var(--danger-color); }
 
 /* ===== 文件列表（向上展开，同文件仅显示最新一次变更） ===== */
 .ob-fcp-list {
@@ -306,10 +306,10 @@ export default {
     font-size: 13px;
     color: var(--text-secondary);
 
-    &.created { color: #10B981; }
+    &.created { color: var(--success-color); }
     &.modified { color: #0284C7; }
-    &.deleted { color: #EF4444; }
-    &.mkdir { color: #10B981; }
+    &.deleted { color: var(--danger-color); }
+    &.mkdir { color: var(--success-color); }
   }
 
   .ob-fcp-item-file {
@@ -353,8 +353,8 @@ export default {
 
   &.created,
   &.mkdir {
-    color: #10B981;
-    background: rgba(16, 185, 129, 0.12);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.12);
   }
 
   &.modified {
@@ -363,8 +363,8 @@ export default {
   }
 
   &.deleted {
-    color: #EF4444;
-    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.12);
   }
 }
 
@@ -381,7 +381,7 @@ export default {
 }
 
 /* ===== 详情弹窗（el-dialog append-to-body，custom-class 定制样式需非 scoped 生效） ===== */
-::v-deep .ob-fcd-dialog {
+:deep(.ob-fcd-dialog){
   border-radius: 14px;
   overflow: hidden;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
@@ -428,8 +428,8 @@ export default {
 
   &.created,
   &.mkdir {
-    color: #10B981;
-    background: rgba(16, 185, 129, 0.12);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.12);
   }
 
   &.modified {
@@ -438,8 +438,8 @@ export default {
   }
 
   &.deleted {
-    color: #EF4444;
-    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.12);
   }
 }
 
@@ -577,8 +577,8 @@ export default {
 
   &.created,
   &.mkdir {
-    color: #10B981;
-    background: rgba(16, 185, 129, 0.12);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.12);
   }
 
   &.modified {
@@ -587,8 +587,8 @@ export default {
   }
 
   &.deleted {
-    color: #EF4444;
-    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.12);
   }
 }
 
@@ -625,12 +625,12 @@ export default {
 
   /* 删除行：左半红调；新增行：右半绿调；上下文行无底色 */
   &.del .ob-fcd-cell.old {
-    background: rgba(239, 68, 68, 0.1);
+    background: rgba(var(--danger-color-rgb),  0.1);
     color: #B91C1C;
   }
 
   &.add .ob-fcd-cell.new {
-    background: rgba(16, 185, 129, 0.1);
+    background: rgba(var(--success-color-rgb),  0.1);
     color: #047857;
   }
 
