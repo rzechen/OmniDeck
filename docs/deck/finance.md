@@ -2,8 +2,8 @@
 
 > [← Deck 文档](README.md)
 
-![基金自选](../img/fund.png)
-![基金行情明细](../img/fund-detail.png)
+![基金自选](../img/deck/fund.png)
+![基金行情明细](../img/deck/fund-detail.png)
 
 - **入口路由**：`/finance/fund`（基金自选）、`/finance/fund/:code`（详情）、`/finance/gold`（黄金）
 - **源码位置**：[src/views/deck/finance/](../../src/views/deck/finance/)（fund.vue / detail.vue / gold.vue）

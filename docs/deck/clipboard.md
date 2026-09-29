@@ -2,7 +2,7 @@
 
 > [← Deck 文档](README.md)
 
-![剪贴板管理](../img/deck-clipboard.png)
+![剪贴板管理](../img/deck/clipboard.png)
 ![截图与贴图快面板](../img/global-capture.png)
 
 - **入口路由**：`/clipboard`（后台常驻能力的管理页，与工具集"打开即用"定位不同，作为一级入口）

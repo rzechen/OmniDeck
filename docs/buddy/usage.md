@@ -2,7 +2,7 @@
 
 > [← Buddy 文档](README.md)
 
-![用量统计](../img/buddy-usage.png)
+![用量统计](../img/buddy/usage.png)
 
 - **入口路由**：`/omnibuddy/usage`
 - **源码位置**：[src/views/buddy/usage/index.vue](../../src/views/buddy/usage/index.vue)

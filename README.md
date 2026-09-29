@@ -14,7 +14,7 @@
 
 | **OmniBuddy · AI 编程助手** | **OmniDeck · 开发者工具箱** |
 | :---: | :---: |
-| ![OmniBuddy](docs/img/banner-buddy.png) | ![OmniDeck](docs/img/banner-deck.png) |
+| ![OmniBuddy](docs/img/buddy/banner.png) | ![OmniDeck](docs/img/deck/banner.png) |
 
 </div>
 
@@ -32,7 +32,7 @@
 
 与 Agent 对话即可执行任务、读写工作空间、调用工具。
 
-![OmniBuddy 对话](docs/img/buddy-chat.png)
+![OmniBuddy 对话](docs/img/buddy/chat.png)
 
 - **对话**：基于 pi Coding Agent 的多会话对话，支持流式输出、思考过程、任务卡片、问题导航、检查点回滚与消息级用量统计
 - **工作空间**：本地目录作为 Agent 工作区，文件浏览 / 预览 / 上传下载
@@ -47,7 +47,7 @@
 
 8 大分类 70+ 工具，全部离线可用，分类页由工厂统一生成，新增工具即插即用。
 
-![OmniDeck 工具中心](docs/img/deck-tools.png)
+![OmniDeck 工具中心](docs/img/deck/tools.png)
 
 | 分类 | 亮点工具 |
 | --- | --- |
@@ -81,11 +81,11 @@
 
 | OmniBuddy 工作空间 | 用量统计 |
 | :---: | :---: |
-| ![工作空间](docs/img/buddy-workspace.png) | ![用量统计](docs/img/buddy-usage.png) |
+| ![工作空间](docs/img/buddy/workspace.png) | ![用量统计](docs/img/buddy/usage.png) |
 | **基金自选** | **基金行情明细** |
-| ![基金自选](docs/img/fund.png) | ![行情明细](docs/img/fund-detail.png) |
+| ![基金自选](docs/img/deck/fund.png) | ![行情明细](docs/img/deck/fund-detail.png) |
 | **剪贴板管理** |  |
-| ![剪贴板](docs/img/deck-clipboard.png) |  |
+| ![剪贴板](docs/img/deck/clipboard.png) |  |
 
 ## Stargazers over time
 

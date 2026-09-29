@@ -2,7 +2,7 @@
 
 > [← Buddy 文档](README.md)
 
-![工作空间](../img/buddy-workspace.png)
+![工作空间](../img/buddy/workspace.png)
 
 - **入口路由**：`/omnibuddy/workspace`
 - **源码位置**：[src/views/buddy/workspace/index.vue](../../src/views/buddy/workspace/index.vue)

@@ -2,7 +2,7 @@
 
 > [← Buddy 文档](README.md)
 
-![OmniBuddy 对话](../img/buddy-chat.png)
+![OmniBuddy 对话](../img/buddy/chat.png)
 
 - **入口路由**：`/omnibuddy`（空白新对话 ?s= 绑定会话 id）
 - **源码位置**：[src/views/buddy/chat/index.vue](../../src/views/buddy/chat/index.vue)（含 `components/ChatMessageList.vue`、`components/QuestionOutline.vue`、`CheckpointDrawer.vue`）
