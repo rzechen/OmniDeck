@@ -76,13 +76,13 @@ fi
 
 DIR="$ROOT/release"
 
-# 收集产物（两个目标共用）
+# 收集产物（两个目标共用；只挂安装包 dmg/exe，更新文件 blockmap/latest*.yml 不上传）
 fail=0
 shopt -s nullglob
-files=("$DIR"/OmniDeck-*.dmg "$DIR"/OmniDeck-*.zip "$DIR"/OmniDeck-*.exe "$DIR"/OmniDeck-*.blockmap "$DIR"/latest*.yml)
+files=("$DIR"/OmniDeck-*.dmg "$DIR"/OmniDeck-*.exe)
 shopt -u nullglob
 
-[ ${#files[@]} -gt 0 ] || { echo "release/ 下没有可上传的产物（OmniDeck-*.dmg/zip/exe/blockmap、latest*.yml）"; exit 1; }
+[ ${#files[@]} -gt 0 ] || { echo "release/ 下没有可上传的产物（OmniDeck-*.dmg / OmniDeck-*.exe）"; exit 1; }
 
 # ===== GitCode =====
 upload_gitcode() {

@@ -22,7 +22,12 @@ function runtimePlat(platform) {
 }
 
 // 内置运行时拷入（存在才拷；node fs.cpSync 保留符号链接——python 的 bin 别名树）
+// OMNIDECK_SKIP_RUNTIME=1 时跳过拷入：本地快速验证包体积/功能用（运行时相关功能不可用）
 function copyRuntime(context) {
+  if (process.env.OMNIDECK_SKIP_RUNTIME === '1') {
+    console.log('[afterPack] OMNIDECK_SKIP_RUNTIME=1，跳过内置运行时拷入（slim 包）')
+    return
+  }
   const plat = runtimePlat(context.electronPlatformName)
   if (!plat) return
   const src = path.join(__dirname, '..', 'runtime', plat)
