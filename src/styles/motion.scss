@@ -1,31 +1,14 @@
 /* ============================================================
    全局动效系统（「去死板」动态化方案）
-   - 路由页面过渡：淡入 + 上浮
    - 卡片入场编排 stagger：.stagger-item + inline animation-delay
    - 按钮/分段控件按压态
    - 复制图标变形反馈：i.is-copied（由 main.js 点击委托驱动）
    - 卡片 hover 图标微动
    - 时钟秒跳变：.tick-*
    - 「减弱动态效果」总开关：html.reduce-motion 下关闭装饰性动效
+   （路由页面过渡已移除：out-in + keep-alive 快速切页签时序竞态会崩溃，
+    且原 page 过渡类名是 Vue2 写法、入场动画本就未生效）
    ============================================================ */
-
-/* ============ 路由页面过渡（淡入 + 上浮） ============ */
-.page-enter-active {
-  transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.25, 0.8, 0.3, 1);
-}
-
-.page-leave-active {
-  transition: opacity 0.14s ease;
-}
-
-.page-enter {
-  opacity: 0;
-  transform: translateY(10px);
-}
-
-.page-leave-to {
-  opacity: 0;
-}
 
 /* ============ 卡片入场编排（stagger） ============ */
 @keyframes motion-card-in {
@@ -107,11 +90,6 @@ html.reduce-motion {
   /* 关闭入场编排 */
   .stagger-item {
     animation: none;
-  }
-
-  /* 路由过渡改为纯淡入（无位移） */
-  .page-enter {
-    transform: none;
   }
 
   /* 指示器不做滑动动画，直接就位 */

@@ -14,7 +14,14 @@ export default {
     keyOf: state => (side, fullPath) => {
       const tabs = state[side] || []
       const tab = tabs.find(t => t.fullPath === fullPath)
-      return tab ? tab.uid : fullPath
+      if (tab) return tab.uid
+      // REBIND_TAB 中间态兜底：页签 fullPath 已换成新值、路由 replace 尚未完成
+      // （或相反）时按 path（去 query）匹配同路径页签，避免 :key 在 uid 与
+      // fullPath 之间抖动 —— 抖动会让 keep-alive 瞬态卸载/重挂组件实例
+      const path = fullPath.split('?')[0]
+      const byPath = tabs.find(t => (t.path || t.fullPath.split('?')[0]) === path)
+      if (byPath) return byPath.uid
+      return fullPath
     }
   },
   mutations: {

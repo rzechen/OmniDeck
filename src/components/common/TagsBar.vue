@@ -201,29 +201,40 @@ export default {
         const keep = this.tabs
           .filter((t, j) => (action === 'others' ? j === i : action === 'left' ? j >= i : j <= i))
           .map(t => t.fullPath)
-        // 当前路由不在保留集内：先跳到目标页签再关，避免路由悬空
-        if (!keep.includes(this.$route.fullPath)) {
-          this.$router.push(tab.fullPath).catch(() => {})
+        const doClose = () => {
+          if (action === 'others') {
+            this.$store.commit('tagsView/CLOSE_OTHERS', { side: this.side, keepFullPath: tab.fullPath })
+          } else {
+            this.$store.commit('tagsView/CLOSE_SIDE', { side: this.side, fullPath: tab.fullPath, dir: action })
+          }
         }
-        if (action === 'others') {
-          this.$store.commit('tagsView/CLOSE_OTHERS', { side: this.side, keepFullPath: tab.fullPath })
+        // 当前路由不在保留集内：先导航到目标页签，完成后再批量关（与 close 同理，
+        // 避免「已删但路由未变」的 keyOf 退化抖动）
+        if (!keep.includes(this.$route.fullPath)) {
+          this.$router.push(tab.fullPath).then(doClose).catch(doClose)
         } else {
-          this.$store.commit('tagsView/CLOSE_SIDE', { side: this.side, fullPath: tab.fullPath, dir: action })
+          doClose()
         }
         return
       }
       if (action === 'all') {
-        this.$store.commit('tagsView/CLOSE_ALL', { side: this.side })
+        const doCloseAll = () => {
+          this.$store.commit('tagsView/CLOSE_ALL', { side: this.side })
+          // 导航去重（已在首页）时 afterEach 不触发，手动补登记
+          if (this.$route.fullPath === home) {
+            this.$store.commit('tagsView/ADD_TAB', {
+              side: this.side,
+              path: home,
+              fullPath: home,
+              title: this.side === 'buddy' ? '新任务' : '首页'
+            })
+          }
+        }
+        // 先回首页再清空，避免清空后当前路由无页签的 keyOf 退化抖动
         if (this.$route.fullPath !== home) {
-          this.$router.push(home).catch(() => {})
+          this.$router.push(home).then(doCloseAll).catch(doCloseAll)
         } else {
-          // 已在首页：导航去重不会触发 afterEach，手动补登记
-          this.$store.commit('tagsView/ADD_TAB', {
-            side: this.side,
-            path: home,
-            fullPath: home,
-            title: this.side === 'buddy' ? '新任务' : '首页'
-          })
+          doCloseAll()
         }
       }
     },
@@ -233,13 +244,20 @@ export default {
     close(tab) {
       const tabs = this.tabs
       const idx = tabs.findIndex(t => t.fullPath === tab.fullPath)
-      this.$store.commit('tagsView/DEL_TAB', { side: this.side, fullPath: tab.fullPath })
-      // 关闭的是当前页签：跳相邻（优先右侧，其次左侧）；无剩余则回本侧首页
-      if (this.$route.fullPath === tab.fullPath) {
-        const next = tabs[idx + 1] || tabs[idx - 1]
-        const home = this.side === 'buddy' ? '/omnibuddy' : '/home'
-        this.$router.push(next ? next.fullPath : home).catch(() => {})
+      // 关闭非当前页签：无路由变化，直接删
+      if (this.$route.fullPath !== tab.fullPath) {
+        this.$store.commit('tagsView/DEL_TAB', { side: this.side, fullPath: tab.fullPath })
+        return
       }
+      // 关闭的是当前页签：先跳相邻（优先右侧，其次左侧），导航完成后再删。
+      // 若先删后跳，中间态里当前路由已无页签，keyOf 会退化成 fullPath，
+      // 造成 router-view 的 :key 抖动（瞬态卸载/重挂），快速连点时崩溃
+      const next = tabs[idx + 1] || tabs[idx - 1]
+      const home = this.side === 'buddy' ? '/omnibuddy' : '/home'
+      const doDel = () => {
+        this.$store.commit('tagsView/DEL_TAB', { side: this.side, fullPath: tab.fullPath })
+      }
+      this.$router.push(next ? next.fullPath : home).then(doDel).catch(doDel)
     },
     // 更多操作：关闭其它（保留当前）/ 关闭全部（回本侧首页）
     onMoreCommand(cmd) {
@@ -247,18 +265,23 @@ export default {
       if (cmd === 'others') {
         this.$store.commit('tagsView/CLOSE_OTHERS', { side: this.side, keepFullPath: this.$route.fullPath })
       } else if (cmd === 'all') {
-        this.$store.commit('tagsView/CLOSE_ALL', { side: this.side })
+        // 先回首页再清空，避免清空后当前路由无页签的 keyOf 退化抖动（同 ctxAction('all')）
+        const doCloseAll = () => {
+          this.$store.commit('tagsView/CLOSE_ALL', { side: this.side })
+          // 导航去重（已在首页）时 afterEach 不触发，手动补登记
+          if (this.$route.fullPath === home) {
+            this.$store.commit('tagsView/ADD_TAB', {
+              side: this.side,
+              path: home,
+              fullPath: home,
+              title: this.side === 'buddy' ? '新任务' : '首页'
+            })
+          }
+        }
         if (this.$route.fullPath !== home) {
-          // 跳首页，由 afterEach 自动登记新页签
-          this.$router.push(home).catch(() => {})
+          this.$router.push(home).then(doCloseAll).catch(doCloseAll)
         } else {
-          // 已在首页：导航去重不会触发 afterEach，手动补登记
-          this.$store.commit('tagsView/ADD_TAB', {
-            side: this.side,
-            path: home,
-            fullPath: home,
-            title: this.side === 'buddy' ? '新任务' : '首页'
-          })
+          doCloseAll()
         }
       }
     },

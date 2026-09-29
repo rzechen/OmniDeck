@@ -14,13 +14,14 @@
         </div>
       </div>
 
-      <!-- 内容区：路由切换淡入 + 上浮过渡 -->
+      <!-- 内容区：仅 keep-alive 缓存，不加 transition 过渡 -->
+      <!-- out-in 过渡 + keep-alive 在快速连续切换页签时会与 activate/deactivate
+           时序交叉，曾导致 insertBefore/parentNode 崩溃；且原 page 过渡的入场
+           类名（.page-enter）是 Vue2 写法，Vue3 下入场动画本就未生效，故移除 -->
       <div class="layout-content">
-        <transition name="page" mode="out-in">
-          <keep-alive>
-            <router-view :key="deckTabKey" />
-          </keep-alive>
-        </transition>
+        <keep-alive>
+          <router-view :key="deckTabKey" />
+        </keep-alive>
       </div>
     </div>
 
