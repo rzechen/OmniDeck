@@ -132,6 +132,7 @@ async function fetchIndex(useCache = true) {
 }
 
 // 合并已装状态与更新标记（缓存命中与新鲜拉取共用）
+// v4 索引新增运营字段全量透传：图标 base64 / 下载·收藏·评论统计 / AI 评分五维 / 认证与作者标识
 function decorate({ items, categories }) {
   const installed = readInstalled()
   return {
@@ -149,10 +150,23 @@ function decorate({ items, categories }) {
         details: it.details || '',
         changelog: Array.isArray(it.changelog) ? it.changelog : [],
         author: it.author || '',
+        authorHandle: it.authorHandle || '',
+        namespace: it.namespace || '',
         tags: Array.isArray(it.tags) ? it.tags : [],
         homepage: it.homepage || '',
         updatedAt: it.updatedAt || '',
         url: it.url, // zip 直链（GitCode raw API）
+        downloads: Number(it.downloads) || 0,
+        favorites: Number(it.favorites) || 0,
+        comments: Number(it.comments) || 0,
+        aiScore: Number(it.aiScore) || 0,
+        aiDimensions: it.aiDimensions && typeof it.aiDimensions === 'object' ? it.aiDimensions : null,
+        trendingScore: Number(it.trendingScore) || 0,
+        verified: !!it.verified,
+        requiresApiKey: !!it.requiresApiKey,
+        iconMime: it.iconMime || '',
+        iconBase64: it.iconBase64 || '',
+        iconSource: it.iconSource || '',
         installed: !!rec,
         installedVersion: rec ? rec.version : '',
         // 更新可用：索引版本 > 已装版本（零依赖字符串比对）

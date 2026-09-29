@@ -2,12 +2,15 @@
   <!-- 市场项卡片：分组展示模式与单类网格模式共用（合并原页面两段重复标记） -->
   <div class="ob-market-card" @click="$emit('click', item)">
     <div class="ob-market-card-head">
+      <!-- 图标：v4 索引内联 base64 优先；缺省回落类型图标 -->
       <div class="ob-market-logo" :class="logoClass(item)">
-        <svg-icon :icon-class="typeIcon(marketType(item))" />
+        <img v-if="iconSrc" :src="iconSrc" class="logo-img" alt="" />
+        <svg-icon v-else :icon-class="typeIcon(marketType(item))" />
       </div>
       <div class="ob-market-card-title">
         <div class="ob-market-name" :title="item.name">
           {{ item.name }}
+          <span v-if="item.verified" class="ob-verified" title="官方认证">✓</span>
         </div>
         <div class="ob-market-meta">
           <!-- 本地目录包：显示文件数；远程语义版本：v 前缀 -->
@@ -22,6 +25,22 @@
 
     <div class="ob-market-tags" v-if="item.tags && item.tags.length">
       <span v-for="t in item.tags.slice(0, 3)" :key="t" class="ob-market-tag">{{ t }}</span>
+    </div>
+
+    <!-- v4 运营统计：AI 评分 / 下载 / 收藏（缺省隐藏整行） -->
+    <div class="ob-market-stats" v-if="item.aiScore || item.downloads || item.favorites">
+      <span v-if="item.aiScore" class="ob-stat ai" :title="'AI 评分 ' + item.aiScore + ' / 5'">
+        <svg-icon icon-class="star" class="stat-icon" />{{ item.aiScore }}
+      </span>
+      <span v-if="item.downloads" class="ob-stat">
+        <svg-icon icon-class="download" class="stat-icon" />{{ formatCount(item.downloads) }}
+      </span>
+      <span v-if="item.favorites" class="ob-stat">
+        <svg-icon icon-class="star" class="stat-icon" />{{ formatCount(item.favorites) }}
+      </span>
+      <span v-if="item.requiresApiKey" class="ob-stat key" title="使用前需配置 API Key">
+        <svg-icon icon-class="lock" class="stat-icon" />需 Key
+      </span>
     </div>
 
     <div class="ob-market-foot">
@@ -74,6 +93,14 @@ export default {
     // 安装/更新中的项 id（控制按钮 loading 态与互斥禁用）
     busyId: { type: String, default: '' }
   },
+  computed: {
+    // v4 图标：iconBase64 内联 data URL（避免外链依赖）；旧索引无图标回落类型图标
+    iconSrc() {
+      if (!this.item.iconBase64) return ''
+      const mime = this.item.iconMime || 'image/png'
+      return `data:${mime};base64,${this.item.iconBase64}`
+    }
+  },
   methods: {
     // ---------- 展示辅助（与页面原实现保持一致） ----------
     marketType(it) {
@@ -97,6 +124,13 @@ export default {
       if (isNaN(d.getTime())) return String(v)
       const pad = n => String(n).padStart(2, '0')
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    },
+    // 数量缩写：1.8 万式中文展示（≥1 万缩写，其余原样）
+    formatCount(n) {
+      const num = Number(n) || 0
+      if (num >= 100000000) return (num / 100000000).toFixed(1).replace(/\.0$/, '') + ' 亿'
+      if (num >= 10000) return (num / 10000).toFixed(1).replace(/\.0$/, '') + ' 万'
+      return String(num)
     }
   }
 }
@@ -138,6 +172,7 @@ export default {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
 
   &.logo-skill {
     background: linear-gradient(135deg, rgba(124, 156, 255, 0.15), rgba(91, 124, 240, 0.25));
@@ -152,6 +187,14 @@ export default {
   &.logo-connector {
     background: linear-gradient(135deg, rgba(107, 197, 160, 0.15), rgba(70, 168, 127, 0.25));
     color: #2E8B63;
+  }
+
+  /* v4 内联图标：占满 logo 位，保留类型底色衬托 */
+  .logo-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
 
   .svg-icon {
@@ -194,6 +237,54 @@ export default {
   &.update {
     color: #d97706;
     background: rgba(245, 158, 11, 0.12);
+  }
+}
+
+/* 官方认证对勾（名称尾部） */
+.ob-verified {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--primary-color);
+  vertical-align: 1px;
+}
+
+/* v4 运营统计行：AI 评分 / 下载 / 收藏 / 需 Key */
+.ob-market-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  color: $text-secondary;
+}
+
+.ob-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+
+  .stat-icon {
+    font-size: 12px;
+  }
+
+  &.ai {
+    font-weight: 600;
+    color: #d97706;
+  }
+
+  &.key {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.05);
   }
 }
 
