@@ -79,124 +79,134 @@
       </template>
     </div>
 
-    <!-- 新建 / 编辑向导（场景 → 内容 → 时间） -->
-    <el-dialog
-      :title="wizard.editing ? '编辑任务' : '新建定时任务'"
-      :visible.sync="wizard.visible"
-      width="640px"
-      append-to-body
-      custom-class="ob-el-dialog ob-auto-dialog"
-      :close-on-click-modal="false"
-    >
-      <!-- 步骤指示 -->
-      <div class="ob-auto-steps">
-        <div
-          v-for="(s, i) in ['场景', '内容', '时间']"
-          :key="s"
-          class="ob-auto-step"
-          :class="{ active: wizard.step === i, done: wizard.step > i }"
-          @click="wizard.step > i && (wizard.step = i)"
-        >
-          <span class="ob-auto-step-dot">{{ wizard.step > i ? '✓' : i + 1 }}</span>
-          <span>{{ s }}</span>
-        </div>
-      </div>
+    <!-- 新建 / 编辑向导（场景 → 内容 → 时间）：三步内容偏长 → 右侧全高抽屉 -->
+    <transition name="ob-drawer">
+      <div
+        v-if="wizard.visible"
+        class="ob-drawer"
+        @click.self="wizard.visible = false"
+      >
+        <div class="ob-drawer-panel auto-wizard-panel">
+          <header class="ob-drawer-header">
+            <h3 class="ob-dialog-title">{{ wizard.editing ? '编辑任务' : '新建定时任务' }}</h3>
+            <svg-icon icon-class="close" class="ob-dialog-close" @click="wizard.visible = false" />
+          </header>
 
-      <!-- 步骤 1：场景 -->
-      <div v-if="wizard.step === 0" class="ob-auto-pane">
-        <div
-          v-for="s in scenarios"
-          :key="s.key"
-          class="ob-auto-scene"
-          :class="{ active: wizard.scenario === s.key }"
-          @click="chooseScenario(s)"
-        >
-          <span class="ob-auto-scene-ico"><svg-icon :icon-class="s.icon" /></span>
-          <div class="ob-auto-scene-body">
-            <div class="ob-auto-scene-name">{{ s.label }}</div>
-            <div class="ob-auto-scene-desc">{{ s.desc }}</div>
+          <div class="ob-drawer-body">
+            <!-- 步骤指示 -->
+            <div class="ob-auto-steps">
+              <div
+                v-for="(s, i) in ['场景', '内容', '时间']"
+                :key="s"
+                class="ob-auto-step"
+                :class="{ active: wizard.step === i, done: wizard.step > i }"
+                @click="wizard.step > i && (wizard.step = i)"
+              >
+                <span class="ob-auto-step-dot">{{ wizard.step > i ? '✓' : i + 1 }}</span>
+                <span>{{ s }}</span>
+              </div>
+            </div>
+
+            <!-- 步骤 1：场景 -->
+            <div v-if="wizard.step === 0" class="ob-auto-pane">
+              <div
+                v-for="s in scenarios"
+                :key="s.key"
+                class="ob-auto-scene"
+                :class="{ active: wizard.scenario === s.key }"
+                @click="chooseScenario(s)"
+              >
+                <span class="ob-auto-scene-ico"><svg-icon :icon-class="s.icon" /></span>
+                <div class="ob-auto-scene-body">
+                  <div class="ob-auto-scene-name">{{ s.label }}</div>
+                  <div class="ob-auto-scene-desc">{{ s.desc }}</div>
+                </div>
+                <svg-icon v-if="wizard.scenario === s.key" icon-class="check" class="ob-auto-scene-check" />
+              </div>
+            </div>
+
+            <!-- 步骤 2：内容 -->
+            <div v-else-if="wizard.step === 1" class="ob-auto-pane">
+              <div class="ob-auto-field">
+                <label class="ob-auto-label">任务名称 <i class="ob-req">*</i></label>
+                <el-input v-model="wizard.name" placeholder="如：AI 行业每日简报" maxlength="40" show-word-limit />
+                <div class="ob-auto-err" :class="{ show: wizard.errName }">{{ wizard.errName || '　' }}</div>
+              </div>
+              <div v-if="scenarioOf({ scenario: wizard.scenario }).topic" class="ob-auto-field">
+                <label class="ob-auto-label">关注主题 <i class="ob-req">*</i></label>
+                <el-input v-model="wizard.topic" placeholder="如：人工智能、新能源、跨境电商" @input="syncPrompt" />
+                <div class="ob-auto-err" :class="{ show: wizard.errTopic }">{{ wizard.errTopic || '　' }}</div>
+              </div>
+              <div class="ob-auto-field">
+                <label class="ob-auto-label">任务指令 <i class="ob-req">*</i></label>
+                <el-input
+                  v-model="wizard.prompt"
+                  type="textarea"
+                  :rows="8"
+                  placeholder="描述希望助手自动完成什么，可按场景模板修改"
+                  @input="onPromptInput"
+                />
+                <div class="ob-auto-err" :class="{ show: wizard.errPrompt }">{{ wizard.errPrompt || '　' }}</div>
+              </div>
+              <div class="ob-auto-field">
+                <label class="ob-auto-label">工作空间 <i class="ob-req">*</i></label>
+                <el-select v-model="wizard.workspaceId" placeholder="选择任务运行的工作空间" style="width: 100%">
+                  <el-option
+                    v-for="w in workspaces"
+                    :key="w.id"
+                    :label="w.name + '（' + w.path + '）'"
+                    :value="w.id"
+                    :disabled="!w.available"
+                  />
+                </el-select>
+                <div class="ob-auto-err" :class="{ show: wizard.errWorkspace }">{{ wizard.errWorkspace || '　' }}</div>
+              </div>
+              <div class="ob-auto-field row">
+                <label class="ob-auto-label">完成后通知</label>
+                <el-switch v-model="wizard.notify" />
+              </div>
+            </div>
+
+            <!-- 步骤 3：时间 -->
+            <div v-else class="ob-auto-pane">
+              <div class="ob-auto-field row-inline">
+                <label class="ob-auto-label">重复周期</label>
+                <el-radio-group v-model="wizard.scheduleType" @change="onScheduleTypeChange">
+                  <el-radio-button label="daily">每天</el-radio-button>
+                  <el-radio-button label="weekly">每周</el-radio-button>
+                </el-radio-group>
+              </div>
+              <div v-if="wizard.scheduleType === 'weekly'" class="ob-auto-field">
+                <label class="ob-auto-label">执行日</label>
+                <el-radio-group v-model="wizard.weekday">
+                  <el-radio-button v-for="(d, i) in ['日', '一', '二', '三', '四', '五', '六']" :key="d" :label="i">周{{ d }}</el-radio-button>
+                </el-radio-group>
+              </div>
+              <div class="ob-auto-field">
+                <label class="ob-auto-label">执行时间</label>
+                <!-- mac 风格双列滚轮选择（小时 + 5 分钟粒度），无需键入 -->
+                <time-wheel v-model="wizard.time" />
+              </div>
+              <div class="ob-auto-summary">
+                <svg-icon icon-class="clock" />
+                将于 <b>{{ previewSchedule() }}</b> 首次自动执行（此后{{ scheduleText({ type: wizard.scheduleType, weekday: wizard.weekday, time: wizard.time }) }}循环）
+              </div>
+            </div>
           </div>
-          <svg-icon v-if="wizard.scenario === s.key" icon-class="check" class="ob-auto-scene-check" />
+
+          <footer class="ob-drawer-footer">
+            <el-button v-if="wizard.step > 0" size="small" round @click="wizard.step--">上一步</el-button>
+            <div class="ob-dialog-btns">
+              <el-button size="small" round @click="wizard.visible = false">取消</el-button>
+              <el-button v-if="wizard.step < 2" size="small" round type="primary" @click="nextStep">下一步</el-button>
+              <el-button v-else size="small" round type="primary" :loading="wizard.saving" @click="saveTask">
+                {{ wizard.editing ? '保存' : '创建' }}
+              </el-button>
+            </div>
+          </footer>
         </div>
       </div>
-
-      <!-- 步骤 2：内容 -->
-      <div v-else-if="wizard.step === 1" class="ob-auto-pane">
-        <div class="ob-auto-field">
-          <label class="ob-auto-label">任务名称 <i class="ob-req">*</i></label>
-          <el-input v-model="wizard.name" placeholder="如：AI 行业每日简报" maxlength="40" show-word-limit />
-          <div class="ob-auto-err" :class="{ show: wizard.errName }">{{ wizard.errName || '　' }}</div>
-        </div>
-        <div v-if="scenarioOf({ scenario: wizard.scenario }).topic" class="ob-auto-field">
-          <label class="ob-auto-label">关注主题 <i class="ob-req">*</i></label>
-          <el-input v-model="wizard.topic" placeholder="如：人工智能、新能源、跨境电商" @input="syncPrompt" />
-          <div class="ob-auto-err" :class="{ show: wizard.errTopic }">{{ wizard.errTopic || '　' }}</div>
-        </div>
-        <div class="ob-auto-field">
-          <label class="ob-auto-label">任务指令 <i class="ob-req">*</i></label>
-          <el-input
-            v-model="wizard.prompt"
-            type="textarea"
-            :rows="6"
-            placeholder="描述希望助手自动完成什么，可按场景模板修改"
-            @input="onPromptInput"
-          />
-          <div class="ob-auto-err" :class="{ show: wizard.errPrompt }">{{ wizard.errPrompt || '　' }}</div>
-        </div>
-        <div class="ob-auto-field">
-          <label class="ob-auto-label">工作空间 <i class="ob-req">*</i></label>
-          <el-select v-model="wizard.workspaceId" placeholder="选择任务运行的工作空间" style="width: 100%">
-            <el-option
-              v-for="w in workspaces"
-              :key="w.id"
-              :label="w.name + '（' + w.path + '）'"
-              :value="w.id"
-              :disabled="!w.available"
-            />
-          </el-select>
-          <div class="ob-auto-err" :class="{ show: wizard.errWorkspace }">{{ wizard.errWorkspace || '　' }}</div>
-        </div>
-        <div class="ob-auto-field row">
-          <label class="ob-auto-label">完成后通知</label>
-          <el-switch v-model="wizard.notify" />
-        </div>
-      </div>
-
-      <!-- 步骤 3：时间 -->
-      <div v-else class="ob-auto-pane">
-        <div class="ob-auto-field row-inline">
-          <label class="ob-auto-label">重复周期</label>
-          <el-radio-group v-model="wizard.scheduleType" @change="onScheduleTypeChange">
-            <el-radio-button label="daily">每天</el-radio-button>
-            <el-radio-button label="weekly">每周</el-radio-button>
-          </el-radio-group>
-        </div>
-        <div v-if="wizard.scheduleType === 'weekly'" class="ob-auto-field">
-          <label class="ob-auto-label">执行日</label>
-          <el-radio-group v-model="wizard.weekday">
-            <el-radio-button v-for="(d, i) in ['日', '一', '二', '三', '四', '五', '六']" :key="d" :label="i">周{{ d }}</el-radio-button>
-          </el-radio-group>
-        </div>
-        <div class="ob-auto-field">
-          <label class="ob-auto-label">执行时间</label>
-          <!-- mac 风格双列滚轮选择（小时 + 5 分钟粒度），无需键入 -->
-          <time-wheel v-model="wizard.time" />
-        </div>
-        <div class="ob-auto-summary">
-          <svg-icon icon-class="clock" />
-          将于 <b>{{ previewSchedule() }}</b> 首次自动执行（此后{{ scheduleText({ type: wizard.scheduleType, weekday: wizard.weekday, time: wizard.time }) }}循环）
-        </div>
-      </div>
-
-      <template slot="footer">
-        <el-button v-if="wizard.step > 0" size="small" round @click="wizard.step--">上一步</el-button>
-        <el-button size="small" round @click="wizard.visible = false">取消</el-button>
-        <el-button v-if="wizard.step < 2" size="small" round type="primary" @click="nextStep">下一步</el-button>
-        <el-button v-else size="small" round type="primary" :loading="wizard.saving" @click="saveTask">
-          {{ wizard.editing ? '保存' : '创建' }}
-        </el-button>
-      </template>
-    </el-dialog>
+    </transition>
   </div>
 </template>
 
@@ -577,6 +587,11 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 向导抽屉面板宽度 */
+.auto-wizard-panel {
+  --ob-drawer-w: 620px;
+}
 
 /* 加载骨架容器 */
 .ob-sk-wrap {

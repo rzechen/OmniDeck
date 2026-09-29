@@ -9,6 +9,7 @@
         :title="tab.title"
         @click="go(tab)"
         @auxclick="onAuxClick($event, tab)"
+        @contextmenu.prevent="openCtx($event, tab)"
         @mouseenter="onTabEnter"
         @mouseleave="onTabLeave"
       >
@@ -40,6 +41,26 @@
         <el-dropdown-item command="all" divided>关闭全部页签</el-dropdown-item>
       </el-dropdown-menu>
     </el-dropdown>
+
+    <!-- 页签右键菜单（mac 风浮层，与空间页右键菜单同款样式） -->
+    <transition name="tags-ctx">
+      <div
+        v-if="ctx.visible"
+        class="tags-ctx"
+        :style="{ left: ctx.x + 'px', top: ctx.y + 'px' }"
+      >
+        <div class="tags-ctx-item" @click="ctxAction('close', ctx.tab)">
+          <svg-icon icon-class="close" class="tags-ctx-ico" /> 关闭
+        </div>
+        <template v-if="tabs.length > 1">
+          <div class="tags-ctx-sep"></div>
+          <div class="tags-ctx-item" @click="ctxAction('others', ctx.tab)">关闭其它页签</div>
+          <div v-if="ctx.idx > 0" class="tags-ctx-item" @click="ctxAction('left', ctx.tab)">关闭左侧页签</div>
+          <div v-if="ctx.idx < tabs.length - 1" class="tags-ctx-item" @click="ctxAction('right', ctx.tab)">关闭右侧页签</div>
+          <div class="tags-ctx-item" @click="ctxAction('all', ctx.tab)">关闭全部页签</div>
+        </template>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -95,6 +116,12 @@ export default {
     // 页签归属侧：'deck'（Layout）/ 'buddy'（BuddyLayout）
     side: { type: String, required: true }
   },
+  data() {
+    return {
+      // 右键菜单：visible/x/y 定位，tab/idx 为右键目标页签
+      ctx: { visible: false, x: 0, y: 0, tab: null, idx: -1 }
+    }
+  },
   computed: {
     tabs() {
       return (this.$store.state.tagsView && this.$store.state.tagsView[this.side]) || []
@@ -108,6 +135,13 @@ export default {
   },
   mounted() {
     this.scrollActiveIntoView()
+    // 全局点击 / Esc 关闭右键菜单
+    document.addEventListener('mousedown', this.onDocMouseDown)
+    document.addEventListener('keydown', this.onCtxKeydown)
+  },
+  beforeDestroy() {
+    document.removeEventListener('mousedown', this.onDocMouseDown)
+    document.removeEventListener('keydown', this.onCtxKeydown)
   },
   methods: {
     // 页签图标：先精确匹配路径，带参路由（如 /finance/fund/:code）逐级回退父路径
@@ -131,6 +165,68 @@ export default {
     // 中键关闭页签（浏览器页签习惯）
     onAuxClick(e, tab) {
       if (e.button === 1) this.close(tab)
+    },
+    // ===== 右键菜单 =====
+    openCtx(e, tab) {
+      // 视口边缘收敛（菜单宽约 170、高约 200）
+      const x = Math.min(e.clientX, window.innerWidth - 185)
+      const y = Math.min(e.clientY, window.innerHeight - 210)
+      this.ctx = { visible: true, x, y, tab, idx: this.tabs.findIndex(t => t.fullPath === tab.fullPath) }
+    },
+    closeCtx() {
+      this.ctx.visible = false
+      this.ctx.tab = null
+      this.ctx.idx = -1
+    },
+    onDocMouseDown(e) {
+      if (this.ctx.visible && !e.target.closest('.tags-ctx')) this.closeCtx()
+    },
+    onCtxKeydown(e) {
+      if (e.key === 'Escape' && this.ctx.visible) this.closeCtx()
+    },
+    // 右键菜单动作：close 单关 / others·left·right 批量关 / all 全关
+    ctxAction(action, tab) {
+      this.closeCtx()
+      if (!tab) return
+      const home = this.side === 'buddy' ? '/omnibuddy' : '/home'
+      if (action === 'close') {
+        this.close(tab)
+        return
+      }
+      if (action === 'others' || action === 'left' || action === 'right') {
+        // 关闭集之外的保留集：others 仅留目标；left 留目标及其右侧；right 留目标及其左侧
+        const i = this.idxOf(tab)
+        const keep = this.tabs
+          .filter((t, j) => (action === 'others' ? j === i : action === 'left' ? j >= i : j <= i))
+          .map(t => t.fullPath)
+        // 当前路由不在保留集内：先跳到目标页签再关，避免路由悬空
+        if (!keep.includes(this.$route.fullPath)) {
+          this.$router.push(tab.fullPath).catch(() => {})
+        }
+        if (action === 'others') {
+          this.$store.commit('tagsView/CLOSE_OTHERS', { side: this.side, keepFullPath: tab.fullPath })
+        } else {
+          this.$store.commit('tagsView/CLOSE_SIDE', { side: this.side, fullPath: tab.fullPath, dir: action })
+        }
+        return
+      }
+      if (action === 'all') {
+        this.$store.commit('tagsView/CLOSE_ALL', { side: this.side })
+        if (this.$route.fullPath !== home) {
+          this.$router.push(home).catch(() => {})
+        } else {
+          // 已在首页：导航去重不会触发 afterEach，手动补登记
+          this.$store.commit('tagsView/ADD_TAB', {
+            side: this.side,
+            path: home,
+            fullPath: home,
+            title: this.side === 'buddy' ? '新任务' : '首页'
+          })
+        }
+      }
+    },
+    idxOf(tab) {
+      return this.tabs.findIndex(t => t.fullPath === tab.fullPath)
     },
     close(tab) {
       const tabs = this.tabs
@@ -353,5 +449,71 @@ export default {
     background: $sidebar-item-hover;
     color: $text-primary;
   }
+}
+
+/* ===== 页签右键菜单（mac 风浮层，与空间页 sp-menu 同款） ===== */
+.tags-ctx {
+  position: fixed;
+  z-index: 3200;
+  min-width: 160px;
+  padding: 5px;
+  border-radius: 11px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.06);
+  -webkit-app-region: no-drag;
+}
+
+html[data-theme='dark'] .tags-ctx {
+  background: rgba(46, 46, 52, 0.94);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+.tags-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 30px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+
+  .tags-ctx-ico {
+    width: 13px;
+    height: 13px;
+    color: var(--text-secondary);
+  }
+
+  &:hover {
+    background: var(--search-bg-hover);
+  }
+}
+
+.tags-ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-color);
+}
+
+/* 菜单弹出过渡（与 sp-menu 同款：轻缩放 + 淡入） */
+.tags-ctx-enter-active {
+  transition: opacity 0.14s ease, transform 0.14s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+.tags-ctx-leave-active {
+  transition: opacity 0.1s ease;
+}
+
+.tags-ctx-enter,
+.tags-ctx-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
 }
 </style>

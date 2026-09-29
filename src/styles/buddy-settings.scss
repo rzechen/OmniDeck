@@ -806,6 +806,111 @@
   -webkit-app-region: no-drag;
 }
 
+/* ===== 自绘右侧抽屉（内容密集/长文编辑场景，覆盖整个窗口含侧边栏） =====
+   遮罩与 ob-overlay 同层；面板贴右侧全高，滑入带减速曲线；
+   内容布局：header（标题/关闭）→ body（滚动）→ footer（操作），与 ob-dialog 同构 */
+.ob-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 3100;
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: flex-end;
+  -webkit-app-region: no-drag;
+
+  /* 抽屉面板：宽度由 --ob-drawer-w 定制（默认 640），全高贴右 */
+  .ob-drawer-panel {
+    --ob-drawer-w: 640px;
+    width: min(var(--ob-drawer-w), 100vw);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border-left: 1px solid var(--border-color);
+    box-shadow: -16px 0 48px rgba(0, 0, 0, 0.22);
+    overflow: hidden;
+  }
+
+  .ob-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 22px 0;
+    flex-shrink: 0;
+
+    .ob-dialog-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: $text-primary;
+    }
+
+    .ob-dialog-close {
+      font-size: 20px;
+      color: $text-secondary;
+      cursor: pointer;
+      padding: 2px;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+
+      &:hover {
+        background: $search-bg;
+        color: $text-primary;
+      }
+    }
+  }
+
+  .ob-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+
+    &::-webkit-scrollbar {
+      width: 4px;
+    }
+  }
+
+  .ob-drawer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 0 22px 16px;
+    flex-shrink: 0;
+  }
+}
+
+/* 抽屉过渡：遮罩淡入 + 面板右滑（enter 减速略带回弹，leave 快速收） */
+.ob-drawer-enter-active {
+  transition: opacity 0.18s ease;
+
+  .ob-drawer-panel {
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+.ob-drawer-leave-active {
+  transition: opacity 0.15s ease;
+
+  .ob-drawer-panel {
+    transition: transform 0.15s ease;
+  }
+}
+
+.ob-drawer-enter,
+.ob-drawer-leave-to {
+  opacity: 0;
+
+  .ob-drawer-panel {
+    transform: translateX(48px);
+  }
+}
+
 .ob-dialog {
   /* 供应商弹窗：4:3 宽高比（880×660，常规窗口内容完整展示无滚动；极小屏收缩时内部滚动兜底） */
   width: min(880px, calc(100vw - 48px));

@@ -279,6 +279,8 @@ export default {
           { surface: 'edit', pattern: '*', action: 'deny' },
           { surface: 'mkdir', pattern: '*', action: 'deny' },
           { surface: 'external_directory', pattern: '*', action: 'deny' },
+          { surface: 'external_directory_write', pattern: '*', action: 'deny' },
+          { surface: 'external_directory_read', pattern: '*', action: 'deny' },
           { surface: 'path', pattern: '*.env', action: 'deny' },
           { surface: 'path', pattern: '*.env.*', action: 'deny' },
           { surface: '*', pattern: '*', action: 'ask' }

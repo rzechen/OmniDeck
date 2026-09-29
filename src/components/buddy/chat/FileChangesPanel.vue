@@ -36,68 +36,72 @@
       <svg-icon icon-class="arrow-down" class="ob-fcp-trigger-arrow" :class="{ open: expanded }" />
     </div>
 
-    <!-- 单文件变更详情弹窗：左=变更历史树形 tab，右=选中变更的双列 diff
-         v-if 按需挂载，避免长会话中大量历史弹窗常驻 DOM -->
-    <el-dialog
-      v-if="groupIndex !== null"
-      :visible.sync="dialogVisible"
-      width="980px"
-      append-to-body
-      custom-class="ob-fc-detail-dialog"
-      @close="onDialogClose"
-    >
-      <template slot="title">
-        <div v-if="group" class="ob-fcd-head">
-          <span v-if="detail" class="ob-fcd-type" :class="detail.type">{{ typeLabel(detail.type) }}</span>
-          <span class="ob-fcd-file" :title="group.file">{{ group.file }}</span>
-          <span v-if="detail && addedOf(detail) !== null" class="ob-fcp-add">+{{ addedOf(detail) }}</span>
-          <span v-if="detail && removedOf(detail) !== null" class="ob-fcp-del">-{{ removedOf(detail) }}</span>
-        </div>
-      </template>
-      <div v-if="group" class="ob-fcd-body">
-        <!-- 左侧：变更历史（按时间正序，默认选中最新一次；高度随右侧内容自适应） -->
-        <div class="ob-fcd-history">
-          <div class="ob-fcd-history-list">
-            <div
-              v-for="(c, hi) in group.history"
-              :key="hi"
-              class="ob-fcd-history-item"
-              :class="{ active: hi === changeIndex }"
-              @click="changeIndex = hi"
-            >
-              <span class="ob-fcd-history-name">第 {{ hi + 1 }} 次</span>
-              <span class="ob-fcd-history-type" :class="c.type">{{ typeLabel(c.type) }}</span>
-              <span v-if="addedOf(c) !== null" class="ob-fcp-add">+{{ addedOf(c) }}</span>
-              <span v-if="removedOf(c) !== null" class="ob-fcp-del">-{{ removedOf(c) }}</span>
+    <!-- 单文件变更详情抽屉：左=变更历史树形 tab，右=选中变更的双列 diff
+         v-if 按需挂载，避免长会话中大量历史弹窗常驻 DOM；
+         diff 内容宽高需求大 → 右侧全高抽屉（宽 70vw） -->
+    <transition name="ob-drawer">
+      <div
+        v-if="groupIndex !== null && dialogVisible"
+        class="ob-drawer"
+        @click.self="onDialogClose"
+      >
+        <div class="ob-drawer-panel ob-fcd-panel">
+          <header class="ob-drawer-header">
+            <div v-if="group" class="ob-fcd-head">
+              <span v-if="detail" class="ob-fcd-type" :class="detail.type">{{ typeLabel(detail.type) }}</span>
+              <span class="ob-fcd-file" :title="group.file">{{ group.file }}</span>
+              <span v-if="detail && addedOf(detail) !== null" class="ob-fcp-add">+{{ addedOf(detail) }}</span>
+              <span v-if="detail && removedOf(detail) !== null" class="ob-fcp-del">-{{ removedOf(detail) }}</span>
             </div>
-          </div>
-        </div>
+            <svg-icon icon-class="close" class="ob-dialog-close" @click="onDialogClose" />
+          </header>
 
-        <!-- 右侧：选中变更的 GitHub 风格双列 diff（左旧右新，hunk 收敛） -->
-        <div class="ob-fcd-main" v-if="detail">
-          <div v-if="detail.rows && detail.rows.length" class="ob-fcd-table">
-            <div v-for="(row, ri) in detail.rows" :key="ri" class="ob-fcd-row" :class="row.type">
-              <template v-if="row.type === 'header'">
-                <span class="ob-fcd-hdr">{{ row.text }}</span>
-              </template>
-              <template v-else>
-                <span class="ob-fcd-ln">{{ row.left ? row.left.n : '' }}</span>
-                <span class="ob-fcd-cell old">{{ cellText(row.left) }}</span>
-                <span class="ob-fcd-ln">{{ row.right ? row.right.n : '' }}</span>
-                <span class="ob-fcd-cell new">{{ cellText(row.right) }}</span>
-              </template>
+          <div v-if="group" class="ob-fcd-body">
+            <!-- 左侧：变更历史（按时间正序，默认选中最新一次；高度随右侧内容自适应） -->
+            <div class="ob-fcd-history">
+              <div class="ob-fcd-history-list">
+                <div
+                  v-for="(c, hi) in group.history"
+                  :key="hi"
+                  class="ob-fcd-history-item"
+                  :class="{ active: hi === changeIndex }"
+                  @click="changeIndex = hi"
+                >
+                  <span class="ob-fcd-history-name">第 {{ hi + 1 }} 次</span>
+                  <span class="ob-fcd-history-type" :class="c.type">{{ typeLabel(c.type) }}</span>
+                  <span v-if="addedOf(c) !== null" class="ob-fcp-add">+{{ addedOf(c) }}</span>
+                  <span v-if="removedOf(c) !== null" class="ob-fcp-del">-{{ removedOf(c) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右侧：选中变更的 GitHub 风格双列 diff（左旧右新，hunk 收敛） -->
+            <div class="ob-fcd-main" v-if="detail">
+              <div v-if="detail.rows && detail.rows.length" class="ob-fcd-table">
+                <div v-for="(row, ri) in detail.rows" :key="ri" class="ob-fcd-row" :class="row.type">
+                  <template v-if="row.type === 'header'">
+                    <span class="ob-fcd-hdr">{{ row.text }}</span>
+                  </template>
+                  <template v-else>
+                    <span class="ob-fcd-ln">{{ row.left ? row.left.n : '' }}</span>
+                    <span class="ob-fcd-cell old">{{ cellText(row.left) }}</span>
+                    <span class="ob-fcd-ln">{{ row.right ? row.right.n : '' }}</span>
+                    <span class="ob-fcd-cell new">{{ cellText(row.right) }}</span>
+                  </template>
+                </div>
+              </div>
+              <!-- 无逐行内容的场景：超限 / 删除 / 新建目录 -->
+              <div v-else-if="detail.truncated" class="ob-fcd-empty">
+                文件较大（超过 512KB），仅记录了变更类型与行数，未做逐行对比
+              </div>
+              <div v-else-if="detail.type === 'deleted'" class="ob-fcd-empty">该文件已被删除</div>
+              <div v-else-if="detail.type === 'mkdir'" class="ob-fcd-empty">已创建目录</div>
+              <div v-else class="ob-fcd-empty">无逐行对比内容</div>
             </div>
           </div>
-          <!-- 无逐行内容的场景：超限 / 删除 / 新建目录 -->
-          <div v-else-if="detail.truncated" class="ob-fcd-empty">
-            文件较大（超过 512KB），仅记录了变更类型与行数，未做逐行对比
-          </div>
-          <div v-else-if="detail.type === 'deleted'" class="ob-fcd-empty">该文件已被删除</div>
-          <div v-else-if="detail.type === 'mkdir'" class="ob-fcd-empty">已创建目录</div>
-          <div v-else class="ob-fcd-empty">无逐行对比内容</div>
         </div>
       </div>
-    </el-dialog>
+    </transition>
   </div>
 </template>
 
@@ -191,6 +195,8 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+@import '@/styles/buddy-settings.scss';
+
 .ob-fcp {
   display: flex;
   flex-direction: column;
@@ -365,41 +371,19 @@ export default {
   transform: translateY(4px);
 }
 
-/* ===== 详情弹窗（append-to-body，样式需全局；前置 ::v-deep 使选择器脱离 scoped 约束） ===== */
-::v-deep .ob-fc-detail-dialog {
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.2);
-
-  .el-dialog__header {
-    position: relative;
-    display: flex;
-    align-items: center;
-    margin-bottom: 0;
-    padding: 15px 22px;
-    border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
-  }
-
-  /* 关闭按钮随标题行垂直居中（覆盖默认 top 定位） */
-  .el-dialog__headerbtn {
-    position: absolute;
-    top: 50%;
-    right: 15px;
-    transform: translateY(-50%);
-  }
-
-  .el-dialog__body {
-    padding: 16px 22px 20px;
-  }
+/* ===== 详情抽屉（自绘 ob-drawer，样式位于全局 buddy-settings.scss） ===== */
+/* 面板加宽：diff 双列需要横向空间 */
+.ob-fcd-panel {
+  --ob-drawer-w: 70vw;
 }
 
-/* 弹窗标题：选中变更类型徽章 + 文件路径 + 增删统计 */
+/* 抽屉头部：类型徽章 + 文件路径 + 增删统计（占满标题行） */
 .ob-fcd-head {
   display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
-  margin-right: 30px; /* 避开右上角关闭按钮 */
+  flex: 1;
 }
 
 .ob-fcd-type {
@@ -438,20 +422,18 @@ export default {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
-/* ===== 弹窗主体：左=变更历史树形 tab，右=选中变更 diff
-   左栏绝对定位脱离文档流，高度严格等于右侧内容高度（上限内各自滚动），两卡片始终等高 ===== */
+/* ===== 抽屉主体：左=变更历史树形 tab，右=选中变更 diff
+   两栏并列撑满面板剩余高度，各自独立滚动 ===== */
 .ob-fcd-body {
-  position: relative;
   display: flex;
-  padding-left: 210px; /* 左栏宽度 196px + 间距 14px */
-  min-height: 180px; /* 右侧为空态说明时保证可用高度 */
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  padding: 0 22px 20px;
 }
 
 .ob-fcd-history {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
+  flex-shrink: 0;
   width: 196px;
   display: flex;
   flex-direction: column;
@@ -555,11 +537,10 @@ export default {
   }
 }
 
-/* 右侧 diff 区：高度随内容自适应（决定整行高度），超限内部滚动 */
+/* 右侧 diff 区：撑满剩余宽度，全高内部滚动 */
 .ob-fcd-main {
   flex: 1;
   min-width: 0;
-  max-height: min(62vh, 620px);
   overflow: auto;
 }
 

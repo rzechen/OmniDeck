@@ -1,119 +1,129 @@
 <template>
-  <!-- 新增/编辑连接器（MCP Server）弹窗 -->
-  <el-dialog
-    :title="isEdit ? '编辑连接器' : '新增连接器'"
-    :visible.sync="dialogVisible"
-    width="560px"
-    append-to-body
-    custom-class="ob-el-dialog"
-    :close-on-click-modal="false"
-  >
-    <div class="ob-dialog-form">
-      <!-- 名称（编辑时不可改，作为服务唯一标识） -->
-      <div class="ob-field">
-        <label class="ob-field-label">名称 <span class="ob-field-required">*</span></label>
-        <el-input
-          v-model="mcpForm.name"
-          size="small"
-          clearable
-          :disabled="isEdit"
-          placeholder="服务唯一标识，如 filesystem"
-          maxlength="40"
-        />
-      </div>
-      <!-- 描述 -->
-      <div class="ob-field">
-        <label class="ob-field-label">描述</label>
-        <el-input
-          v-model="mcpForm.description"
-          size="small"
-          clearable
-          placeholder="一句话说明该服务提供的工具（可留空）"
-          maxlength="120"
-        />
-      </div>
-      <!-- 传输协议：自绘分段按钮 -->
-      <div class="ob-field">
-        <label class="ob-field-label">传输协议 <span class="ob-field-required">*</span></label>
-        <div class="ob-seg ob-seg-full">
-          <div
-            class="ob-seg-item"
-            :class="{ active: mcpForm.transport === 'http' }"
-            @click="mcpForm.transport = 'http'"
-          >
-            <svg-icon icon-class="link" />
-            Streamable HTTP
+  <!-- 新增/编辑连接器（MCP Server）抽屉：协议切换 + 多个 JSON 字段，表单偏长 → 右侧全高抽屉 -->
+  <transition name="ob-drawer">
+    <div v-if="dialogVisible" class="ob-drawer" @click.self="dialogVisible = false">
+      <div class="ob-drawer-panel mcp-form-panel">
+        <header class="ob-drawer-header">
+          <h3 class="ob-dialog-title">{{ isEdit ? '编辑连接器' : '新增连接器' }}</h3>
+          <svg-icon icon-class="close" class="ob-dialog-close" @click="dialogVisible = false" />
+        </header>
+
+        <div class="ob-drawer-body">
+          <div class="ob-dialog-form">
+            <!-- 名称（编辑时不可改，作为服务唯一标识） -->
+            <div class="ob-field">
+              <label class="ob-field-label">名称 <span class="ob-field-required">*</span></label>
+              <el-input
+                v-model="mcpForm.name"
+                size="small"
+                clearable
+                :disabled="isEdit"
+                placeholder="服务唯一标识，如 filesystem"
+                maxlength="40"
+              />
+            </div>
+            <!-- 描述 -->
+            <div class="ob-field">
+              <label class="ob-field-label">描述</label>
+              <el-input
+                v-model="mcpForm.description"
+                size="small"
+                clearable
+                placeholder="一句话说明该服务提供的工具（可留空）"
+                maxlength="120"
+              />
+            </div>
+            <!-- 传输协议：自绘分段按钮 -->
+            <div class="ob-field">
+              <label class="ob-field-label">传输协议 <span class="ob-field-required">*</span></label>
+              <div class="ob-seg ob-seg-full">
+                <div
+                  class="ob-seg-item"
+                  :class="{ active: mcpForm.transport === 'http' }"
+                  @click="mcpForm.transport = 'http'"
+                >
+                  <svg-icon icon-class="link" />
+                  Streamable HTTP
+                </div>
+                <div
+                  class="ob-seg-item"
+                  :class="{ active: mcpForm.transport === 'stdio' }"
+                  @click="mcpForm.transport = 'stdio'"
+                >
+                  <svg-icon icon-class="monitor" />
+                  stdio 本地
+                </div>
+              </div>
+            </div>
+            <!-- stdio 型：启动命令 / 参数 / 环境变量 -->
+            <template v-if="mcpForm.transport === 'stdio'">
+              <div class="ob-field">
+                <label class="ob-field-label">启动命令 <span class="ob-field-required">*</span></label>
+                <el-input
+                  v-model="mcpForm.command"
+                  size="small"
+                  clearable
+                  placeholder="如 npx 或 uvx"
+                />
+              </div>
+              <div class="ob-field">
+                <label class="ob-field-label">命令参数（JSON 数组）</label>
+                <el-input
+                  v-model="mcpForm.argsStr"
+                  type="textarea"
+                  :rows="4"
+                  class="ob-code-area"
+                  placeholder='如 ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]'
+                  @blur="formatMcpJsonField('argsStr', 'array')"
+                />
+              </div>
+              <div class="ob-field">
+                <label class="ob-field-label">环境变量（JSON 对象）</label>
+                <el-input
+                  v-model="mcpForm.envStr"
+                  type="textarea"
+                  :rows="6"
+                  class="ob-code-area"
+                  placeholder='如 {"API_KEY": "sk-…"}'
+                  @blur="formatMcpJsonField('envStr', 'object')"
+                />
+              </div>
+            </template>
+            <!-- http 型：服务 URL / 请求头 -->
+            <template v-else>
+              <div class="ob-field">
+                <label class="ob-field-label">服务 URL <span class="ob-field-required">*</span></label>
+                <el-input
+                  v-model="mcpForm.url"
+                  size="small"
+                  clearable
+                  placeholder="如 https://mcp.example.com/sse"
+                />
+              </div>
+              <div class="ob-field">
+                <label class="ob-field-label">请求头（JSON 对象）</label>
+                <el-input
+                  v-model="mcpForm.headersStr"
+                  type="textarea"
+                  :rows="6"
+                  class="ob-code-area"
+                  placeholder='如 {"Authorization": "Bearer …"}'
+                  @blur="formatMcpJsonField('headersStr', 'object')"
+                />
+              </div>
+            </template>
           </div>
-          <div
-            class="ob-seg-item"
-            :class="{ active: mcpForm.transport === 'stdio' }"
-            @click="mcpForm.transport = 'stdio'"
-          >
-            <svg-icon icon-class="monitor" />
-            stdio 本地
+        </div>
+
+        <footer class="ob-drawer-footer">
+          <div class="ob-dialog-btns">
+            <el-button size="small" round @click="dialogVisible = false">取消</el-button>
+            <el-button size="small" round type="primary" @click="saveMcpItem">{{ isEdit ? '保存修改' : '添加服务' }}</el-button>
           </div>
-        </div>
+        </footer>
       </div>
-      <!-- stdio 型：启动命令 / 参数 / 环境变量 -->
-      <template v-if="mcpForm.transport === 'stdio'">
-        <div class="ob-field">
-          <label class="ob-field-label">启动命令 <span class="ob-field-required">*</span></label>
-          <el-input
-            v-model="mcpForm.command"
-            size="small"
-            clearable
-            placeholder="如 npx 或 uvx"
-          />
-        </div>
-        <div class="ob-field">
-          <label class="ob-field-label">命令参数（JSON 数组）</label>
-          <el-input
-            v-model="mcpForm.argsStr"
-            type="textarea"
-            :rows="2"
-            placeholder='如 ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]'
-            @blur="formatMcpJsonField('argsStr', 'array')"
-          />
-        </div>
-        <div class="ob-field">
-          <label class="ob-field-label">环境变量（JSON 对象）</label>
-          <el-input
-            v-model="mcpForm.envStr"
-            type="textarea"
-            :rows="2"
-            placeholder='如 {"API_KEY": "sk-…"}'
-            @blur="formatMcpJsonField('envStr', 'object')"
-          />
-        </div>
-      </template>
-      <!-- http 型：服务 URL / 请求头 -->
-      <template v-else>
-        <div class="ob-field">
-          <label class="ob-field-label">服务 URL <span class="ob-field-required">*</span></label>
-          <el-input
-            v-model="mcpForm.url"
-            size="small"
-            clearable
-            placeholder="如 https://mcp.example.com/sse"
-          />
-        </div>
-        <div class="ob-field">
-          <label class="ob-field-label">请求头（JSON 对象）</label>
-          <el-input
-            v-model="mcpForm.headersStr"
-            type="textarea"
-            :rows="2"
-            placeholder='如 {"Authorization": "Bearer …"}'
-            @blur="formatMcpJsonField('headersStr', 'object')"
-          />
-        </div>
-      </template>
     </div>
-    <template slot="footer">
-      <el-button size="small" round @click="dialogVisible = false">取消</el-button>
-      <el-button size="small" round type="primary" @click="saveMcpItem">{{ isEdit ? '保存修改' : '添加服务' }}</el-button>
-    </template>
-  </el-dialog>
+  </transition>
 </template>
 
 <script>
@@ -284,4 +294,9 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 抽屉面板宽度（表单型适中） */
+.mcp-form-panel {
+  --ob-drawer-w: 560px;
+}
 </style>

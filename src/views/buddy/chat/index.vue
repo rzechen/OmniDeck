@@ -413,7 +413,8 @@ export default {
       const s = (this.pendingPerm && this.pendingPerm.surface) || ''
       if (s === 'bash') return 'monitor'
       if (s === 'python') return 'code'
-      if (s === 'curl') return 'link'
+      if (s === 'curl' || s === 'network') return 'link'
+      if (s === 'external_directory_write') return 'edit'
       if (['write', 'edit', 'multi_edit', 'append', 'mkdir'].indexOf(s) >= 0) return 'edit'
       return 'key'
     },
@@ -422,7 +423,10 @@ export default {
       const s = (this.pendingPerm && this.pendingPerm.surface) || ''
       if (['bash', 'python', 'node', 'curl'].indexOf(s) >= 0) return '是否允许运行这个命令？'
       if (['write', 'edit', 'multi_edit', 'append', 'mkdir'].indexOf(s) >= 0) return '是否允许修改这个文件？'
-      if (s === 'external_directory' || s === 'external_directory_read') return '是否允许访问工作空间外的路径？'
+      if (s === 'external_directory' || s === 'external_directory_read' || s === 'external_directory_write') {
+        return s === 'external_directory_write' ? '是否允许写入工作空间外的路径？' : '是否允许访问工作空间外的路径？'
+      }
+      if (s === 'network') return '是否允许沙箱内命令访问该网络地址？'
       return '是否允许执行此操作？'
     },
     // 工作空间选择器选项（仅保留目录仍存在的项）
@@ -466,8 +470,11 @@ export default {
     this.restoreWorkspaceLink()
     this.loadPermissionMode()
     this.loadWebEnabled()
+    // 工作空间重命名后同步底部空间名：主进程已级联更新会话快照与登记表
+    this.$root.$on('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
   },
   beforeDestroy() {
+    this.$root.$off('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
     // 仅移除全局监听；不打断流式 —— 主进程继续执行并落盘，回来自会话池/历史恢复
     window.removeEventListener('keydown', this.onPermKeydown)
     document.removeEventListener('mousedown', this.onDocMouseDown)
@@ -876,6 +883,23 @@ export default {
       const link = this.workspaceLink
       if (link.workspaceId && !this.workspaces.some(w => w.id === link.workspaceId)) {
         this.commitPatch({ workspaceLink: { dir: '', name: '', workspaceId: '' } })
+        setItem('omnibuddy:workspace-link', this.workspaceLink)
+      }
+    },
+    // 工作空间重命名后同步底部空间名：
+    // 锁定会话 → 重读主进程快照（rename 已级联更新）；
+    // 未锁定 → 从重载后的登记表按 id 取新名
+    async onWorkspacesChanged() {
+      await this.loadWorkspaces()
+      if (this.workspaceLocked && this.sid) {
+        await this.restoreWorkspaceLink()
+        return
+      }
+      const link = this.workspaceLink
+      if (!link.workspaceId) return
+      const ws = this.workspaces.find(w => w.id === link.workspaceId)
+      if (ws && ws.name !== link.name) {
+        this.commitPatch({ workspaceLink: { dir: ws.path, name: ws.name || '', workspaceId: ws.id } })
         setItem('omnibuddy:workspace-link', this.workspaceLink)
       }
     },

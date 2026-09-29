@@ -21,43 +21,56 @@
         <span class="buddy-group-count">{{ g.chats.length }}</span>
       </div>
 
-      <div
-        v-for="c in g.chats"
-        :key="c.id"
-        class="buddy-chat"
-        :class="{ active: c.id === activeChatId }"
-        @click="$emit('select-chat', c.id)"
-        @mouseenter="onChatEnter"
-        @mouseleave="onChatLeave"
-      >
-        <!-- 实时状态标记（store 会话池）：流式输出中 = 主色转圈；待权限确认 = 黄点 -->
-        <svg-icon
-          v-if="stateOf(c) === 'streaming'"
-          icon-class="loading"
-          class="buddy-state-spin"
-          title="回答生成中"
-        />
-        <span
-          v-else-if="stateOf(c) === 'pending'"
-          class="buddy-state-pending"
-          title="等待权限确认"
-        ></span>
-        <!-- 分叉创建的会话用 fork 图标（与气泡分叉按钮同图标，不做常亮高亮） -->
-        <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
-        <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
-        <span class="buddy-chat-actions" @click.stop>
-          <!-- 置顶：已置顶时常亮显示（hover 外也可见），未置顶时随行 hover 浮现 -->
+      <template v-for="(sec, si) in g.sections">
+        <!-- 置顶区起始：带「置顶」文字的分隔线 -->
+        <div v-if="sec.pinned" :key="'ph' + si" class="buddy-pin-divider">
+          <span class="buddy-pin-divider-line"></span>
+          <span class="buddy-pin-divider-text">置顶</span>
+          <span class="buddy-pin-divider-line"></span>
+        </div>
+        <!-- 置顶区收尾：普通段前的闭合细线（与上方「置顶」线围出完整区域） -->
+        <div v-if="!sec.pinned && si > 0" :key="'pe' + si" class="buddy-pin-divider buddy-pin-divider-end">
+          <span class="buddy-pin-divider-line"></span>
+        </div>
+
+        <div
+          v-for="c in sec.chats"
+          :key="c.id"
+          class="buddy-chat"
+          :class="{ active: c.id === activeChatId }"
+          @click="$emit('select-chat', c.id)"
+          @mouseenter="onChatEnter"
+          @mouseleave="onChatLeave"
+        >
+          <!-- 实时状态标记（store 会话池）：流式输出中 = 主色转圈；待权限确认 = 黄点 -->
           <svg-icon
-            icon-class="pin"
-            class="ob-pin"
-            :class="{ pinned: c.pinned }"
-            :title="c.pinned ? '取消置顶' : '置顶'"
-            @click.stop="$emit('pin-chat', c)"
+            v-if="stateOf(c) === 'streaming'"
+            icon-class="loading"
+            class="buddy-state-spin"
+            title="回答生成中"
           />
-          <svg-icon icon-class="edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
-          <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="$emit('delete-chat', c)" />
-        </span>
-      </div>
+          <span
+            v-else-if="stateOf(c) === 'pending'"
+            class="buddy-state-pending"
+            title="等待权限确认"
+          ></span>
+          <!-- 分叉创建的会话用 fork 图标（与气泡分叉按钮同图标，不做常亮高亮） -->
+          <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
+          <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
+          <span class="buddy-chat-actions" @click.stop>
+            <!-- 置顶：已置顶时常亮显示（hover 外也可见），未置顶时随行 hover 浮现 -->
+            <svg-icon
+              icon-class="pin"
+              class="ob-pin"
+              :class="{ pinned: c.pinned }"
+              :title="c.pinned ? '取消置顶' : '置顶'"
+              @click.stop="$emit('pin-chat', c)"
+            />
+            <svg-icon icon-class="edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
+            <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="$emit('delete-chat', c)" />
+          </span>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -109,6 +122,12 @@ export default {
             if (pa === 1) return (b.pinnedAt || 0) - (a.pinnedAt || 0)
             return b.updatedAt - a.updatedAt
           })
+          // 拆置顶/普通两段渲染（置顶段前带「置顶」分隔线区隔）
+          const pinned = g.chats.filter(c => c.pinned)
+          const normal = g.chats.filter(c => !c.pinned)
+          g.sections = []
+          if (pinned.length) g.sections.push({ pinned: true, chats: pinned })
+          if (normal.length) g.sections.push({ pinned: false, chats: normal })
           return g
         })
         // 组间排序：含置顶任务的组优先（组内最新置顶时间倒序），其余按组内最新会话时间倒序
@@ -189,6 +208,40 @@ export default {
 /* 分组容器 */
 .buddy-group {
   margin-bottom: 10px;
+}
+
+/* 组内「置顶」分隔线：置顶段与普通段交界（线 - 文字 - 线） */
+.buddy-pin-divider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 3px;
+  margin-top: 2px;
+
+  .buddy-pin-divider-line {
+    flex: 1;
+    height: 1px;
+    background: $sidebar-item-hover;
+  }
+
+  .buddy-pin-divider-text {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--primary-color);
+    opacity: 0.85;
+  }
+}
+
+/* 置顶区收尾线：稍深更醒目（围出置顶区域，与普通任务明确分区） */
+.buddy-pin-divider-end {
+  margin-top: 0;
+  padding: 2px 10px 4px;
+
+  .buddy-pin-divider-line {
+    background: var(--border-color);
+  }
 }
 
 /* 分组标题：展示名 + 计数 */
@@ -341,12 +394,12 @@ export default {
   }
 }
 
-/* 对话行内操作：hover 浮现（置顶/重命名/删除） */
+/* 对话行内操作：默认隐藏、hover 浮现。
+   注意：不能在父容器上整体 opacity（子元素无法穿透），需按图标单独控制，
+   否则置顶常亮标识会一并被隐藏 */
 .buddy-chat-actions {
   display: inline-flex;
   align-items: center;
-  opacity: 0;
-  transition: opacity 0.15s ease;
   flex-shrink: 0;
 
   .svg-icon {
@@ -354,7 +407,8 @@ export default {
     margin: 0 3px;
     color: $text-secondary;
     cursor: pointer;
-    transition: color 0.15s ease;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
 
     &:hover {
       color: var(--primary-color);
@@ -364,6 +418,11 @@ export default {
       color: #F5222D;
     }
   }
+}
+
+/* 行 hover：操作图标全部浮现 */
+.buddy-chat:hover .buddy-chat-actions .svg-icon {
+  opacity: 1;
 }
 
 /* 已置顶：置顶钮常亮（hover 区外也可见，主色提示状态） */

@@ -1,14 +1,14 @@
 <template>
-  <!-- 新建/编辑供应商弹窗（自绘 overlay：覆盖整个窗口含侧边栏） -->
-  <transition name="ob-modal">
-    <div v-if="dialogVisible" class="ob-overlay" @click.self="closeDialog">
-      <div class="ob-dialog">
-        <header class="ob-dialog-header">
+  <!-- 新建/编辑供应商抽屉（自绘：右侧全高滑入，覆盖整个窗口含侧边栏） -->
+  <transition name="ob-drawer">
+    <div v-if="dialogVisible" class="ob-drawer" @click.self="closeDialog">
+      <div class="ob-drawer-panel pf-panel">
+        <header class="ob-drawer-header">
           <h3 class="ob-dialog-title">{{ editingId ? '编辑模型供应商' : '新建模型供应商' }}</h3>
           <svg-icon icon-class="close" class="ob-dialog-close" @click="closeDialog" />
         </header>
 
-        <div class="ob-dialog-body">
+        <div class="ob-drawer-body">
           <!-- 名称 -->
           <div class="ob-field" :class="{ error: !!errors.name }">
             <label class="ob-field-label">名称 <span class="ob-field-required">*</span></label>
@@ -126,7 +126,7 @@
           </div>
         </div>
 
-        <footer class="ob-dialog-footer">
+        <footer class="ob-drawer-footer pf-foot">
           <p class="ob-dialog-tip">
             <svg-icon icon-class="warning-outline" class="ob-tip-svg" />连通性测试会发起一次真实请求，会消耗少量模型 Token
           </p>
@@ -147,7 +147,7 @@
 </template>
 
 <script>
-// 新建/编辑供应商弹窗：失焦校验、保存前真实请求测试连接、组装数据交父级持久化
+// 新建/编辑供应商抽屉：失焦校验、保存前真实请求测试连接、组装数据交父级持久化
 let uid = Date.now()
 
 export default {
@@ -393,6 +393,16 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 供应商表单抽屉：字段较多，取编辑型宽度 */
+.pf-panel {
+  --ob-drawer-w: 620px;
+}
+
+/* footer：左提示 + 右按钮（覆盖全局右对齐，保留信息提示位） */
+.pf-foot {
+  justify-content: space-between;
+}
 
 /* 档位帮助图标：随标签行内展示 */
 .ob-tier-help {

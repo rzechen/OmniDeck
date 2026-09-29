@@ -1,133 +1,134 @@
 <template>
-  <!-- 编辑 / 导入 Skill 弹窗（新建仅 ZIP 导入；编辑为 SKILL.md 表单） -->
-  <transition name="ob-modal">
+  <!-- 编辑 Skill：内容密集（长文手册），弹窗放不下 → 右侧全高抽屉 -->
+  <transition v-if="isEdit" name="ob-drawer">
+    <div v-if="dialogVisible" class="ob-drawer" @click.self="dialogVisible = false">
+      <div class="ob-drawer-panel" style="--ob-drawer-w: 720px">
+        <header class="ob-drawer-header">
+          <h3 class="ob-dialog-title">编辑 Skill</h3>
+          <svg-icon icon-class="close" class="ob-dialog-close" @click="dialogVisible = false" />
+        </header>
+
+        <div class="ob-drawer-body">
+          <!-- 手动编辑（已有 Skill） -->
+          <div class="ob-field">
+            <label class="ob-field-label">名称 <span class="ob-field-required">*</span></label>
+            <el-input
+              v-model="skillForm.name"
+              size="small"
+              clearable
+              disabled
+              placeholder="字母、数字、连字符，如 pdf-report"
+              maxlength="64"
+            />
+          </div>
+          <div class="ob-field">
+            <label class="ob-field-label">描述 <span class="ob-field-required">*</span></label>
+            <el-input
+              v-model="skillForm.description"
+              size="small"
+              clearable
+              placeholder="一句话说明何时使用该技能（Agent 依据它判断是否加载）"
+              maxlength="200"
+            />
+          </div>
+          <div class="ob-field">
+            <label class="ob-field-label">所需变量</label>
+            <el-input
+              v-model="skillForm.envKeys"
+              size="small"
+              clearable
+              placeholder="逗号分隔的环境变量名，如 GITHUB_TOKEN, NOTION_KEY"
+            />
+            <div class="ob-field-hint">技能声明运行所需的变量名；值统一在「我的资料 → 我的凭据」录入并绑定本技能</div>
+          </div>
+          <div class="ob-field ob-skill-content-field">
+            <label class="ob-field-label">内容（Markdown 指令手册）</label>
+            <el-input
+              v-model="skillForm.content"
+              type="textarea"
+              class="ob-skill-content"
+              placeholder="# 操作指南&#10;&#10;告诉 Agent 执行该类任务时的步骤、规范与注意事项…"
+            />
+          </div>
+        </div>
+
+        <footer class="ob-drawer-footer">
+          <div class="ob-dialog-btns">
+            <el-button size="small" round @click="dialogVisible = false">取消</el-button>
+            <el-button size="small" round type="primary" @click="saveSkill">保存修改</el-button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  </transition>
+
+  <!-- 导入 Skill：仅 ZIP 上传，内容简单 → 居中小弹窗（自绘 overlay：覆盖整个窗口含侧边栏） -->
+  <transition v-else name="ob-modal">
     <div v-if="dialogVisible" class="ob-overlay" @click.self="dialogVisible = false">
       <div class="ob-dialog ob-dialog-skill">
         <header class="ob-dialog-header">
-          <h3 class="ob-dialog-title">{{ isEdit ? '编辑 Skill' : '导入 Skill' }}</h3>
+          <h3 class="ob-dialog-title">导入 Skill</h3>
           <svg-icon icon-class="close" class="ob-dialog-close" @click="dialogVisible = false" />
         </header>
 
         <div class="ob-dialog-body">
-          <!-- 手动编辑（已有 Skill） -->
-          <template v-if="isEdit">
-            <div class="ob-field">
-              <label class="ob-field-label">名称 <span class="ob-field-required">*</span></label>
-              <el-input
-                v-model="skillForm.name"
-                size="small"
-                clearable
-                :disabled="isEdit"
-                placeholder="字母、数字、连字符，如 pdf-report"
-                maxlength="64"
-              />
-            </div>
-            <div class="ob-field">
-              <label class="ob-field-label">描述 <span class="ob-field-required">*</span></label>
-              <el-input
-                v-model="skillForm.description"
-                size="small"
-                clearable
-                placeholder="一句话说明何时使用该技能（Agent 依据它判断是否加载）"
-                maxlength="200"
-              />
-            </div>
-            <div class="ob-field">
-              <label class="ob-field-label">所需变量</label>
-              <el-input
-                v-model="skillForm.envKeys"
-                size="small"
-                clearable
-                placeholder="逗号分隔的环境变量名，如 GITHUB_TOKEN, NOTION_KEY"
-              />
-              <div class="ob-field-hint">技能声明运行所需的变量名；值统一在「我的资料 → 我的凭据」录入并绑定本技能</div>
-            </div>
-            <div class="ob-field">
-              <label class="ob-field-label">内容（Markdown 指令手册）</label>
-              <el-input
-                v-model="skillForm.content"
-                type="textarea"
-                :rows="8"
-                placeholder="# 操作指南&#10;&#10;告诉 Agent 执行该类任务时的步骤、规范与注意事项…"
-              />
-            </div>
-          </template>
-
           <!-- ZIP 导入 -->
-          <template v-else>
-            <div class="ob-field">
-              <label class="ob-field-label">上传 Skill ZIP 包 <span class="ob-field-required">*</span></label>
-              <div
-                class="ob-zip-drop"
-                :class="{ over: zipDragOver }"
-                @click="pickZip"
-                @dragover.prevent="zipDragOver = true"
-                @dragleave="zipDragOver = false"
-                @drop.prevent="onZipDrop"
-              >
-                <template v-if="!zipFile">
-                  <svg-icon icon-class="skill" class="ob-zip-ico" />
-                  <div class="ob-zip-title">点击或拖拽 ZIP 文件到此处</div>
-                  <div class="ob-zip-hint">仅支持 .zip 格式，大小不超过 10MB（需包含 SKILL.md）</div>
-                </template>
-                <template v-else>
-                  <div class="ob-zip-name">{{ zipFile.name }}</div>
-                  <div class="ob-zip-hint">{{ formatSize(zipFile.size) }} · 点击重新选择</div>
-                </template>
-                <input
-                  ref="zipInput"
-                  type="file"
-                  accept=".zip"
-                  style="display: none"
-                  @change="onZipPicked"
-                />
-              </div>
-              <!-- 验证结果：选择文件后自动验证（通过显示名称/描述/文件数，失败显示原因） -->
-              <div v-if="zipFile" class="ob-zip-validate-row">
-                <span v-if="zipValidating" class="ob-zip-msg">
-                  <svg-icon icon-class="loading" class="ob-spin" /> 正在验证…
-                </span>
-                <span
-                  v-else-if="zipValidation"
-                  class="ob-zip-msg"
-                  :class="zipValidation.ok ? 'ok' : 'err'"
-                >{{ zipValidationText }}</span>
-              </div>
-            </div>
-            <div class="ob-field">
-              <label class="ob-field-label">技能凭据（可选）</label>
-              <el-input
-                v-model="zipCred"
-                type="textarea"
-                :rows="10"
-                class="ob-code-area"
-                placeholder='JSON 格式，如 {"API_KEY": "xxx"}；导入成功后自动绑定到该技能'
-                @blur="formatZipCred"
+          <div class="ob-field">
+            <label class="ob-field-label">上传 Skill ZIP 包 <span class="ob-field-required">*</span></label>
+            <div
+              class="ob-zip-drop"
+              :class="{ over: zipDragOver }"
+              @click="pickZip"
+              @dragover.prevent="zipDragOver = true"
+              @dragleave="zipDragOver = false"
+              @drop.prevent="onZipDrop"
+            >
+              <template v-if="!zipFile">
+                <svg-icon icon-class="skill" class="ob-zip-ico" />
+                <div class="ob-zip-title">点击或拖拽 ZIP 文件到此处</div>
+                <div class="ob-zip-hint">仅支持 .zip 格式，大小不超过 10MB（需包含 SKILL.md）</div>
+              </template>
+              <template v-else>
+                <div class="ob-zip-name">{{ zipFile.name }}</div>
+                <div class="ob-zip-hint">{{ formatSize(zipFile.size) }} · 点击重新选择</div>
+              </template>
+              <input
+                ref="zipInput"
+                type="file"
+                accept=".zip"
+                style="display: none"
+                @change="onZipPicked"
               />
-              <div class="ob-field-hint">凭据将加密存储（仅本机可解密），技能启用时以环境变量注入</div>
             </div>
-          </template>
+            <!-- 验证结果：选择文件后自动验证（通过显示名称/描述/文件数，失败显示原因） -->
+            <div v-if="zipFile" class="ob-zip-validate-row">
+              <span v-if="zipValidating" class="ob-zip-msg">
+                <svg-icon icon-class="loading" class="ob-spin" /> 正在验证…
+              </span>
+              <span
+                v-else-if="zipValidation"
+                class="ob-zip-msg"
+                :class="zipValidation.ok ? 'ok' : 'err'"
+              >{{ zipValidationText }}</span>
+            </div>
+          </div>
+          <div class="ob-field-hint ob-import-cred-tip">
+            如技能需要密钥等凭据，导入后请在「我的资料 → 我的凭据」录入并绑定本技能
+          </div>
         </div>
 
         <footer class="ob-dialog-footer">
-          <el-button size="small" round @click="dialogVisible = false">取消</el-button>
-          <!-- 编辑：保存表单；新建（ZIP 导入）：确认导入 -->
-          <el-button
-            v-if="isEdit"
-            size="small"
-            round
-            type="primary"
-            @click="saveSkill"
-          >保存修改</el-button>
-          <el-button
-            v-else
-            size="small"
-            round
-            type="primary"
-            :loading="zipImporting"
-            :disabled="!zipValidation || !zipValidation.ok"
-            @click="importZipFile(false)"
-          >确认导入</el-button>
+          <div class="ob-dialog-btns">
+            <el-button size="small" round @click="dialogVisible = false">取消</el-button>
+            <el-button
+              size="small"
+              round
+              type="primary"
+              :loading="zipImporting"
+              :disabled="!zipValidation || !zipValidation.ok"
+              @click="importZipFile(false)"
+            >确认导入</el-button>
+          </div>
         </footer>
       </div>
     </div>
@@ -135,8 +136,8 @@
 </template>
 
 <script>
-// 编辑 / 导入 Skill 弹窗：编辑模式读取 SKILL.md 回填表单；
-// 导入模式为 ZIP 上传 → 自动验证 → 导入（同名二次确认覆盖）+ 随包凭据加密绑定
+// 编辑 / 导入 Skill：编辑模式（抽屉）读取 SKILL.md 回填表单；
+// 导入模式（小弹窗）为 ZIP 上传 → 自动验证 → 导入（同名二次确认覆盖）；凭据统一在「我的凭据」管理
 import { buddyApi } from '@/utils/buddy-api'
 
 export default {
@@ -156,13 +157,12 @@ export default {
   data() {
     return {
       skillForm: { name: '', description: '', content: '', envKeys: '' },
-      // ZIP 导入：文件持有 / 拖拽高亮 / 验证状态 / 导入中 / 随包凭据
+      // ZIP 导入：文件持有 / 拖拽高亮 / 验证状态 / 导入中
       zipFile: null,
       zipDragOver: false,
       zipValidating: false,
       zipValidation: null,
-      zipImporting: false,
-      zipCred: ''
+      zipImporting: false
     }
   },
   computed: {
@@ -205,11 +205,10 @@ export default {
         this.skillForm = { name: '', description: '', content: '', envKeys: '' }
         this.zipFile = null
         this.zipValidation = null
-        this.zipCred = ''
         this.zipDragOver = false
       }
     },
-    // 编辑 Skill：读取 SKILL.md 内容回填弹窗（名称作为目录标识不可改）
+    // 编辑 Skill：读取 SKILL.md 内容回填抽屉（名称作为目录标识不可改）
     loadSkill() {
       const api = buddyApi()
       if (!api) {
@@ -231,17 +230,6 @@ export default {
           this.dialogVisible = false
         }
       })
-    },
-    // 随包凭据失焦自动格式化 JSON（非法时保持原样，导入时校验兜底）
-    formatZipCred() {
-      const raw = this.zipCred.trim()
-      if (!raw) return
-      try {
-        const obj = JSON.parse(raw)
-        if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-          this.zipCred = JSON.stringify(obj, null, 2)
-        }
-      } catch (e) { /* 非法 JSON 不动 */ }
     },
     pickZip() {
       if (this.$refs.zipInput) this.$refs.zipInput.click()
@@ -296,7 +284,7 @@ export default {
         this.zipValidating = false
       }
     },
-    // 导入：同名已存在时二次确认覆盖；随包凭据在导入成功后加密绑定到该技能
+    // 导入：同名已存在时二次确认覆盖（凭据统一在「我的资料 → 我的凭据」绑定）
     async importZipFile(overwrite) {
       const v = this.zipValidation
       if (!v || !v.ok) return
@@ -308,17 +296,6 @@ export default {
         }).then(() => this.importZipFile(true)).catch(() => {})
         return
       }
-      // 凭据（可选）：填写时必须是合法 JSON 对象
-      let credEnv = null
-      if (this.zipCred.trim()) {
-        try {
-          credEnv = JSON.parse(this.zipCred)
-          if (!credEnv || typeof credEnv !== 'object' || Array.isArray(credEnv)) throw new Error('bad')
-        } catch (e) {
-          this.$message.error('技能凭据不是合法的 JSON 对象')
-          return
-        }
-      }
       const api = buddyApi()
       this.zipImporting = true
       try {
@@ -326,20 +303,6 @@ export default {
         if (!res || !res.ok) {
           this.$message.error((res && res.error) || '导入失败')
           return
-        }
-        if (credEnv) {
-          try {
-            await api.credentials.create({
-              name: res.skill.name + '-creds',
-              type: 'credential',
-              description: '技能「' + res.skill.name + '」凭据',
-              skillNames: [res.skill.name],
-              env: credEnv
-            })
-          } catch (e) {
-            // 凭据绑定失败不阻断导入结果，用户可在「我的凭据」重新配置
-            this.$message.warning('Skill 已导入，但凭据绑定失败，请在「我的资料 → 我的凭据」重新配置')
-          }
         }
         this.$message.success('Skill「' + res.skill.name + '」导入成功（' + res.skill.files + ' 个文件）')
         this.dialogVisible = false
@@ -383,4 +346,29 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* 导入弹窗底部：引导到统一凭据入口 */
+.ob-import-cred-tip {
+  text-align: center;
+}
+
+/* 抽屉内长文手册：撑满剩余高度（抽屉 body 为 flex 列容器） */
+.ob-skill-content-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+
+  .ob-skill-content {
+    flex: 1;
+
+    ::v-deep textarea {
+      height: 100%;
+      min-height: 320px;
+      resize: none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+  }
+}
 </style>

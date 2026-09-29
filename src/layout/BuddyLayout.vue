@@ -237,6 +237,8 @@ export default {
     this.loadChats()
     // 对话页创建/更新会话后刷新列表
     this.$root.$on('omnibuddy:sessions-changed', this.loadChats)
+    // 工作空间重命名（级联更新了会话 displayName）后刷新分组
+    this.$root.$on('omnibuddy:workspaces-changed', this.loadChats)
     // 自动标题：主进程 LLM 生成新标题后实时刷新侧栏（store 事件池只写会话状态不外发，
     // 此处独立订阅；preload onEvent 返回退订函数，与 store 的订阅互不影响）
     const api = this.buddyApi()
@@ -264,6 +266,7 @@ export default {
   },
   beforeDestroy() {
     this.$root.$off('omnibuddy:sessions-changed', this.loadChats)
+    this.$root.$off('omnibuddy:workspaces-changed', this.loadChats)
     if (this._unsubTitle) {
       this._unsubTitle()
       this._unsubTitle = null

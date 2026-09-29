@@ -1,10 +1,10 @@
 <template>
-  <!-- 工作空间规则弹窗（B 方案收编）：复用 RuleEditor 编辑当前空间的 AGENTS.md
-       弹窗骨架与「导入 Skill」弹窗同款（ob-overlay / ob-dialog / ob-dialog-header） -->
-  <transition name="ob-modal">
-    <div v-if="visible" class="ob-overlay" @mousedown.self="$emit('close')">
-      <div class="ob-dialog sr-dialog">
-        <header class="ob-dialog-header">
+  <!-- 工作空间规则抽屉：复用 RuleEditor 编辑当前空间的 AGENTS.md
+       长文编辑场景 → 右侧全高抽屉（ob-drawer 体系），编辑器撑满剩余高度 -->
+  <transition name="ob-drawer">
+    <div v-if="visible" class="ob-drawer" @mousedown.self="$emit('close')">
+      <div class="ob-drawer-panel sr-panel">
+        <header class="ob-drawer-header">
           <div class="sr-head-left">
             <h3 class="ob-dialog-title">{{ spaceName }} · 空间规则</h3>
             <span v-if="hasRule" class="sr-badge ok">已配置</span>
@@ -13,18 +13,19 @@
           <svg-icon icon-class="close" class="ob-dialog-close" @click="$emit('close')" />
         </header>
 
-        <div class="sr-body">
+        <div class="ob-drawer-body sr-body">
           <rule-editor
             v-if="loaded"
             :target-key="spaceId"
             :initial-content="content"
             :placeholder="placeholder"
+            :show-preview="false"
             @saved="$emit('saved')"
           />
           <div v-else class="sr-loading"><buddy-skeleton type="rows" :count="4" /></div>
         </div>
 
-        <footer class="sr-foot">规则仅在此工作空间的对话中生效；保存后新对话生效，清空并保存即删除</footer>
+        <footer class="ob-drawer-footer sr-foot">规则仅在此工作空间的对话中生效；保存后新对话生效，清空并保存即删除</footer>
       </div>
     </div>
   </transition>
@@ -102,12 +103,10 @@ export default {
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
 
-/* 弹窗骨架（遮罩/圆角/头部/关闭按钮）来自 buddy-settings 的 ob-overlay / ob-dialog 体系，
-   此处仅补充规则编辑场景的尺寸与局部样式 */
-.sr-dialog {
-  width: min(920px, calc(100vw - 48px));
-  aspect-ratio: auto;
-  height: min(640px, calc(100vh - 48px));
+/* 抽屉骨架（遮罩/面板/头部/关闭按钮）来自 buddy-settings 的 ob-drawer 体系，
+   此处仅补充规则编辑场景的宽度与局部样式 */
+.sr-panel {
+  --ob-drawer-w: 720px;
 }
 
 .sr-head-left {
@@ -115,6 +114,7 @@ export default {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex: 1;
 
   .ob-dialog-title {
     white-space: nowrap;
@@ -144,22 +144,25 @@ export default {
   }
 }
 
+/* 编辑区：撑满抽屉 body（覆盖 ob-drawer-body 默认内边距与滚动，编辑器内部自滚） */
 .sr-body {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  padding: 0 !important;
+  overflow: hidden;
+  gap: 0;
 }
 
 .sr-loading {
   width: 100%;
+  padding: 16px 22px;
 }
 
 .sr-foot {
   flex-shrink: 0;
-  padding: 10px 18px 14px;
   font-size: 11.5px;
   color: $text-secondary;
-  border-top: 1px solid var(--border-color);
 }
 </style>
