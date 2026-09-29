@@ -63,7 +63,7 @@
           <span class="pane-title">SQL 输出</span>
         </div>
         <div class="pane-body">
-          <code-editor :value="sqlOutput" mode="sql" read-only />
+          <code-editor :model-value="sqlOutput" mode="sql" read-only />
         </div>
       </div>
     </div>

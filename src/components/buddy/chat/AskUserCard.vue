@@ -90,9 +90,9 @@ export default {
   },
   created() {
     // 交互临时态初始化：无候选选项时「其它」输入行默认展开
-    if (!Array.isArray(this.message._picked)) this.$set(this.message, '_picked', [])
+    if (!Array.isArray(this.message._picked)) this.message._picked = []
     if (typeof this.message._otherOpen !== 'boolean') {
-      this.$set(this.message, '_otherOpen', !(this.message.options && this.message.options.length))
+      this.message._otherOpen = !(this.message.options && this.message.options.length)
     }
   },
   methods: {

@@ -452,10 +452,10 @@ export default {
     },
     // 估值变化时设置闪烁方向，短暂高亮后清除
     setFlash(code, dir) {
-      this.$set(this.flashDir, code, dir)
+      this.flashDir[code] = dir
       clearTimeout(this._flashTimer)
       this._flashTimer = setTimeout(() => {
-        this.$delete(this.flashDir, code)
+        delete this.flashDir[code]
       }, 900)
     },
     numFmt(v) {
@@ -544,11 +544,11 @@ export default {
           if (prev[pos.code] !== undefined && q.estimate !== prev[pos.code]) {
             this.setFlash(pos.code, q.estimate > prev[pos.code] ? 'up' : 'down')
           }
-          this.$set(this.quotes, pos.code, q)
-          this.$set(this.errors, pos.code, '')
+          this.quotes[pos.code] = q
+          this.errors[pos.code] = ''
           this.updateTime = q.time ? '估值 ' + fmtQuoteDate(q.date) + ' ' + fmtQuoteTime(q.time) : ''
         } catch (e) {
-          this.$set(this.errors, pos.code, e.message || '获取失败')
+          this.errors[pos.code] = e.message || '获取失败'
           this.loadError = e.message || '部分基金估值获取失败'
         }
       }
@@ -686,7 +686,7 @@ export default {
         this.positions.push(entry)
       }
       if (q) {
-        this.$set(this.quotes, code, q)
+        this.quotes[code] = q
         this.updateTime = q.time ? '估值 ' + fmtQuoteDate(q.date) + ' ' + fmtQuoteTime(q.time) : ''
       }
       savePositions(this.positions)
@@ -712,7 +712,7 @@ export default {
       }).then(() => {
         this.positions.splice(i, 1)
         savePositions(this.positions)
-        this.$delete(this.quotes, pos.code)
+        delete this.quotes[pos.code]
       }).catch(() => {})
     },
 

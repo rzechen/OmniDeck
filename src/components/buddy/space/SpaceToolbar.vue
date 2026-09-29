@@ -39,7 +39,7 @@
 
     <div class="sp-toolbar">
       <el-input
-        :value="search"
+        :model-value="search"
         size="small"
         class="sp-search"
         placeholder="搜索当前目录"

@@ -398,11 +398,11 @@ export default {
       }
       // 本地同步（无 API 环境也更新，保持交互一致）
       if (pinned) {
-        this.$set(c, 'pinned', true)
-        this.$set(c, 'pinnedAt', Date.now())
+        c.pinned = true
+        c.pinnedAt = Date.now()
       } else {
-        this.$set(c, 'pinned', false)
-        this.$set(c, 'pinnedAt', 0)
+        c.pinned = false
+        c.pinnedAt = 0
       }
       this.$message.success(pinned ? '已置顶' : '已取消置顶')
     },

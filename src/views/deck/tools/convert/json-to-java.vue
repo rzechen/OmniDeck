@@ -48,7 +48,7 @@
           <span class="pane-title">Java 代码</span>
         </div>
         <div class="pane-body">
-          <code-editor :value="output" mode="text/x-java" read-only />
+          <code-editor :model-value="output" mode="text/x-java" read-only />
         </div>
       </div>
     </div>

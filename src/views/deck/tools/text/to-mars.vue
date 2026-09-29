@@ -52,7 +52,7 @@
           <span class="pane-title">输出</span>
         </div>
         <div class="pane-body">
-          <code-editor :value="output" mode="text/plain" :fold="false" read-only />
+          <code-editor :model-value="output" mode="text/plain" :fold="false" read-only />
         </div>
       </div>
     </div>

@@ -163,10 +163,10 @@ export default {
         try {
           const res = await api.workflowStatus({ runId: wf.runId, chatId: this.sessionId })
           if (res && res.ok && res.workflow) {
-            this.$set(wf, 'progress', res.workflow)
+            wf.progress = res.workflow
           } else {
             // 运行记录不存在（已清理/跨设备）：中性「已结束」态，不报错打扰
-            this.$set(wf, 'progress', { runId: wf.runId, status: 'missing', counts: {} })
+            wf.progress = { runId: wf.runId, status: 'missing', counts: {} }
           }
         } catch (e) { /* 拉取失败保持静默，卡片按缺省运行中渲染 */ }
       }

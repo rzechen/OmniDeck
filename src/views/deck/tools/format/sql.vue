@@ -68,7 +68,7 @@
           <span class="pane-title">输出结果</span>
         </div>
         <div class="pane-body">
-          <code-editor :value="formattedOutput" mode="sql" read-only />
+          <code-editor :model-value="formattedOutput" mode="sql" read-only />
         </div>
       </div>
     </div>

@@ -536,13 +536,13 @@ export default {
           const msg = this.ensureTurnMessage()
           msg.isThinking = false
           msg.content = this.cycleBase + (e.content || '')
-          this.$delete(msg, 'thinking')
+          delete msg.thinking
           if (e.usage && (e.usage.input || e.usage.output)) {
             const prev = msg.usage || { input: 0, output: 0 }
-            this.$set(msg, 'usage', {
+            msg.usage = {
               input: prev.input + (e.usage.input || 0),
               output: prev.output + (e.usage.output || 0)
-            })
+            }
           }
           this.stopThinkTimer()
           break
@@ -632,7 +632,7 @@ export default {
         case 'error': {
           this.streaming = false
           const errTurn = this.turnMsg || this.ensureTurnMessage()
-          this.$set(errTurn, 'error', e.error || '生成失败')
+          errTurn.error = e.error || '生成失败'
           this.finishTurn()
           break
         }

@@ -87,6 +87,9 @@
 // 点击整卡 / 安装 / 更新动作均通过事件上抛，业务逻辑（IPC、状态回写）保留在页面
 export default {
   name: 'MarketCard',
+  // 声明自定义事件：阻止父级 @click fallthrough 到根元素，
+  // 避免原生 click 与 $emit('click', item) 双触发（openDetail 先收到原生 Event）
+  emits: ['click', 'install', 'update'],
   props: {
     // 市场项（含 installed / installedVersion / hasUpdate 等本地状态字段）
     item: { type: Object, required: true },

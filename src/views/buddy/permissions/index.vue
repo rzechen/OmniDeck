@@ -47,7 +47,7 @@
           <div class="ob-rules-head">
             <span>规则明细</span>
             <span class="ob-rules-tip">同一工具多条通配规则按「精确 &gt; 通配」匹配；保存后新对话生效</span>
-            <el-button size="small" round icon="el-icon-plus" @click="addRow">添加规则</el-button>
+            <el-button size="small" round @click="addRow"><i class="el-icon-plus" /> 添加规则</el-button>
           </div>
 
           <div class="ob-rules-table">
@@ -77,7 +77,7 @@
                 <el-option label="每次确认" value="ask" />
                 <el-option label="禁用" value="deny" />
               </el-select>
-              <el-button size="small" type="text" class="ob-row-del" icon="el-icon-delete" @click="removeRow(i)" />
+              <el-button size="small" link class="ob-row-del" @click="removeRow(i)"><i class="el-icon-delete" /></el-button>
             </div>
             <div v-if="!rows.length" class="ob-rules-empty">暂无规则：所有操作均需确认（兜底规则）</div>
           </div>

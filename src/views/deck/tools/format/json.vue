@@ -79,7 +79,7 @@
         <div class="pane-body">
           <code-editor
             ref="outputEditor"
-            :value="formattedJson"
+            :model-value="formattedJson"
             mode="application/json"
             read-only
           />

@@ -236,10 +236,10 @@ export default {
     },
     setFlash(key, dir) {
       // 红涨绿跌闪烁（与基金页同模式）：0.9s 后清除
-      this.$set(this.flash, key, dir)
+      this.flash[key] = dir
       clearTimeout(this.flashTimers[key])
       this.flashTimers[key] = setTimeout(() => {
-        this.$delete(this.flash, key)
+        delete this.flash[key]
       }, 900)
     },
     flashClass(key) {

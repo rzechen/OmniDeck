@@ -71,7 +71,7 @@
         </div>
         <div class="pane-body">
           <code-editor
-            :value="formattedOutput"
+            :model-value="formattedOutput"
             :mode="formatType === 'yaml' ? 'yaml' : 'xml'"
             read-only
           />

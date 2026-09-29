@@ -54,7 +54,7 @@
           <span class="pane-title">输出结果</span>
         </div>
         <div class="pane-body">
-          <code-editor :value="formattedOutput" mode="css" read-only />
+          <code-editor :model-value="formattedOutput" mode="css" read-only />
         </div>
       </div>
     </div>

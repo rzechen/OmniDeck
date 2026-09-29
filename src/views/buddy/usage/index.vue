@@ -11,7 +11,7 @@
           <el-radio-button :label="7">7 天</el-radio-button>
           <el-radio-button :label="30">30 天</el-radio-button>
         </el-radio-group>
-        <el-button size="small" icon="el-icon-download" @click="exportCsv">导出 CSV</el-button>
+        <el-button size="small" @click="exportCsv"><i class="el-icon-download" /> 导出 CSV</el-button>
       </div>
     </div>
 

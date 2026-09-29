@@ -57,6 +57,8 @@ import { searchItems, toolCategories } from '@/config/tools'
 
 export default {
   name: 'SearchPalette',
+  // 声明自定义事件：内部原生 input 的 select 事件会冒泡，未声明时 @select 监听器 fallthrough 会被误触发
+  emits: ['select'],
   props: {
     // 弹框显隐（.sync）
     visible: { type: Boolean, default: false }

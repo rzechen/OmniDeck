@@ -26,7 +26,7 @@
             </div>
             <el-button
               size="small"
-              type="text"
+              link
               class="ob-cp-rollback"
               :disabled="cp.missing || rollingBack === cp.n"
               :loading="rollingBack === cp.n"

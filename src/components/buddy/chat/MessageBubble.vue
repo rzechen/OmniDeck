@@ -439,7 +439,7 @@ export default {
     // 有落盘 id 时上抛页面层持久化到主进程（重开会话仍保留）
     setFeedback(v) {
       const next = this.message.feedback === v ? '' : v
-      this.$set(this.message, 'feedback', next)
+      this.message.feedback = next
       this.$message.success(next === 'like' ? '已点赞' : next === 'dislike' ? '已点踩，感谢反馈' : '已取消')
       if (this.message.id) this.$emit('feedback', { message: this.message, value: next })
     },
@@ -1037,69 +1037,67 @@ export default {
 
 /* ===== Markdown 渲染 ===== */
 .ob-md {
-  ::v-deep {
-    p { margin: 0 0 8px; }
-    p:last-child { margin-bottom: 0; }
+  :deep(p) { margin: 0 0 8px; }
+  :deep(p:last-child) { margin-bottom: 0; }
 
-    /* 代码块容器内 pre 复位（工具条/边框/圆角由全局 .ob-code 承载；
-       本组件旧 pre 样式特异性更高，需在此覆盖） */
-    .ob-code pre {
-      margin: 0;
-      border-radius: 0;
-      background: transparent;
-    }
+  /* 代码块容器内 pre 复位（工具条/边框/圆角由全局 .ob-code 承载；
+     本组件旧 pre 样式特异性更高，需在此覆盖） */
+  :deep(.ob-code pre) {
+    margin: 0;
+    border-radius: 0;
+    background: transparent;
+  }
 
-    pre {
-      background: rgba(0, 0, 0, 0.06);
-      border-radius: 10px;
-      padding: 10px 12px;
-      overflow-x: auto;
-      margin: 8px 0;
-      font-size: 12.5px;
-      line-height: 1.6;
-
-      code {
-        background: transparent;
-        padding: 0;
-        font-family: 'SF Mono', Menlo, Consolas, monospace;
-      }
-    }
+  :deep(pre) {
+    background: rgba(0, 0, 0, 0.06);
+    border-radius: 10px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 12.5px;
+    line-height: 1.6;
 
     code {
-      background: rgba(var(--primary-color-rgb), 0.09);
-      color: var(--primary-color);
-      padding: 1px 5px;
-      border-radius: 5px;
-      font-size: 12.5px;
+      background: transparent;
+      padding: 0;
       font-family: 'SF Mono', Menlo, Consolas, monospace;
     }
+  }
 
-    ul, ol {
-      padding-left: 20px;
-      margin: 6px 0;
-    }
+  :deep(code) {
+    background: rgba(var(--primary-color-rgb), 0.09);
+    color: var(--primary-color);
+    padding: 1px 5px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+  }
 
-    blockquote {
-      margin: 8px 0;
-      padding: 4px 12px;
-      border-left: 3px solid rgba(var(--primary-color-rgb), 0.45);
-      color: var(--text-secondary);
-    }
+  :deep(ul), :deep(ol) {
+    padding-left: 20px;
+    margin: 6px 0;
+  }
 
-    /* 表格：markdown 渲染已包装为 .ob-table 容器（工具条 / 边框 / 表头背景 / 均匀列宽
-       由全局 .ob-table 承载），此处仅归零组件层旧间距避免双重叠加 */
-    .ob-table table {
-      margin: 0;
-    }
+  :deep(blockquote) {
+    margin: 8px 0;
+    padding: 4px 12px;
+    border-left: 3px solid rgba(var(--primary-color-rgb), 0.45);
+    color: var(--text-secondary);
+  }
 
-    a {
-      color: var(--primary-color);
-    }
+  /* 表格：markdown 渲染已包装为 .ob-table 容器（工具条 / 边框 / 表头背景 / 均匀列宽
+     由全局 .ob-table 承载），此处仅归零组件层旧间距避免双重叠加 */
+  :deep(.ob-table table) {
+    margin: 0;
+  }
 
-    h1, h2, h3, h4 {
-      margin: 12px 0 6px;
-      font-weight: 700;
-    }
+  :deep(a) {
+    color: var(--primary-color);
+  }
+
+  :deep(h1), :deep(h2), :deep(h3), :deep(h4) {
+    margin: 12px 0 6px;
+    font-weight: 700;
   }
 }
 </style>

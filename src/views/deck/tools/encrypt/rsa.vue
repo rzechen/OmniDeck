@@ -99,7 +99,7 @@
             <span class="pane-title">{{ action === 'encrypt' ? '密文' : '明文' }}</span>
           </div>
           <div class="pane-body">
-            <code-editor :value="outputText" mode="text/plain" :fold="false" read-only />
+            <code-editor :model-value="outputText" mode="text/plain" :fold="false" read-only />
           </div>
         </div>
       </div>

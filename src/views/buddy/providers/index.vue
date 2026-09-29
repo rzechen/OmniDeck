@@ -120,13 +120,13 @@ export default {
           target.model = values.model
           target.displayName = values.displayName
           target.apiKey = values.apiKey
-          this.$set(target, 'tier', values.tier || '')
-          this.$set(target, 'modelSeries', values.modelSeries || 'default')
-          this.$set(target, 'contextWindowInput', values.contextWindowInput != null ? values.contextWindowInput : null)
-          this.$set(target, 'contextWindowOutput', values.contextWindowOutput != null ? values.contextWindowOutput : null)
-          this.$set(target, 'toolTurns', values.toolTurns || 500)
-          this.$set(target, 'imageInput', values.imageInput !== false)
-          this.$set(target, 'thinkingMode', values.thinkingMode || 'follow')
+          target.tier = values.tier || ''
+          target.modelSeries = values.modelSeries || 'default'
+          target.contextWindowInput = values.contextWindowInput != null ? values.contextWindowInput : null
+          target.contextWindowOutput = values.contextWindowOutput != null ? values.contextWindowOutput : null
+          target.toolTurns = values.toolTurns || 500
+          target.imageInput = values.imageInput !== false
+          target.thinkingMode = values.thinkingMode || 'follow'
         }
       } else if (item) {
         this.list.push(item)
@@ -135,7 +135,7 @@ export default {
       const source = editingId ? this.list.find(x => x.id === editingId) : item
       if (source && source.tier) {
         this.list.forEach(p => {
-          if (p.id !== source.id && p.tier === source.tier) this.$set(p, 'tier', '')
+          if (p.id !== source.id && p.tier === source.tier) p.tier = ''
         })
       }
       this.persist()

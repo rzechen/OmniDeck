@@ -113,8 +113,8 @@
                 <span class="label-desc">从本地壁纸目录选择图片、GIF 或视频作为应用背景，界面自动转为半透明毛玻璃；也可从壁纸市场一键拉取到本地</span>
               </div>
               <div class="wp-controls">
-                <el-button size="small" round icon="el-icon-picture-outline" @click="pickWallpaperFiles">选择壁纸</el-button>
-                <el-button size="small" round icon="el-icon-goods" @click="openMarketDrawer">壁纸市场</el-button>
+                <el-button size="small" round @click="pickWallpaperFiles"><i class="el-icon-picture-outline" /> 选择壁纸</el-button>
+                <el-button size="small" round @click="openMarketDrawer"><i class="el-icon-goods" /> 壁纸市场</el-button>
                 <div class="segmented">
                   <div
                     v-for="opt in motionOptions"
@@ -528,7 +528,7 @@
                 <span class="label-text">立即锁定</span>
                 <span class="label-desc">手动锁定应用（需先设置应用密码），锁定后凭密码或触控 ID 解锁；快捷键 {{ formatAccelerator(shortcuts.lock) }}</span>
               </div>
-              <el-button size="small" round icon="el-icon-lock" @click="lockNow">锁定应用</el-button>
+              <el-button size="small" round @click="lockNow"><i class="el-icon-lock" /> 锁定应用</el-button>
             </div>
           </div>
 
@@ -543,8 +543,8 @@
               </div>
               <div class="lock-actions">
                 <el-dropdown v-if="historyTools.length" trigger="click" @command="clearToolHistory">
-                  <el-button size="small" round icon="el-icon-eraser" class="hist-tool-dropdown">
-                    按工具清空<i class="el-icon-arrow-down el-icon--right"></i>
+                  <el-button size="small" round class="hist-tool-dropdown">
+                    <i class="el-icon-eraser" /> 按工具清空<i class="el-icon-arrow-down el-icon--right"></i>
                   </el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
@@ -565,11 +565,10 @@
                   round
                   type="danger"
                   plain
-                  icon="el-icon-delete"
                   :loading="historyClearing"
                   :disabled="!historyTotalCount"
                   @click="clearAllHistory"
-                >清空全部历史</el-button>
+                ><i class="el-icon-delete" /> 清空全部历史</el-button>
               </div>
             </div>
 
@@ -584,11 +583,10 @@
                 round
                 type="danger"
                 plain
-                icon="el-icon-delete"
                 :loading="buddyHistoryClearing"
                 :disabled="!buddySessionCount"
                 @click="clearBuddyHistory"
-              >清空全部历史</el-button>
+              ><i class="el-icon-delete" /> 清空全部历史</el-button>
             </div>
           </div>
         </template>
@@ -607,7 +605,7 @@
                 <span class="label-text">当前版本</span>
                 <span class="label-desc">查看版本信息与更新日志</span>
               </div>
-              <el-button size="small" round icon="el-icon-info" @click="goVersion">查看版本</el-button>
+              <el-button size="small" round @click="goVersion"><i class="el-icon-info" /> 查看版本</el-button>
             </div>
 
             <!-- 问题反馈 -->
@@ -616,7 +614,7 @@
                 <span class="label-text">问题反馈</span>
                 <span class="label-desc">使用中遇到问题或有功能建议，欢迎反馈</span>
               </div>
-              <el-button size="small" round icon="el-icon-chat-dot-round" @click="goFeedback">去反馈</el-button>
+              <el-button size="small" round @click="goFeedback"><i class="el-icon-chat-dot-round" /> 去反馈</el-button>
             </div>
           </div>
         </template>
@@ -683,7 +681,7 @@
             <i class="el-icon-folder"></i>
             {{ marketDir }}
           </span>
-          <el-button size="small" round icon="el-icon-folder-opened" :disabled="wpPullActive" @click="chooseMarketDir()">更换</el-button>
+          <el-button size="small" round :disabled="wpPullActive" @click="chooseMarketDir()"><i class="el-icon-folder-opened" /> 更换</el-button>
         </div>
         <div v-if="marketMissing.length" class="wp-market-warn">未找到「{{ marketMissing.join('」「') }}」子目录</div>
 
@@ -1056,7 +1054,7 @@ export default {
         if (isVideoItem(wp)) return wp
         if (!wp._thumb && wp.blob) {
           try {
-            this.$set(wp, '_thumb', URL.createObjectURL(wp.blob))
+            wp._thumb = URL.createObjectURL(wp.blob)
           } catch (e) { /* 忽略 */ }
         }
         return wp
@@ -1692,7 +1690,7 @@ export default {
       if (!this.isVideoWp(wp)) {
         if (!wp._thumb && wp.blob) {
           try {
-            this.$set(wp, '_thumb', URL.createObjectURL(wp.blob))
+            wp._thumb = URL.createObjectURL(wp.blob)
           } catch (e) { /* 忽略 */ }
         }
         return wp._thumb || ''
@@ -1701,7 +1699,7 @@ export default {
       if (wp.coverBlob) {
         if (!wp._coverThumb) {
           try {
-            this.$set(wp, '_coverThumb', URL.createObjectURL(wp.coverBlob))
+            wp._coverThumb = URL.createObjectURL(wp.coverBlob)
           } catch (e) { /* 忽略 */ }
         }
         return wp._coverThumb || ''
@@ -1715,8 +1713,8 @@ export default {
       const tries = (this.wpThumbRetries[wp.id] || 0) + 1
       this.wpThumbRetries[wp.id] = tries
       if (tries > 1) return
-      if (wp._thumb) this.$set(wp, '_thumb', '')
-      if (wp._coverThumb) this.$set(wp, '_coverThumb', '')
+      if (wp._thumb) wp._thumb = ''
+      if (wp._coverThumb) wp._coverThumb = ''
     },
     // 总开关
     toggleWallpaper(on) {
