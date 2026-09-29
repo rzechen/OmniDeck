@@ -11,6 +11,3 @@ runtime
 *.log
 .vscode
 .idea
-# 发版脚本从外部目录覆盖合入的构建文件，禁止提交（详见 scripts/release-upload.sh）
-electron
-src/config/remote.cjs
