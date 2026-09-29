@@ -62,20 +62,16 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-/* 左侧分类栏：随滚动吸附固定（sticky）——不跟随内容下滑。
-   aside 不参与父容器 stretch（align-self:flex-start）+ 自身不定高，
-   sticky 以滚动容器 .ob-page-body 为参照吸附在其可视顶部 */
+/* 左侧分类栏：布局占满视口高度且滚动发生在右侧内容区，
+   aside 随 stretch 撑满高度 —— 滚动时保持不动（无需 sticky） */
 .ob-market-aside {
   width: 168px;
   flex-shrink: 0;
-  align-self: flex-start;
-  position: sticky;
-  top: 0;
   display: flex;
   flex-direction: column;
 }
 
-/* 卡片本体：分类较多超出视口高度时自身滚动（max-height 防止撑破 sticky） */
+/* 卡片本体：分类较多超出可用高度时自身滚动兜底 */
 .ob-market-nav {
   flex: 1;
   overflow-y: auto;

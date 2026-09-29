@@ -1,5 +1,5 @@
 <template>
-  <!-- 资源详情抽屉：徽标头 + 信息网格 + 描述（Markdown 长文）+ 标签 + 版本历史
+  <!-- 资源详情抽屉：徽标头 + 信息卡（版本/更新时间/统计）+ 描述（Markdown 长文）+ 标签
        阅读型长内容 → 右侧全高抽屉，滚动更舒展 -->
   <transition name="ob-drawer">
     <div v-if="localVisible" class="ob-drawer" @click.self="localVisible = false">
@@ -8,16 +8,22 @@
         <header class="ob-drawer-header">
           <div v-if="item" class="ob-detail-head">
             <div class="ob-item-logo" :class="'logo-' + typeOf">
-              <svg-icon :icon-class="iconOf" />
+              <img v-if="iconSrc" :src="iconSrc" class="logo-img" alt="" />
+              <svg-icon v-else :icon-class="iconOf" />
             </div>
             <div class="ob-detail-head-info">
-              <div class="ob-detail-name">{{ item.name }}</div>
+              <div class="ob-detail-name">
+                {{ item.name }}
+                <span v-if="item.verified" class="ob-verified" title="官方认证">✓</span>
+              </div>
               <div class="ob-detail-meta">
                 <span class="ob-detail-badge">{{ typeLabel }}</span>
                 <span v-if="item.categoryLabel" class="ob-detail-badge cat">
                   {{ item.categoryLabel }}
                 </span>
-                <span v-if="item.author">{{ item.author }}</span>
+                <span v-if="item.author" :title="item.authorHandle ? 'ID: ' + item.authorHandle : ''">{{ item.author }}</span>
+                <span v-if="item.verified" class="ob-detail-badge verified">官方认证</span>
+                <span v-if="item.requiresApiKey" class="ob-detail-badge key">需 API Key</span>
               </div>
             </div>
             <slot name="head-extra" :item="item"></slot>
@@ -26,8 +32,9 @@
         </header>
 
         <div v-if="item" class="ob-drawer-body ob-detail-body">
-          <!-- 信息网格：版本 / 更新时间 / 自定义第三格 -->
-          <div class="ob-detail-grid" v-if="item.version || item.updatedAt || $slots.cells">
+          <!-- 顶部信息卡：版本 / 更新时间 / 自定义格（安装状态）/ 运营统计
+               auto-fit + 1fr：任意格数都在整行内均匀分布 -->
+          <div class="ob-detail-grid" v-if="item.version || item.updatedAt || $slots.cells || hasStats">
             <div class="ob-detail-cell" v-if="item.version">
               <div class="ob-cell-label">版本</div>
               <div class="ob-cell-value">v{{ item.version }}</div>
@@ -38,6 +45,37 @@
             </div>
             <!-- 作用域插槽：向页面下发 item（页面读取 item.installed 等安装状态字段） -->
             <slot name="cells" :item="item"></slot>
+            <!-- v4 运营统计：下载 / 收藏 / 评论 / AI 评分 -->
+            <div class="ob-detail-cell" v-if="item.downloads">
+              <div class="ob-cell-label">下载</div>
+              <div class="ob-cell-value">{{ formatCount(item.downloads) }}</div>
+            </div>
+            <div class="ob-detail-cell" v-if="item.favorites">
+              <div class="ob-cell-label">收藏</div>
+              <div class="ob-cell-value">{{ formatCount(item.favorites) }}</div>
+            </div>
+            <div class="ob-detail-cell" v-if="item.comments">
+              <div class="ob-cell-label">评论</div>
+              <div class="ob-cell-value">{{ formatCount(item.comments) }}</div>
+            </div>
+            <div class="ob-detail-cell" v-if="item.aiScore">
+              <div class="ob-cell-label">AI 评分</div>
+              <div class="ob-cell-value ai"> {{ item.aiScore }}</div>
+            </div>
+          </div>
+
+          <!-- v4 AI 评分 TRACE 五维明细 -->
+          <div class="ob-detail-section" v-if="aiDimensionList.length">
+            <div class="ob-detail-section-title">AI 评估维度</div>
+            <div class="ob-ai-dims">
+              <div v-for="d in aiDimensionList" :key="d.key" class="ob-ai-dim">
+                <span class="ob-ai-dim-label">{{ d.label }}</span>
+                <div class="ob-ai-dim-bar">
+                  <div class="ob-ai-dim-fill" :style="{ width: (d.value / 5 * 100) + '%' }"></div>
+                </div>
+                <span class="ob-ai-dim-value">{{ d.value }}</span>
+              </div>
+            </div>
           </div>
 
           <!-- 描述（Markdown 渲染，SKILL.md 正文可直接呈现标题/代码块/表格） -->
@@ -51,18 +89,6 @@
             <div class="ob-detail-section-title">标签</div>
             <div class="ob-item-tags">
               <span v-for="t in item.tags" :key="t" class="ob-item-tag">{{ t }}</span>
-            </div>
-          </div>
-
-          <!-- 版本历史 -->
-          <div class="ob-detail-section" v-if="item.changelog && item.changelog.length">
-            <div class="ob-detail-section-title">版本历史</div>
-            <div class="ob-detail-changelog">
-              <div v-for="(log, i) in item.changelog" :key="i" class="ob-changelog-item">
-                <span class="ob-changelog-version">v{{ log.version }}</span>
-                <span class="ob-changelog-date" v-if="log.date">{{ formatDate(log.date) }}</span>
-                <p class="ob-changelog-note">{{ log.note }}</p>
-              </div>
             </div>
           </div>
         </div>
@@ -80,14 +106,16 @@
 
 <script>
 // 市场页与技能页共享的资源详情弹窗：
-// 徽标头 + 信息网格 + 描述（Markdown 渲染）+ 标签 + 版本历史；操作按钮经 actions slot 注入
+// 徽标头 + 信息卡 + 描述（Markdown 渲染）+ 标签；操作按钮经 actions slot 注入
+// v4 索引新增：内联图标 / 官方认证 / 运营统计 / AI 五维评分
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
 
 export default {
   name: 'ItemDetailDialog',
   props: {
     visible: { type: Boolean, default: false },
-    // { name, type, version, updatedAt, details, description, tags, changelog, author, categoryLabel }
+    // { name, type, version, updatedAt, details, description, tags, changelog, author, categoryLabel,
+    //   verified, authorHandle, downloads, favorites, comments, aiScore, aiDimensions, iconBase64, iconMime, requiresApiKey }
     item: { type: Object, default: null }
   },
   computed: {
@@ -102,6 +130,32 @@ export default {
     // 描述区 Markdown 渲染结果（纯文本亦兼容：换行保留）
     renderedDetails() {
       return renderMarkdown(this.item.details || this.item.description || '暂无详细描述')
+    },
+    // v4 图标：iconBase64 内联 data URL；旧数据回落类型图标
+    iconSrc() {
+      if (!this.item || !this.item.iconBase64) return ''
+      const mime = this.item.iconMime || 'image/png'
+      return `data:${mime};base64,${this.item.iconBase64}`
+    },
+    // v4 运营统计是否至少一项可展示
+    hasStats() {
+      const it = this.item || {}
+      return !!(it.downloads || it.favorites || it.comments || it.aiScore)
+    },
+    // TRACE 五维 → 展示列表（维度缺失时自动跳过）
+    aiDimensionList() {
+      const dims = this.item && this.item.aiDimensions
+      if (!dims) return []
+      const labels = {
+        trust: '可信度',
+        reliability: '可靠性',
+        adaptability: '适应性',
+        convention: '规范性',
+        effectiveness: '有效性'
+      }
+      return Object.keys(labels)
+        .filter(k => Number(dims[k]) > 0)
+        .map(k => ({ key: k, label: labels[k], value: Number(dims[k]) }))
     },
     typeOf() {
       const t = this.item && this.item.type
@@ -133,6 +187,13 @@ export default {
       if (isNaN(d.getTime())) return String(v)
       const pad = n => String(n).padStart(2, '0')
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    },
+    // 数量缩写：1.8 万式中文展示
+    formatCount(n) {
+      const num = Number(n) || 0
+      if (num >= 100000000) return (num / 100000000).toFixed(1).replace(/\.0$/, '') + ' 亿'
+      if (num >= 10000) return (num / 10000).toFixed(1).replace(/\.0$/, '') + ' 万'
+      return String(num)
     }
   }
 }
@@ -163,9 +224,18 @@ export default {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
 
   .svg-icon {
     font-size: 26px;
+  }
+
+  /* v4 内联图标：占满 logo 位 */
+  .logo-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
 
   &.logo-skill {
@@ -182,6 +252,22 @@ export default {
     background: linear-gradient(135deg, rgba(107, 197, 160, 0.15), rgba(70, 168, 127, 0.25));
     color: #2E8B63;
   }
+}
+
+/* 官方认证对勾（名称尾部） */
+.ob-verified {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 5px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--primary-color);
+  vertical-align: 1px;
 }
 
 .ob-detail-head-info {
@@ -217,6 +303,59 @@ export default {
     color: #2E8B63;
     background: rgba(70, 168, 127, 0.1);
   }
+
+  &.verified {
+    color: #d97706;
+    background: rgba(245, 158, 11, 0.12);
+  }
+
+  &.key {
+    color: $text-secondary;
+    background: rgba(0, 0, 0, 0.05);
+  }
+}
+
+/* v4 AI 评分 TRACE 五维进度条 */
+.ob-ai-dims {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ob-ai-dim {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  .ob-ai-dim-label {
+    width: 52px;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: $text-secondary;
+    text-align: right;
+  }
+
+  .ob-ai-dim-bar {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+  }
+
+  .ob-ai-dim-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.55), var(--primary-color));
+  }
+
+  .ob-ai-dim-value {
+    width: 24px;
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: $text-primary;
+  }
 }
 
 /* 抽屉 body 内的 detail 区块间距复位（ob-drawer-body 自带 14px 列间距，去掉区块多余 margin） */
@@ -226,9 +365,11 @@ export default {
   }
 }
 
+/* 顶部信息卡网格：auto-fit + minmax，任意格数（版本/更新时间/安装状态/统计）
+   都在一行内均匀铺满；极窄时自动换行 */
 .ob-detail-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 8px;
   margin-bottom: 18px;
 }
@@ -251,6 +392,11 @@ export default {
     font-weight: 600;
     color: $text-primary;
     word-break: break-all;
+
+    /* AI 评分：琥珀色强调 */
+    &.ai {
+      color: #d97706;
+    }
   }
 }
 
@@ -369,38 +515,6 @@ export default {
   border-radius: 4px;
   color: $text-secondary;
   background: var(--bg-hover, rgba(0, 0, 0, 0.03));
-}
-
-.ob-detail-changelog {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-.ob-changelog-item {
-  padding: 10px 12px;
-  background: var(--bg-hover, rgba(0, 0, 0, 0.03));
-  border-radius: 8px;
-
-  .ob-changelog-version {
-    display: inline-block;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--primary-color);
-    margin-right: 8px;
-  }
-
-  .ob-changelog-date {
-    font-size: 11px;
-    color: $text-secondary;
-  }
-
-  .ob-changelog-note {
-    margin: 5px 0 0 0;
-    font-size: 12px;
-    color: $text-secondary;
-    line-height: 1.6;
-  }
 }
 
 /* 底部操作区：贴抽屉 footer，去内层边框（footer 自身已与 body 分隔） */

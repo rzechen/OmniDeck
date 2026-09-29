@@ -166,6 +166,14 @@
           :disabled="!!busyId && busyId !== item.id"
           @click="uninstallFromDetail"
         >卸载</el-button>
+        <!-- v4 homepage：系统浏览器打开主页 -->
+        <el-button
+          v-if="item.homepage"
+          size="small"
+          round
+          plain
+          @click="openHome(item)"
+        >主页</el-button>
       </template>
     </item-detail-dialog>
   </div>
@@ -244,15 +252,18 @@ export default {
     },
     filteredItems() {
       const kw = this.keyword.trim().toLowerCase()
-      return this.items.filter(it => {
+      const list = this.items.filter(it => {
         if (this.typeFilter && this.marketType(it) !== this.typeFilter) return false
         if (this.categoryFilter && (it.category || '') !== this.categoryFilter) return false
         if (!kw) return true
         const hay = [it.name, it.description, it.details, (it.tags || []).join(' ')].join(' ').toLowerCase()
         return hay.includes(kw)
       })
+      // v4：按趋势分降序展示（与分组模式一致）
+      return list.sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
     },
     // 将 items 按技能、子代理、连接器进行三段式分组（用于全部模式展示，尊重二级分类筛选）
+    // 组内按 v4 trendingScore 降序（上游趋势分），缺省 0
     groupedItems() {
       const groups = [
         { type: 'skill', label: '技能 (Skills)', items: [] },
@@ -269,6 +280,7 @@ export default {
         }
       })
 
+      groups.forEach(g => g.items.sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0)))
       return groups.filter(g => g.items.length > 0)
     }
   },
@@ -377,6 +389,12 @@ export default {
       this.detailItem = { ...it, categoryLabel: it.category ? this.categoryLabel(it.category) : '' }
       this.detailVisible = true
     },
+    // v4 homepage：主进程 shell.openExternal 打开主页（系统浏览器）
+    openHome(it) {
+      const api = this.api()
+      if (!api || !it.homepage) return
+      api.openHome(it.homepage)
+    },
     uninstallFromDetail() {
       const api = this.api()
       const it = this.detailItem
@@ -481,14 +499,29 @@ export default {
   display: flex;
   gap: 20px;
   align-items: stretch;
+  /* 布局占满视口剩余高度并裁切，滚动下放至右侧内容区
+     —— 左侧边栏随布局撑满高度，滚动时保持不动 */
+  overflow: hidden;
 }
 
-/* 右侧内容区 */
+/* 右侧内容区：工具栏 + 卡片网格的唯一滚动容器 */
 .ob-market-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  padding-right: 4px;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb, rgba(0, 0, 0, 0.15));
+    border-radius: 3px;
+  }
 }
 
 /* ===== 分组板块 (Sections) ===== */
