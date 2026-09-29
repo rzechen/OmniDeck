@@ -92,8 +92,87 @@ function emit(getWindow, chatId, payload) {
   }
 }
 
+// ===== 轻量直调（自动标题 / 会话摘要共用） =====
+// 按 provider 的 apiFormat 组装端点 / 请求头 / 请求体与响应解析；
+// 仅支持 openai / openai-responses（Responses 的 output_text 提取），
+// anthropic 走 x-api-key 头 + /v1/messages。失败由调用方静默降级
+function buildDirectRequest(info, prompt, maxTokens) {
+  const baseUrl = String(info.baseUrl).replace(/\/+$/, '')
+  if (info.apiFormat === 'anthropic') {
+    return {
+      url: baseUrl + (baseUrl.endsWith('/v1') ? '/messages' : '/v1/messages'),
+      init: {
+        method: 'POST',
+        headers: Object.assign(
+          { 'content-type': 'application/json' },
+          info.apiKey
+            ? { 'x-api-key': info.apiKey, 'anthropic-version': '2023-06-01' }
+            : { 'anthropic-version': '2023-06-01' }
+        ),
+        body: JSON.stringify({
+          model: info.model,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: maxTokens,
+          stream: false
+        })
+      },
+      parse: data => String(
+        (data.content && data.content[0] && data.content[0].type === 'text' && data.content[0].text) || ''
+      ),
+      finishKey: data => (data.stop_reason || '')
+    }
+  }
+  if (info.apiFormat === 'openai-responses') {
+    return {
+      url: baseUrl + '/responses',
+      init: {
+        method: 'POST',
+        headers: Object.assign(
+          { 'content-type': 'application/json' },
+          info.apiKey ? { authorization: 'Bearer ' + info.apiKey } : {}
+        ),
+        body: JSON.stringify({
+          model: info.model,
+          input: prompt,
+          max_output_tokens: maxTokens,
+          stream: false
+        })
+      },
+      // output 数组中取全部 text 块拼接（reasoning 块跳过）
+      parse: data => String(
+        (Array.isArray(data.output) &&
+          data.output.filter(b => b.type === 'text').map(b => b.text).join('')) || ''
+      ),
+      finishKey: data => (data.status || '')
+    }
+  }
+  // 默认 OpenAI Chat Completions
+  return {
+    url: baseUrl + '/chat/completions',
+    init: {
+      method: 'POST',
+      headers: Object.assign(
+        { 'content-type': 'application/json' },
+        info.apiKey ? { authorization: 'Bearer ' + info.apiKey } : {}
+      ),
+      body: JSON.stringify({
+        model: info.model,
+        messages: [{ role: 'user', content: prompt }],
+        // 思考型模型的 reasoning 过程也计入 max_tokens，过小会导致正文为空
+        max_tokens: maxTokens,
+        temperature: 0.3,
+        stream: false
+      })
+    },
+    parse: data => String(
+      (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || ''
+    ),
+    finishKey: data => ((data.choices && data.choices[0] && data.choices[0].finish_reason) || '')
+  }
+}
+
 // ===== 自动生成会话标题 =====
-// 每轮回答完成后，用 provider 的 OpenAI 兼容端点直调、基于整个会话内容
+// 每轮回答完成后，用 provider 端点直调、基于整个会话内容
 // 重新生成简短标题（会话主题可能随后续问答演进）。仅当未被手动重命名
 // （meta.autoTitle=true）时写入；inflight 防并发（生成中的下一轮直接跳过，
 // 再下一轮问答结束会再次触发）；失败静默保留原标题，不影响对话
@@ -129,20 +208,9 @@ async function maybeAutoTitle(getWindow, chatId, assistantText) {
         '对话历史：',
         lines.join('\n')
       ].join('\n')
-      const res = await fetch(String(info.baseUrl).replace(/\/+$/, '') + '/chat/completions', {
-        method: 'POST',
-        headers: Object.assign(
-          { 'content-type': 'application/json' },
-          info.apiKey ? { authorization: 'Bearer ' + info.apiKey } : {}
-        ),
-        body: JSON.stringify({
-          model: info.model,
-          messages: [{ role: 'user', content: prompt }],
-          // 思考型模型的 reasoning 过程也计入 max_tokens，过小会导致正文为空
-          max_tokens: 1024,
-          temperature: 0.3,
-          stream: false
-        }),
+      const req = buildDirectRequest(info, prompt, 1024)
+      const res = await fetch(req.url, {
+        ...req.init,
         signal: AbortSignal.timeout(15000)
       })
       if (!res.ok) {
@@ -150,8 +218,7 @@ async function maybeAutoTitle(getWindow, chatId, assistantText) {
         return
       }
       const data = await res.json()
-      const choice = data.choices && data.choices[0]
-      const raw = String((choice && choice.message && choice.message.content) || '')
+      const raw = req.parse(data)
       const firstLine = raw.split('\n').map(t => t.trim()).filter(Boolean)[0] || ''
       const title = firstLine
         .replace(/^["'“”「『【(<（]+/, '')
@@ -159,8 +226,8 @@ async function maybeAutoTitle(getWindow, chatId, assistantText) {
         .slice(0, 30)
       if (!title) {
         // 诊断：finish_reason=length 说明 token 仍被思考耗尽；reasoning 模型可换非思考模型
-        console.warn('[omnibuddy:title] 空响应，保留原标题（finish_reason=' +
-          ((choice && choice.finish_reason) || '?') + ', completion=' + ((data.usage && data.usage.completion_tokens) || 0) + '）')
+        console.warn('[omnibuddy:title] 空响应，保留原标题（finish=' +
+          req.finishKey(data) + ', completion=' + ((data.usage && data.usage.completion_tokens) || 0) + '）')
         return
       }
       // 与原标题相同则不写盘不广播（避免每轮无谓刷新侧栏/页签）
@@ -262,20 +329,9 @@ async function writeExitSummary(chatId) {
         lines.join('\n'),
         '</conversation>'
       ].join('\n')
-      const res = await fetch(String(info.baseUrl).replace(/\/+$/, '') + '/chat/completions', {
-        method: 'POST',
-        headers: Object.assign(
-          { 'content-type': 'application/json' },
-          info.apiKey ? { authorization: 'Bearer ' + info.apiKey } : {}
-        ),
-        body: JSON.stringify({
-          model: info.model,
-          messages: [{ role: 'user', content: prompt }],
-          // 思考型模型的 reasoning 过程也计入 max_tokens，过小会导致正文为空
-          max_tokens: 2048,
-          temperature: 0.2,
-          stream: false
-        }),
+      const req = buildDirectRequest(info, prompt, 2048)
+      const res = await fetch(req.url, {
+        ...req.init,
         signal: AbortSignal.timeout(20000)
       })
       if (!res.ok) {
@@ -283,11 +339,10 @@ async function writeExitSummary(chatId) {
         return
       }
       const data = await res.json()
-      const choice = data.choices && data.choices[0]
-      const summary = String((choice && choice.message && choice.message.content) || '').trim()
+      const summary = req.parse(data).trim()
       if (!summary) {
-        console.warn('[omnibuddy:memory] 摘要空响应（finish_reason=' +
-          ((choice && choice.finish_reason) || '?') + ', completion=' + ((data.usage && data.usage.completion_tokens) || 0) + '）')
+        console.warn('[omnibuddy:memory] 摘要空响应（finish=' +
+          req.finishKey(data) + ', completion=' + ((data.usage && data.usage.completion_tokens) || 0) + '）')
         return
       }
       if (isSummaryEmpty(summary)) return
@@ -881,7 +936,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
       return { ok: false, error: '当前会话正在回复中' }
     }
     if (!provider || !provider.baseUrl || !provider.model) {
-      return { ok: false, error: '未配置模型供应商，请先在设置页新建供应商' }
+      return { ok: false, error: '未配置模型，请先在模型管理页添加模型' }
     }
     if (!workspaceId) {
       return { ok: false, error: '请先选择工作空间' }

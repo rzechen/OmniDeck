@@ -109,14 +109,37 @@ function init(agentDir) {
   setupWorkflowsExtension()
 }
 
-// ===== 模型 / Provider（OpenAI 兼容） =====
+// ===== 模型 / Provider（OpenAI 兼容 / OpenAI Responses / Anthropic） =====
+// 表单 apiFormat → pi-ai KnownApi 映射
+function apiOf(p) {
+  if (p.apiFormat === 'anthropic') return 'anthropic-messages'
+  if (p.apiFormat === 'openai-responses') return 'openai-responses'
+  return 'openai-completions'
+}
+
+// 表单思考模式 → SDK ThinkingLevel 映射（follow 跟随模型默认 / on 显式开启 / off 关闭）
+function thinkingLevelOf(p) {
+  if (p && p.thinkingMode === 'off') return 'off'
+  if (p && p.thinkingMode === 'on') return 'high'
+  return 'medium'
+}
+
 function providerKeyOf(p) {
-  // 重建 key 含档位映射：档位调整（增删改）同样需要重建运行时注册专属 provider
+  // 重建 key 含档位映射与模型高级配置：任一变化都需要重建运行时
   const tiers = tiersOf(p)
   const tierSig = WORKFLOW_TIERS.filter(t => tiers[t])
     .map(t => t + '=' + [tiers[t].baseUrl, tiers[t].model, tiers[t].apiKey || ''].join('~'))
     .join('|')
-  return [p.baseUrl, p.model, p.apiKey || '', tierSig].join('|')
+  const advSig = [
+    p.apiFormat || 'openai',
+    p.modelSeries || 'default',
+    p.contextWindowInput || '',
+    p.contextWindowOutput || '',
+    p.toolTurns || '',
+    p.imageInput === false ? '0' : '1',
+    p.thinkingMode || 'follow'
+  ].join('~')
+  return [p.baseUrl, p.model, p.apiKey || '', tierSig, advSig].join('|')
 }
 
 function modelConfig(p) {
@@ -124,13 +147,14 @@ function modelConfig(p) {
     id: p.model,
     name: p.model,
     // 开启推理：模型才能产出 thinking 内容块（extended thinking）
-    reasoning: true,
-    input: ['text'],
+    reasoning: p.thinkingMode !== 'off',
+    input: p.imageInput === false ? ['text'] : ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000,
+    // 上下文输入上限：留空使用推荐值（128k）
+    contextWindow: p.contextWindowInput || 128000,
     // 思考模型的 thinking 预算（如 32768）占用输出额度，maxTokens 必须大于预算，
     // 否则兼容端点报 400: max_completion_tokens must be greater than thinking_budget
-    maxTokens: 65536,
+    maxTokens: p.contextWindowOutput || 65536,
     compat: {
       supportsDeveloperRole: false,
       // 不主动发送 reasoning_effort：各家兼容端点对该参数的映射不一（有的映射为
@@ -155,7 +179,7 @@ function writeModelsJson(p) {
   providers[PROVIDER_ID] = {
     baseUrl: p.baseUrl,
     apiKey: p.apiKey || '',
-    api: 'openai-completions',
+    api: apiOf(p),
     models: [modelConfig(p)]
   }
   // 深度研究（P3）：档位专属 provider 同步落盘（子进程场景可读）
@@ -166,7 +190,7 @@ function writeModelsJson(p) {
     providers[tierProviderId(tier)] = {
       baseUrl: c.baseUrl,
       apiKey: c.apiKey || '',
-      api: 'openai-completions',
+      api: apiOf(c),
       models: [modelConfig({ model: c.model })]
     }
   }
@@ -195,7 +219,12 @@ function writeModelTiers(p) {
 async function ensureRuntime(provider) {
   const key = providerKeyOf(provider)
   // provider 快照无论如何都刷新（轻量直调取最新配置；重建运行时仍按 key 判定）
-  state.provider = { baseUrl: provider.baseUrl, apiKey: provider.apiKey || '', model: provider.model }
+  state.provider = {
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey || '',
+    model: provider.model,
+    apiFormat: provider.apiFormat || 'openai'
+  }
   if (state.modelRuntime && state.providerKey === key) return
   console.log('[omnibuddy:pi] runtime provider ->', provider.baseUrl, 'model=' + provider.model)
   const pi = await loadPi()
@@ -207,7 +236,7 @@ async function ensureRuntime(provider) {
     name: provider.name || 'OmniBuddy',
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey || '',
-    api: 'openai-completions',
+    api: apiOf(provider),
     models: [modelConfig(provider)]
   })
   if (provider.apiKey) {
@@ -223,7 +252,7 @@ async function ensureRuntime(provider) {
       name: (provider.name || 'OmniBuddy') + ' · ' + TIER_LABELS[tier],
       baseUrl: c.baseUrl,
       apiKey: c.apiKey || '',
-      api: 'openai-completions',
+      api: apiOf(c),
       models: [modelConfig({ model: c.model })]
     })
     if (c.apiKey) {
@@ -714,7 +743,8 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     sessionManager,
     settingsManager,
     // 深度思考档位：reasoning 模型据此产出 thinking 事件
-    thinkingLevel: 'medium',
+    // （表单思考模式：follow 跟随模型默认 / on 显式开启 / off 关闭）
+    thinkingLevel: thinkingLevelOf(provider),
     // 联网开关关闭时屏蔽 pi-web-access 的 web 工具（excludeTools 黑名单机制，
     // 不能用白名单以免过滤掉 MCP / skills / ask_user 等扩展工具）；
     // 名单从 capabilities.js 统一目录派生（含 get_search_content）

@@ -29,7 +29,7 @@ const routes = [
         path: 'providers',
         name: 'OmniBuddyProviders',
         component: () => import('@/views/buddy/providers/index.vue'),
-        meta: { title: '模型供应商' }
+        meta: { title: '模型管理' }
       },
       {
         path: 'mcp',

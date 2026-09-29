@@ -4,7 +4,7 @@
     <header class="ob-hero">
       <div class="ob-hero-content">
         <div class="ob-hero-title-group">
-          <h2 class="ob-section-title">模型供应商</h2>
+          <h2 class="ob-section-title">模型管理</h2>
           <span class="ob-hero-badge" v-if="list.length">{{ list.length }} 个模型</span>
         </div>
         <p class="ob-section-desc">配置 OmniBuddy 的模型接入，全部本地保存不上云</p>
@@ -14,9 +14,9 @@
         round
         type="primary"
         class="ob-hero-btn"
-        title="新建供应商"
+        title="新建模型"
         @click="openCreate"
-      ><svg-icon icon-class="plus" class="ob-btn-svg" /><span class="ob-btn-text">新建供应商</span></el-button>
+      ><svg-icon icon-class="plus" class="ob-btn-svg" /><span class="ob-btn-text">新建模型</span></el-button>
     </header>
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
@@ -26,14 +26,14 @@
         <div class="ob-empty-icon">
           <svg-icon icon-class="llm" />
         </div>
-        <div class="ob-empty-title">暂无模型供应商</div>
-        <div class="ob-empty-desc">新建一个供应商后，即可在对话中选择对应模型</div>
+        <div class="ob-empty-title">暂无模型</div>
+        <div class="ob-empty-desc">添加一个模型后，即可在对话中选择使用</div>
         <el-button
           size="small"
           round
           type="primary"
           @click="openCreate"
-        ><svg-icon icon-class="plus" class="ob-btn-svg" />新建供应商</el-button>
+        ><svg-icon icon-class="plus" class="ob-btn-svg" />新建模型</el-button>
       </div>
 
       <!-- 供应商卡片网格 -->
@@ -61,8 +61,8 @@
 </template>
 
 <script>
-// OmniBuddy 模型供应商页：列表管理（新建/编辑/删除/设默认）
-// 所有供应商统一走 OpenAI / Anthropic 接口规范，保存前经真实请求测试连接
+// OmniBuddy 模型管理页：列表管理（新建/编辑/删除/设默认）
+// 所有模型统一走 OpenAI / Anthropic 接口规范，保存前经真实请求测试连接
 // 卡片与新建/编辑弹窗已拆分至 ./components/（ProviderCard / ProviderFormDialog）
 import { getItem, setItem } from '@/utils/db'
 import ProviderCard from './components/ProviderCard.vue'
@@ -121,6 +121,12 @@ export default {
           target.displayName = values.displayName
           target.apiKey = values.apiKey
           this.$set(target, 'tier', values.tier || '')
+          this.$set(target, 'modelSeries', values.modelSeries || 'default')
+          this.$set(target, 'contextWindowInput', values.contextWindowInput != null ? values.contextWindowInput : null)
+          this.$set(target, 'contextWindowOutput', values.contextWindowOutput != null ? values.contextWindowOutput : null)
+          this.$set(target, 'toolTurns', values.toolTurns || 500)
+          this.$set(target, 'imageInput', values.imageInput !== false)
+          this.$set(target, 'thinkingMode', values.thinkingMode || 'follow')
         }
       } else if (item) {
         this.list.push(item)
@@ -143,7 +149,7 @@ export default {
     },
     // 删除（带确认；删除默认项后自动指定新的默认）
     removeProvider(p) {
-      this.$confirm('确定删除供应商「' + p.name + '」吗？', '删除供应商', {
+      this.$confirm('确定删除模型「' + p.name + '」吗？', '删除模型', {
         confirmButtonText: '删除',
         cancelButtonText: '取消',
         type: 'warning'

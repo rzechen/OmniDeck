@@ -153,7 +153,7 @@
                 panel-title="模型"
                 :items="providerItems"
                 empty-title="暂无可用模型"
-                empty-desc="请先在设置中添加模型供应商"
+                empty-desc="请先在模型管理中添加模型"
                 @toggle="toggleSelect('provider')"
                 @select="onSelectProvider"
               />

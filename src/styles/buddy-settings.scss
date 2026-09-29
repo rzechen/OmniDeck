@@ -1,4 +1,4 @@
-/* OmniBuddy 管理类页面通用样式（模型供应商 / MCP 服务 / Skills 管理）
+/* OmniBuddy 管理类页面通用样式（模型管理 / MCP 服务 / Skills 管理）
    由各页面 scoped style @import 使用 */
 
 /* ===== 顶部 Hero 头卡（市场页同款：极简标题 + 数量徽标 + 描述 + 右侧操作） =====
@@ -445,6 +445,12 @@
     color: #0B7A61;
     background: rgba(16, 163, 127, 0.1);
     border: 1px solid rgba(16, 163, 127, 0.3);
+  }
+
+  &.fmt-openai-responses {
+    color: #6D28D9;
+    background: rgba(124, 92, 246, 0.1);
+    border: 1px solid rgba(124, 92, 246, 0.32);
   }
 
   &.fmt-anthropic {
