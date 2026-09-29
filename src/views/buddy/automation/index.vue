@@ -142,7 +142,7 @@
                 <el-input
                   v-model="wizard.prompt"
                   type="textarea"
-                  :rows="8"
+                  :rows="12"
                   placeholder="描述希望助手自动完成什么，可按场景模板修改"
                   @input="onPromptInput"
                 />
@@ -184,12 +184,40 @@
               </div>
               <div class="ob-auto-field">
                 <label class="ob-auto-label">执行时间</label>
-                <!-- mac 风格双列滚轮选择（小时 + 5 分钟粒度），无需键入 -->
-                <time-wheel v-model="wizard.time" />
+                <div class="ob-auto-time-mode">
+                  <el-radio-group v-model="wizard.timeMode">
+                    <el-radio-button label="fixed">固定时间</el-radio-button>
+                    <el-radio-button label="random">范围随机</el-radio-button>
+                  </el-radio-group>
+                  <!-- Element TimePicker：分钟步长 1 -->
+                  <el-time-picker
+                    v-if="wizard.timeMode === 'fixed'"
+                    v-model="wizard.time"
+                    format="HH:mm"
+                    value-format="HH:mm"
+                    placeholder="选择时间"
+                    :clearable="false"
+                  />
+                  <el-time-picker
+                    v-else
+                    v-model="wizard.timeRange"
+                    is-range
+                    format="HH:mm"
+                    value-format="HH:mm"
+                    range-separator="至"
+                    start-placeholder="最早时间"
+                    end-placeholder="最晚时间"
+                    :clearable="false"
+                    class="ob-auto-time-range"
+                  />
+                </div>
+                <div v-if="wizard.timeMode === 'random'" class="ob-auto-tip">
+                  每个周期将在该范围内随机取一个时间执行，避免固定时间点被识别
+                </div>
               </div>
               <div class="ob-auto-summary">
                 <svg-icon icon-class="clock" />
-                将于 <b>{{ previewSchedule() }}</b> 首次自动执行（此后{{ scheduleText({ type: wizard.scheduleType, weekday: wizard.weekday, time: wizard.time }) }}循环）
+                将于 <b>{{ previewSchedule() }}</b> 首次自动执行（此后{{ scheduleText({ type: wizard.scheduleType, weekday: wizard.weekday, mode: wizard.timeMode, time: wizard.time, timeStart: wizard.timeRange[0], timeEnd: wizard.timeRange[1] }) }}循环）
               </div>
             </div>
           </div>
@@ -216,7 +244,6 @@
 // 运行/结束经 omnibuddy:event（automation:run / automation:done）实时刷新
 import { buddyApi, buddyApiSection } from '@/utils/buddy-api'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
-import TimeWheel from './components/TimeWheel.vue'
 
 // 场景定义：图标 / 描述 / 默认周期 / 指令模板（topic 注入）
 const SCENARIOS = [
@@ -271,7 +298,7 @@ const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五
 
 export default {
   name: 'OmniBuddyAutomation',
-  components: { BuddySkeleton, TimeWheel },
+  components: { BuddySkeleton },
   data() {
     return {
       loading: false,
@@ -294,7 +321,10 @@ export default {
         notify: true,
         scheduleType: 'daily',
         weekday: 1,
+        // 执行时间：fixed 固定点 / random 范围内随机（防固定时间被识别）
+        timeMode: 'fixed',
         time: '09:00',
+        timeRange: ['09:00', '10:00'],
         saving: false,
         errName: '',
         errTopic: '',
@@ -349,13 +379,16 @@ export default {
     scenarioOf(t) {
       return this.scenarios.find(s => s.key === t.scenario) || this.scenarios[this.scenarios.length - 1]
     },
-    // 周期人话化：每天 09:00 / 每周一 09:00
+    // 周期人话化：每天 09:00 / 每周一 09:00 / 每天 09:00 ~ 10:00 随机
     scheduleText(s) {
       if (!s) return ''
-      const time = s.time || '09:00'
-      return s.type === 'weekly'
-        ? '每' + (WEEKDAY_NAMES[s.weekday || 0] || '周一') + ' ' + time
-        : '每天 ' + time
+      const base = s.type === 'weekly'
+        ? '每' + (WEEKDAY_NAMES[s.weekday || 0] || '周一') + ' '
+        : '每天 '
+      if (s.mode === 'random') {
+        return base + (s.timeStart || '09:00') + ' ~ ' + (s.timeEnd || '10:00') + ' 随机'
+      }
+      return base + (s.time || '09:00')
     },
     // 下次执行：今天/明天 HH:mm，更远给日期
     nextText(ts) {
@@ -438,6 +471,7 @@ export default {
     openEdit(t) {
       this.resetWizard()
       const s = this.scenarioOf(t)
+      const sch = t.schedule || {}
       Object.assign(this.wizard, {
         editing: true,
         editId: t.id,
@@ -447,9 +481,11 @@ export default {
         promptDirty: true,
         workspaceId: t.workspaceId,
         notify: t.notify !== false,
-        scheduleType: t.schedule ? t.schedule.type : 'daily',
-        weekday: t.schedule && Number.isInteger(t.schedule.weekday) ? t.schedule.weekday : 1,
-        time: (t.schedule && t.schedule.time) || '09:00',
+        scheduleType: sch.type === 'weekly' ? 'weekly' : 'daily',
+        weekday: Number.isInteger(sch.weekday) ? sch.weekday : 1,
+        timeMode: sch.mode === 'random' ? 'random' : 'fixed',
+        time: sch.time || '09:00',
+        timeRange: sch.timeStart && sch.timeEnd ? [sch.timeStart, sch.timeEnd] : ['09:00', '10:00'],
         step: 1
       })
       // 场景默认名不回填主题（自定义指令已就位，主题仅为模板生成辅助）
@@ -473,7 +509,9 @@ export default {
         notify: true,
         scheduleType: 'daily',
         weekday: 1,
+        timeMode: 'fixed',
         time: '09:00',
+        timeRange: ['09:00', '10:00'],
         saving: false,
         errName: '',
         errTopic: '',
@@ -530,31 +568,44 @@ export default {
       this.wizard.step++
     },
     previewSchedule() {
-      // 首次执行：下一次到达所选时间点（今天已过则顺延）
-      const [h, m] = (this.wizard.time || '09:00').split(':').map(Number)
+      const w = this.wizard
+      const rand = w.timeMode === 'random'
+      // 首次执行：随机模式以范围「最晚时间」判定日期（当天已过最晚时间才顺延）
+      const anchor = rand ? (w.timeRange && w.timeRange[1]) : w.time
+      const [h, m] = String(anchor || '09:00').split(':').map(Number)
       const d = new Date()
       d.setHours(h || 0, m || 0, 0, 0)
-      if (this.wizard.scheduleType === 'weekly') {
-        let delta = ((this.wizard.weekday || 0) - d.getDay() + 7) % 7
+      if (w.scheduleType === 'weekly') {
+        let delta = ((w.weekday || 0) - d.getDay() + 7) % 7
         if (delta === 0 && d.getTime() <= Date.now()) delta = 7
         d.setDate(d.getDate() + delta)
       } else if (d.getTime() <= Date.now()) {
         d.setDate(d.getDate() + 1)
       }
-      const pad = n => String(n).padStart(2, '0')
-      return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+      const datePart = (d.getMonth() + 1) + '月' + d.getDate() + '日'
+      return rand
+        ? datePart + ' ' + w.timeRange[0] + ' ~ ' + w.timeRange[1] + ' 间随机'
+        : datePart + ' ' + (w.time || '09:00')
     },
     async saveTask() {
       if (!this.validateContent()) {
         this.wizard.step = 1
         return
       }
-      // 时间校验：原生 time 输入清空后为空串，拒绝保存
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(this.wizard.time || '')) {
+      // 时间校验：固定模式拒绝空串；随机模式要求两端有效且开始早于结束
+      const w = this.wizard
+      const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+      if (w.timeMode === 'random') {
+        const rs = (w.timeRange && w.timeRange[0]) || ''
+        const re = (w.timeRange && w.timeRange[1]) || ''
+        if (!TIME_RE.test(rs) || !TIME_RE.test(re) || rs >= re) {
+          this.$message.warning('请设置有效的随机时间范围（最早时间需早于最晚时间）')
+          return
+        }
+      } else if (!TIME_RE.test(w.time || '')) {
         this.$message.warning('请设置有效的执行时间')
         return
       }
-      const w = this.wizard
       const a = this.autoApi()
       if (!a) return
       const payload = {
@@ -563,7 +614,9 @@ export default {
         prompt: w.prompt.trim(),
         workspaceId: w.workspaceId,
         notify: w.notify,
-        schedule: { type: w.scheduleType, time: w.time, weekday: w.weekday }
+        schedule: w.timeMode === 'random'
+          ? { type: w.scheduleType, weekday: w.weekday, mode: 'random', timeStart: w.timeRange[0], timeEnd: w.timeRange[1] }
+          : { type: w.scheduleType, weekday: w.weekday, time: w.time }
       }
       w.saving = true
       try {
@@ -880,6 +933,24 @@ export default {
   font-size: 12.5px;
   font-weight: 600;
   color: $text-primary;
+}
+
+// 执行时间：模式切换 + 时间选择器同行排布
+.ob-auto-time-mode {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ob-auto-time-range {
+  width: 320px;
+}
+
+.ob-auto-tip {
+  margin: 6px 0 2px;
+  font-size: 11.5px;
+  color: $text-secondary;
 }
 
 .ob-req {

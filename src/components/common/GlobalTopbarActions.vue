@@ -3,7 +3,15 @@
        两视图（Deck/Buddy）页签行尾部同位复用 -->
   <div class="global-topbar-actions">
     <div
-      class="gta-gear"
+      class="gta-btn"
+      title="刷新页面"
+      @click="reloadPage"
+    >
+      <svg-icon icon-class="refresh-left" class="gta-icon" :class="{ spinning: reloading }" />
+    </div>
+
+    <div
+      class="gta-btn"
       :class="{ active: isActive }"
       title="设置"
       @click="goSettings"
@@ -33,7 +41,9 @@ export default {
     return {
       // Windows 无边框窗口控制（macOS 走系统红绿灯）
       isWindows: !!(window.electronAPI && window.electronAPI.platform === 'win32'),
-      winMaximized: false
+      winMaximized: false,
+      // 刷新按钮旋转动画状态（重载前短暂旋转反馈）
+      reloading: false
     }
   },
   computed: {
@@ -60,6 +70,12 @@ export default {
     if (this.offMaximized) this.offMaximized()
   },
   methods: {
+    // 刷新当前页面（重载渲染进程，与设置页「重载界面」一致）
+    reloadPage() {
+      if (this.reloading) return
+      this.reloading = true
+      setTimeout(() => location.reload(), 200)
+    },
     goSettings() {
       const name = this.isBuddy ? 'OmniBuddySettings' : 'Settings'
       if (this.$route.name !== name) {
@@ -84,10 +100,12 @@ export default {
 .global-topbar-actions {
   display: inline-flex;
   align-items: center;
+  gap: 2px;
   -webkit-app-region: no-drag;
 }
 
-.gta-gear {
+/* 图标按钮（刷新 / 设置）通用样式 */
+.gta-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -103,6 +121,11 @@ export default {
     height: 16px;
   }
 
+  /* 刷新点击：旋转一圈反馈（重载即中断，动画仅作瞬时动效） */
+  .gta-icon.spinning {
+    animation: gta-spin 0.6s linear infinite;
+  }
+
   &:hover {
     background: var(--nav-hover-bg, rgba(128, 128, 128, 0.12));
     color: var(--text-primary, #333);
@@ -111,6 +134,12 @@ export default {
   &.active {
     color: var(--primary-color);
     background: rgba(var(--primary-color-rgb), 0.12);
+  }
+}
+
+@keyframes gta-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
