@@ -171,8 +171,9 @@ function memoryTools() {
 // 权限策略可用的特殊面（非单一工具）：跨工具路径面 / 外部目录 / MCP / 技能 / 兜底
 const SPECIAL_SURFACES = [
   { name: 'path', label: '路径面（跨工具）', description: '对 read/bash 等工具访问的文件路径统一设规则，如 *.env。' },
-  { name: 'external_directory', label: '外部目录', description: '访问当前工作空间之外的目录（读与写）。' },
-  { name: 'external_directory_read', label: '外部目录（只读）', description: '仅控制读取工作空间之外的目录；写入仍走「外部目录」面。' },
+  { name: 'external_directory', label: '外部目录', description: '访问当前工作空间之外的目录（方向不明时读写一并管控）。' },
+  { name: 'external_directory_read', label: '外部目录（只读）', description: '仅控制读取工作空间之外的目录；写入走「外部目录（只写）」面。' },
+  { name: 'external_directory_write', label: '外部目录（只写）', description: '仅控制写入工作空间之外的目录；读取走「外部目录（只读）」面。' },
   { name: 'mcp', label: '连接器（MCP）', description: '按连接器工具匹配，如 mcp__服务器名__工具名。' },
   { name: 'skill', label: '技能', description: '技能激活与输入工具。' },
   { name: '*', label: '所有操作（兜底）', description: '未命中其他规则的操作按此规则处理。' }

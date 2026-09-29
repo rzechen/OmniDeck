@@ -112,10 +112,17 @@ function defaultConfig(agentDir) {
         mcp: { '*': 'ask' },
         skill: { '*': 'ask' },
         // agentDir 放行须排在 '*' 之后（last-match-wins，后写的具体 pattern 生效）
+        // 外部目录三面（族 / _read / _write）默认均逐次确认（fail-safe）：
+        // pi 权限系统按效果证明方向（ADR 0013）——write 工具写工作区外走
+        // _write 面、只读工具读走 _read 面、bash 等方向不明落裸族名。
+        // 显式 _write 面必须镜像族面的 agentDir 托管放行：显式方向键排在
+        // 裸键糖展开条目之后（后写胜出），若只写 '*' 兜底 ask 会压过糖展开
+        // 的 agentDir allow，playwright 产物等应用自管写入将被逐次打断
         external_directory: Object.assign({ '*': 'ask' }, agentDirAllowRules(agentDir)),
+        external_directory_write: Object.assign({ '*': 'ask' }, agentDirAllowRules(agentDir)),
         // 应用数据根只读放行：显式 external_directory_read 条目在裸键糖展开的
         // 条目之后（后写胜出），可越过 external_directory 的 '*' 兜底 ask
-        external_directory_read: baseDirReadAllowRules(agentDir),
+        external_directory_read: Object.assign({ '*': 'ask' }, baseDirReadAllowRules(agentDir)),
         // 跨工具路径面：密钥与本地凭据文件一律拒绝（含 bash cat 场景）
         path: {
           '*': 'allow',
@@ -140,6 +147,7 @@ function defaultConfig(agentDir) {
 function managedSurfaces(agentDir) {
   return [
     { surface: 'external_directory', rules: agentDirAllowRules(agentDir) },
+    { surface: 'external_directory_write', rules: agentDirAllowRules(agentDir) },
     { surface: 'external_directory_read', rules: baseDirReadAllowRules(agentDir) }
   ]
 }

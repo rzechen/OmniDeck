@@ -1364,7 +1364,15 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   })
 
   // 更新工作空间展示名（任务列表分组与关联弹窗回显以此为准）
-  ipcMain.handle('omnibuddy:workspaces:rename', (_e, payload) => workspaces.rename(payload.id, payload.name))
+  // 级联：同步刷新所有绑定该空间的会话元数据 displayName（列表分组/会话池快照随读随新）
+  ipcMain.handle('omnibuddy:workspaces:rename', (_e, payload) => {
+    const r = workspaces.rename(payload.id, payload.name)
+    if (!r.ok) return r
+    for (const meta of sessions.listSessions()) {
+      if (meta.workspaceId === payload.id) sessions.setWorkspace(meta.id, payload.id, meta.workspaceDir, payload.name)
+    }
+    return r
+  })
 
   // ===== 空间文件管理（网盘风格）=====
   ipcMain.handle('omnibuddy:files:list', (_e, dir) => files.list(dir))
