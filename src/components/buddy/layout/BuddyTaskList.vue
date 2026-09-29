@@ -58,7 +58,7 @@
           <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
           <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
           <span class="buddy-chat-actions" @click.stop>
-            <!-- 置顶：已置顶时常亮显示（hover 外也可见），未置顶时随行 hover 浮现 -->
+            <!-- 置顶：已置顶时常亮显示（hover 外也可见，颜色不变），未置顶时随行 hover 浮现 -->
             <svg-icon
               icon-class="pin"
               class="ob-pin"
@@ -425,10 +425,9 @@ export default {
   opacity: 1;
 }
 
-/* 已置顶：置顶钮常亮（hover 区外也可见，主色提示状态） */
+/* 已置顶：置顶钮常亮（hover 区外也可见），颜色与普通图标一致不高亮 */
 .buddy-chat .ob-pin.pinned {
   opacity: 1;
-  color: var(--primary-color);
 }
 
 /* ===== 实时状态标记 ===== */
