@@ -205,7 +205,7 @@ print(next((a['id'] for a in assets if a['name'] == '$name'), ''))" 2>/dev/null)
     if [ "$code" = "201" ]; then
       echo "  上传响应: $code"
     else
-      echo "  ✗ 上传失败（$code）：$(head -c 200 /tmp/gh-upload-resp.json)"
+      echo "  ✗ 上传失败（${code}）：$(head -c 200 /tmp/gh-upload-resp.json)"
       fail=$((fail + 1))
     fi
   done
