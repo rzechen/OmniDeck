@@ -365,11 +365,10 @@ export default {
   }
 }
 
-/* 顶部信息卡网格：auto-fit + minmax，任意格数（版本/更新时间/安装状态/统计）
-   都在一行内均匀铺满；极窄时自动换行 */
+/* 顶部信息卡网格：固定一行三列，多余格子整行换行排布 */
 .ob-detail-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 18px;
 }
