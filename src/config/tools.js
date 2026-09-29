@@ -68,8 +68,8 @@ const toolCategories = [
   {
     name: 'Encrypt',
     path: '/tools/encrypt',
-    title: '加密',
-    desc: '提供随机密码生成、URL 编解码、多种哈希算法计算、Base 系列编码，以及 AES、DES、RSA 等对称与非对称加解密能力，保障数据安全',
+    title: '加解密',
+    desc: '提供随机密码生成、URL 编解码、多种哈希算法计算、Base 系列编码，以及 AES、DES、RSA、国密 SM4 等对称与非对称加解密能力，保障数据安全',
     iconSvg: 'encrypt',
     color: '#FA8C16',
     children: [
@@ -78,7 +78,8 @@ const toolCategories = [
       { name: 'Hash 计算', desc: '支持 MD5、SHA1、SHA256、SHA3 等多种哈希算法', path: '/tools/encrypt/hash', icon: 'hash' },
       { name: 'Base 编码', desc: 'Base64 和 Base32 编码与解码，兼容中文 Unicode', path: '/tools/encrypt/base', icon: 'arrows' },
       { name: 'AES/DES 加解密', desc: '对称加密算法加解密，支持 ECB/CBC 模式', path: '/tools/encrypt/aes-des', icon: 'lock' },
-      { name: 'RSA 加解密', desc: 'RSA 签名与加密，支持多位密钥对生成', path: '/tools/encrypt/rsa', icon: 'shield' }
+      { name: 'RSA 加解密', desc: 'RSA 签名与加密，支持多位密钥对生成', path: '/tools/encrypt/rsa', icon: 'shield' },
+      { name: 'SM4 加解密', desc: '国密 SM4/ECB/PKCS7，SHA1PRNG 种子派生密钥', path: '/tools/encrypt/sm4', icon: 'lock' }
     ]
   },
   {

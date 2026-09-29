@@ -20,6 +20,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# electron / electron-builder 工具链走 npmmirror 镜像（默认源国内常 TLS 断连）
+export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+export ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
+
 usage() {
   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,2\}//' | head -25
   exit 1

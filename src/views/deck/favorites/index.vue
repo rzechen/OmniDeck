@@ -1196,7 +1196,8 @@ export default {
   padding: 7px 10px 7px 12px;
   background: $card-bg;
   border-radius: $radius-base;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
+  box-shadow: $shadow-sm;
   cursor: pointer;
   min-width: 0;
   transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1205,7 +1206,7 @@ export default {
   &:hover {
     transform: translateY(-2px);
     box-shadow: $shadow-base;
-    border-color: rgba(var(--primary-color-rgb), 0.2);
+    border-color: rgba(var(--primary-color-rgb), 0.35);
   }
 
   &:active {

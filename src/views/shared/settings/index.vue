@@ -1825,7 +1825,16 @@ export default {
           const res = await scanLocalWallpaperDir(this.marketDir)
           this.applyScanResult(res, true)
         } catch (e) {
-          this.$message({ message: e.message || '目录扫描失败', type: 'error' })
+          // 目录已失效（被删除/移动/无法访问）：清除记录并打开抽屉空态，
+          // 用户可经「从市场拉取」流程重新选择目录，避免打不开市场无法重新关联
+          this.marketDir = ''
+          saveWallpaperDir('')
+          this.marketRaw = []
+          this.marketItems = []
+          this.marketMissing = []
+          this.marketCat = 'all'
+          this.marketVisible = true
+          this.$message({ message: ((e && e.message) || '目录扫描失败') + '，请重新选择壁纸目录', type: 'warning' })
         }
         return
       }

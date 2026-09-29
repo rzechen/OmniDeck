@@ -27,14 +27,15 @@
   --text-sidebar-active: #1A1A1F;
 
   /* 边框与分割 */
-  --border-color: #E6E6EB;
+  /* 边框加深一档（原 #E6E6EB 偏浅，卡片与内容区背景近乎融合） */
+  --border-color: #DFDFE7;
   --sidebar-divider: rgba(0, 0, 0, 0.06);
   --sidebar-item-hover: rgba(0, 0, 0, 0.06);
   --sidebar-item-active: rgba(var(--primary-color-rgb), 0.12);
 
   /* 阴影 */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-base: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-base: 0 2px 8px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
 
   /* 滚动条 */

@@ -67,6 +67,7 @@
   "build": {
     "appId": "com.omnideck.app",
     "productName": "OmniDeck",
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },

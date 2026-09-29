@@ -1044,13 +1044,14 @@ export default {
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: $card-bg;
+  box-shadow: $shadow-sm;
   cursor: pointer;
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 
   &:hover {
     transform: translateY(-1px);
     border-color: rgba(var(--primary-color-rgb), 0.35);
-    box-shadow: $shadow-sm;
+    box-shadow: $shadow-base;
 
     .cat-arrow {
       opacity: 1;
