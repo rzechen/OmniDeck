@@ -42,6 +42,7 @@
     <transition name="ob-drawer">
       <div
         v-if="groupIndex !== null && dialogVisible"
+        ref="drawer"
         class="ob-drawer"
         @click.self="onDialogClose"
       >
@@ -182,6 +183,13 @@ export default {
       this.groupIndex = i
       this.changeIndex = g.history.length - 1
       this.dialogVisible = true
+      // 抽屉挂到 body：消息滚动区带 mask-image（创建层叠上下文），
+      // 留在原位 fixed 会被其裁剪且无法盖住侧栏/输入区（等同 el-dialog 的 append-to-body）
+      this.$nextTick(() => {
+        if (this.$refs.drawer && this.$refs.drawer.parentNode !== document.body) {
+          document.body.appendChild(this.$refs.drawer)
+        }
+      })
     },
     // 关闭后延迟卸载弹窗，等待关闭过渡完成（立即 v-if 移除会截断动画）
     onDialogClose() {
@@ -189,6 +197,12 @@ export default {
         this.groupIndex = null
         this.changeIndex = -1
       }, 350)
+    }
+  },
+  beforeDestroy() {
+    // 已挂到 body 的抽屉节点需手动移除（Vue2 只会清理原父级下的节点）
+    if (this.$refs.drawer && this.$refs.drawer.parentNode === document.body) {
+      document.body.removeChild(this.$refs.drawer)
     }
   }
 }
@@ -537,15 +551,18 @@ export default {
   }
 }
 
-/* 右侧 diff 区：撑满剩余宽度，全高内部滚动 */
+/* 右侧 diff 区：撑满剩余宽度，全高内部滚动（内部卡片也拉伸与左侧历史卡片等高） */
 .ob-fcd-main {
   flex: 1;
   min-width: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===== 双列 diff（GitHub split 风格：行号 + 旧文 | 行号 + 新文） ===== */
 .ob-fcd-table {
+  flex: 1;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
@@ -604,9 +621,14 @@ export default {
   }
 }
 
-/* 无逐行内容说明（超限 / 删除 / 新建目录） */
+/* 无逐行内容说明（超限 / 删除 / 新建目录）：同样撑满与左侧等高 */
 .ob-fcd-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 18px 14px;
+  border: 1px solid rgba(230, 162, 60, 0.35);
   border-radius: 10px;
   background: rgba(230, 162, 60, 0.08);
   font-size: 12.5px;
