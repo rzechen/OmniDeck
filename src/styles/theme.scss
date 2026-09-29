@@ -621,6 +621,46 @@ html[data-theme='dark'] {
   }
 }
 
+/* 范围型触发器（timerange，.el-range-editor 结构与单值输入框不同，须单独覆盖）：
+   同款浅底圆角 + 主题色 hover/focus，替换 Element 默认蓝色光环 */
+.el-date-editor--timerange.el-range-editor {
+  background: var(--search-bg);
+  border-color: var(--border-color);
+  border-radius: 10px;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+
+  &:hover {
+    border-color: rgba(var(--primary-color-rgb), 0.35);
+  }
+
+  &.is-active {
+    border-color: rgba(var(--primary-color-rgb), 0.5);
+    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.1);
+  }
+
+  .el-range-input {
+    background: transparent;
+    color: var(--text-primary);
+
+    &::placeholder {
+      color: var(--text-secondary);
+    }
+  }
+
+  .el-range-separator {
+    color: var(--text-secondary);
+
+    /* Element 默认 width: 5% 定宽，中文分隔符（如「至」）在窄触发器下会被裁切 */
+    width: auto;
+    min-width: 20px;
+  }
+
+  .el-range__icon,
+  .el-range__close-icon {
+    color: var(--text-secondary);
+  }
+}
+
 /* 日期面板：大圆角 + 毛玻璃（同 el-select-dropdown 配方） */
 .el-picker-panel {
   border: 1px solid var(--border-color);

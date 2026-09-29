@@ -41,7 +41,10 @@ function writeTasks(list) {
 }
 
 // ===== 周期定义 =====
-// schedule: { type: 'daily', time: 'HH:mm' } | { type: 'weekly', weekday: 0-6(周日为0), time: 'HH:mm' }
+// schedule:
+//   { type: 'daily', time: 'HH:mm' }                                    固定时间
+//   { type: 'daily', mode: 'random', timeStart: 'HH:mm', timeEnd: 'HH:mm' } 范围随机（每周期随机取点）
+//   weekly 同上，另含 weekday: 0-6（周日为 0）
 function parseTime(t) {
   const m = /^(\d{1,2}):(\d{1,2})$/.exec(String(t || ''))
   if (!m) return [9, 0]
@@ -50,21 +53,47 @@ function parseTime(t) {
 
 function normalizeSchedule(s) {
   const type = s && s.type === 'weekly' ? 'weekly' : 'daily'
-  const [h, m] = parseTime(s && s.time)
   const pad = n => String(n).padStart(2, '0')
-  const out = { type, time: pad(h) + ':' + pad(m) }
+  const out = { type }
   if (type === 'weekly') {
     const wd = Number.isInteger(s.weekday) ? Math.min(6, Math.max(0, s.weekday)) : 1
     out.weekday = wd
   }
+  // 范围随机模式：顺序颠倒自动交换；两端相同（退化为固定点）则按固定时间处理
+  if (s && s.mode === 'random' && s.timeStart && s.timeEnd) {
+    const [sh, sm] = parseTime(s.timeStart)
+    const [eh, em] = parseTime(s.timeEnd)
+    let a = sh * 60 + sm
+    let b = eh * 60 + em
+    if (a > b) { const t = a; a = b; b = t }
+    if (b > a) {
+      out.mode = 'random'
+      out.timeStart = pad(Math.floor(a / 60)) + ':' + pad(a % 60)
+      out.timeEnd = pad(Math.floor(b / 60)) + ':' + pad(b % 60)
+      return out
+    }
+  }
+  const [h, m] = parseTime(s && s.time)
+  out.time = pad(h) + ':' + pad(m)
   return out
 }
 
 // 下次执行时间（from 起算的下一个周期点，不含 from 时刻本身）
+// 范围随机模式：每次调度在 [timeStart, timeEnd] 分钟内随机取一个时间点，
+// 每个周期（含跨周期顺延重算）都重新随机，避免固定时间点被识别
 function computeNextRun(schedule, from) {
-  const [h, m] = parseTime(schedule.time)
   const d = new Date(from)
-  d.setHours(h, m, 0, 0)
+  if (schedule.mode === 'random') {
+    const [sh, sm] = parseTime(schedule.timeStart)
+    const [eh, em] = parseTime(schedule.timeEnd)
+    const start = sh * 60 + sm
+    const end = eh * 60 + em
+    const r = start + Math.floor(Math.random() * (end - start + 1))
+    d.setHours(Math.floor(r / 60), r % 60, 0, 0)
+  } else {
+    const [h, m] = parseTime(schedule.time)
+    d.setHours(h, m, 0, 0)
+  }
   if (schedule.type === 'weekly') {
     let delta = (Number(schedule.weekday || 0) - d.getDay() + 7) % 7
     if (delta === 0 && d.getTime() <= from) delta = 7
@@ -115,7 +144,11 @@ function validatePayload(p) {
   if (!String(p.name || '').trim()) return '请填写任务名称'
   if (!String(p.prompt || '').trim()) return '请填写任务指令'
   if (!p.workspaceId) return '请选择工作空间'
-  if (!p.schedule || !p.schedule.time) return '请选择执行时间'
+  const sch = p.schedule || {}
+  const timeOk = sch.mode === 'random'
+    ? !!(sch.timeStart && sch.timeEnd)
+    : !!sch.time
+  if (!timeOk) return '请选择执行时间'
   return ''
 }
 
@@ -162,7 +195,10 @@ function updateTask(id, patch) {
     t.workspaceId = String(patch.workspaceId)
   }
   if (patch.notify !== undefined) t.notify = !!patch.notify
-  if (patch.schedule !== undefined && patch.schedule.time) t.schedule = normalizeSchedule(patch.schedule)
+  if (patch.schedule !== undefined && patch.schedule &&
+    (patch.schedule.time || (patch.schedule.mode === 'random' && patch.schedule.timeStart && patch.schedule.timeEnd))) {
+    t.schedule = normalizeSchedule(patch.schedule)
+  }
   if (patch.enabled !== undefined) t.enabled = !!patch.enabled
 
   if (runningTasks.has(id)) return { ok: false, error: '任务正在运行中，请稍后再改' }
