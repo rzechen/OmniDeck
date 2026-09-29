@@ -40,14 +40,16 @@
           <span class="gif-frame-hint">拖动排序</span>
         </div>
         <div class="gif-frames">
-          <draggable v-model="items" class="gif-frames-inner" animation="150">
-            <div v-for="(item, i) in items" :key="item.id" class="gif-frame" title="拖动排序">
+          <draggable v-model="items" class="gif-frames-inner" animation="150" item-key="id">
+            <template #item="{ element: item, index: i }">
+            <div class="gif-frame" title="拖动排序">
               <span class="gif-index">{{ i + 1 }}</span>
               <img :src="item.url" alt="" />
               <button class="fc-remove" @click="removeItem(i)">
                 <i class="el-icon-close"></i>
               </button>
             </div>
+            </template>
           </draggable>
           <image-drop compact multiple compact-label="添加帧" @change="onFiles" />
         </div>
@@ -286,7 +288,7 @@ export default {
   font-size: 10px;
 
   &:hover {
-    background: rgba(245, 74, 69, 0.85);
+    background: rgba(var(--danger-color-rgb),  0.85);
   }
 }
 

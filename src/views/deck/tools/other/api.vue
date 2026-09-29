@@ -3,7 +3,7 @@
     title="API 调试"
     desc="批量数据驱动的接口链式执行，支持 ${input} 与 ${prev.xxx} 变量传递"
     icon="api"
-    color="#FAAD14"
+    color="var(--warning-color)"
     back-path="/tools/other"
   >
     <template #toolbar>
@@ -32,8 +32,8 @@
             <i class="el-icon-connection"></i>
             <p>点击右上角「添加步骤」构建请求链</p>
           </div>
-          <template v-for="(step, index) in steps">
-            <div :key="'c' + index" class="api-step" @click="openConfig(index)">
+          <template v-for="(step, index) in steps" :key="index">
+            <div class="api-step" @click="openConfig(index)">
               <div class="api-step-index">{{ index + 1 }}</div>
               <div class="api-step-main">
                 <div class="api-step-info">
@@ -47,7 +47,7 @@
                 <button title="删除" class="is-danger" @click.stop="removeStep(index)"><i class="el-icon-delete"></i></button>
               </div>
             </div>
-            <div v-if="index < steps.length - 1" :key="'l' + index" class="api-step-link">
+            <div v-if="index < steps.length - 1" class="api-step-link">
               <i class="el-icon-bottom"></i>
             </div>
           </template>
@@ -64,27 +64,27 @@
         <div class="pane-body api-logs">
           <el-table
             :data="logs"
-            size="mini"
+            size="small"
             height="100%"
             :empty-text="'暂无执行记录'"
           >
             <el-table-column prop="time" label="时间" width="76" align="center">
-              <template slot-scope="s"><span class="mono">{{ s.row.time }}</span></template>
+              <template #default="s"><span class="mono">{{ s.row.time }}</span></template>
             </el-table-column>
             <el-table-column prop="row" label="输入" width="110" show-overflow-tooltip>
-              <template slot-scope="s"><span class="mono">{{ s.row.row }}</span></template>
+              <template #default="s"><span class="mono">{{ s.row.row }}</span></template>
             </el-table-column>
             <el-table-column prop="stepName" label="步骤" width="110" show-overflow-tooltip />
             <el-table-column label="状态" width="82" align="center">
-              <template slot-scope="s">
+              <template #default="s">
                 <span class="api-status" :class="s.row.success ? 'ok' : 'bad'">{{ s.row.status }}</span>
               </template>
             </el-table-column>
             <el-table-column label="耗时" width="70" align="center">
-              <template slot-scope="s"><span class="mono">{{ s.row.ms }}ms</span></template>
+              <template #default="s"><span class="mono">{{ s.row.ms }}ms</span></template>
             </el-table-column>
             <el-table-column label="响应内容" min-width="160">
-              <template slot-scope="s">
+              <template #default="s">
                 <el-link type="primary" :underline="false" @click="viewDetail(s.row)">
                   {{ s.row.result.slice(0, 60) }}…
                 </el-link>
@@ -96,7 +96,7 @@
     </div>
 
     <!-- 数据源抽屉 -->
-    <el-drawer title="批量数据源" :visible.sync="showDataSource" size="420px" append-to-body>
+    <el-drawer title="批量数据源" v-model="showDataSource" size="420px" append-to-body>
       <div class="api-drawer-body">
         <el-alert
           type="info"
@@ -120,7 +120,7 @@
     <!-- 步骤配置抽屉 -->
     <el-drawer
       :title="'步骤配置' + (currentStep && currentStep.name ? ' · ' + currentStep.name : '')"
-      :visible.sync="showConfig"
+      v-model="showConfig"
       size="520px"
       append-to-body
     >
@@ -168,7 +168,7 @@
     </el-drawer>
 
     <!-- 响应详情 -->
-    <el-dialog title="响应详情" :visible.sync="showDetail" width="640px" :close-on-click-modal="false" append-to-body>
+    <el-dialog title="响应详情" v-model="showDetail" width="640px" :close-on-click-modal="false" append-to-body>
       <div v-if="selectedLog" class="api-detail">
         <div class="api-detail-meta">
           <span>输入：<b class="mono">{{ selectedLog.row }}</b></span>
@@ -443,9 +443,9 @@ export default {
   color: #fff;
 
   &.get { background: #1677FF; }
-  &.post { background: #52C41A; }
+  &.post { background: var(--success-color); }
   &.put { background: #FA8C16; }
-  &.delete { background: #F54A45; }
+  &.delete { background: var(--danger-color); }
   &.patch { background: #722ED1; }
 }
 
@@ -489,8 +489,8 @@ export default {
     }
 
     &.is-danger:hover {
-      color: #F54A45;
-      border-color: rgba(245, 74, 69, 0.5);
+      color: var(--danger-color);
+      border-color: rgba(var(--danger-color-rgb),  0.5);
     }
   }
 }
@@ -538,13 +538,13 @@ export default {
   border-radius: 999px;
 
   &.ok {
-    color: #52C41A;
-    background: rgba(82, 196, 26, 0.12);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.12);
   }
 
   &.bad {
-    color: #F54A45;
-    background: rgba(245, 74, 69, 0.12);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.12);
   }
 }
 
@@ -589,8 +589,8 @@ export default {
   flex-shrink: 0;
 
   &:hover {
-    color: #F54A45;
-    background: rgba(245, 74, 69, 0.08);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.08);
   }
 }
 

@@ -88,7 +88,7 @@ export default {
       this.$emit('scroll', max > 0 ? info.top / max : 0)
     })
   },
-  beforeDestroy() {
+  beforeUnmount() {
     this.cm = null
   },
   methods: {

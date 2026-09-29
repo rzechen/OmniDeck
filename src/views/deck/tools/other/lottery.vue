@@ -64,7 +64,7 @@
     <!-- 设置抽屉 -->
     <el-drawer
       title="抽奖设置"
-      :visible.sync="drawerVisible"
+      v-model="drawerVisible"
       size="480px"
       append-to-body
     >
@@ -79,7 +79,7 @@
         <div class="lot-section-title">奖项设置</div>
         <div v-for="(p, i) in prizeConfig" :key="i" class="lot-prize-row">
           <el-input v-model="p.level" size="small" placeholder="奖项名称" class="lot-prize-level" />
-          <el-input-number v-model="p.count" size="mini" :min="0" :max="999" controls-position="right" class="lot-prize-count" />
+          <el-input-number v-model="p.count" size="small" :min="0" :max="999" controls-position="right" class="lot-prize-count" />
           <el-input v-model="p.gift" size="small" placeholder="奖品（选填）" class="lot-prize-gift" />
           <button class="lot-row-del" title="删除奖项" @click="removePrize(i)">
             <i class="el-icon-delete"></i>
@@ -101,12 +101,12 @@
           <el-input v-model="newUser.phone" size="small" placeholder="手机号 / 工号" style="width: 150px" />
           <button class="tool-btn is-primary" @click="addUser"><i class="el-icon-plus"></i>添加</button>
         </div>
-        <el-table :data="pagedUsers" size="mini" max-height="240">
+        <el-table :data="pagedUsers" size="small" max-height="240">
           <el-table-column prop="name" label="姓名" min-width="80" />
           <el-table-column prop="phone" label="手机号 / 工号" min-width="120" />
           <el-table-column label="操作" width="60" align="center">
-            <template slot-scope="s">
-              <el-button type="text" size="mini" class="lot-del-text" @click="removeUser(s.$index)">删除</el-button>
+            <template #default="s">
+              <el-button type="text" size="small" class="lot-del-text" @click="removeUser(s.$index)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -116,7 +116,7 @@
           layout="prev, pager, next"
           :total="userList.length"
           :page-size="50"
-          :current-page.sync="userPage"
+          v-model:current-page="userPage"
           style="margin-top: 8px; text-align: center"
         />
 
@@ -197,7 +197,7 @@ export default {
     this.loadAll()
     window.addEventListener('keydown', this.onKeydown)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearInterval(this.timer)
     window.removeEventListener('keydown', this.onKeydown)
   },
@@ -643,8 +643,8 @@ export default {
   flex-shrink: 0;
 
   &:hover {
-    color: #F54A45;
-    background: rgba(245, 74, 69, 0.08);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.08);
   }
 }
 
@@ -655,6 +655,6 @@ export default {
 }
 
 .lot-del-text {
-  color: #F54A45;
+  color: var(--danger-color);
 }
 </style>

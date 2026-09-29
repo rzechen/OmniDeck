@@ -103,7 +103,7 @@ export default {
   mounted() {
     this.convert()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearTimeout(this._timer)
   },
   methods: {

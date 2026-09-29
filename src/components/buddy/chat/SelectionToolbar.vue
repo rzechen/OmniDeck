@@ -44,7 +44,7 @@ export default {
     // 已绑定 scroll 隐藏的容器（teardown 时解绑）
     this._areaEl = null
   },
-  beforeDestroy() {
+  beforeUnmount() {
     this.teardown()
   },
   methods: {

@@ -9,18 +9,24 @@
 │ 主进程（electron/）                                            │
 │  main.js        窗口 / 托盘 / 快捷键 / 生命周期                  │
 │  preload.js     contextBridge → window.electronAPI            │
-│  agent/         OmniBuddy Agent 能力（20+ 模块）                │
+│  agent-bridge   Agent IPC 桥（fork utility 子进程承载 Agent）    │
+│  agent/         Agent 能力模块（20+，经 shim 运行于子进程）       │
 │  windows/       截图 / 快捷面板等独立壳窗管理                     │
 │  core/          依赖装配 / 自动更新                             │
 │  services/      壁纸抓取等                                     │
 ├───────────────────────────────────────────────────────────────┤
-│ 渲染进程（src/，Vue 2）                                         │
+│ utility 子进程（agent-host.js + agent-shim.js）                  │
+│  OmniBuddy Agent 全量重活（pi 运行时 / 会话 / 技能 / MCP…）       │
+│  经 agent-bridge 与主进程互通；OMNIDECK_AGENT_IN_PROCESS=1       │
+│  可回退主进程内运行                                             │
+├───────────────────────────────────────────────────────────────┤
+│ 渲染进程（src/，Vue 3）                                         │
 │  Layout（Deck 视图） / BuddyLayout（Buddy 视图） + 独立壳页      │
 └───────────────────────────────────────────────────────────────┘
 ```
 
 - **IPC 单向规范**：渲染进程统一经 [src/utils/buddy-api.js](../src/utils/buddy-api.js) 访问 `window.electronAPI.omnibuddy`，禁止直接触达 preload 细节
-- **构建产物双包**：Vite 同时产出渲染包（`dist/`）与主进程包（`dist-electron/`），由 `vite-plugin-electron` 编排
+- **构建产物双包**：Vite 同时产出渲染包（`dist/`）与主进程包（`dist-electron/`），由 `electron-vite` 编排
 
 ## 二、目录结构
 
@@ -40,8 +46,8 @@ OmniDeck/
 │   └── windows/            # capture.js（截图）/ quick-panel.js（快面板）
 ├── scripts/                # 构建脚本：运行时装配 / 发版上传 / afterPack 钩子 / 依赖清单
 ├── public/                 # 静态资源直拷
-└── src/                    # 渲染进程（Vue 2）
-    ├── main.js             # 渲染入口：Element UI / SvgIcon / 主题初始化
+└── src/                    # 渲染进程（Vue 3）
+    ├── main.js             # 渲染入口：Element Plus / SvgIcon / 主题初始化
     ├── App.vue             # 根组件：壁纸层 / 应用锁 / Spotlight
     ├── layout/             # 双视图布局（index.vue=Deck，BuddyLayout.vue=Buddy）
     ├── router/             # 路由表（含工具分包预取 prefetchToolChunks）
@@ -79,14 +85,14 @@ OmniDeck/
 | 命令 | 作用 |
 | --- | --- |
 | `npm run dev` | Vite dev server + Electron 热更新 |
-| `npm run build` | 仅 vite build（不出安装包） |
+| `npm run build` | 仅 electron-vite build（不出安装包） |
 | `npm run build:mac` / `build:win` | 构建 + electron-builder 出 DMG / NSIS |
 | `npm run release -- <local\|tag> [mac\|win\|all]` | native 兜底编译 → 构建 → 打包 → 上传 Release |
 
 ### 打包链路
 
 ```
-vite build（渲染包 → dist/，主进程 → dist-electron/）
+electron-vite build（渲染包 → dist/，主进程 → dist-electron/）
       ↓
 electron-builder（files 白名单 + asarUnpack，输出 release/）
       ↓
@@ -126,9 +132,9 @@ bash scripts/provision-runtime.sh verify  [plat]   # 核对：布局 / 可执行
 
 ## 七、开发约定
 
-- **组件/页面 import 必须带 `.vue` 后缀**（Vite 4 的 `resolve.extensions` 不含 `.vue`）
+- **组件/页面 import 必须带 `.vue` 后缀**（Vite 的 `resolve.extensions` 不含 `.vue`）
 - **components 与 views 均按域划分**：`buddy/` `deck/` `common|shared/` `tool/`，新增组件放入对应域目录；页面私有组件放 `views/<域>/<页面>/components/` 下 co-locate
 - **样式**：全局变量在 `src/styles/variables.scss`，主题色经 CSS 变量注入；Buddy 管理类页面复用 `styles/buddy-settings.scss`
 - **IPC**：渲染进程统一经 `src/utils/buddy-api.js` 访问 `window.electronAPI.omnibuddy`
 - **空状态**：统一使用 `.ob-empty`（挂在 `.ob-manage-page` flex 容器下自动垂直居中），勿用普通块级元素包裹隔断 flex 上下文
-- **语法规范**：全部遵循 Vue 2 语法
+- **语法规范**：全部遵循 Vue 3 语法

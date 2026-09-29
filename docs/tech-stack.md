@@ -6,8 +6,8 @@
 
 | 层 | 技术 |
 | --- | --- |
-| 渲染进程 | Vue 2.7 + Vue Router 3（hash）+ Vuex 3 + Element UI 2.15 |
-| 构建 | Vite 4 + @vitejs/plugin-vue2 + vite-plugin-electron |
+| 渲染进程 | Vue 3.5 + Vue Router 4（hash）+ Vuex 4 + Element Plus 2.14 |
+| 构建 | electron-vite 5 + Vite 5 + @vitejs/plugin-vue |
 | 主进程 | Electron 39，Agent 能力基于 pi 系框架 |
 | 打包发版 | electron-builder 26 + 自研 afterPack / 运行时装配 / Release 上传脚本 |
 | 存储 | IndexedDB（前端）+ 系统钥匙串（凭证）+ 本地文件（配置 / 会话） |
@@ -18,8 +18,9 @@
 
 | 组件 | 版本 | 用途 |
 | --- | --- | --- |
-| Element UI | 2.15 | 组件库基础（表单 / 弹窗 / 消息等） |
-| vuedraggable | 2.24 | 拖拽排序（侧边栏分组、世界时钟等） |
+| Element Plus | 2.14 | 组件库基础（表单 / 弹窗 / 消息等） |
+| vuedraggable | 4.1 | 拖拽排序（侧边栏分组、世界时钟等） |
+| mitt | 3.0 | 轻量事件总线（Vue 3 移除 $on/$emit 实例事件后的替代） |
 | SvgIcon（自研） | — | svg-sprite 图标体系，图标按 buddy / deck 域分目录 |
 
 ### 编辑器与代码
@@ -92,8 +93,8 @@
 
 | 工具 | 版本 | 用途 |
 | --- | --- | --- |
-| Vite + @vitejs/plugin-vue2 | 4.5 / 2.3 | 渲染进程与主进程构建 |
-| vite-plugin-electron | 0.15 | Vite ↔ Electron 编排 |
+| Vite + @vitejs/plugin-vue | 5.4 / 5.2 | 渲染进程构建 |
+| electron-vite | 5.0 | Vite ↔ Electron 编排（dev / build / main+preload+renderer 统一构建） |
 | vite-plugin-svg-icons | 2.2 | svg-sprite 图标注入 |
 | electron-builder | 26.15 | DMG / NSIS 打包 |
 | node-addon-api / node-gyp | 8.9 | NAPI 原生插件（native/windows.cpp） |

@@ -4,10 +4,10 @@
 
 **全能桌面，智驭未来** · Your All-in-One AI-Powered Desktop Toolkit
 
-基于 **Electron + Vue 2** 的跨平台（macOS / Windows）桌面应用，将 **AI 编程助手（OmniBuddy）** 与 **开发者工具箱（OmniDeck）** 融合于一体：既能与 Agent 对话执行任务、管理工作空间与 MCP 连接器，也内置 70+ 离线开发/生活小工具。
+基于 **Electron + Vue 3** 的跨平台（macOS / Windows）桌面应用，将 **AI 编程助手（OmniBuddy）** 与 **开发者工具箱（OmniDeck）** 融合于一体：既能与 Agent 对话执行任务、管理工作空间与 MCP 连接器，也内置 70+ 离线开发/生活小工具。
 
 ![Electron](https://img.shields.io/badge/Electron-39-47848F?logo=electron&logoColor=white)
-![Vue](https://img.shields.io/badge/Vue-2.7-4FC08D?logo=vuedotjs&logoColor=white)
+![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)
 ![Tools](https://img.shields.io/badge/tools-70%2B%20offline-green)
 ![License](https://img.shields.io/badge/license-PolyForm--NC%201.0.0%20(source--available)-orange)
@@ -112,7 +112,7 @@
 > OmniDeck 采用 **源码可用（source-available）** 模式：本仓库包含界面层与工具箱源码，**Agent 引擎等核心部分不在此仓库**（Electron 主进程 `electron/` 缺失）。因此从本仓库源码只能启动**纯 UI 预览**（无 Electron 壳与 AI 能力），完整功能请使用方式一的官方安装包。
 
 ```bash
-# 环境要求：Node.js ≥ 16、npm
+# 环境要求：Node.js ≥ 18、npm
 npm install
 
 # ① 纯 UI 预览（浏览器访问 Vite dev server，无 Electron 主进程）
@@ -178,7 +178,7 @@ OmniDeck/
 ├── lib/                    # 运行时离线备料包（Git LFS 管理，按平台分目录）
 ├── runtime/                # 运行时装配产物（install 生成，打包时拷进安装包）
 ├── scripts/                # 构建脚本：运行时装配 / 发版上传 / 公开仓镜像 / afterPack 钩子
-├── src/                    # 渲染进程（Vue 2）
+├── src/                    # 渲染进程（Vue 3）
 │   ├── layout/             # 双视图布局（index.vue=Deck，BuddyLayout.vue=Buddy）
 │   ├── views/              # 页面：buddy/（chat/workspace/mcp/…）deck/（tools/* finance…）
 │   ├── components/         # 共享组件，按域划分：buddy/ deck/ common/ tool/
@@ -191,7 +191,7 @@ OmniDeck/
 
 ### 开发约定
 
-- **组件/页面 import 必须带 `.vue` 后缀**（Vite 4 的 `resolve.extensions` 不含 `.vue`）
+- **组件/页面 import 必须带 `.vue` 后缀**（Vite 的 `resolve.extensions` 不含 `.vue`）
 - **components 与 views 均按域划分**：`buddy/` `deck/` `common|shared/` `tool/`；页面私有组件 co-locate 在 `views/<域>/<页面>/components/`
 - **样式**：全局变量在 `src/styles/variables.scss`，主题色经 CSS 变量注入；Buddy 管理类页面复用 `styles/buddy-settings.scss`
 - **IPC**：渲染进程统一经 `src/utils/buddy-api.js` 访问 `window.electronAPI.omnibuddy`，禁止直接触达 preload 细节

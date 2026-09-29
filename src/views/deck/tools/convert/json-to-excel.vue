@@ -143,7 +143,7 @@ export default {
   mounted() {
     this.parse()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearTimeout(this._timer)
   },
   methods: {

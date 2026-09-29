@@ -37,12 +37,14 @@
           </div>
           <div class="ob-keys-foot">在「我的资料 → 我的凭据」录入并绑定本技能</div>
         </div>
-        <span slot="reference" class="ob-card-keybtn" :class="allProvided ? 'ok' : 'miss'" @click.stop>
-          <svg-icon icon-class="key" />
-          需 {{ declaredKeys.length }} 个凭据变量
-          <em v-if="missingCount">{{ missingCount }} 项待录入</em>
-          <em v-else>已录入</em>
-        </span>
+        <template #reference>
+          <span class="ob-card-keybtn" :class="allProvided ? 'ok' : 'miss'" @click.stop>
+            <svg-icon icon-class="key" />
+            需 {{ declaredKeys.length }} 个凭据变量
+            <em v-if="missingCount">{{ missingCount }} 项待录入</em>
+            <em v-else>已录入</em>
+          </span>
+        </template>
       </el-popover>
       <span v-else class="ob-card-keybtn none">未声明所需变量</span>
     </div>
@@ -155,7 +157,7 @@ export default {
 
   /* 缺失：红色醒目（待处理信号最强） */
   &.miss {
-    color: #F56C6C;
+    color: var(--danger-color);
     background: rgba(245, 108, 108, 0.1);
     border: 1px solid rgba(245, 108, 108, 0.35);
 
@@ -166,12 +168,12 @@ export default {
 
   /* 齐备：绿色 */
   &.ok {
-    color: #52C41A;
-    background: rgba(82, 196, 26, 0.1);
-    border: 1px solid rgba(82, 196, 26, 0.3);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.1);
+    border: 1px solid rgba(var(--success-color-rgb),  0.3);
 
     &:hover {
-      background: rgba(82, 196, 26, 0.16);
+      background: rgba(var(--success-color-rgb),  0.16);
     }
   }
 
@@ -220,14 +222,14 @@ export default {
     /* 缺失行：红色 */
     &.miss .ob-keys-state,
     &.miss .ob-keys-mark {
-      color: #F56C6C;
+      color: var(--danger-color);
     }
   }
 
   .ob-keys-state {
     width: 14px;
     font-weight: 700;
-    color: #52C41A;
+    color: var(--success-color);
   }
 
   .ob-keys-name {
@@ -242,7 +244,7 @@ export default {
 
   .ob-keys-mark {
     font-size: 10.5px;
-    color: #52C41A;
+    color: var(--success-color);
     flex-shrink: 0;
   }
 

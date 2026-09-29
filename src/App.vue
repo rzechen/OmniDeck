@@ -52,7 +52,7 @@ export default {
       })
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearInterval(this.todoRemindTimer)
     if (this.offNavGoto) this.offNavGoto()
     if (this.offUpdateAvailable) this.offUpdateAvailable()
@@ -136,7 +136,7 @@ export default {
   transition: opacity 0.22s ease;
 }
 
-.view-swap-enter,
+.view-swap-enter-from,
 .view-swap-leave-to {
   opacity: 0;
 }

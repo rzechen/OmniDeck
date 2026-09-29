@@ -151,7 +151,7 @@ export default {
   mounted() {
     this.formatContent()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearTimeout(this._timer)
   },
   methods: {

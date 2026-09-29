@@ -51,7 +51,7 @@
 
     <!-- 新建/编辑供应商弹窗 -->
     <provider-form-dialog
-      :visible.sync="dialogVisible"
+      v-model:visible="dialogVisible"
       :editing-id="editingId"
       :editing-provider="editingProvider"
       :list="list"

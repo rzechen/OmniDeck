@@ -236,9 +236,9 @@ export default {
   created() {
     this.loadChats()
     // 对话页创建/更新会话后刷新列表
-    this.$root.$on('omnibuddy:sessions-changed', this.loadChats)
+    this.$bus.on('omnibuddy:sessions-changed', this.loadChats)
     // 工作空间重命名（级联更新了会话 displayName）后刷新分组
-    this.$root.$on('omnibuddy:workspaces-changed', this.loadChats)
+    this.$bus.on('omnibuddy:workspaces-changed', this.loadChats)
     // 自动标题：主进程 LLM 生成新标题后实时刷新侧栏（store 事件池只写会话状态不外发，
     // 此处独立订阅；preload onEvent 返回退订函数，与 store 的订阅互不影响）
     const api = this.buddyApi()
@@ -264,9 +264,9 @@ export default {
     document.addEventListener('mousemove', this.onResizeMove)
     document.addEventListener('mouseup', this.onResizeEnd)
   },
-  beforeDestroy() {
-    this.$root.$off('omnibuddy:sessions-changed', this.loadChats)
-    this.$root.$off('omnibuddy:workspaces-changed', this.loadChats)
+  beforeUnmount() {
+    this.$bus.off('omnibuddy:sessions-changed', this.loadChats)
+    this.$bus.off('omnibuddy:workspaces-changed', this.loadChats)
     if (this._unsubTitle) {
       this._unsubTitle()
       this._unsubTitle = null
@@ -773,7 +773,7 @@ $buddy-sidebar-w: 260px;
   overflow: hidden;
 
   // 任务列表组件根元素：唯一的滚动容器（菜单/标题固定）
-  ::v-deep .buddy-tasks {
+  :deep(.buddy-tasks){
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -1006,11 +1006,11 @@ $buddy-sidebar-w: 260px;
   // 内容区不可划选文本（输入框、代码块除外）
   user-select: none;
 
-  ::v-deep input,
-  ::v-deep textarea,
-  ::v-deep [contenteditable],
-  ::v-deep pre,
-  ::v-deep code {
+  :deep(input),
+  :deep(textarea),
+  :deep([contenteditable]),
+  :deep(pre),
+  :deep(code){
     -webkit-user-select: text;
     user-select: text;
   }

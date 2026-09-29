@@ -36,10 +36,12 @@
       <span class="tags-more-btn" title="更多操作">
         <svg-icon icon-class="more" class="tags-more-ico" />
       </span>
-      <el-dropdown-menu slot="dropdown">
-        <el-dropdown-item command="others">关闭其它页签</el-dropdown-item>
-        <el-dropdown-item command="all" divided>关闭全部页签</el-dropdown-item>
-      </el-dropdown-menu>
+      <template #dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item command="others">关闭其它页签</el-dropdown-item>
+          <el-dropdown-item command="all" divided>关闭全部页签</el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
     </el-dropdown>
 
     <!-- 页签右键菜单（mac 风浮层，与空间页右键菜单同款样式） -->
@@ -139,7 +141,7 @@ export default {
     document.addEventListener('mousedown', this.onDocMouseDown)
     document.addEventListener('keydown', this.onCtxKeydown)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     document.removeEventListener('mousedown', this.onDocMouseDown)
     document.removeEventListener('keydown', this.onCtxKeydown)
   },

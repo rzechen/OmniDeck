@@ -132,9 +132,9 @@ export default {
   line-height: 1.6;
 
   &.ok {
-    color: #52C41A;
-    background: rgba(82, 196, 26, 0.1);
-    border: 1px solid rgba(82, 196, 26, 0.3);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.1);
+    border: 1px solid rgba(var(--success-color-rgb),  0.3);
   }
 
   &.none {

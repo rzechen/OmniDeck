@@ -87,7 +87,7 @@ export default {
   .hero-icon {
     width: 26px;
     height: 26px;
-    color: var(--primary-color, #3366FF);
+    color: var(--primary-color);
   }
 }
 
@@ -151,7 +151,7 @@ export default {
 
   i {
     font-size: 26px;
-    color: var(--primary-color, #3366FF);
+    color: var(--primary-color);
   }
 }
 
@@ -188,7 +188,7 @@ export default {
 
   i {
     font-size: 13px;
-    color: var(--primary-color, #3366FF);
+    color: var(--primary-color);
   }
 }
 </style>

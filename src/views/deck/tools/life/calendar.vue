@@ -410,7 +410,7 @@ export default {
   font-weight: 600;
 
   &.weekend {
-    color: #F54A45;
+    color: var(--danger-color);
     opacity: 0.75;
   }
 }
@@ -449,17 +449,17 @@ export default {
   }
 
   &.is-weekend .cal-solar {
-    color: #F54A45;
+    color: var(--danger-color);
   }
 
   &.is-off {
-    background: rgba(82, 196, 26, 0.07);
-    border-color: rgba(82, 196, 26, 0.28);
+    background: rgba(var(--success-color-rgb),  0.07);
+    border-color: rgba(var(--success-color-rgb),  0.28);
   }
 
   &.is-work {
-    background: rgba(250, 140, 22, 0.07);
-    border-color: rgba(250, 140, 22, 0.3);
+    background: rgba(var(--warning-color-rgb),  0.07);
+    border-color: rgba(var(--warning-color-rgb),  0.3);
   }
 
   &.is-today {
@@ -496,12 +496,12 @@ export default {
   font-weight: 700;
 
   &.is-off-badge {
-    background: rgba(82, 196, 26, 0.85);
+    background: rgba(var(--success-color-rgb),  0.85);
     color: #fff;
   }
 
   &.is-work-badge {
-    background: rgba(250, 140, 22, 0.9);
+    background: rgba(var(--warning-color-rgb),  0.9);
     color: #fff;
   }
 }
@@ -527,12 +527,12 @@ export default {
   color: var(--text-secondary);
 
   &.is-term {
-    color: #52C41A;
+    color: var(--success-color);
     font-weight: 600;
   }
 
   &.is-festival {
-    color: #F54A45;
+    color: var(--danger-color);
     font-weight: 600;
   }
 }
@@ -587,22 +587,22 @@ export default {
   color: var(--text-secondary);
 
   &.is-term {
-    background: rgba(82, 196, 26, 0.12);
-    color: #52C41A;
+    background: rgba(var(--success-color-rgb),  0.12);
+    color: var(--success-color);
   }
 
   &.is-fest {
-    background: rgba(245, 74, 69, 0.1);
-    color: #F54A45;
+    background: rgba(var(--danger-color-rgb),  0.1);
+    color: var(--danger-color);
   }
 
   &.is-off {
-    background: rgba(82, 196, 26, 0.12);
-    color: #52C41A;
+    background: rgba(var(--success-color-rgb),  0.12);
+    color: var(--success-color);
   }
 
   &.is-work {
-    background: rgba(250, 140, 22, 0.12);
+    background: rgba(var(--warning-color-rgb),  0.12);
     color: #FA8C16;
   }
 }
@@ -673,15 +673,15 @@ export default {
 }
 
 .cal-dt-yi-label {
-  color: #52C41A;
-  background: rgba(82, 196, 26, 0.1);
-  border: 1px solid rgba(82, 196, 26, 0.3);
+  color: var(--success-color);
+  background: rgba(var(--success-color-rgb),  0.1);
+  border: 1px solid rgba(var(--success-color-rgb),  0.3);
 }
 
 .cal-dt-ji-label {
-  color: #F54A45;
-  background: rgba(245, 74, 69, 0.08);
-  border: 1px solid rgba(245, 74, 69, 0.3);
+  color: var(--danger-color);
+  background: rgba(var(--danger-color-rgb),  0.08);
+  border: 1px solid rgba(var(--danger-color-rgb),  0.3);
 }
 
 .cal-dt-yi-items,
@@ -716,15 +716,15 @@ export default {
     border-radius: 3px;
 
     &.lg-off {
-      background: rgba(82, 196, 26, 0.85);
+      background: rgba(var(--success-color-rgb),  0.85);
     }
 
     &.lg-work {
-      background: rgba(250, 140, 22, 0.9);
+      background: rgba(var(--warning-color-rgb),  0.9);
     }
 
     &.lg-term {
-      background: #52C41A;
+      background: var(--success-color);
       border-radius: 50%;
     }
   }

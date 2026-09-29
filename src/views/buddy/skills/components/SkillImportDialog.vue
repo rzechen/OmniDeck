@@ -361,7 +361,7 @@ export default {
   .ob-skill-content {
     flex: 1;
 
-    ::v-deep textarea {
+    :deep(textarea){
       height: 100%;
       min-height: 320px;
       resize: none;

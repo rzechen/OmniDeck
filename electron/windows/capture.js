@@ -416,8 +416,8 @@ function openOverlays(mode) {
     overlayWins.push(win)
 
     const qs = 'd=' + d.id + (mode === 'scroll' ? '&m=scroll' : '')
-    const load = process.env.VITE_DEV_SERVER_URL
-      ? win.loadURL(process.env.VITE_DEV_SERVER_URL + '#/capture-overlay?' + qs)
+    const load = process.env.ELECTRON_RENDERER_URL
+      ? win.loadURL(process.env.ELECTRON_RENDERER_URL + '#/capture-overlay?' + qs)
       : win.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/capture-overlay?' + qs })
 
     // 首窗 show 聚焦，其余跟随显示（避免逐个抢焦点）
@@ -616,8 +616,8 @@ function pinImage(image, display, rect) {
   pinFrames.set(myId, image)
   pinWinSeq++
   const url = '#/capture-pin?id=' + myId
-  const load = process.env.VITE_DEV_SERVER_URL
-    ? win.loadURL(process.env.VITE_DEV_SERVER_URL + url)
+  const load = process.env.ELECTRON_RENDERER_URL
+    ? win.loadURL(process.env.ELECTRON_RENDERER_URL + url)
     : win.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: url })
   load.then(() => { if (!win.isDestroyed()) win.show() }).catch(() => onGone())
   // 窗口关闭即清理对应帧（避免内存滞留）
@@ -707,8 +707,8 @@ function openScrollCtrl(display, phys) {
   })
   win.setAlwaysOnTop(true, 'screen-saver')
   const url = '#/capture-scroll-ctrl'
-  const load = process.env.VITE_DEV_SERVER_URL
-    ? win.loadURL(process.env.VITE_DEV_SERVER_URL + url)
+  const load = process.env.ELECTRON_RENDERER_URL
+    ? win.loadURL(process.env.ELECTRON_RENDERER_URL + url)
     : win.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: url })
   load.then(() => { if (!win.isDestroyed()) win.show() }).catch(() => {})
   return win

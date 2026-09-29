@@ -6,7 +6,8 @@
 // - 429 防护：索引内存缓存（TTL）+ install 优先复用缓存，减少 raw 请求；限流时错误明确提示
 const path = require('path')
 const fs = require('fs')
-const { ipcMain, net, shell } = require('electron')
+const electron = require('electron')
+const { ipcMain, net, shell } = electron
 const skills = require('./skills')
 const remote = require('../../src/config/remote.cjs')
 
@@ -45,9 +46,16 @@ function readInstalledRec(id) {
   return readInstalled().find(r => r.id === id) || {}
 }
 
-// ---------- 通用 net 下载（Buffer，供索引与 zip 共用） ----------
+// ---------- 通用下载（Buffer，供索引与 zip 共用） ----------
+// 双模式分发：主进程内直接走 net（Chromium 网络栈 + 系统代理）；
+// utilityProcess 桥接模式经 shim.__host.fetchBuffer 转发到主进程 net（错误文案一致）
 // 429/5xx 抛出明确错误文案；调用方按需重试
-function downloadBuffer(url, { timeout = 30000, maxSize = 50 * 1024 * 1024 } = {}) {
+function downloadBuffer(url, opts) {
+  if (net) return downloadBufferViaNet(url, opts)
+  return electron.__host.fetchBuffer(url, opts)
+}
+
+function downloadBufferViaNet(url, { timeout = 30000, maxSize = 50 * 1024 * 1024 } = {}) {
   return new Promise(resolve => {
     let settled = false
     const finish = data => {

@@ -42,7 +42,7 @@
               <span class="ob-row-desc" :title="t.description">{{ t.description }}</span>
               <el-button
                 v-if="t.runtime && t.runtime.modules"
-                size="mini"
+                size="small"
                 round
                 plain
                 class="ob-deps-btn"
@@ -62,10 +62,10 @@
     <!-- 预装依赖弹窗：运行时来源 + 依赖模块落位清单（按用途分组） -->
     <el-dialog
       :title="deps.software + ' 预装依赖'"
-      :visible.sync="deps.visible"
+      v-model="deps.visible"
       width="560px"
       append-to-body
-      custom-class="ob-el-dialog"
+      class="ob-el-dialog"
     >
       <div class="ob-dialog-deps">
         <div class="ob-deps-meta">
@@ -103,7 +103,7 @@
           </div>
         </div>
       </div>
-      <template slot="footer">
+      <template #footer>
         <el-button size="small" round @click="deps.visible = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -243,7 +243,7 @@ export default {
     font-weight: 600;
     padding: 1px 7px;
     border-radius: 10px;
-    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.1);
+    background: rgba(var(--primary-color-rgb), 0.1);
     color: var(--primary-color);
   }
 
@@ -281,7 +281,7 @@ export default {
   }
 
   &:hover {
-    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.035);
+    background: rgba(var(--primary-color-rgb), 0.035);
   }
 
   &.disabled {
@@ -356,8 +356,8 @@ export default {
   font-size: 10.5px;
   line-height: 1.5;
   color: var(--primary-color);
-  border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.35);
-  background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.06);
+  border-color: rgba(var(--primary-color-rgb), 0.35);
+  background: rgba(var(--primary-color-rgb), 0.06);
 }
 
 /* ===== 预装依赖弹窗 ===== */
@@ -454,7 +454,7 @@ export default {
     border-radius: 10px;
     font-size: 11px;
     color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.07);
+    background: rgba(var(--primary-color-rgb), 0.07);
   }
 }
 

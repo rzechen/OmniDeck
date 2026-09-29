@@ -13,7 +13,7 @@
         size="small"
         clearable
         placeholder="IP 地址（留空查本机公网 IP）"
-        @keyup.enter.native="query"
+        @keyup.enter="query"
       />
       <button class="tool-btn is-primary" :disabled="loading" @click="manualQuery">
         <i :class="loading ? 'el-icon-loading' : 'el-icon-search'"></i>

@@ -281,8 +281,8 @@ function createPanel() {
   })
 
   // 与主窗口同构：dev 走 dev server，生产加载打包文件（hash 路由 /quick）
-  if (process.env.VITE_DEV_SERVER_URL) {
-    panel.loadURL(process.env.VITE_DEV_SERVER_URL + '#/quick')
+  if (process.env.ELECTRON_RENDERER_URL) {
+    panel.loadURL(process.env.ELECTRON_RENDERER_URL + '#/quick')
   } else {
     panel.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/quick' })
   }

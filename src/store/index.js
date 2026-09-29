@@ -1,11 +1,8 @@
-import Vue from 'vue'
-import Vuex from 'vuex'
+import { createStore } from 'vuex'
 import buddyChat from './buddyChat'
 import tagsView from './tagsView'
 
-Vue.use(Vuex)
-
-export default new Vuex.Store({
+export default createStore({
   state: {
     sidebarCollapsed: false,
     // 侧边栏启动默认状态：'expand' 展开 / 'collapse' 收起

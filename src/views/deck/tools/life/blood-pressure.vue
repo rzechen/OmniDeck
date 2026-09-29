@@ -78,10 +78,10 @@ import ToolShell from '@/components/tool/ToolShell.vue'
 // 成人血压分级（中国标准）
 const LEVELS = [
   { label: '偏低', color: '#722ED1', desc: '血压低于正常范围', advice: '如无症状无需担心；若伴头晕乏力请就医' },
-  { label: '正常', color: '#52C41A', desc: '血压处于理想范围', advice: '保持良好作息与饮食习惯' },
-  { label: '正常高值', color: '#FAAD14', desc: '血压偏高但未达高血压标准', advice: '建议低盐饮食、规律运动、定期监测' },
+  { label: '正常', color: 'var(--success-color)', desc: '血压处于理想范围', advice: '保持良好作息与饮食习惯' },
+  { label: '正常高值', color: 'var(--warning-color)', desc: '血压偏高但未达高血压标准', advice: '建议低盐饮食、规律运动、定期监测' },
   { label: '1级高血压（轻度）', color: '#FA8C16', desc: '轻度高血压', advice: '建议改善生活方式并咨询医生' },
-  { label: '2级高血压（中度）', color: '#F54A45', desc: '中度高血压', advice: '请尽快就医评估，规范治疗' },
+  { label: '2级高血压（中度）', color: 'var(--danger-color)', desc: '中度高血压', advice: '请尽快就医评估，规范治疗' },
   { label: '3级高血压（重度）', color: '#CF1322', desc: '重度高血压', advice: '请立即就医！' }
 ]
 
@@ -94,10 +94,10 @@ export default {
       diastolic: 80,
       tableRows: [
         { label: '偏低', color: '#722ED1', sys: '< 90', and: '和/或', dia: '< 60' },
-        { label: '正常', color: '#52C41A', sys: '90 ~ 119', and: '和', dia: '60 ~ 79' },
-        { label: '正常高值', color: '#FAAD14', sys: '120 ~ 139', and: '和/或', dia: '80 ~ 89' },
+        { label: '正常', color: 'var(--success-color)', sys: '90 ~ 119', and: '和', dia: '60 ~ 79' },
+        { label: '正常高值', color: 'var(--warning-color)', sys: '120 ~ 139', and: '和/或', dia: '80 ~ 89' },
         { label: '1级高血压（轻度）', color: '#FA8C16', sys: '140 ~ 159', and: '和/或', dia: '90 ~ 99' },
-        { label: '2级高血压（中度）', color: '#F54A45', sys: '160 ~ 179', and: '和/或', dia: '100 ~ 109' },
+        { label: '2级高血压（中度）', color: 'var(--danger-color)', sys: '160 ~ 179', and: '和/或', dia: '100 ~ 109' },
         { label: '3级高血压（重度）', color: '#CF1322', sys: '≥ 180', and: '和/或', dia: '≥ 110' }
       ]
     }

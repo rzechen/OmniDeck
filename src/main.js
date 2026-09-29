@@ -1,7 +1,7 @@
-import Vue from 'vue'
-import ElementUI, { Dialog, Drawer, MessageBox } from 'element-ui'
-import { PopupManager } from 'element-ui/lib/utils/popup'
-import 'element-ui/lib/theme-chalk/index.css'
+import { createApp, h } from 'vue'
+import ElementPlus, { ElDialog, ElDrawer, ElMessage, ElMessageBox } from 'element-plus'
+import mitt from 'mitt'
+import 'element-plus/dist/index.css'
 import App from './App.vue'
 import router, { prefetchToolChunks } from './router'
 import store from './store'
@@ -15,40 +15,50 @@ import './styles/index.scss'
 import './styles/theme.scss'
 import './styles/motion.scss'
 import './styles/buddy-settings-global.scss'
+// el-icon-* 字体图标兼容层（EP 移除字体图标，以 SVG mask 复刻，需晚于组件库样式加载）
+import './styles/el-icons-compat.scss'
 
-Vue.use(ElementUI, { size: 'small' })
-Vue.component('svg-icon', SvgIcon)
-Vue.config.productionTip = false
+const app = createApp(App)
+app.use(ElementPlus, { size: 'small', zIndex: 3200 })
+app.use(router)
+app.use(store)
+app.component('svg-icon', SvgIcon)
+
+// 事件总线（替代 Vue2 $root.$on/$off/$emit 跨组件通信）
+app.config.globalProperties.$bus = mitt()
 
 // 弹窗统一交互：点击弹窗外遮罩区域一律不关闭弹窗（全局默认）
-// - Dialog：改组件 props 默认值，模板中的 el-dialog 全部生效
-// - Drawer：el-drawer 无 closeOnClickModal，对应 prop 为 wrapperClosable
+// - Dialog / Drawer：改组件 props 默认值，模板中的 el-dialog / el-drawer 全部生效
 // - MessageBox（$confirm / $prompt / $msgbox）：注入全局默认参数
 // - 个别弹窗如需恢复遮罩关闭，可在模板属性/调用参数中显式传 true 覆盖
-Dialog.props.closeOnClickModal.default = false
-Drawer.props.wrapperClosable.default = false
-MessageBox.setDefaults({ closeOnClickModal: false })
-
-// Element 弹层（日期/时间面板、select 下拉、MessageBox、Dialog 等）挂在 body 下，
-// 默认 z-index 从 2000 起算，低于自定义弹窗遮罩（z-index: 3100）时会被压在遮罩下层
-// （如新建待办时日期面板被遮挡）。统一抬高起始层级到 3200：
-// - 高于所有自定义弹层（3100），面板正常弹出
-// - 保留 Element 按打开顺序自增的层级管理
-// - 低于 AppLock 锁屏（9999），锁屏仍覆盖一切
-PopupManager.zIndex = 3200
+ElDialog.props.closeOnClickModal.default = false
+ElDrawer.props.closeOnClickModal.default = false
+const rawMsgBox = ElMessageBox
+app.config.globalProperties.$msgbox = (options = {}) =>
+  rawMsgBox(Object.assign({ closeOnClickModal: false }, options))
+app.config.globalProperties.$msgbox.alert = (msg, title, options) =>
+  rawMsgBox.alert(msg, title, Object.assign({ closeOnClickModal: false }, options))
+app.config.globalProperties.$msgbox.confirm = (msg, title, options) =>
+  rawMsgBox.confirm(msg, title, Object.assign({ closeOnClickModal: false }, options))
+app.config.globalProperties.$msgbox.prompt = (msg, title, options) =>
+  rawMsgBox.prompt(msg, title, Object.assign({ closeOnClickModal: false }, options))
 
 // Message 全局提示统一抬高距顶位置：Element 默认 20px 过于贴顶，
 // 统一注入 offset: 72（多条提示仍由 Element 在此基准上自动向下堆叠）
-const rawMessage = Vue.prototype.$message
-Vue.prototype.$message = function (options) {
+const rawMessage = ElMessage
+app.config.globalProperties.$message = function (options) {
   if (typeof options === 'string') options = { message: options }
   return rawMessage(Object.assign({ offset: 72 }, options))
 }
 ;['success', 'warning', 'info', 'error'].forEach(type => {
-  Vue.prototype.$message[type] = function (message, options) {
+  app.config.globalProperties.$message[type] = function (message, options) {
     return rawMessage(Object.assign({ message, type, offset: 72 }, (typeof message === 'object' ? message : options)))
   }
 })
+// 消息弹窗走统一封装：$alert / $confirm / $prompt 与 $msgbox 同源
+app.config.globalProperties.$alert = app.config.globalProperties.$msgbox.alert
+app.config.globalProperties.$confirm = app.config.globalProperties.$msgbox.confirm
+app.config.globalProperties.$prompt = app.config.globalProperties.$msgbox.prompt
 
 // 复制图标变形：点击带复制图标（el-icon-document-copy）的按钮时，
 // 图标短暂替换为绿色 ✓ 并弹跳，1.2s 后还原。无需改动任何工具页代码。
@@ -112,11 +122,7 @@ async function bootstrap() {
   // 差值全为 null，折线图在每天首次启动时必然显示"暂无数据"
   await sampleDailyUsage().catch(() => {})
 
-  new Vue({
-    router,
-    store,
-    render: h => h(App)
-  }).$mount('#app')
+  app.mount('#app')
 
   // 首屏挂载完成后，空闲时预取工具页分包（后台进行，不阻塞界面）
   prefetchToolChunks()

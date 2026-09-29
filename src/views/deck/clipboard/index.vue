@@ -98,13 +98,13 @@
 
     <!-- 大图预览弹窗 -->
     <el-dialog
-      :visible.sync="previewVisible"
+      v-model="previewVisible"
       :title="previewTitle"
       width="65%"
       top="7vh"
       :close-on-click-modal="false"
       append-to-body
-      custom-class="ss-preview-dialog"
+      class="ss-preview-dialog"
       @closed="previewData = ''"
     >
       <div class="ss-preview">
@@ -123,13 +123,13 @@
 
     <!-- 文本详情弹窗 -->
     <el-dialog
-      :visible.sync="textPreviewVisible"
+      v-model="textPreviewVisible"
       title="文本详情"
       width="55%"
       top="12vh"
       :close-on-click-modal="false"
       append-to-body
-      custom-class="ss-preview-dialog ss-text-dialog"
+      class="ss-preview-dialog ss-text-dialog"
     >
       <div class="ss-text-preview">
         <pre>{{ textPreviewRec ? textPreviewRec.text : '' }}</pre>
@@ -252,7 +252,7 @@ export default {
   activated() {
     this.loadFavIds()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('focus', this.onWinFocus)
     if (this.timer) { clearInterval(this.timer); this.timer = null }
   },
@@ -441,7 +441,7 @@ export default {
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 
   &:hover {
-    border-color: var(--primary-color, #eb2f96);
+    border-color: var(--primary-color);
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
   }
 }
@@ -511,7 +511,7 @@ export default {
   }
 
   &:focus-within {
-    border-color: var(--primary-color, #eb2f96);
+    border-color: var(--primary-color);
     background: var(--card-bg, #fff);
     box-shadow: 0 0 0 2px rgba(235, 47, 150, 0.1);
   }
@@ -590,7 +590,7 @@ export default {
 
   &.is-capture {
     background: rgba(235, 47, 150, 0.08);
-    color: var(--primary-color, #eb2f96);
+    color: var(--primary-color);
   }
 
   &.is-scroll {
@@ -634,7 +634,7 @@ export default {
     &:hover {
       background: var(--search-bg, #f5f5f5);
       border-color: var(--border-color, #e8e8e8);
-      color: var(--primary-color, #eb2f96);
+      color: var(--primary-color);
     }
 
     &:active {
@@ -643,7 +643,7 @@ export default {
 
     /* 已收藏：实心星标用剪贴板主题色标出 */
     i.is-faved {
-      color: var(--primary-color, #eb2f96);
+      color: var(--primary-color);
     }
   }
 }

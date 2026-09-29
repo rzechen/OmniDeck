@@ -337,7 +337,7 @@ html[data-theme='dark'] .ob-select-pop {
   padding-top: 4px;
   border-top: 1px solid var(--border-color);
 
-  ::v-deep .ob-pop-item {
+  :deep(.ob-pop-item){
     color: var(--text-secondary);
     font-weight: 400;
 

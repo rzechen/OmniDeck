@@ -1124,6 +1124,26 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   })
 
   // ===== 附件导入（P1-7）=====
+  // 缩略图生成器：桥接模式用 shim 的异步 thumbDataUrl（经主进程 nativeImage），
+  // 主进程模式直接 createFromBuffer；两者签名统一为 async (buffer) => dataUrl
+  function makeThumbFn(nativeImage) {
+    if (nativeImage && typeof nativeImage.thumbDataUrl === 'function') {
+      return (buffer) => nativeImage.thumbDataUrl(buffer, { width: 360, quality: 72 })
+    }
+    if (nativeImage && typeof nativeImage.createFromBuffer === 'function') {
+      return async (buffer) => {
+        try {
+          const img = nativeImage.createFromBuffer(buffer)
+          if (img.isEmpty()) return ''
+          return img.resize({ width: 360 }).toJPEG(72).toDataURL()
+        } catch (e) {
+          return ''
+        }
+      }
+    }
+    return null
+  }
+
   // “+”按钮：系统文件选择框（图片 / 文本类 / PDF）
   ipcMain.handle('omnibuddy:attachments:pick', async () => {
     const win = getWindow()
@@ -1138,18 +1158,19 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
     })
     if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true }
     const { nativeImage } = require('electron')
+    const thumbFn = makeThumbFn(nativeImage)
     const list = []
     for (const p of result.filePaths) {
-      const r = attachments.importFile(p, nativeImage)
+      const r = await attachments.importFile(p, thumbFn)
       if (r.ok) list.push(r.attachment)
     }
     return { ok: true, attachments: list }
   })
 
   // 拖拽导入：渲染端 webUtils.getPathForFile 取真实路径后调用
-  ipcMain.handle('omnibuddy:attachments:import', (_e, filePath) => {
+  ipcMain.handle('omnibuddy:attachments:import', async (_e, filePath) => {
     const { nativeImage } = require('electron')
-    return attachments.importFile(String(filePath || ''), nativeImage)
+    return attachments.importFile(String(filePath || ''), makeThumbFn(nativeImage))
   })
 
   // ===== ask_user 回答 =====

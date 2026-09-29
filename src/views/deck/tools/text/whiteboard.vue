@@ -148,7 +148,7 @@ export default {
     window.addEventListener('keydown', this.onKeyDown)
     window.addEventListener('keyup', this.onKeyUp)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('resize', this.resize)
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('keyup', this.onKeyUp)

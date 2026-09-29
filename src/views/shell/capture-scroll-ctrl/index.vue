@@ -32,7 +32,7 @@ export default {
     this.frames = 1
     window.addEventListener('keydown', this.onKeydown)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('keydown', this.onKeydown)
   },
   methods: {

@@ -75,7 +75,7 @@ export default {
       this._ro.observe(this.$el)
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     if (this._ro) this._ro.disconnect()
   },
   methods: {

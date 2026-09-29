@@ -34,16 +34,14 @@
 
       <!-- 消息列表（复用主窗口对话组件：Markdown / 思考区 / 工具块 / 反问卡） -->
       <template v-else>
-        <template v-for="(m, i) in messages">
+        <template v-for="(m, i) in messages" :key="i">
           <message-bubble
             v-if="m.role === 'user' || m.role === 'assistant'"
-            :key="'m' + i"
             :message="m"
             :streaming="streaming"
           />
           <ask-user-card
             v-else-if="m.role === 'ask_user'"
-            :key="'a' + i"
             :message="m"
             @answer="answerAsk"
           />
@@ -65,7 +63,7 @@
         @pick="pickAttachments"
         @import-file="importFile"
       >
-        <template slot="tools">
+        <template #tools>
           <composer-picker
             picker-key="workspace"
             :active-key="openSelect"
@@ -206,7 +204,7 @@ export default {
       this.offEvent = api.onEvent(e => this.onAgentEvent(e))
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('keydown', this.onKeydown)
     document.removeEventListener('mousedown', this.onDocMouseDown)
     this.stopThinkTimer()
@@ -781,8 +779,8 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.12);
-  color: var(--primary-color, #3366FF);
+  background: rgba(var(--primary-color-rgb), 0.12);
+  color: var(--primary-color);
   margin-bottom: 4px;
 
   .svg-icon {

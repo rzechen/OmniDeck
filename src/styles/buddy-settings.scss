@@ -10,7 +10,7 @@
   flex-shrink: 0;
   margin-bottom: 20px;
   padding: 16px 20px;
-  background: linear-gradient(135deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
+  background: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
   border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
   border-radius: $radius-lg;
 
@@ -30,7 +30,7 @@
       font-size: 11px;
       padding: 2px 8px;
       border-radius: 12px;
-      background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.1);
+      background: rgba(var(--primary-color-rgb), 0.1);
       color: var(--primary-color);
       font-weight: 600;
       white-space: nowrap;
@@ -80,7 +80,7 @@
   cursor: default;
 
   &:hover {
-    border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.35);
+    border-color: rgba(var(--primary-color-rgb), 0.35);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
     transform: translateY(-2px);
   }
@@ -531,7 +531,7 @@
 
   &.danger:hover {
     background: rgba(245, 34, 45, 0.1);
-    color: #F5222D;
+    color: var(--danger-color);
   }
 }
 
@@ -636,9 +636,9 @@
   }
 
   &.is-http {
-    color: #409EFF;
-    background: rgba(64, 158, 255, 0.1);
-    border: 1px solid rgba(64, 158, 255, 0.3);
+    color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.1);
+    border: 1px solid rgba(var(--primary-color-rgb), 0.3);
   }
 }
 
@@ -667,9 +667,9 @@
   }
 
   &.ok {
-    color: #52C41A;
-    background: rgba(82, 196, 26, 0.1);
-    border: 1px solid rgba(82, 196, 26, 0.3);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.1);
+    border: 1px solid rgba(var(--success-color-rgb),  0.3);
   }
 
   &.none {
@@ -714,7 +714,7 @@
 }
 
 .ob-textarea-mono {
-  ::v-deep textarea {
+  :deep(textarea) {
     font-family: 'SF Mono', Menlo, Consolas, monospace;
     font-size: 12px;
   }
@@ -984,16 +984,12 @@
   }
 
   .ob-field-required {
-    color: #F5222D;
+    color: var(--danger-color);
   }
 
-  // 校验失败：输入框红框
-  &.error ::v-deep .el-input__inner {
-    border-color: #F5222D;
-
-    &:focus {
-      border-color: #F5222D;
-    }
+  // 校验失败：输入框红框（EP 2.x 描边在 .el-input__wrapper 上，box-shadow 形式）
+  &.error :deep(.el-input__wrapper) {
+    box-shadow: 0 0 0 1px var(--danger-color) inset;
   }
 
   // 错误提示固定占位，避免出现/消失时挤压布局导致抖动
@@ -1001,7 +997,7 @@
     height: 15px;
     font-size: 11px;
     line-height: 15px;
-    color: #F5222D;
+    color: var(--danger-color);
     visibility: hidden;
 
     &.visible {
@@ -1024,7 +1020,7 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.5;
-  color: #E6A23C;
+  color: var(--warning-color);
   display: inline-flex;
   align-items: center;
   gap: 4px;

@@ -3,6 +3,21 @@ import MarkdownIt from 'markdown-it'
 
 export const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
+// 链接降级为纯文本：<a> 渲染为无属性 <span>（保留链接文字、去掉 href）。
+// 对话气泡 / 思考区 / 详情弹窗 / 规则预览共用本渲染器，统一不出现可点击
+// 链接（应用内点击外链会拉起系统浏览器，且伪链接曾致窗口白屏）
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const token = tokens[idx]
+  token.tag = 'span'
+  token.attrs = []
+  return self.renderToken(tokens, idx, options)
+}
+
+md.renderer.rules.link_close = (tokens, idx, options, env, self) => {
+  tokens[idx].tag = 'span'
+  return self.renderToken(tokens, idx, options)
+}
+
 // 代码块（fence）自定义渲染：带工具条（语言标记 + 复制按钮）的容器结构。
 // 复制按钮为纯 span（v-html 内容不归 Vue 管理），点击由容器的
 // 事件委托捕获（见 handleCodeCopy），渲染层与交互层解耦

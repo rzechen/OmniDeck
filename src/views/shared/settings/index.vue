@@ -420,7 +420,7 @@
                   @select="saveTrayMenu"
                   @change="saveTrayMenu"
                 >
-                  <template slot-scope="{ item }">
+                  <template #default="{ item }">
                     <span style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;">{{ item.path }}</span>
                     <span v-if="item.title" style="margin-left: 8px; color: #909399; font-size: 11px;">{{ item.title }}</span>
                   </template>
@@ -546,17 +546,19 @@
                   <el-button size="small" round icon="el-icon-eraser" class="hist-tool-dropdown">
                     按工具清空<i class="el-icon-arrow-down el-icon--right"></i>
                   </el-button>
-                  <el-dropdown-menu slot="dropdown">
-                    <el-dropdown-item
-                      v-for="t in historyTools"
-                      :key="t.path"
-                      :command="t.path"
-                      class="hist-tool-item"
-                    >
-                      <span class="hist-tool-name">{{ t.name }}</span>
-                      <span class="hist-tool-count">{{ t.count }} 条</span>
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item
+                        v-for="t in historyTools"
+                        :key="t.path"
+                        :command="t.path"
+                        class="hist-tool-item"
+                      >
+                        <span class="hist-tool-name">{{ t.name }}</span>
+                        <span class="hist-tool-count">{{ t.count }} 条</span>
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
                 </el-dropdown>
                 <el-button
                   size="small"
@@ -640,7 +642,7 @@
             </div>
             <div class="sec-field">
               <label class="sec-field-label">确认新密码</label>
-              <el-input v-model="pwdForm.confirmPwd" type="password" size="small" show-password placeholder="再次输入新密码" @keydown.enter.native="savePassword" />
+              <el-input v-model="pwdForm.confirmPwd" type="password" size="small" show-password placeholder="再次输入新密码" @keydown.enter="savePassword" />
             </div>
           </div>
           <footer class="sec-dialog-footer">
@@ -653,11 +655,11 @@
 
     <!-- 壁纸市场抽屉：本地目录模式（两级结构 + 分类 + 滚动分页） -->
     <el-drawer
-      :visible.sync="marketVisible"
+      v-model="marketVisible"
       direction="rtl"
       size="400px"
       :with-header="false"
-      custom-class="wp-market-drawer"
+      class="wp-market-drawer"
       append-to-body
     >
       <div class="wp-market">
@@ -681,7 +683,7 @@
             <i class="el-icon-folder"></i>
             {{ marketDir }}
           </span>
-          <el-button size="mini" round icon="el-icon-folder-opened" :disabled="wpPullActive" @click="chooseMarketDir()">更换</el-button>
+          <el-button size="small" round icon="el-icon-folder-opened" :disabled="wpPullActive" @click="chooseMarketDir()">更换</el-button>
         </div>
         <div v-if="marketMissing.length" class="wp-market-warn">未找到「{{ marketMissing.join('」「') }}」子目录</div>
 
@@ -724,7 +726,7 @@
               <div class="wp-market-meta">
                 <span class="wp-market-size" :title="item.name">{{ item.name }}</span>
                 <el-button
-                  size="mini"
+                  size="small"
                   round
                   type="primary"
                   :disabled="item.added || marketReading"
@@ -1115,7 +1117,7 @@ export default {
     this.loadClipKeep()
     this.loadBuddySessions()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('keydown', this.onRecordKeydown, true)
     window.removeEventListener('keyup', this.onRecordKeyup, true)
     document.removeEventListener('mousedown', this.onRecordBlur, true)
@@ -1248,7 +1250,7 @@ export default {
         }
         await this.loadBuddySessions()
         // 通知 Buddy 侧栏刷新任务列表
-        this.$root.$emit('omnibuddy:sessions-changed')
+        this.$bus.emit('omnibuddy:sessions-changed')
         this.$message.success('已清空全部任务会话')
       } finally {
         this.buddyHistoryClearing = false
@@ -1615,7 +1617,7 @@ export default {
       })
         .then(() => {
           clearMenuOrder()
-          this.$root.$emit('menu-order-reset')
+          this.$bus.emit('menu-order-reset')
           this.$message.success('排序已还原')
         })
         .catch(() => {})
@@ -2080,7 +2082,7 @@ export default {
     persistLockSettings() {
       setItem('appLockSettings', this.lockSettings)
       // 通知 AppLock 组件即时应用新偏好
-      this.$root.$emit('app-lock:settings-changed')
+      this.$bus.emit('app-lock:settings-changed')
     },
     // 自动锁定时机
     selectAutoLock(val) {
@@ -2129,7 +2131,7 @@ export default {
         this.pwdDialogVisible = false
         this.$message.success('应用密码已保存')
         // 通知 AppLock 同步密码状态（锁定快捷键立即可用）
-        this.$root.$emit('app-lock:settings-changed')
+        this.$bus.emit('app-lock:settings-changed')
       } else {
         this.$message.error('保存失败：系统加密存储不可用')
       }
@@ -2148,7 +2150,7 @@ export default {
         this.hasPassword = false
         this.$message.success('应用密码已清除')
         // 通知 AppLock 同步密码状态
-        this.$root.$emit('app-lock:settings-changed')
+        this.$bus.emit('app-lock:settings-changed')
       }).catch(() => {})
     },
     // 立即锁定：未设密码引导设置；preload 未加载提示重启
@@ -2163,7 +2165,7 @@ export default {
         return
       }
       // 事件总线通知全局 AppLock 遮罩锁定
-      this.$root.$emit('app-lock:lock-now')
+      this.$bus.emit('app-lock:lock-now')
     },
     // ===== 清除本地记录 =====
     // 通用身份二次验证：设置了应用密码（或开启指纹）才需要，否则直接通过
@@ -2377,7 +2379,7 @@ export default {
     flex-shrink: 0;
 
     &.badge-deck {
-      background: var(--primary-color, #5b7cf0);
+      background: var(--primary-color);
     }
 
     &.badge-buddy {
@@ -2403,7 +2405,7 @@ export default {
 
     // 名称/路由非法：标红提示，配合 saveTrayMenu 的保存拦截
     &.is-invalid {
-      border-color: #f56c6c;
+      border-color: var(--danger-color);
       box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.12);
     }
   }
@@ -2413,25 +2415,29 @@ export default {
     flex: 1;
     min-width: 160px;
 
-    ::v-deep .el-input__inner {
+    /* EP 2.x：背景/描边在 .el-input__wrapper（box-shadow 形式），文字在 __inner */
+    :deep(.el-input__wrapper) {
       height: 28px;
-      line-height: 28px;
-      padding: 0 8px;
       border-radius: 7px;
-      border-color: var(--border-color);
       background: var(--card-bg, #fff);
+      box-shadow: 0 0 0 1px var(--border-color) inset;
       font-family: 'SF Mono', Menlo, Consolas, monospace;
       font-size: 11px;
-      color: $text-secondary;
 
-      &:focus {
-        border-color: rgba(var(--primary-color-rgb), 0.55);
+      .el-input__inner {
+        height: 28px;
+        line-height: 28px;
+        color: $text-secondary;
+      }
+
+      &.is-focus {
+        box-shadow: 0 0 0 1px rgba(var(--primary-color-rgb), 0.55) inset;
       }
     }
 
-    &.is-invalid ::v-deep .el-input__inner {
-      border-color: #f56c6c;
-      box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.12);
+    &.is-invalid :deep(.el-input__wrapper) {
+      box-shadow: 0 0 0 1px var(--danger-color) inset,
+        0 0 0 2px rgba(245, 108, 108, 0.12);
     }
   }
 
@@ -2449,7 +2455,7 @@ export default {
 
     &:hover {
       background: rgba(245, 108, 108, 0.12);
-      color: #f56c6c;
+      color: var(--danger-color);
     }
   }
 
@@ -2557,8 +2563,8 @@ export default {
 }
 
 @keyframes shortcut-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(64, 158, 255, 0.35); }
-  50% { box-shadow: 0 0 0 5px rgba(64, 158, 255, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--primary-color-rgb), 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(var(--primary-color-rgb), 0); }
 }
 
 // 减弱动态效果：关闭录制呼吸光晕
@@ -2752,7 +2758,7 @@ html.reduce-motion .kbd-ghost {
 
 /* ===== 通用：历史记录管理下拉（mac 风格） ===== */
 /* 下拉项：工具名 + 条数徽标，两端对齐 */
-::v-deep .hist-tool-item {
+:deep(.hist-tool-item){
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2914,8 +2920,8 @@ html.reduce-motion .kbd-ghost {
   gap: 5px;
   border: none;
   border-radius: 999px;
-  background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.1);
-  color: var(--primary-color, #3366FF);
+  background: rgba(var(--primary-color-rgb), 0.1);
+  color: var(--primary-color);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -2927,7 +2933,7 @@ html.reduce-motion .kbd-ghost {
   }
 
   &:hover:not(:disabled) {
-    background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.18);
+    background: rgba(var(--primary-color-rgb), 0.18);
   }
 
   &:disabled {
@@ -2981,7 +2987,7 @@ html.reduce-motion .kbd-ghost {
 .wp-market-warn {
   padding: 0 18px 8px;
   font-size: 11.5px;
-  color: #E6A23C;
+  color: var(--warning-color);
   flex-shrink: 0;
 }
 
@@ -2993,7 +2999,7 @@ html.reduce-motion .kbd-ghost {
   margin: 0 18px 8px;
   padding: 6px 12px;
   border-radius: 8px;
-  background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.06);
+  background: rgba(var(--primary-color-rgb), 0.06);
   flex-shrink: 0;
 }
 
@@ -3029,7 +3035,7 @@ html.reduce-motion .kbd-ghost {
   color: var(--text-primary, #262628);
 
   i {
-    color: var(--primary-color, #3366FF);
+    color: var(--primary-color);
     font-size: 17px;
   }
 }
@@ -3069,7 +3075,7 @@ html.reduce-motion .kbd-ghost {
   }
 
   &.active {
-    background: var(--primary-color, #3366FF);
+    background: var(--primary-color);
     color: #ffffff;
     font-weight: 500;
   }
@@ -3161,7 +3167,7 @@ html.reduce-motion .kbd-ghost {
   border-radius: 4px;
   font-size: 10px;
   color: #ffffff;
-  background: rgba(82, 196, 26, 0.85);
+  background: rgba(var(--success-color-rgb),  0.85);
 }
 
 .wp-market-meta {

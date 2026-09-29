@@ -334,7 +334,7 @@ export default {
       if (this.phase === 'picking') this.pullContext(false)
     }, 400)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('keydown', this.onKeydown)
     window.removeEventListener('mousemove', this.onGlobalMouseMove)
     window.removeEventListener('mouseup', this.onGlobalMouseUp)

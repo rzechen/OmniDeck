@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, net, ipcMain, systemPreferences, safeStorage,
 const path = require('path')
 const fs = require('fs')
 const { registerOmnibuddyIpc } = require('./agent')
+const { startAgentBridge } = require('./agent-bridge')
 const quickPanel = require('./windows/quick-panel')
 const capture = require('./windows/capture')
 const updater = require('./core/updater')
@@ -140,8 +141,8 @@ function createWindow() {
   mainWindow.maximize()
 
   // 开发模式加载 dev server，生产模式加载打包文件
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
+  if (process.env.ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
@@ -169,7 +170,7 @@ function createWindow() {
   // 被解析成 http://entries.md）会令当前窗口导航离开应用页面导致白屏：
   // 应用自身地址（dev server / 打包产物）之外的一切导航一律阻止，交系统浏览器
   mainWindow.webContents.on('will-navigate', (e, url) => {
-    const appBase = process.env.VITE_DEV_SERVER_URL ||
+    const appBase = process.env.ELECTRON_RENDERER_URL ||
       require('url').pathToFileURL(path.join(__dirname, '../dist/index.html')).href
     if (url === appBase || url.startsWith(appBase)) return
     e.preventDefault()
@@ -398,7 +399,13 @@ app.whenReady().then(async () => {
   deps.ensureGit()
 
   // OmniBuddy Agent：pi 运行时（agentDir/workspace）+ 会话持久化 + 流式对话 IPC
-  registerOmnibuddyIpc(() => mainWindow, path.join(app.getPath('userData'), 'omnibuddy'))
+  // 默认走 utilityProcess 子进程（agent-bridge 桥接），OMNIDECK_AGENT_IN_PROCESS=1 回退主进程内运行
+  const omnibuddyDir = path.join(app.getPath('userData'), 'omnibuddy')
+  if (process.env.OMNIDECK_AGENT_IN_PROCESS) {
+    registerOmnibuddyIpc(() => mainWindow, omnibuddyDir)
+  } else {
+    startAgentBridge(() => mainWindow, omnibuddyDir)
+  }
 
   // 屏幕截取（iShot 风格截图工具）：内存记录池（无落盘），IPC 注册；
   // getWindows：快捷键截图时需隐藏的应用窗口（主窗 + 快捷面板）

@@ -209,7 +209,7 @@ export default {
 
 .fc-err {
   font-size: 11px;
-  color: #F54A45;
+  color: var(--danger-color);
 }
 
 .fc-item .tool-btn {
@@ -235,7 +235,7 @@ export default {
   transition: opacity 0.15s ease;
 
   &:hover {
-    background: rgba(245, 74, 69, 0.85);
+    background: rgba(var(--danger-color-rgb),  0.85);
   }
 }
 </style>

@@ -150,7 +150,7 @@ export default {
 
   &.active {
     color: var(--primary-color);
-    background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.09);
+    background: rgba(var(--primary-color-rgb), 0.09);
     font-weight: 600;
 
     .nav-dot {

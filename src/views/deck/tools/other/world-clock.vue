@@ -3,7 +3,7 @@
     title="世界时钟"
     desc="多城市模拟时钟对照，支持增删与拖拽排序"
     icon="clock"
-    color="#FAAD14"
+    color="var(--warning-color)"
     back-path="/tools/other"
   >
     <template #toolbar>
@@ -25,8 +25,9 @@
     </template>
 
     <div class="wc-body">
-      <draggable v-model="cities" class="wc-grid" animation="150" handle=".wc-card">
-        <div v-for="c in cities" :key="c" class="wc-card" :class="{ 'is-day': isDay(c) }">
+      <draggable v-model="cities" class="wc-grid" animation="150" handle=".wc-card" :item-key="c => c">
+        <template #item="{ element: c }">
+        <div class="wc-card" :class="{ 'is-day': isDay(c) }">
           <button class="wc-remove" title="移除" @click="removeCity(c)">
             <i class="el-icon-close"></i>
           </button>
@@ -85,6 +86,7 @@
             <span class="wc-offset">{{ offsetOf(c) }}</span>
           </div>
         </div>
+        </template>
       </draggable>
       <div v-if="!cities.length" class="wc-empty">
         <i class="el-icon-time"></i>
@@ -165,7 +167,7 @@ export default {
     }, 1000)
     this.loadPersisted()
   },
-  beforeDestroy() {
+  beforeUnmount() {
     clearInterval(this._timer)
   },
   methods: {
@@ -316,7 +318,7 @@ export default {
   }
 
   &.is-day {
-    background: linear-gradient(160deg, rgba(250, 173, 20, 0.09), transparent 65%);
+    background: linear-gradient(160deg, rgba(var(--warning-color-rgb),  0.09), transparent 65%);
   }
 }
 
@@ -340,7 +342,7 @@ export default {
 
 .wc-day-night {
   font-size: 13px;
-  color: #FAAD14;
+  color: var(--warning-color);
   flex-shrink: 0;
 
   .el-icon-moon {
@@ -384,7 +386,7 @@ export default {
     }
 
     &.hand-sec {
-      stroke: #F54A45;
+      stroke: var(--danger-color);
       stroke-width: 1.4;
     }
   }
@@ -430,7 +432,7 @@ export default {
   transition: all 0.15s ease;
 
   &:hover {
-    background: rgba(245, 74, 69, 0.85);
+    background: rgba(var(--danger-color-rgb),  0.85);
     color: #fff;
   }
 }

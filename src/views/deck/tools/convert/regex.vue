@@ -231,7 +231,7 @@ export default {
   }
 
   &.is-error {
-    border-color: rgba(245, 74, 69, 0.6);
+    border-color: rgba(var(--danger-color-rgb),  0.6);
   }
 
   .regex-slash {
@@ -293,7 +293,7 @@ export default {
 
 .regex-error {
   font-size: 12px;
-  color: #F54A45;
+  color: var(--danger-color);
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -303,7 +303,7 @@ export default {
 
 .regex-ok {
   font-size: 12px;
-  color: #52C41A;
+  color: var(--success-color);
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -340,7 +340,7 @@ export default {
   word-break: break-all;
   color: var(--text-primary);
 
-  ::v-deep .rx-hit {
+  :deep(.rx-hit){
     background: rgba(var(--primary-color-rgb), 0.85);
     color: #fff;
     border-radius: 4px;

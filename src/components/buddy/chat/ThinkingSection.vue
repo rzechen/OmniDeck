@@ -553,7 +553,7 @@ export default {
 .ob-think-ask {
   margin-top: 5px;
 
-  ::v-deep .ob-ask-card {
+  :deep(.ob-ask-card){
     margin-left: 0;
   }
 }
@@ -694,7 +694,7 @@ export default {
   .ob-tool-ico {
     font-size: 13px;
     flex-shrink: 0;
-    color: #10B981;
+    color: var(--success-color);
 
     /* 运行中：loading 图标持续旋转（与正文思考占位 ob-think-spin 同构） */
     &.spin {
@@ -703,7 +703,7 @@ export default {
     }
   }
 
-  &.error .ob-tool-ico { color: #EF4444; }
+  &.error .ob-tool-ico { color: var(--danger-color); }
 
   /* MCP 服务名前缀 */
   .ob-tool-server {
@@ -777,7 +777,7 @@ export default {
   color: var(--text-secondary);
   margin-bottom: 4px;
 
-  &.error { color: #EF4444; }
+  &.error { color: var(--danger-color); }
 }
 
 /* ===== 参数区 ===== */
@@ -867,8 +867,8 @@ export default {
 
   /* 错误态：红底红字 */
   &.error {
-    background: rgba(239, 68, 68, 0.08);
-    color: #EF4444;
+    background: rgba(var(--danger-color-rgb),  0.08);
+    color: var(--danger-color);
   }
 }
 
@@ -935,8 +935,8 @@ export default {
   border-radius: 4px;
 
   &.created, &.mkdir {
-    color: #10B981;
-    background: rgba(16, 185, 129, 0.12);
+    color: var(--success-color);
+    background: rgba(var(--success-color-rgb),  0.12);
   }
 
   &.modified {
@@ -945,8 +945,8 @@ export default {
   }
 
   &.deleted {
-    color: #EF4444;
-    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger-color);
+    background: rgba(var(--danger-color-rgb),  0.12);
   }
 }
 
@@ -958,6 +958,6 @@ export default {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
-.ob-fc-add { color: #10B981; }
-.ob-fc-del { color: #EF4444; }
+.ob-fc-add { color: var(--success-color); }
+.ob-fc-del { color: var(--danger-color); }
 </style>

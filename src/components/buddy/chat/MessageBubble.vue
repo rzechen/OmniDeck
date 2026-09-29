@@ -258,7 +258,7 @@ export default {
       else document.removeEventListener('click', this.closeExportMenu)
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     document.removeEventListener('click', this.closeExportMenu)
   },
   computed: {
@@ -1020,7 +1020,7 @@ export default {
   }
 
   &.warn {
-    background: #e6a23c;
+    background: var(--warning-color);
   }
 
   &.danger {

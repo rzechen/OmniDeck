@@ -54,7 +54,7 @@ export default {
   mounted() {
     document.addEventListener('keydown', this.handleKeydown)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     document.removeEventListener('keydown', this.handleKeydown)
   },
   methods: {
@@ -157,8 +157,8 @@ export default {
   font-weight: 800;
   letter-spacing: 0.5px;
   color: #D46B08;
-  background: rgba(250, 173, 20, 0.15);
-  border: 1px solid rgba(250, 173, 20, 0.4);
+  background: rgba(var(--warning-color-rgb),  0.15);
+  border: 1px solid rgba(var(--warning-color-rgb),  0.4);
   padding: 1px 6px;
   border-radius: 999px;
   line-height: 1.4;

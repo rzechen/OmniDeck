@@ -181,7 +181,7 @@ export default {
 }
 
 /* 加载骨架微调：贴合任务行视觉（小图标 + 细行文字，替代骨架默认的 34px 大块） */
-::v-deep .ob-skeleton.sk-rows {
+:deep(.ob-skeleton.sk-rows){
   .sk-row {
     padding: 8px 10px 8px 16px;
   }
@@ -415,7 +415,7 @@ export default {
     }
 
     &.ob-del:hover {
-      color: #F5222D;
+      color: var(--danger-color);
     }
   }
 }
@@ -454,7 +454,7 @@ export default {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #e6a23c;
+  background: var(--warning-color);
   box-shadow: 0 0 0 3px rgba(230, 162, 60, 0.2);
   flex-shrink: 0;
 }

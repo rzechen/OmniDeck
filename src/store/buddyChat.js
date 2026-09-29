@@ -3,7 +3,6 @@
 //   切菜单 / 返回 deck / 关闭页签 / 组件重建期间事件不丢，回到会话即从池内恢复
 // - '' 为新对话暂存位，send() 创建会话后整体迁移至正式 id（配合 tagsView REBIND 保 uid，实例不重建）
 // - $message / $root 广播等 UI 副作用经 notice 队列中转，由组件层认领消费（store 不碰 UI）
-import Vue from 'vue'
 
 // 单个会话的初始状态
 function blankSession() {
@@ -31,7 +30,7 @@ function blankSession() {
 
 // mutation 内部工具：确保会话池存在并返回（幂等）
 function ensure(state, id) {
-  if (!state.sessions[id]) Vue.set(state.sessions, id, blankSession())
+  if (!state.sessions[id]) state.sessions[id] = blankSession()
   return state.sessions[id]
 }
 
@@ -189,8 +188,8 @@ function ensureTurnMessage(s) {
 function finishTurn(s) {
   const msg = s.turnMsg
   if (msg) {
-    Vue.delete(msg, 'streaming')
-    Vue.delete(msg, 'thinking')
+    delete msg.streaming
+    delete msg.thinking
     msg.isThinking = false
   }
   s.turnMsg = null
@@ -241,8 +240,8 @@ export default {
       // 防止切走再回来时 loadHistory 拉取已落盘历史覆盖正在进行的流式轮次
       // （表现为 token 行提前出现、深度思考分块错乱、流不接着之前的内容）
       s.loaded = true
-      Vue.set(state.sessions, to, s)
-      Vue.delete(state.sessions, from)
+      state.sessions[to] = s
+      delete state.sessions[from]
     },
     // 覆盖会话消息（历史拉取完成）
     SET_MESSAGES(state, { id, messages }) {
@@ -255,7 +254,7 @@ export default {
       const s = ensure(state, id)
       // Vue.set 逐字段写入：patch 携带会话骨架未预定义的新字段时仍保持响应式
       // （Object.assign 新增属性不触发依赖更新）
-      Object.keys(patch).forEach(k => Vue.set(s, k, patch[k]))
+      Object.keys(patch).forEach(k => { s[k] = patch[k] })
     },
     // 追加消息（用户消息 / 占位助手消息）
     PUSH_MSG(state, { id, msg }) {
@@ -274,7 +273,7 @@ export default {
     },
     // 删除会话时清理状态池
     DROP_SESSION(state, id) {
-      Vue.delete(state.sessions, id)
+      delete state.sessions[id]
     },
     // UI 事件入队（限量 50，避免无组件消费时无限堆积）
     NOTICE(state, item) {
@@ -360,15 +359,15 @@ export default {
         const m = s.lastFinishedMsg
         s.lastFinishedMsg = null
         if (s.messages.indexOf(m) >= 0) {
-          if (!m.id && e.messageId) Vue.set(m, 'id', e.messageId)
+          if (!m.id && e.messageId) m.id = e.messageId
           if (e.usage && (e.usage.input || e.usage.output || e.usage.contextTokens)) {
             const prev = m.usage || { input: 0, output: 0 }
-            Vue.set(m, 'usage', {
+            m.usage = {
               input: prev.input + (e.usage.input || 0),
               output: prev.output + (e.usage.output || 0),
               contextTokens: e.usage.contextTokens,
               contextWindow: e.usage.contextWindow
-            })
+            }
           }
         }
         return
@@ -400,7 +399,7 @@ export default {
           for (let i = s.messages.length - 1; i >= 0; i--) {
             const m = s.messages[i]
             if (m.role === 'user' && !m.id && m.content === rec.content) {
-              Vue.set(m, 'id', rec.id)
+              m.id = rec.id
               break
             }
           }
@@ -443,19 +442,19 @@ export default {
             msg.content = ''
             s.cycleBase = ''
           }
-          Vue.delete(msg, 'thinking')
+          delete msg.thinking
           // 回填本轮首条落盘记录 id（仅首次）：实时聚合消息与重开归并消息
           // 指向同一条记录，点赞/点踩持久化与分支据此定位
-          if (!msg.id && e.messageId) Vue.set(msg, 'id', e.messageId)
+          if (!msg.id && e.messageId) msg.id = e.messageId
           // token 用量：工具循环中多次模型调用，逐次累加；上下文占用取最新快照
           if (e.usage && (e.usage.input || e.usage.output || e.usage.contextTokens)) {
             const prev = msg.usage || { input: 0, output: 0 }
-            Vue.set(msg, 'usage', {
+            msg.usage = {
               input: prev.input + (e.usage.input || 0),
               output: prev.output + (e.usage.output || 0),
               contextTokens: e.usage.contextTokens,
               contextWindow: e.usage.contextWindow
-            })
+            }
           }
           s.thinkTicking = false
           break
@@ -497,7 +496,7 @@ export default {
             for (let i = msg.items.length - 2; i >= 0; i--) {
               const it = msg.items[i]
               if (it.type === 'ask' && !it.answered) {
-                Vue.set(tool, 'ask', it)
+                tool.ask = it
                 msg.items.splice(i, 1)
                 break
               }
@@ -539,7 +538,7 @@ export default {
             for (let j = m.items.length - 1; j >= 0; j--) {
               const it = m.items[j]
               if (it.type === 'tool' && it.workflow && it.workflow.runId === wf.runId) {
-                Vue.set(it.workflow, 'progress', wf)
+                it.workflow.progress = wf
                 i = -1 // 双重跳出
                 break
               }
@@ -566,7 +565,7 @@ export default {
           for (let i = items.length - 1; i >= 0; i--) {
             const it = items[i]
             if (it.type === 'tool' && it.toolName === 'ask_user' && !it.ask) {
-              Vue.set(it, 'ask', ask)
+              it.ask = ask
               attached = true
               break
             }
@@ -693,7 +692,7 @@ export default {
           s.streaming = false
           // 模型/供应商错误：原封不动写入本轮气泡展示（不弹易逝的 toast）
           const errTurn = s.turnMsg || ensureTurnMessage(s)
-          Vue.set(errTurn, 'error', e.error || '生成失败')
+          errTurn.error = e.error || '生成失败'
           finishTurn(s)
           break
         }

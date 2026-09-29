@@ -192,16 +192,16 @@ export default {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #52C41A;
+    background: var(--success-color);
     flex-shrink: 0;
 
     &.is-bad {
-      background: #F54A45;
+      background: var(--danger-color);
     }
   }
 
   .status-err {
-    color: #F54A45;
+    color: var(--danger-color);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -264,9 +264,9 @@ export default {
 
   &.is-danger {
     &:hover {
-      color: #F54A45;
-      border-color: rgba(245, 74, 69, 0.5);
-      background: rgba(245, 74, 69, 0.06);
+      color: var(--danger-color);
+      border-color: rgba(var(--danger-color-rgb),  0.5);
+      background: rgba(var(--danger-color-rgb),  0.06);
     }
   }
 
@@ -360,7 +360,7 @@ export default {
       }
 
       &.is-output {
-        background: #52C41A;
+        background: var(--success-color);
       }
     }
 

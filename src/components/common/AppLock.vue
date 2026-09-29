@@ -172,9 +172,9 @@ export default {
     })
 
     // 设置页改动自动锁定偏好 → 即时生效
-    this.$root.$on('app-lock:settings-changed', this.applySettings)
+    this.$bus.on('app-lock:settings-changed', this.applySettings)
     // 设置页「立即锁定」
-    this.$root.$on('app-lock:lock-now', this.lockNow)
+    this.$bus.on('app-lock:lock-now', this.lockNow)
 
     // 眼睛：跟随鼠标 + 随机眨眼
     window.addEventListener('mousemove', this.onEyeMove, { passive: true })
@@ -190,7 +190,7 @@ export default {
     })
     this.motionObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
   },
-  beforeDestroy() {
+  beforeUnmount() {
     if (this.timer) clearInterval(this.timer)
     if (this.offSystemLocked) this.offSystemLocked()
     clearTimeout(this.autoBioTimer)
@@ -199,8 +199,8 @@ export default {
     if (this.motionObserver) this.motionObserver.disconnect()
     window.removeEventListener('mousemove', this.onEyeMove)
     window.removeEventListener('keydown', this.onLockHotkey)
-    this.$root.$off('app-lock:settings-changed', this.applySettings)
-    this.$root.$off('app-lock:lock-now', this.lockNow)
+    this.$bus.off('app-lock:settings-changed', this.applySettings)
+    this.$bus.off('app-lock:lock-now', this.lockNow)
     ;['mousemove', 'keydown', 'mousedown', 'wheel'].forEach(ev => {
       window.removeEventListener(ev, this.markActive)
     })

@@ -40,31 +40,82 @@ function writeAll(items) {
 // safeStorage 可用时用系统钥匙串加密（'enc:' 前缀）；
 // 不可用时（如 Linux 缺少 libsecret 的桌面环境）回退 base64（'b64:' 前缀），
 // 至少避免明文直接落盘，但安全性依赖本机文件权限。
-function encryptSecret(obj) {
+//
+// utilityProcess 桥接模式（shim 提供 safeStorage.__bridged）下 encryptString /
+// decryptString 是跨进程异步调用，而凭据取用方（mcp resolve / 技能 env 注入）是
+// 同步签名 —— 因此用「启动预热缓存」策略：decCache 以 secretEnc 为键保存明文，
+// prewarm() 在子进程启动时把所有 enc: 条目解密入缓存，运行期解密走同步查表；
+// create / update 时明文在手直接填缓存，杜绝运行期未命中。
+const bridged = () => !!(safeStorage && safeStorage.__bridged)
+const decCache = new Map() // secretEnc -> { headers, env }
+
+async function encryptSecret(obj) {
   const str = JSON.stringify(obj || {})
   if (safeStorage.isEncryptionAvailable()) {
-    return 'enc:' + safeStorage.encryptString(str).toString('base64')
+    // 主进程模式 encryptString 同步返回 Buffer，桥接模式返回 Promise —— await 双兼容
+    const buf = await safeStorage.encryptString(str)
+    return 'enc:' + buf.toString('base64')
   }
   return 'b64:' + Buffer.from(str).toString('base64')
 }
 
-// 按前缀分发解密；失败返回空对象并告警（如系统凭据变更导致解密失败）
-function decryptSecret(secretEnc) {
+function parseSecret(str) {
+  const obj = JSON.parse(str)
+  return { headers: (obj && obj.headers) || {}, env: (obj && obj.env) || {} }
+}
+
+// 按前缀分发解密（异步版，供 prewarm / create / update 使用）；
+// 失败返回空对象并告警（如系统凭据变更导致解密失败）
+async function decryptSecret(secretEnc) {
   try {
     if (typeof secretEnc !== 'string' || !secretEnc) return { headers: {}, env: {} }
-    let str = ''
     if (secretEnc.startsWith('enc:')) {
-      str = safeStorage.decryptString(Buffer.from(secretEnc.slice(4), 'base64'))
-    } else if (secretEnc.startsWith('b64:')) {
-      str = Buffer.from(secretEnc.slice(4), 'base64').toString('utf-8')
-    } else {
-      return { headers: {}, env: {} }
+      const str = await safeStorage.decryptString(Buffer.from(secretEnc.slice(4), 'base64'))
+      const secret = parseSecret(str)
+      decCache.set(secretEnc, secret)
+      return secret
     }
-    const obj = JSON.parse(str)
-    return { headers: (obj && obj.headers) || {}, env: (obj && obj.env) || {} }
+    if (secretEnc.startsWith('b64:')) {
+      return parseSecret(Buffer.from(secretEnc.slice(4), 'base64').toString('utf-8'))
+    }
+    return { headers: {}, env: {} }
   } catch (e) {
     console.warn('[omnibuddy:credentials] 凭证解密失败：', e.message)
     return { headers: {}, env: {} }
+  }
+}
+
+// 同步解密：缓存命中 / b64 直解 / 主进程模式真同步解密；
+// 桥接模式下 enc: 未命中（预热失败或新写入未被缓存）返回空并告警
+function decryptSecretSync(secretEnc) {
+  const hit = decCache.get(secretEnc)
+  if (hit) return hit
+  try {
+    if (typeof secretEnc !== 'string' || !secretEnc) return { headers: {}, env: {} }
+    if (secretEnc.startsWith('b64:')) {
+      return parseSecret(Buffer.from(secretEnc.slice(4), 'base64').toString('utf-8'))
+    }
+    if (secretEnc.startsWith('enc:')) {
+      if (bridged()) {
+        console.warn('[omnibuddy:credentials] 桥接模式缓存未命中，返回空凭据：', secretEnc.slice(0, 16))
+        return { headers: {}, env: {} }
+      }
+      return parseSecret(safeStorage.decryptString(Buffer.from(secretEnc.slice(4), 'base64')))
+    }
+    return { headers: {}, env: {} }
+  } catch (e) {
+    console.warn('[omnibuddy:credentials] 凭证解密失败：', e.message)
+    return { headers: {}, env: {} }
+  }
+}
+
+// 启动预热：把磁盘上所有 enc: 条目解密入缓存（agent-host 启动时调用，失败不阻断）
+async function prewarm() {
+  if (!bridged()) return
+  for (const c of readAll()) {
+    if (typeof c.secretEnc === 'string' && c.secretEnc.startsWith('enc:')) {
+      await decryptSecret(c.secretEnc)
+    }
   }
 }
 
@@ -80,7 +131,7 @@ function maskSecret(secret) {
 
 // 脱敏视图：键名列表 + 掩码预览，不含任何 secret 明文
 function maskedView(c) {
-  const secret = decryptSecret(c.secretEnc)
+  const secret = decryptSecretSync(c.secretEnc)
   return {
     id: c.id,
     name: c.name,
@@ -101,7 +152,7 @@ function list() {
   return readAll().map(maskedView)
 }
 
-function create(c) {
+async function create(c) {
   try {
     c = c || {}
     const name = String(c.name || '').trim()
@@ -109,6 +160,10 @@ function create(c) {
     if (!name) return { ok: false, error: '凭证名称不能为空' }
     if (!type) return { ok: false, error: '凭证类型不能为空' }
     const now = Date.now()
+    const plain = {
+      headers: (c.headers && typeof c.headers === 'object' && !Array.isArray(c.headers)) ? c.headers : {},
+      env: (c.env && typeof c.env === 'object' && !Array.isArray(c.env)) ? c.env : {}
+    }
     const record = {
       id: newId(),
       name,
@@ -117,14 +172,12 @@ function create(c) {
       baseUrl: String(c.baseUrl || '').trim(),
       command: String(c.command || '').trim(),
       skillNames: Array.isArray(c.skillNames) ? c.skillNames : [],
-      // headers / env 缺省为空对象
-      secretEnc: encryptSecret({
-        headers: (c.headers && typeof c.headers === 'object' && !Array.isArray(c.headers)) ? c.headers : {},
-        env: (c.env && typeof c.env === 'object' && !Array.isArray(c.env)) ? c.env : {}
-      }),
+      secretEnc: await encryptSecret(plain),
       createdAt: now,
       updatedAt: now
     }
+    // 明文在手直填缓存：create 后立即被 mcp resolve / 技能 env 注入同步消费
+    decCache.set(record.secretEnc, plain)
     const items = readAll()
     items.push(record)
     writeAll(items)
@@ -134,7 +187,7 @@ function create(c) {
   }
 }
 
-function update(c) {
+async function update(c) {
   try {
     c = c || {}
     const items = readAll()
@@ -147,15 +200,20 @@ function update(c) {
     if (c.command !== undefined) hit.command = String(c.command || '').trim()
     if (c.skillNames !== undefined) hit.skillNames = Array.isArray(c.skillNames) ? c.skillNames : []
     // headers / env 分别独立判断：未传（null/undefined）保持原值，传了则整体替换重加密
-    const secret = decryptSecret(hit.secretEnc)
+    const secret = decryptSecretSync(hit.secretEnc)
     const headers = (c.headers === null || c.headers === undefined)
       ? secret.headers
       : (typeof c.headers === 'object' && !Array.isArray(c.headers)) ? c.headers : {}
     const env = (c.env === null || c.env === undefined)
       ? secret.env
       : (typeof c.env === 'object' && !Array.isArray(c.env)) ? c.env : {}
-    hit.secretEnc = encryptSecret({ headers, env })
+    const plain = { headers, env }
+    const oldEnc = hit.secretEnc
+    hit.secretEnc = await encryptSecret(plain)
     hit.updatedAt = Date.now()
+    // 重加密后明文在手直填缓存（同时清掉旧密文的缓存项）
+    decCache.delete(oldEnc)
+    decCache.set(hit.secretEnc, plain)
     writeAll(items)
     return { ok: true, credential: maskedView(hit) }
   } catch (e) {
@@ -168,6 +226,10 @@ function remove(id) {
     const items = readAll()
     const next = items.filter(x => x.id !== id)
     if (next.length === items.length) return { ok: false, error: '凭证不存在' }
+    // 清掉被删条目的明文缓存
+    for (const x of items) {
+      if (!next.includes(x)) decCache.delete(x.secretEnc)
+    }
     writeAll(next)
     return { ok: true }
   } catch (e) {
@@ -179,7 +241,7 @@ function remove(id) {
 function resolve(id) {
   const hit = readAll().find(x => x.id === id)
   if (!hit) return { headers: {}, env: {} }
-  return decryptSecret(hit.secretEnc)
+  return decryptSecretSync(hit.secretEnc)
 }
 
 // ===== AI 对话按需取用 =====
@@ -189,7 +251,7 @@ function resolve(id) {
 // AI 可用凭据目录（脱敏视图 + id）：注入 systemPrompt 供模型按名索引
 function aiList() {
   return readAll().map(c => {
-      const secret = decryptSecret(c.secretEnc)
+      const secret = decryptSecretSync(c.secretEnc)
       return {
         id: c.id,
         name: c.name,
@@ -224,7 +286,7 @@ function aiResolve(nameOrId) {
   if (!hit) {
     return { ok: false, error: '未找到名为「' + q + '」的凭据' }
   }
-  const secret = decryptSecret(hit.secretEnc)
+  const secret = decryptSecretSync(hit.secretEnc)
   return { ok: true, name: hit.name, values: secret.env, headers: secret.headers }
 }
 
@@ -237,11 +299,11 @@ function resolveEnvForSkills(skillNames) {
   for (const c of readAll()) {
     const skills = Array.isArray(c.skillNames) ? c.skillNames : []
     if (!skills.some(n => names.indexOf(n) >= 0)) continue
-    const secret = decryptSecret(c.secretEnc)
+    const secret = decryptSecretSync(c.secretEnc)
     Object.assign(env, secret.env || {})
   }
   return env
 }
 
 module.exports = { init, list, create, update, remove, resolve, resolveEnvForSkills,
-  aiList, aiPromptBlock, aiResolve }
+  aiList, aiPromptBlock, aiResolve, prewarm }

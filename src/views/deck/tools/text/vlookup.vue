@@ -446,7 +446,7 @@ export default {
     font-weight: 600;
 
     &.is-miss {
-      color: #F54A45;
+      color: var(--danger-color);
       opacity: 0.6;
     }
   }

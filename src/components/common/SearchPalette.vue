@@ -1,11 +1,11 @@
 <template>
   <!-- Spotlight 风格搜索命令面板（自原 Deck Topbar 抽取，供「快捷搜索」页签唤起） -->
   <el-dialog
-    :visible.sync="dlgVisible"
+    v-model="dlgVisible"
     :show-close="false"
     :modal="true"
     append-to-body
-    custom-class="search-dialog"
+    class="search-dialog"
     width="680px"
     top="12vh"
   >

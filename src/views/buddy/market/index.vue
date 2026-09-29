@@ -121,11 +121,11 @@
     </div>
 
     <!-- ===== 卡片详情弹窗（共享组件）：完整描述 / 版本 / 更新时间 / 版本历史 ===== -->
-    <item-detail-dialog :visible.sync="detailVisible" :item="detailItem">
-      <template slot="head-extra" slot-scope="{ item }">
+    <item-detail-dialog v-model:visible="detailVisible" :item="detailItem">
+      <template #head-extra="{ item }">
         <span v-if="item.hasUpdate" class="ob-market-badge update">可更新</span>
       </template>
-      <template slot="cells" slot-scope="{ item }">
+      <template #cells="{ item }">
         <div class="ob-detail-cell">
           <div class="ob-cell-label">安装状态</div>
           <div class="ob-cell-value ob-install-state" :class="item.hasUpdate ? 'updatable' : item.installed ? 'installed' : 'none'">
@@ -136,7 +136,7 @@
           </div>
         </div>
       </template>
-      <template slot="actions" slot-scope="{ item }">
+      <template #actions="{ item }">
         <el-button
           v-if="item.hasUpdate"
           size="small"
@@ -443,7 +443,7 @@ export default {
   flex-shrink: 0;
   margin-bottom: 12px;
   padding: 16px 20px;
-  background: linear-gradient(135deg, rgba(var(--primary-color-rgb, 91, 124, 240), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
+  background: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
   border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
   border-radius: $radius-lg;
 
@@ -470,7 +470,7 @@ export default {
       font-size: 11px;
       padding: 2px 8px;
       border-radius: 12px;
-      background: rgba(var(--primary-color-rgb, 91, 124, 240), 0.1);
+      background: rgba(var(--primary-color-rgb), 0.1);
       color: var(--primary-color);
       font-weight: 600;
     }

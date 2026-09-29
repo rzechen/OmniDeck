@@ -245,7 +245,7 @@ export default {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: #52C41A;
+    background: var(--success-color);
     flex-shrink: 0;
   }
 

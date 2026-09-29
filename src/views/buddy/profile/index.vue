@@ -12,8 +12,8 @@
         </p>
       </div>
       <div class="pf-hero-actions">
-        <el-button size="mini" round @click="refresh"><svg-icon icon-class="refresh-left" /> 刷新</el-button>
-        <el-button size="mini" round type="primary" :loading="saving" @click="save">
+        <el-button size="small" round @click="refresh"><svg-icon icon-class="refresh-left" /> 刷新</el-button>
+        <el-button size="small" round type="primary" :loading="saving" @click="save">
           <svg-icon icon-class="check" /> {{ activeTab === 'rule' ? '保存规则' : '保存资料' }}
         </el-button>
       </div>
@@ -68,13 +68,13 @@
             <div class="pf-group-head">
               <span class="pf-group-title">自定义条目</span>
               <span class="pf-group-hint">任意补充：邮箱、座机、报销习惯、常用收件地址等</span>
-              <el-button size="mini" round type="primary" class="pf-group-add" @click="addCustom"><svg-icon icon-class="plus" /> 添加</el-button>
+              <el-button size="small" round type="primary" class="pf-group-add" @click="addCustom"><svg-icon icon-class="plus" /> 添加</el-button>
             </div>
             <div v-if="customs.length" class="pf-customs">
               <div v-for="(c, i) in customs" :key="c.id" class="pf-custom">
                 <div class="pf-custom-top">
                   <el-input v-model="c.key" size="small" class="pf-custom-key" placeholder="名称（如：邮箱）" maxlength="30" />
-                  <el-button size="mini" round icon="el-icon-delete" class="pf-custom-del" @click="customs.splice(i, 1)" />
+                  <el-button size="small" round icon="el-icon-delete" class="pf-custom-del" @click="customs.splice(i, 1)" />
                 </div>
                 <el-input
                   v-model="c.value"
@@ -96,7 +96,7 @@
           <div class="pf-toolbar">
             <span class="pf-hint">对 AI 行为的全局指令，所有对话生效；如固定回复风格、输出约定</span>
             <div class="pf-toolbar-ops">
-              <el-button v-if="globalRule.hasRule" size="mini" round @click="exportGlobalRule">导出</el-button>
+              <el-button v-if="globalRule.hasRule" size="small" round @click="exportGlobalRule">导出</el-button>
             </div>
           </div>
           <div v-if="ruleOpen" class="pf-rule">
@@ -122,7 +122,7 @@
           <div class="pf-group-head">
             <span class="pf-group-title">凭据列表</span>
             <span class="pf-group-hint">API Key、账号等鉴权信息，加密存储于本机</span>
-            <el-button size="mini" round type="primary" class="pf-group-add" @click="openCred(null)"><svg-icon icon-class="plus" /> 添加</el-button>
+            <el-button size="small" round type="primary" class="pf-group-add" @click="openCred(null)"><svg-icon icon-class="plus" /> 添加</el-button>
           </div>
           <div v-if="creds.length" class="pf-creds">
             <div v-for="c in creds" :key="c.id" class="pf-cred" @click="openCred(c)">
@@ -391,7 +391,7 @@ export default {
   flex-shrink: 0;
 
   &.ok {
-    background: #52C41A;
+    background: var(--success-color);
   }
 }
 
@@ -562,7 +562,7 @@ export default {
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 
   &:hover {
-    border-color: rgba(var(--primary-color-rgb, 91, 124, 240), 0.35);
+    border-color: rgba(var(--primary-color-rgb), 0.35);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
     transform: translateY(-1px);
 

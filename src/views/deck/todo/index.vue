@@ -199,7 +199,7 @@
                 clearable
                 placeholder="要做什么？"
                 maxlength="50"
-                @keydown.enter.native="saveTodo"
+                @keydown.enter="saveTodo"
                 @blur="validateTodoField('title')"
                 @input="clearTodoFieldError('title')"
               />
@@ -777,7 +777,7 @@ export default {
   padding: 0 14px;
   border: none;
   border-radius: 999px;
-  background: var(--primary-color, #3366FF);
+  background: var(--primary-color);
   color: #fff;
   font-size: 12.5px;
   font-weight: 600;
@@ -859,8 +859,8 @@ export default {
   }
 
   &:hover {
-    border-color: var(--primary-color, #3366FF);
-    color: var(--primary-color, #3366FF);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
   }
 
   &:active {
@@ -881,8 +881,8 @@ export default {
   transition: all 0.15s ease;
 
   &:hover {
-    border-color: var(--primary-color, #3366FF);
-    color: var(--primary-color, #3366FF);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
   }
 }
 
@@ -997,7 +997,7 @@ export default {
     background: rgba(var(--primary-color-rgb), 0.06);
 
     .cal-day {
-      color: var(--primary-color, #3366FF);
+      color: var(--primary-color);
       font-weight: 700;
     }
   }
@@ -1055,7 +1055,7 @@ export default {
   width: 4.5px;
   height: 4.5px;
   border-radius: 50%;
-  background: var(--primary-color, #3366FF);
+  background: var(--primary-color);
 
   &.done {
     background: #52C41A;
@@ -1198,7 +1198,7 @@ export default {
       border-radius: 50%;
       font-size: 9.5px;
       font-weight: 700;
-      color: var(--primary-color, #3366FF);
+      color: var(--primary-color);
       background: rgba(var(--primary-color-rgb), 0.12);
       border: 1px solid rgba(var(--primary-color-rgb), 0.3);
     }
@@ -1297,7 +1297,7 @@ export default {
 
   &.active {
     background: var(--card-bg);
-    color: var(--primary-color, #3366FF);
+    color: var(--primary-color);
     font-weight: 600;
     box-shadow: $shadow-sm;
   }
@@ -1370,12 +1370,12 @@ export default {
   }
 
   &:hover {
-    border-color: var(--primary-color, #3366FF);
+    border-color: var(--primary-color);
   }
 
   .day-item.done & {
-    border-color: var(--primary-color, #3366FF);
-    background: var(--primary-color, #3366FF);
+    border-color: var(--primary-color);
+    background: var(--primary-color);
     color: #fff;
   }
 }
@@ -1401,7 +1401,7 @@ export default {
   .day-item-time {
     font-size: 10.5px;
     font-weight: 600;
-    color: var(--primary-color, #3366FF);
+    color: var(--primary-color);
     background: rgba(var(--primary-color-rgb), 0.09);
     padding: 0 6px;
     border-radius: 999px;
@@ -1452,7 +1452,7 @@ export default {
 
     &:hover {
       border-color: rgba(var(--primary-color-rgb), 0.5);
-      color: var(--primary-color, #3366FF);
+      color: var(--primary-color);
     }
   }
 
@@ -1487,7 +1487,7 @@ export default {
 
     &:hover {
       background: rgba(var(--primary-color-rgb), 0.1);
-      color: var(--primary-color, #3366FF);
+      color: var(--primary-color);
     }
 
     &.el-icon-delete:hover {
@@ -1538,8 +1538,8 @@ export default {
   }
 
   &:hover {
-    border-color: var(--primary-color, #3366FF);
-    color: var(--primary-color, #3366FF);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
   }
 }
 
@@ -1666,7 +1666,7 @@ export default {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--primary-color, #3366FF);
+  color: var(--primary-color);
   background: rgba(var(--primary-color-rgb), 0.09);
   cursor: pointer;
   transition: all 0.15s ease;

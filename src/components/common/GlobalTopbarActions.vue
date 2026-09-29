@@ -66,7 +66,7 @@ export default {
       })
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     if (this.offMaximized) this.offMaximized()
   },
   methods: {

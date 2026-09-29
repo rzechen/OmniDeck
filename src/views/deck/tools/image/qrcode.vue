@@ -203,7 +203,7 @@ export default {
   color: var(--text-secondary);
 
   &.is-err {
-    color: #F54A45;
+    color: var(--danger-color);
   }
 }
 </style>

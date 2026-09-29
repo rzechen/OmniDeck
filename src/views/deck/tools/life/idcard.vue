@@ -239,11 +239,11 @@ export default {
   font-weight: 700;
 
   &.ok {
-    color: #52C41A;
+    color: var(--success-color);
   }
 
   &.bad {
-    color: #F54A45;
+    color: var(--danger-color);
   }
 }
 

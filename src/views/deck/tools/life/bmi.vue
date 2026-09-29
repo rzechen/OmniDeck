@@ -90,10 +90,10 @@ export default {
       weight: 65,
       sex: 'm',
       levels: [
-        { label: '偏瘦', min: 0, max: 18.5, color: '#FAAD14', range: '< 18.5', flex: 3.5, advice: '体重偏低，注意均衡饮食补充营养' },
-        { label: '正常', min: 18.5, max: 24, color: '#52C41A', range: '18.5 ~ 24', flex: 5.5, advice: '体重正常，请继续保持良好习惯' },
+        { label: '偏瘦', min: 0, max: 18.5, color: 'var(--warning-color)', range: '< 18.5', flex: 3.5, advice: '体重偏低，注意均衡饮食补充营养' },
+        { label: '正常', min: 18.5, max: 24, color: 'var(--success-color)', range: '18.5 ~ 24', flex: 5.5, advice: '体重正常，请继续保持良好习惯' },
         { label: '偏胖', min: 24, max: 28, color: '#FA8C16', range: '24 ~ 28', flex: 4, advice: '体重偏高，建议适量运动控制饮食' },
-        { label: '肥胖', min: 28, max: 100, color: '#F54A45', range: '≥ 28', flex: 8, advice: '已达肥胖标准，建议咨询专业医师' }
+        { label: '肥胖', min: 28, max: 100, color: 'var(--danger-color)', range: '≥ 28', flex: 8, advice: '已达肥胖标准，建议咨询专业医师' }
       ]
     }
   },

@@ -52,20 +52,11 @@ function newId() {
   return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
 }
 
-// 缩略图（图片附件用；nativeImage 由调用方 electron 传入，避免本模块依赖 electron）
-function thumbOf(nativeImage, buffer) {
-  try {
-    const img = nativeImage.createFromBuffer(buffer)
-    if (img.isEmpty()) return ''
-    return img.resize({ width: 360 }).toJPEG(72).toDataURL()
-  } catch (e) {
-    return ''
-  }
-}
-
 // 导入文件（系统选择框/拖拽路径）：落盘 + 生成 meta
 // 返回 { ok, attachment } 或 { ok:false, error }
-function importFile(filePath, nativeImage) {
+// thumbFn(buffer) -> Promise<dataURL> 由调用方注入（index.js makeThumbFn）：
+// utilityProcess 桥接模式下 nativeImage 缩略图须经主进程代生成（异步），主进程模式包 Promise 统一签名
+async function importFile(filePath, thumbFn) {
   try {
     const abs = String(filePath || '')
     if (!abs) return { ok: false, error: '文件路径为空' }
@@ -87,7 +78,7 @@ function importFile(filePath, nativeImage) {
     const meta = { id, name, size: st.size, kind, path: dest }
     if (kind === 'image') {
       meta.mime = 'image/' + (ext === '.jpg' ? 'jpeg' : ext.slice(1))
-      meta.thumb = nativeImage ? thumbOf(nativeImage, fs.readFileSync(dest), meta.mime) : ''
+      meta.thumb = thumbFn ? await thumbFn(fs.readFileSync(dest)) : ''
     }
     return { ok: true, attachment: meta }
   } catch (e) {
