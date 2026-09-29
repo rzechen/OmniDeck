@@ -47,7 +47,7 @@
           <span class="pane-title">TypeScript 代码</span>
         </div>
         <div class="pane-body">
-          <code-editor :value="output" mode="javascript" read-only />
+          <code-editor :model-value="output" mode="javascript" read-only />
         </div>
       </div>
     </div>

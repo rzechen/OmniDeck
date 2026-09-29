@@ -68,7 +68,7 @@ export default {
   },
   created() {
     // 初始化各单位结果为空
-    this.units.forEach(u => this.$set(this.results, u.key, null))
+    this.units.forEach(u => { this.results[u.key] = null })
     this.onInput()
   },
   methods: {

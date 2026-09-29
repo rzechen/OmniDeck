@@ -106,7 +106,7 @@
           <el-table-column prop="phone" label="手机号 / 工号" min-width="120" />
           <el-table-column label="操作" width="60" align="center">
             <template #default="s">
-              <el-button type="text" size="small" class="lot-del-text" @click="removeUser(s.$index)">删除</el-button>
+              <el-button link size="small" class="lot-del-text" @click="removeUser(s.$index)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>

@@ -270,148 +270,146 @@ ${this.renderedHtml}
   color: var(--text-primary);
   word-break: break-word;
 
-  ::v-deep {
-    h1, h2, h3, h4, h5, h6 {
-      margin: 1.15em 0 0.55em;
-      font-weight: 700;
-      line-height: 1.35;
+  :deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {
+    margin: 1.15em 0 0.55em;
+    font-weight: 700;
+    line-height: 1.35;
 
-      &:first-child {
-        margin-top: 0.2em;
-      }
+    &:first-child {
+      margin-top: 0.2em;
     }
+  }
 
-    h1 { font-size: 1.65em; padding-bottom: 0.35em; border-bottom: 1px solid var(--border-color); }
-    h2 { font-size: 1.35em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border-color); }
-    h3 { font-size: 1.18em; }
-    h4 { font-size: 1.05em; }
+  :deep(h1) { font-size: 1.65em; padding-bottom: 0.35em; border-bottom: 1px solid var(--border-color); }
+  :deep(h2) { font-size: 1.35em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border-color); }
+  :deep(h3) { font-size: 1.18em; }
+  :deep(h4) { font-size: 1.05em; }
 
-    p { margin: 0.6em 0; }
+  :deep(p) { margin: 0.6em 0; }
 
-    a {
-      color: var(--primary-color);
-      text-decoration: none;
+  :deep(a) {
+    color: var(--primary-color);
+    text-decoration: none;
 
-      &:hover {
-        text-decoration: underline;
-      }
+    &:hover {
+      text-decoration: underline;
     }
+  }
 
-    strong { font-weight: 700; }
+  :deep(strong) { font-weight: 700; }
 
-    ul, ol {
-      padding-left: 1.6em;
-      margin: 0.5em 0;
+  :deep(ul), :deep(ol) {
+    padding-left: 1.6em;
+    margin: 0.5em 0;
 
-      li { margin: 0.25em 0; }
-      li::marker { color: var(--text-secondary); }
-    }
+    li { margin: 0.25em 0; }
+    li::marker { color: var(--text-secondary); }
+  }
 
-    blockquote {
-      margin: 0.9em 0;
-      padding: 0.35em 1em;
-      border-left: 3px solid var(--primary-color);
-      background: rgba(var(--primary-color-rgb), 0.05);
-      border-radius: 0 6px 6px 0;
-      color: var(--text-secondary);
+  :deep(blockquote) {
+    margin: 0.9em 0;
+    padding: 0.35em 1em;
+    border-left: 3px solid var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.05);
+    border-radius: 0 6px 6px 0;
+    color: var(--text-secondary);
 
-      p { margin: 0.35em 0; }
-    }
+    p { margin: 0.35em 0; }
+  }
 
-    hr {
-      border: none;
-      border-top: 1px solid var(--border-color);
-      margin: 1.6em 0;
-    }
+  :deep(hr) {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 1.6em 0;
+  }
+
+  :deep(code) {
+    background: var(--search-bg);
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 0.88em;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    color: #C41A16;
+  }
+
+  :deep(pre) {
+    position: relative;
+    margin: 0.9em 0;
+    padding: 13px 15px;
+    background: var(--search-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: auto;
 
     code {
-      background: var(--search-bg);
-      padding: 2px 6px;
-      border-radius: 5px;
-      font-size: 0.88em;
+      display: block;
+      background: none;
+      padding: 0;
+      border-radius: 0;
+      color: var(--text-primary);
+      font-size: 12.5px;
+      line-height: 1.65;
       font-family: 'SF Mono', Menlo, Consolas, monospace;
-      color: #C41A16;
+    }
+  }
+
+  /* 代码块复制按钮 */
+  :deep(.code-copy-btn) {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    padding: 2px 9px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.16s ease;
+    user-select: none;
+
+    &:hover {
+      color: var(--primary-color);
+      border-color: rgba(var(--primary-color-rgb), 0.5);
+    }
+  }
+
+  :deep(pre:hover .code-copy-btn) {
+    opacity: 1;
+  }
+
+  :deep(table) {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+    font-size: 13px;
+
+    th, td {
+      border: 1px solid var(--border-color);
+      padding: 7px 12px;
+      text-align: left;
     }
 
-    pre {
-      position: relative;
-      margin: 0.9em 0;
-      padding: 13px 15px;
+    th {
       background: var(--search-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      overflow: auto;
-
-      code {
-        display: block;
-        background: none;
-        padding: 0;
-        border-radius: 0;
-        color: var(--text-primary);
-        font-size: 12.5px;
-        line-height: 1.65;
-        font-family: 'SF Mono', Menlo, Consolas, monospace;
-      }
+      font-weight: 600;
     }
 
-    /* 代码块复制按钮 */
-    .code-copy-btn {
-      position: absolute;
-      top: 7px;
-      right: 7px;
-      padding: 2px 9px;
-      font-size: 11px;
-      line-height: 1.5;
-      color: var(--text-secondary);
-      background: var(--card-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      cursor: pointer;
-      opacity: 0;
-      transition: all 0.16s ease;
-      user-select: none;
-
-      &:hover {
-        color: var(--primary-color);
-        border-color: rgba(var(--primary-color-rgb), 0.5);
-      }
+    tr:hover td {
+      background: rgba(var(--primary-color-rgb), 0.03);
     }
+  }
 
-    pre:hover .code-copy-btn {
-      opacity: 1;
-    }
+  :deep(img) { max-width: 100%; border-radius: 8px; }
 
-    table {
-      border-collapse: collapse;
-      margin: 1em 0;
-      width: 100%;
-      font-size: 13px;
-
-      th, td {
-        border: 1px solid var(--border-color);
-        padding: 7px 12px;
-        text-align: left;
-      }
-
-      th {
-        background: var(--search-bg);
-        font-weight: 600;
-      }
-
-      tr:hover td {
-        background: rgba(var(--primary-color-rgb), 0.03);
-      }
-    }
-
-    img { max-width: 100%; border-radius: 8px; }
-
-    /* KaTeX 公式块滚动保护 */
-    .katex-display {
-      margin: 1em 0;
-      overflow-x: auto;
-      overflow-y: hidden;
-      padding: 2px 0;
-    }
+  /* KaTeX 公式块滚动保护 */
+  :deep(.katex-display) {
+    margin: 1em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 2px 0;
   }
 }
 

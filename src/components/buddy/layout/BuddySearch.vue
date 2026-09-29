@@ -87,7 +87,7 @@ export default {
       clearTimeout(this.timer)
       this.timer = setTimeout(async () => {
         const results = await api.searchSessions(query)
-        this.$set(this.cache, query, results.map(r => ({ id: r.id, name: r.name, snippet: r.snippet })))
+        this.cache[query] = results.map(r => ({ id: r.id, name: r.name, snippet: r.snippet }))
       }, 200)
     },
     // 会话列表变化后由父层调用：清空结果缓存

@@ -237,114 +237,112 @@ export default {
   color: var(--text-primary);
   word-break: break-word;
 
-  ::v-deep {
-    h1, h2, h3, h4, h5, h6 {
-      margin: 1.15em 0 0.55em;
-      font-weight: 700;
-      line-height: 1.35;
+  :deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {
+    margin: 1.15em 0 0.55em;
+    font-weight: 700;
+    line-height: 1.35;
 
-      &:first-child {
-        margin-top: 0.2em;
-      }
+    &:first-child {
+      margin-top: 0.2em;
     }
+  }
 
-    h1 { font-size: 1.6em; padding-bottom: 0.35em; border-bottom: 1px solid var(--border-color); }
-    h2 { font-size: 1.3em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border-color); }
-    h3 { font-size: 1.15em; }
-    h4 { font-size: 1.02em; }
+  :deep(h1) { font-size: 1.6em; padding-bottom: 0.35em; border-bottom: 1px solid var(--border-color); }
+  :deep(h2) { font-size: 1.3em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border-color); }
+  :deep(h3) { font-size: 1.15em; }
+  :deep(h4) { font-size: 1.02em; }
 
-    p { margin: 0.6em 0; }
+  :deep(p) { margin: 0.6em 0; }
 
-    a {
-      color: var(--primary-color);
-      text-decoration: none;
+  :deep(a) {
+    color: var(--primary-color);
+    text-decoration: none;
 
-      &:hover {
-        text-decoration: underline;
-      }
+    &:hover {
+      text-decoration: underline;
     }
+  }
 
-    strong { font-weight: 700; }
+  :deep(strong) { font-weight: 700; }
 
-    ul, ol {
-      padding-left: 1.6em;
-      margin: 0.5em 0;
+  :deep(ul), :deep(ol) {
+    padding-left: 1.6em;
+    margin: 0.5em 0;
 
-      li { margin: 0.25em 0; }
-      li::marker { color: var(--text-secondary); }
-    }
+    li { margin: 0.25em 0; }
+    li::marker { color: var(--text-secondary); }
+  }
 
-    blockquote {
-      margin: 0.9em 0;
-      padding: 0.35em 1em;
-      border-left: 3px solid var(--primary-color);
-      background: rgba(var(--primary-color-rgb), 0.05);
-      border-radius: 0 6px 6px 0;
-      color: var(--text-secondary);
+  :deep(blockquote) {
+    margin: 0.9em 0;
+    padding: 0.35em 1em;
+    border-left: 3px solid var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.05);
+    border-radius: 0 6px 6px 0;
+    color: var(--text-secondary);
 
-      p { margin: 0.35em 0; }
-    }
+    p { margin: 0.35em 0; }
+  }
 
-    hr {
-      border: none;
-      border-top: 1px solid var(--border-color);
-      margin: 1.6em 0;
-    }
+  :deep(hr) {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 1.6em 0;
+  }
+
+  :deep(code) {
+    background: var(--search-bg);
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 0.88em;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    color: #C41A16;
+  }
+
+  :deep(.ob-code pre) {
+    margin: 0;
+    padding: 13px 15px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  :deep(pre) {
+    margin: 0.9em 0;
+    padding: 13px 15px;
+    background: var(--search-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: auto;
 
     code {
-      background: var(--search-bg);
-      padding: 2px 6px;
-      border-radius: 5px;
-      font-size: 0.88em;
-      font-family: 'SF Mono', Menlo, Consolas, monospace;
-      color: #C41A16;
-    }
-
-    .ob-code pre {
-      margin: 0;
-      padding: 13px 15px;
-      border: none;
+      display: block;
+      background: none;
+      padding: 0;
       border-radius: 0;
-      background: transparent;
+      color: var(--text-primary);
+      font-size: 12.5px;
+      line-height: 1.65;
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
     }
-
-    pre {
-      margin: 0.9em 0;
-      padding: 13px 15px;
-      background: var(--search-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      overflow: auto;
-
-      code {
-        display: block;
-        background: none;
-        padding: 0;
-        border-radius: 0;
-        color: var(--text-primary);
-        font-size: 12.5px;
-        line-height: 1.65;
-        font-family: 'SF Mono', Menlo, Consolas, monospace;
-      }
-    }
-
-    table {
-      border-collapse: collapse;
-      margin: 0;
-
-      th, td {
-        border: 1px solid var(--border-color);
-        padding: 7px 12px;
-        text-align: left;
-      }
-
-      th {
-        background: var(--search-bg);
-        font-weight: 600;
-      }
-    }
-
-    img { max-width: 100%; border-radius: 8px; }
   }
+
+  :deep(table) {
+    border-collapse: collapse;
+    margin: 0;
+
+    th, td {
+      border: 1px solid var(--border-color);
+      padding: 7px 12px;
+      text-align: left;
+    }
+
+    th {
+      background: var(--search-bg);
+      font-weight: 600;
+    }
+  }
+
+  :deep(img) { max-width: 100%; border-radius: 8px; }
 }
 </style>

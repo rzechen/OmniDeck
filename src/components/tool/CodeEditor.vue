@@ -28,8 +28,10 @@ import 'codemirror/addon/edit/matchbrackets'
 
 export default {
   name: 'CodeEditor',
+  // 声明自定义事件，阻止监听器 fallthrough 到根元素（CodeMirror 内部 textarea 的原生 change 会冒泡）
+  emits: ['update:modelValue', 'change', 'cursor', 'scroll'],
   props: {
-    value: { type: String, default: '' },
+    modelValue: { type: String, default: '' },
     mode: { type: String, default: 'text/plain' },
     readOnly: { type: Boolean, default: false },
     placeholder: { type: String, default: '' },
@@ -39,7 +41,7 @@ export default {
   },
   watch: {
     // 外部赋值：保留滚动位置与光标
-    value(val) {
+    modelValue(val) {
       if (!this.cm || val === this.cm.getValue()) return
       const scroll = this.cm.getScrollInfo()
       const cursor = this.cm.getCursor()
@@ -58,7 +60,7 @@ export default {
     const gutters = ['CodeMirror-linenumbers']
     if (this.fold) gutters.push('CodeMirror-foldgutter')
     this.cm = CodeMirror(this.$refs.host, {
-      value: this.value,
+      value: this.modelValue,
       mode: this.mode,
       theme: 'omni',
       readOnly: this.readOnly,
@@ -74,7 +76,7 @@ export default {
       extraKeys: { Tab: cm => cm.somethingSelected() ? cm.indentSelection('add') : cm.replaceSelection('  ') }
     })
     this.cm.on('change', () => {
-      this.$emit('input', this.cm.getValue())
+      this.$emit('update:modelValue', this.cm.getValue())
       this.$emit('change', this.cm.getValue())
     })
     this.cm.on('cursorActivity', () => {

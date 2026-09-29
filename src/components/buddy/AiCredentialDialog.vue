@@ -31,14 +31,14 @@
                 <el-input v-model="row.key" size="small" class="ac-row-key" placeholder="键（如 API_TOKEN）" maxlength="50" />
                 <!-- 密码框呈现，点眼睛查看明文；编辑态回显已存值，改动后覆盖 -->
                 <el-input v-model="row.value" size="small" class="ac-row-val" show-password :placeholder="isEdit ? '留空保持原值' : '值'" maxlength="500" />
-                <el-button size="small" round icon="el-icon-delete" class="ac-row-del" @click="rows.splice(i, 1)" />
+                <el-button size="small" round class="ac-row-del" @click="rows.splice(i, 1)"><i class="el-icon-delete" /></el-button>
               </div>
             </div>
             <!-- addRow() 显式无参调用：原生 @click="addRow" 会把 PointerEvent 当作 presetKey 传入 -->
             <el-button size="small" round plain class="ac-add" @click="addRow()"><svg-icon icon-class="plus" /> 添加字段</el-button>
             <p v-if="suggestedKeys.length" class="ac-tip">
               技能声明需要：{{ suggestedKeys.join('、') }}（点击可快速补齐）
-              <el-button v-for="k in suggestedKeys" :key="k" type="text" size="small" class="ac-suggest" @click="addRow(k)">{{ k }}</el-button>
+              <el-button v-for="k in suggestedKeys" :key="k" link size="small" class="ac-suggest" @click="addRow(k)">{{ k }}</el-button>
             </p>
           </div>
 
@@ -157,7 +157,7 @@ export default {
         const env = (res && res.secret && res.secret.env) || {}
         // 后到的明文只填充值，不覆盖用户已开始输入的内容
         this.rows.forEach(r => {
-          if (!r.value && env[r.key] !== undefined) this.$set(r, 'value', env[r.key])
+          if (!r.value && env[r.key] !== undefined) r.value = env[r.key]
         })
       } catch (e) { /* 拉取失败保持空值：留空仍为「保持原值」语义 */ }
     },

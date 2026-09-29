@@ -74,7 +74,7 @@
           <span class="pane-title">JSON 输出</span>
         </div>
         <div class="pane-body">
-          <code-editor :value="jsonOutput" mode="application/json" read-only />
+          <code-editor :model-value="jsonOutput" mode="application/json" read-only />
         </div>
       </div>
     </div>

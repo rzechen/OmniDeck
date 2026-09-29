@@ -21,7 +21,7 @@
           </div>
         </header>
         <div class="sp-dialog-body">
-          <code-editor :value="file.content" :mode="mode" :fold="false" @input="$emit('update:content', $event)" />
+          <code-editor :model-value="file.content" :mode="mode" :fold="false" @update:model-value="$emit('update:content', $event)" />
         </div>
       </div>
     </div>

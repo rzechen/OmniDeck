@@ -12,7 +12,7 @@
         </p>
       </div>
       <div class="ob-hero-actions">
-        <el-button size="small" round type="primary" icon="el-icon-plus" @click="openCreate">新建任务</el-button>
+        <el-button size="small" round type="primary" @click="openCreate"><i class="el-icon-plus" /> 新建任务</el-button>
       </div>
     </header>
 
@@ -58,7 +58,7 @@
             </div>
             <div class="ob-auto-actions">
               <el-switch
-                :value="t.enabled"
+                :model-value="t.enabled"
                 size="small"
                 @change="v => toggleTask(t, v)"
               />

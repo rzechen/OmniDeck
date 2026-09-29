@@ -63,7 +63,7 @@
           <span class="pane-title">{{ direction === 'j2x' ? 'XML 输出' : 'JSON 输出' }}</span>
         </div>
         <div class="pane-body">
-          <code-editor :value="output" :mode="direction === 'j2x' ? 'xml' : 'application/json'" read-only />
+          <code-editor :model-value="output" :mode="direction === 'j2x' ? 'xml' : 'application/json'" read-only />
         </div>
       </div>
     </div>

@@ -12,9 +12,9 @@
         placeholder="搜索技能、代理或连接器..."
         @keydown.esc="localKeyword = ''"
       />
-      <span v-if="value" class="search-count">{{ resultCount }}</span>
+      <span v-if="modelValue" class="search-count">{{ resultCount }}</span>
       <i
-        v-if="value"
+        v-if="modelValue"
         class="el-icon-circle-close search-clear"
         @click="localKeyword = ''"
       ></i>
@@ -23,25 +23,25 @@
 </template>
 
 <script>
-// 市场右侧工具栏（搜索框支持 v-model，清空/ESC 由组件内部 emit input 完成）
+// 市场右侧工具栏（搜索框支持 v-model，清空/ESC 由组件内部 emit update:modelValue 完成）
 export default {
   name: 'MarketToolbar',
   props: {
     // 搜索关键词（v-model）
-    value: { type: String, default: '' },
+    modelValue: { type: String, default: '' },
     // 当前筛选标题（页面 computed currentLabel）
     currentLabel: { type: String, default: '' },
     // 当前筛选结果数量（filteredItems.length）
     resultCount: { type: Number, default: 0 }
   },
   computed: {
-    // v-model 代理：写入时向父组件 emit input
+    // v-model 代理：写入时向父组件 emit update:modelValue
     localKeyword: {
       get() {
-        return this.value
+        return this.modelValue
       },
       set(val) {
-        this.$emit('input', val)
+        this.$emit('update:modelValue', val)
       }
     }
   }

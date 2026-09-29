@@ -423,7 +423,7 @@ export default {
       return !!item.isError
     },
     toggleTool(item) {
-      this.$set(this.toolOpenOverrides, this.toolKey(item), !this.isToolOpen(item))
+      this.toolOpenOverrides[this.toolKey(item)] = !this.isToolOpen(item)
     },
     // ===== 文件变更记录（P2）=====
     // 变更类型中文标签
@@ -565,71 +565,69 @@ export default {
   color: var(--text-secondary);
 
   .ob-think-md {
-    ::v-deep {
-      p { margin: 0 0 4px; }
-      p:last-child { margin-bottom: 0; }
+    :deep(p) { margin: 0 0 4px; }
+    :deep(p:last-child) { margin-bottom: 0; }
 
-      /* 有序/无序列表：与正文 .ob-md 同款缩进（浏览器默认 40px 过大，
-         编号会凸出思考文本对齐线，视觉上脱离思考区） */
-      ul, ol {
-        padding-left: 18px;
-        margin: 4px 0;
+    /* 有序/无序列表：与正文 .ob-md 同款缩进（浏览器默认 40px 过大，
+       编号会凸出思考文本对齐线，视觉上脱离思考区） */
+    :deep(ul), :deep(ol) {
+      padding-left: 18px;
+      margin: 4px 0;
 
-        li { margin: 2px 0; }
+      li { margin: 2px 0; }
+    }
+
+    /* 代码块（与正文 .ob-code 同构，思考区整体小一号、底色更淡） */
+    :deep(.ob-code) {
+      margin: 6px 0;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.025);
+    }
+
+    :deep(.ob-code-head) {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2px 4px 2px 10px;
+      background: rgba(0, 0, 0, 0.04);
+      border-bottom: 1px solid var(--border-color);
+      user-select: none;
+    }
+
+    :deep(.ob-code-lang) {
+      font-size: 10.5px;
+      color: var(--text-secondary);
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+    }
+
+    :deep(.ob-code-copy) {
+      font-size: 11px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 1px 7px;
+      border-radius: 5px;
+      transition: all 0.12s ease;
+
+      &:hover {
+        color: var(--primary-color);
+        background: rgba(var(--primary-color-rgb), 0.09);
       }
+    }
 
-      /* 代码块（与正文 .ob-code 同构，思考区整体小一号、底色更淡） */
-      .ob-code {
-        margin: 6px 0;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        overflow: hidden;
-        background: rgba(0, 0, 0, 0.025);
-      }
+    :deep(.ob-code pre) {
+      margin: 0;
+      padding: 7px 10px;
+      border-radius: 0;
+      background: transparent;
+      font-size: 11.5px;
+      line-height: 1.55;
 
-      .ob-code-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 2px 4px 2px 10px;
-        background: rgba(0, 0, 0, 0.04);
-        border-bottom: 1px solid var(--border-color);
-        user-select: none;
-      }
-
-      .ob-code-lang {
-        font-size: 10.5px;
-        color: var(--text-secondary);
-        font-family: 'SF Mono', Menlo, Consolas, monospace;
-      }
-
-      .ob-code-copy {
-        font-size: 11px;
-        color: var(--text-secondary);
-        cursor: pointer;
-        padding: 1px 7px;
-        border-radius: 5px;
-        transition: all 0.12s ease;
-
-        &:hover {
-          color: var(--primary-color);
-          background: rgba(var(--primary-color-rgb), 0.09);
-        }
-      }
-
-      .ob-code pre {
-        margin: 0;
-        padding: 7px 10px;
-        border-radius: 0;
+      code {
         background: transparent;
-        font-size: 11.5px;
-        line-height: 1.55;
-
-        code {
-          background: transparent;
-          padding: 0;
-          font-family: 'SF Mono', Menlo, Consolas, monospace;
-        }
+        padding: 0;
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
       }
     }
   }
@@ -878,13 +876,11 @@ export default {
   white-space: normal;
   max-height: 260px;
 
-  ::v-deep {
-    p { margin: 0 0 5px; }
-    p:last-child { margin-bottom: 0; }
-    ul, ol { padding-left: 18px; margin: 4px 0; }
-    li { margin: 2px 0; }
-    a { color: var(--primary-color); }
-  }
+  :deep(p) { margin: 0 0 5px; }
+  :deep(p:last-child) { margin-bottom: 0; }
+  :deep(ul), :deep(ol) { padding-left: 18px; margin: 4px 0; }
+  :deep(li) { margin: 2px 0; }
+  :deep(a) { color: var(--primary-color); }
 }
 
 /* 流式光标 */

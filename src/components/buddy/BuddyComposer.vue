@@ -38,7 +38,7 @@
       <textarea
         ref="ta"
         class="bc-textarea"
-        :value="value"
+        :value="modelValue"
         :placeholder="actualPlaceholder"
         :disabled="streaming"
         rows="1"
@@ -93,7 +93,7 @@
 export default {
   name: 'BuddyComposer',
   props: {
-    value: {
+    modelValue: {
       type: String,
       default: ''
     },
@@ -137,7 +137,7 @@ export default {
   },
   computed: {
     canSend() {
-      return !!this.value.trim() || this.extraSendable
+      return !!(this.modelValue && this.modelValue.trim()) || this.extraSendable
     },
     // 流式生成中锁定输入（placeholder 同步提示，避免误以为可继续提问）
     actualPlaceholder() {
@@ -146,7 +146,7 @@ export default {
   },
   watch: {
     // 内容变化后自适应高度
-    value() {
+    modelValue() {
       this.$nextTick(this.autoResize)
     }
   },
@@ -155,7 +155,7 @@ export default {
   },
   methods: {
     onInput(e) {
-      this.$emit('input', e.target.value)
+      this.$emit('update:modelValue', e.target.value)
     },
     // 回车发送：输入法组合中（确认候选词的回车）不发送。
     // Chrome 下确认候选词时 keydown 先于 compositionend 触发且 isComposing 仍为 true，
@@ -212,7 +212,7 @@ export default {
     },
     onSend() {
       if (!this.canSend) return
-      this.$emit('send', this.value)
+      this.$emit('send', this.modelValue)
     },
     // 聚焦输入框（划选追问引用后调用，直接续问）
     focus() {

@@ -641,9 +641,9 @@ export default {
     onFaviconError(item) {
       // 自定义图标加载失败：先回退根路径 /favicon.ico 再试一次
       if (item.icon) {
-        this.$set(item, 'icon', '')
+        item.icon = ''
       } else {
-        this.$set(item, 'iconFailed', true)
+        item.iconFailed = true
       }
     },
 
@@ -812,7 +812,7 @@ export default {
         s.url = url
         s.category = category
         s.icon = icon || ''
-        this.$set(s, 'iconFailed', false)
+        s.iconFailed = false
       } else {
         this.siteFavorites.push({ name, url, category, icon: icon || '' })
       }

@@ -356,7 +356,7 @@ export default {
         // 折叠状态下点击组图标，展开侧边栏
         this.$store.commit('TOGGLE_SIDEBAR')
       } else {
-        this.$set(this.expandedMap, group.key, !this.isGroupExpanded(group))
+        this.expandedMap[group.key] = !this.isGroupExpanded(group)
       }
     },
     // 拖拽结束：持久化组顺序 + 每组内二级菜单顺序
