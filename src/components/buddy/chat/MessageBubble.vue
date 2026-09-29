@@ -2,13 +2,20 @@
   <!-- 用户 / 助手消息（豆包风格：无头像，用户右侧气泡，助手左侧纯内容） -->
   <div class="ob-msg" :class="message.role">
     <div class="ob-msg-bubble" :class="{ editing: message.role === 'user' && editing }">
-      <!-- 助手：上下文压缩摘要分界（自动压缩产物，正文即早期对话的总结） -->
-      <div v-if="message.compaction" class="ob-compaction">
+      <!-- 助手：上下文压缩摘要分界（独立摘要消息）：默认收起为一行分割线，点击展开/收起摘要正文 -->
+      <div
+        v-if="message.compaction"
+        class="ob-compaction"
+        :class="{ open: compactionOpen }"
+        :title="compactionOpen ? '收起摘要' : '展开查看摘要'"
+        @click="compactionOpen = !compactionOpen"
+      >
         <div class="ob-compaction-line">
           <svg-icon icon-class="clock" class="ob-compaction-ico" />
-          <span>已自动整理早期对话（上下文压缩）</span>
+          <span class="ob-compaction-label">已自动整理早期对话（上下文压缩）</span>
+          <span v-if="compactionText" class="ob-compaction-meta">{{ compactionText }}</span>
+          <svg-icon icon-class="arrow-down" class="ob-compaction-arrow" :class="{ open: compactionOpen }" />
         </div>
-        <div v-if="compactionText" class="ob-compaction-meta">{{ compactionText }}</div>
       </div>
 
       <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP + ask_user 提问） -->
@@ -32,10 +39,11 @@
         <svg-icon icon-class="loading" class="ob-think-spin" />
         <span>思考中</span><span class="ob-thinking-sec">{{ message.seconds }}s</span>
       </div>
-      <!-- 助手：正文 Markdown（click 委托承接代码块复制按钮） -->
+      <!-- 助手：正文 Markdown（click 委托承接代码块复制按钮；压缩摘要收起时不渲染，展开时以缩进+背景突出） -->
       <div
-        v-else-if="message.role === 'assistant' && message.content"
+        v-else-if="message.role === 'assistant' && message.content && (!message.compaction || compactionOpen)"
         class="ob-md"
+        :class="{ 'ob-md-compaction': message.compaction }"
         v-html="rendered"
         @click="onMdClick"
       ></div>
@@ -126,8 +134,8 @@
         :changes="fileChanges"
       />
 
-      <!-- 助手 meta 行（回答完成后呈现：复制 / 点赞 / 点踩 / 分支 / 导出 / token 用量 / 时间，定高不抖动） -->
-      <div v-if="message.role === 'assistant' && !message.streaming" class="ob-msg-meta">
+      <!-- 助手 meta 行（回答完成后呈现：复制 / 点赞 / 点踩 / 分支 / 导出 / token 用量 / 时间，定高不抖动；压缩摘要消息不显示） -->
+      <div v-if="message.role === 'assistant' && !message.streaming && !message.compaction" class="ob-msg-meta">
         <span class="ob-meta-copy" title="复制全文" @click="copyContent">
           <svg-icon icon-class="copy" />
         </span>
@@ -244,7 +252,9 @@ export default {
       // 中文输入法组合中（组合态回车 = 确认候选词，不触发提交）
       isComposing: false,
       // 导出格式菜单（meta 行导出按钮；开启期间挂 document 点击监听关闭）
-      exportMenu: false
+      exportMenu: false,
+      // 压缩摘要展开态（默认收起为一行分割线，点击展开）
+      compactionOpen: false
     }
   },
   watch: {
@@ -267,8 +277,19 @@ export default {
       const b = this.message._branch
       return (b && b.total > 1) ? b : null
     },
+    // 实际渲染/复制的正文：压缩摘要为兼容旧落盘数据，剔除误留的系统注入块（如 <read-files>…</read-files>）
+    displayContent() {
+      let text = String(this.message.content || '')
+      if (this.message.compaction) {
+        text = text
+          .replace(/<read-files>[\s\S]*?<\/read-files>/gi, '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
+      }
+      return text
+    },
     rendered() {
-      return renderMarkdown(this.message.content)
+      return renderMarkdown(this.displayContent)
     },
     // 是否展示深度思考区（已有内容块）
     hasSection() {
@@ -424,7 +445,7 @@ export default {
     },
     // 复制助手正文
     copyContent() {
-      const text = this.message.content || ''
+      const text = this.displayContent
       if (!text) return
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(
@@ -960,19 +981,29 @@ export default {
   white-space: nowrap;
 }
 
-/* ===== 上下文压缩摘要分界（P1-9）===== */
+/* ===== 上下文压缩摘要分界（默认收起为一行提示，点击展开摘要正文）===== */
 .ob-compaction {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 12px;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ob-compaction:hover .ob-compaction-label {
+  color: var(--primary-color);
+}
+
+/* 展开后的压缩摘要正文：缩进 + 浅背景 + 左侧竖线，突出归属压缩分界 */
+.ob-md-compaction {
+  padding: 10px 14px;
   margin-bottom: 10px;
   border-left: 2px solid var(--primary-color);
   border-radius: 6px;
   background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
-  font-size: 12px;
-  color: var(--text-secondary);
-  user-select: none;
 }
 
 .ob-compaction-line {
@@ -991,6 +1022,15 @@ export default {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
+}
+
+.ob-compaction-arrow {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.ob-compaction-arrow.open {
+  transform: rotate(180deg);
 }
 
 /* ===== 上下文用量迷你条（meta 行内，P1-9）===== */

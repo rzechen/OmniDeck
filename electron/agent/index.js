@@ -388,6 +388,15 @@ function normalizeToolResult(v) {
   return String(v)
 }
 
+// 清洗压缩摘要：摘要模型可能把压缩后注入的系统上下文块（如 <read-files>…</read-files>）
+// 原样誊写进正文，落盘前剔除，避免用户在分界气泡正文里看到注入痕迹
+function sanitizeCompactionSummary(text) {
+  return String(text || '')
+    .replace(/<read-files>[\s\S]*?<\/read-files>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 // pi 运行事件：转发渲染进程 + 持久化到 JSONL
 function handlePiEvent(getWindow, e) {
   const { kind, chatId } = e
@@ -575,7 +584,7 @@ function handlePiEvent(getWindow, e) {
         const compactAnchors = runAnchors(chatId)
         sessions.addMessage(chatId, Object.assign({
           role: 'assistant',
-          content: e.summary,
+          content: sanitizeCompactionSummary(e.summary),
           compaction: {
             tokensBefore: e.tokensBefore || 0,
             tokensAfter: e.tokensAfter || 0
