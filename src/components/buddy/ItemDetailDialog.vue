@@ -1,77 +1,81 @@
 <template>
-  <el-dialog
-    :visible.sync="localVisible"
-    width="760px"
-    append-to-body
-    custom-class="ob-item-detail-dialog"
-  >
-    <!-- 标题栏：图标 + 名称 + 徽标 -->
-    <template slot="title">
-      <div v-if="item" class="ob-detail-head">
-        <div class="ob-item-logo" :class="'logo-' + typeOf">
-          <svg-icon :icon-class="iconOf" />
-        </div>
-        <div class="ob-detail-head-info">
-          <div class="ob-detail-name">{{ item.name }}</div>
-          <div class="ob-detail-meta">
-            <span class="ob-detail-badge">{{ typeLabel }}</span>
-            <span v-if="item.categoryLabel" class="ob-detail-badge cat">
-              {{ item.categoryLabel }}
-            </span>
-            <span v-if="item.author">{{ item.author }}</span>
+  <!-- 资源详情抽屉：徽标头 + 信息网格 + 描述（Markdown 长文）+ 标签 + 版本历史
+       阅读型长内容 → 右侧全高抽屉，滚动更舒展 -->
+  <transition name="ob-drawer">
+    <div v-if="localVisible" class="ob-drawer" @click.self="localVisible = false">
+      <div class="ob-drawer-panel ob-detail-panel">
+        <!-- 标题栏：图标 + 名称 + 徽标 -->
+        <header class="ob-drawer-header">
+          <div v-if="item" class="ob-detail-head">
+            <div class="ob-item-logo" :class="'logo-' + typeOf">
+              <svg-icon :icon-class="iconOf" />
+            </div>
+            <div class="ob-detail-head-info">
+              <div class="ob-detail-name">{{ item.name }}</div>
+              <div class="ob-detail-meta">
+                <span class="ob-detail-badge">{{ typeLabel }}</span>
+                <span v-if="item.categoryLabel" class="ob-detail-badge cat">
+                  {{ item.categoryLabel }}
+                </span>
+                <span v-if="item.author">{{ item.author }}</span>
+              </div>
+            </div>
+            <slot name="head-extra" :item="item"></slot>
+          </div>
+          <svg-icon icon-class="close" class="ob-dialog-close" @click="localVisible = false" />
+        </header>
+
+        <div v-if="item" class="ob-drawer-body ob-detail-body">
+          <!-- 信息网格：版本 / 更新时间 / 自定义第三格 -->
+          <div class="ob-detail-grid" v-if="item.version || item.updatedAt || $slots.cells">
+            <div class="ob-detail-cell" v-if="item.version">
+              <div class="ob-cell-label">版本</div>
+              <div class="ob-cell-value">v{{ item.version }}</div>
+            </div>
+            <div class="ob-detail-cell" v-if="item.updatedAt">
+              <div class="ob-cell-label">更新时间</div>
+              <div class="ob-cell-value">{{ formatDate(item.updatedAt) }}</div>
+            </div>
+            <!-- 作用域插槽：向页面下发 item（页面读取 item.installed 等安装状态字段） -->
+            <slot name="cells" :item="item"></slot>
+          </div>
+
+          <!-- 描述（Markdown 渲染，SKILL.md 正文可直接呈现标题/代码块/表格） -->
+          <div class="ob-detail-section" v-if="item.details || item.description">
+            <div class="ob-detail-section-title">描述</div>
+            <div class="ob-detail-text ob-md" v-html="renderedDetails" @click="onMdClick"></div>
+          </div>
+
+          <!-- 标签 -->
+          <div class="ob-detail-section" v-if="item.tags && item.tags.length">
+            <div class="ob-detail-section-title">标签</div>
+            <div class="ob-item-tags">
+              <span v-for="t in item.tags" :key="t" class="ob-item-tag">{{ t }}</span>
+            </div>
+          </div>
+
+          <!-- 版本历史 -->
+          <div class="ob-detail-section" v-if="item.changelog && item.changelog.length">
+            <div class="ob-detail-section-title">版本历史</div>
+            <div class="ob-detail-changelog">
+              <div v-for="(log, i) in item.changelog" :key="i" class="ob-changelog-item">
+                <span class="ob-changelog-version">v{{ log.version }}</span>
+                <span class="ob-changelog-date" v-if="log.date">{{ formatDate(log.date) }}</span>
+                <p class="ob-changelog-note">{{ log.note }}</p>
+              </div>
+            </div>
           </div>
         </div>
-        <slot name="head-extra" :item="item"></slot>
-      </div>
-    </template>
 
-    <div v-if="item" class="ob-detail-body">
-      <!-- 信息网格：版本 / 更新时间 / 自定义第三格 -->
-      <div class="ob-detail-grid" v-if="item.version || item.updatedAt || $slots.cells">
-        <div class="ob-detail-cell" v-if="item.version">
-          <div class="ob-cell-label">版本</div>
-          <div class="ob-cell-value">v{{ item.version }}</div>
-        </div>
-        <div class="ob-detail-cell" v-if="item.updatedAt">
-          <div class="ob-cell-label">更新时间</div>
-          <div class="ob-cell-value">{{ formatDate(item.updatedAt) }}</div>
-        </div>
-        <!-- 作用域插槽：向页面下发 item（页面读取 item.installed 等安装状态字段） -->
-        <slot name="cells" :item="item"></slot>
-      </div>
-
-      <!-- 描述（Markdown 渲染，SKILL.md 正文可直接呈现标题/代码块/表格） -->
-      <div class="ob-detail-section" v-if="item.details || item.description">
-        <div class="ob-detail-section-title">描述</div>
-        <div class="ob-detail-text ob-md" v-html="renderedDetails" @click="onMdClick"></div>
-      </div>
-
-      <!-- 标签 -->
-      <div class="ob-detail-section" v-if="item.tags && item.tags.length">
-        <div class="ob-detail-section-title">标签</div>
-   <div class="ob-item-tags">
-          <span v-for="t in item.tags" :key="t" class="ob-item-tag">{{ t }}</span>
-        </div>
-      </div>
-
-      <!-- 版本历史 -->
-      <div class="ob-detail-section" v-if="item.changelog && item.changelog.length">
-        <div class="ob-detail-section-title">版本历史</div>
-        <div class="ob-detail-changelog">
-          <div v-for="(log, i) in item.changelog" :key="i" class="ob-changelog-item">
-            <span class="ob-changelog-version">v{{ log.version }}</span>
-            <span class="ob-changelog-date" v-if="log.date">{{ formatDate(log.date) }}</span>
-            <p class="ob-changelog-note">{{ log.note }}</p>
+        <!-- 底部操作（页面自定义） -->
+        <footer v-if="$slots.actions" class="ob-drawer-footer ob-detail-actions-footer">
+          <div class="ob-detail-actions">
+            <slot name="actions" :item="item"></slot>
           </div>
-        </div>
-      </div>
-
-      <!-- 底部操作（页面自定义） -->
-      <div class="ob-detail-actions" v-if="$slots.actions">
-        <slot name="actions" :item="item"></slot>
+        </footer>
       </div>
     </div>
-  </el-dialog>
+  </transition>
 </template>
 
 <script>
@@ -137,30 +141,18 @@ export default {
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
 
-/* ===== 弹窗外观（append-to-body，样式需全局） ===== */
-::v-deep .ob-item-detail-dialog {
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.2);
-
-  .el-dialog__header {
-    margin-bottom: 0;
-    padding: 18px 24px;
-    border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
-  }
-
-  .el-dialog__body {
-    padding: 20px 24px;
-    max-height: 62vh;
-    overflow-y: auto;
-  }
+/* ===== 抽屉外观（自绘 ob-drawer，样式位于全局 buddy-settings.scss） ===== */
+/* 面板宽度：阅读型内容适中偏宽 */
+.ob-detail-panel {
+  --ob-drawer-w: 640px;
 }
 
 .ob-detail-head {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-right: 32px; /* 避开右上角关闭按钮 */
+  flex: 1;
+  min-width: 0;
 }
 
 .ob-item-logo {
@@ -227,8 +219,11 @@ export default {
   }
 }
 
+/* 抽屉 body 内的 detail 区块间距复位（ob-drawer-body 自带 14px 列间距，去掉区块多余 margin） */
 .ob-detail-body {
-  padding: 0;
+  .ob-detail-section {
+    margin-bottom: 0;
+  }
 }
 
 .ob-detail-grid {
@@ -408,12 +403,10 @@ export default {
   }
 }
 
+/* 底部操作区：贴抽屉 footer，去内层边框（footer 自身已与 body 分隔） */
 .ob-detail-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
-  margin-top: 4px;
 }
 </style>

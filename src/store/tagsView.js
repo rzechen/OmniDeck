@@ -53,6 +53,14 @@ export default {
     CLOSE_ALL(state, { side }) {
       state[side] = []
     },
+    // 关闭某页签左侧 / 右侧（dir: 'left' | 'right'）的全部页签
+    CLOSE_SIDE(state, { side, fullPath, dir }) {
+      const tabs = state[side]
+      if (!tabs) return
+      const i = tabs.findIndex(t => t.fullPath === fullPath)
+      if (i < 0) return
+      state[side] = dir === 'left' ? tabs.slice(i) : tabs.slice(0, i + 1)
+    },
     // 更新页签标题（会话页签补任务名、基金详情页签补基金名等）
     UPDATE_TAB_TITLE(state, { side, fullPath, title }) {
       if (!title) return

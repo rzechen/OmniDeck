@@ -1,11 +1,11 @@
 <template>
-  <!-- 规则编辑器（复用组件）：左编辑右预览分栏。
+  <!-- 规则编辑器（复用组件）：默认左编辑右预览分栏；单栏模式（solo）仅编辑区铺满。
        头部信息（标题/范围徽标）由父层卡片或弹窗自带，组件只负责编辑与保存；
        保存入口两种：自带底部保存栏（showFoot）或父层经 ref 调 save()（如 hero 统一保存按钮） -->
-  <div class="ob-rule-editor">
+  <div class="ob-rule-editor" :class="{ solo: !showPreview }">
     <div class="ob-editor-split">
       <div class="ob-editor-pane">
-        <div class="ob-pane-head">编辑</div>
+        <div v-if="showPreview" class="ob-pane-head">编辑</div>
         <div class="ob-pane-body">
           <textarea
             v-model="form.content"
@@ -15,7 +15,7 @@
           ></textarea>
         </div>
       </div>
-      <div class="ob-editor-pane">
+      <div v-if="showPreview" class="ob-editor-pane">
         <div class="ob-pane-head">预览</div>
         <div class="ob-pane-body">
           <div v-if="form.content.trim()" class="md-preview ob-rule-preview" v-html="previewHtml" @click="onMdClick"></div>
@@ -58,6 +58,11 @@ export default {
     },
     // 是否显示自带底部保存栏（父层提供统一保存入口时置 false）
     showFoot: {
+      type: Boolean,
+      default: true
+    },
+    // 是否显示右侧预览分栏（空间规则抽屉等单栏场景置 false，编辑区铺满）
+    showPreview: {
       type: Boolean,
       default: true
     }
@@ -145,6 +150,11 @@ export default {
   min-height: 0;
   display: flex;
   gap: 14px;
+}
+
+/* 单栏模式：编辑区铺满（无分栏间距，textarea 行高更舒展） */
+.ob-rule-editor.solo .ob-editor-split {
+  gap: 0;
 }
 
 .ob-editor-pane {

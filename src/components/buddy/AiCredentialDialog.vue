@@ -1,13 +1,13 @@
 <template>
-  <!-- 凭据编辑弹窗（统一凭据管理）：一条凭据两种用途——
+  <!-- 凭据编辑抽屉（统一凭据管理）：一条凭据两种用途——
        ① 绑定技能：注入对应技能执行环境（环境变量）
        ② 允许 AI 取用：对话中经 credential_get 按名取用（权限策略默认允许，条目级开关放行）
-       弹窗骨架与「导入 Skill」同款（ob-overlay / ob-dialog / ob-dialog-header） -->
-  <transition name="ob-modal">
+       键值动态行 + 技能多选绑定，条目多时滚动 → 右侧全高抽屉 -->
+  <transition name="ob-drawer">
     <!-- 点击遮罩不关闭（避免误触丢失正在编辑的内容），仅右上角/取消按钮关闭 -->
-    <div v-if="visible" class="ob-overlay">
-      <div class="ob-dialog ac-dialog">
-        <header class="ob-dialog-header">
+    <div v-if="visible" class="ob-drawer">
+      <div class="ob-drawer-panel ac-panel">
+        <header class="ob-drawer-header">
           <div class="ac-head-left">
             <h3 class="ob-dialog-title">{{ isEdit ? '编辑凭据' : '新增凭据' }}</h3>
             <span v-if="isEdit && item" class="ac-badge ok">已加密存储</span>
@@ -15,7 +15,7 @@
           <svg-icon icon-class="close" class="ob-dialog-close" @click="$emit('close')" />
         </header>
 
-        <div class="ac-body">
+        <div class="ob-drawer-body ac-body">
           <div class="ac-field">
             <label class="ac-label">名称 <span class="ac-req">*</span></label>
             <el-input v-model="form.name" placeholder="如：飞书机器人 / 公司邮箱" maxlength="30" />
@@ -68,8 +68,10 @@
           </div>
         </div>
 
-        <footer class="ac-foot">
-          <el-button v-if="isEdit" size="small" round type="danger" plain @click="removeItem">删除</el-button>
+        <footer class="ob-drawer-footer ac-foot">
+          <div class="ac-foot-left">
+            <el-button v-if="isEdit" size="small" round type="danger" plain @click="removeItem">删除</el-button>
+          </div>
           <div class="ac-foot-right">
             <el-button size="small" round @click="$emit('close')">取消</el-button>
             <el-button size="small" round type="primary" :loading="saving" @click="save">保存</el-button>
@@ -263,9 +265,9 @@ export default {
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
 
-.ac-dialog {
-  width: min(560px, calc(100vw - 48px));
-  aspect-ratio: auto;
+/* 抽屉面板宽度（键值行需容纳 键180px + 值 + 删钮） */
+.ac-panel {
+  --ob-drawer-w: 620px;
 }
 
 .ac-head-left {
@@ -273,6 +275,7 @@ export default {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex: 1;
 }
 
 .ac-badge {
@@ -287,13 +290,8 @@ export default {
   border: 1px solid rgba(82, 196, 26, 0.3);
 }
 
+/* 抽屉 body：滚动与内边距已由 ob-drawer-body 承载，此处仅保留列间距 */
 .ac-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 
@@ -400,16 +398,16 @@ export default {
   }
 }
 
-.ac-foot {
+/* footer 布局：左侧删除（危险操作远离确认组），右侧取消/保存 */
+.ac-foot-left {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px 16px;
-  border-top: 1px solid var(--border-color);
+  flex: 1;
+  min-width: 0;
 }
 
 .ac-foot-right {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 </style>

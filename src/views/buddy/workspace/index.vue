@@ -31,6 +31,7 @@
         @create-file="createFile"
         @import="importDialog"
         @refresh="load"
+        @rename="renameWorkspace"
         @unbind="confirmUnbind"
         @space-rule="openSpaceRule"
       />
@@ -288,6 +289,28 @@ export default {
       } else if (!this.activeId) {
         this.currentDir = ''
         this.entries = []
+      }
+    },
+    // 重命名当前工作空间：改展示名（磁盘目录不动），成功后同步下拉与任务列表分组
+    async renameWorkspace() {
+      const ws = this.active
+      if (!ws) return
+      const { value } = await this.$prompt('请输入新的空间名称', '重命名工作空间', {
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        inputValue: this.displayName(ws)
+      }).catch(() => ({ value: '' }))
+      const name = String(value || '').trim()
+      if (!name || name === this.displayName(ws)) return
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      if (!api || !api.renameWorkspace) return
+      const res = await api.renameWorkspace({ id: ws.id, name })
+      if (res && res.ok) {
+        ws.name = name
+        this.$root.$emit('omnibuddy:workspaces-changed')
+        this.$message.success('已重命名')
+      } else {
+        this.$message.error((res && res.error) || '重命名失败')
       }
     },
     // 解绑当前工作空间：二次确认后解除登记并删除该空间全部任务记录（含检查点）；
