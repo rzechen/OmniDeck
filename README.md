@@ -219,6 +219,16 @@ OmniDeck/
 > [!NOTE]
 > 提交 PR 即表示你同意将贡献内容按本仓库 [LICENSE](LICENSE)（PolyForm Noncommercial 1.0.0）授权给本项目。
 
+## 关注公众号
+
+更多功能预告、使用技巧与版本动态，欢迎关注作者的微信公众号：
+
+<div align="center">
+
+<img src="docs/img/wechat-mp.png" alt="微信公众号" width="420">
+
+</div>
+
 ---
 
 ## 许可证
