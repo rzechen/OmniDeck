@@ -1,29 +1,26 @@
 #!/bin/bash
-# OmniDeck 发版脚本：打包（mac/win）+ 上传 Release（GitCode / GitHub）
+# OmniDeck 发版脚本：合入闭源核心 + 打包（mac/win）+ 上传 Release（GitCode / GitHub）
 #
 # 用法：
 #   ./scripts/release-upload.sh local [mac|win|all]                        # 仅本地打包（不上传）
 #   ./scripts/release-upload.sh v0.3.0 [mac|win|all] [gitcode|github|all]  # 打包 + 上传 Release 附件
 #     上传目标缺省 gitcode（现有 feed 链路）；github 发布到 github.com/rzechen/OmniDeck
 #
+# open-core 流程（闭源核心合入）：
+#   OMNIDECK_CORE_DIR 指向私有核心仓（缺省 ../OmniDeck-core，不存在则跳过），
+#   构建前将其中源码（electron/agent 等闭源部分）覆盖合入本工作区再打包；
+#   制品上传至公开仓 Release——公开仓可下载使用制品，但拿不到核心源码。
+#   注意：覆盖进来的闭源文件为未跟踪状态，请勿提交到公开仓（建议将核心
+#   路径记入 .git/info/exclude）。
+#
 # 流程：
-#   1. native 插件兜底编译（native/build/Release/windows.node 缺失时才编译；
-#      macOS 窗口枚举 NAPI 插件，截图 hover 拾取窗口用，通常编译一次即可）
-#   2. vite build（渲染包 + electron 主进程）
-#   3. electron-builder 打包（afterPack 拷入内置运行时 + mac ad-hoc 签名）
-#   4. tag 模式：上传 release/ 产物到 GitCode / GitHub Release
+#   1. 闭源核心覆盖合入（可选，见上）
+#   2. native 插件兜底编译（windows.node 缺失时才编译；截图 hover 拾取窗口用）
+#   3. vite build + electron-builder 打包（afterPack 拷运行时 + mac ad-hoc 签名）
+#   4. tag 模式：上传 release/ 产物到 GitCode / GitHub Release（release 不存在时自动创建）
 #
-# GitCode 上传链路（已实测）：
-#   1. GET /repos/:owner/:repo/releases/:tag/upload_url?file_name=xx → 预签名 PUT 地址 + 请求头
-#   2. PUT 文件到预签名地址
-#   3. 资产出现为 https://gitcode.com/:owner/:repo/releases/download/:tag/:file_name（匿名 GET 可达）
-#
-# GitHub 上传链路（Releases API）：
-#   1. GET /repos/:owner/:repo/releases/tags/:tag 查 release（无则 POST 创建）
-#   2. POST /uploads.github.com/repos/:owner/:repo/releases/:id/assets?name=xx 上传资产
-#   3. 资产出现为 https://github.com/:owner/:repo/releases/download/:tag/:file_name
-#   4. 资产已存在（422）时先删除同名资产再重传（支持中断后续传）
-# 依赖：git 凭证存储中有对应平台 token（git credential fill）
+# GitCode 上传：GET upload_url 预签名 PUT；GitHub 上传：Releases API（草稿→传→发布）
+# 依赖：git 凭证存储中有对应平台 token（git credential fill）；rsync（核心合入用，macOS 自带）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -53,17 +50,38 @@ case "$DEST" in
   *) echo "错误: 上传目标须为 gitcode / github / all" >&2; exit 1 ;;
 esac
 
-# 1) native 插件兜底编译（产物已存在则跳过）
+# 1) 闭源核心覆盖合入（open-core：核心仓存在才合入，缺省 ../OmniDeck-core）
+CORE_DIR="${OMNIDECK_CORE_DIR:-$ROOT/../OmniDeck-core}"
+if [ -d "$CORE_DIR" ] && [ -n "$(ls -A "$CORE_DIR" 2>/dev/null)" ]; then
+  echo "==> 合入闭源核心: $CORE_DIR → $ROOT"
+  # 逐文件覆盖（只增改不删，避免误动公开仓文件；核心侧删除文件需手动同步）
+  ( cd "$CORE_DIR" && find . -path ./.git -prune -o -type f -print ) | while IFS= read -r rel; do
+    rel="${rel#./}"
+    case "$rel" in .git/*|.gitignore|README.md) continue ;; esac
+    mkdir -p "$ROOT/$(dirname "$rel")"
+    cp "$CORE_DIR/$rel" "$ROOT/$rel"
+  done
+  # 防误提交：核心覆盖路径记入本地排除（.git/info/exclude 不入库，幂等追加）
+  EXCLUDE_FILE="$ROOT/.git/info/exclude"
+  EXCLUDE_MARK='# open-core 闭源核心（release-upload.sh 覆盖合入，勿提交）'
+  if ! grep -qF "$EXCLUDE_MARK" "$EXCLUDE_FILE" 2>/dev/null; then
+    printf '%s\n/electron/\n/src/config/remote.cjs\n' "$EXCLUDE_MARK" >> "$EXCLUDE_FILE" 2>/dev/null || true
+  fi
+else
+  echo "==> 未发现闭源核心仓（$CORE_DIR），按公开仓现状打包"
+fi
+
+# 2) native 插件兜底编译（产物已存在则跳过）
 if [ ! -f native/build/Release/windows.node ]; then
   echo "==> 编译 native 插件（窗口枚举 NAPI，截图 hover 拾取窗口用）"
   ( cd native && npm_config_disturl=https://npmmirror.com/dist npx node-gyp rebuild )
 fi
 
-# 2) 前端 + electron 主进程构建
+# 3) 前端 + electron 主进程构建
 echo "==> vite build"
 npm run build
 
-# 3) electron-builder 打包
+# 4) electron-builder 打包
 case "$TARGET" in
   mac) npx electron-builder --mac ;;
   win) npx electron-builder --win --x64 ;;
@@ -94,6 +112,20 @@ upload_gitcode() {
   local TOKEN
   TOKEN=$(printf 'protocol=https\nhost=gitcode.com\n\n' | git credential fill 2>/dev/null | grep '^password=' | cut -d= -f2-)
   [ -n "$TOKEN" ] || { echo "✗ 无法从 git 凭证获取 GitCode token，跳过 GitCode"; return 1; }
+
+  # 0. release 不存在则创建（tag 已推送过；未推送时用 target_commitish 在默认分支建 tag）
+  local rel
+  rel=$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" \
+    "https://api.gitcode.com/api/v5/repos/$OWNER/$REPO/releases/tags/$TAG")
+  if ! echo "$rel" | grep -q '"tag_name"'; then
+    echo "→ [gitcode] release $TAG 不存在，创建中 ..."
+    rel=$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" \
+      -X POST "https://api.gitcode.com/api/v5/repos/$OWNER/$REPO/releases" \
+      -H "Content-Type: application/json" \
+      -d "{\"tag_name\":\"$TAG\",\"name\":\"OmniDeck $TAG\",\"prerelease\":false,
+           \"body\":\"OmniDeck $TAG 发布。安装包与更新文件见附件。使用与再分发条款见仓库 LICENSE。\"}")
+    echo "$rel" | grep -q '"tag_name"' || { echo "  ✗ 创建 release 失败：$rel"; return 1; }
+  fi
 
   local fail=0
   for f in "${files[@]}"; do

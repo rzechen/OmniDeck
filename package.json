@@ -2,6 +2,7 @@
   "name": "omnideck",
   "version": "0.2.0",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "description": "全能桌面，智驭未来 · Your All-in-One AI-Powered Desktop Toolkit",
   "author": "OmniDeck",
   "main": "dist-electron/main.js",

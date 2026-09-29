@@ -11,3 +11,6 @@ runtime
 *.log
 .vscode
 .idea
+# open-core：发版脚本从私有仓覆盖合入的闭源核心，禁止提交（详见 scripts/release-upload.sh）
+electron
+src/config/remote.cjs

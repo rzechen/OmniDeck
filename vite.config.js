@@ -2,135 +2,144 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue2'
 import electron from 'vite-plugin-electron'
 import path from 'path'
+import fs from 'fs'
+
+// open-core：electron/ 属闭源核心（私有仓 OmniDeck-core，发版脚本按路径覆盖合入）。
+// 公开仓缺省无 electron/ —— 跳过主进程构建，仅构建渲染层（UI 预览）；
+// 核心合入后（release-upload.sh 或手动 cp）本配置无需改动，自动恢复全量构建。
+const hasCore = fs.existsSync(path.resolve(__dirname, 'electron/main.js'))
+
+// electron 主进程构建入口（核心合入后启用）
+const electronEntries = [
+  {
+    entry: 'electron/main.js',
+    vite: {
+      build: {
+        outDir: 'dist-electron',
+        rollupOptions: {
+          // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()
+          external: ['electron', '@earendil-works/pi-coding-agent', '@anthropic-ai/sandbox-runtime']
+        }
+      }
+    }
+  },
+  // agent 模块为 CJS require 互相引用：逐文件构建，保留 require 结构
+  ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime', 'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'pkg-registry', 'web-search', 'rules', 'profile', 'memory', 'file-changes', 'attachments', 'market', 'connectors', 'usage', 'export', 'doc-export', 'checkpoints', 'branchView', 'scheduler', 'workflows'].map(name => ({
+    entry: `electron/agent/${name}.js`,
+    vite: {
+      build: {
+        outDir: 'dist-electron/agent',
+        rollupOptions: {
+          output: {
+            entryFileNames: `${name}.js`
+          },
+          // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()；
+          // pi-mcp-adapter 随应用打包，mcp.js 以 require.resolve 定位其运行时路径，须保留原生调用；
+          // pi-subagents 随应用打包，builtin-tools.js 以 require.resolve 定位其运行时路径，须保留原生调用；
+          // pi-web-access 随应用打包，pkg-registry.js 以 require.resolve 定位其运行时路径，须保留原生调用；
+          // adm-zip 由 skills.js 运行时 require（node_modules 内），保留原生调用；
+          // pdf-parse 由 attachments.js 运行时 require，保留原生调用；
+          // markdown-it 由 export.js 运行时 require（node_modules 内，会话导出 HTML 渲染），保留原生调用
+          external: ['electron', '@earendil-works/pi-coding-agent', '@anthropic-ai/sandbox-runtime', 'pi-mcp-adapter', 'pi-subagents', 'pi-web-access', 'adm-zip', 'pdf-parse', 'markdown-it']
+        }
+      }
+    }
+  })),
+  // 快捷入口主进程模块（P0）：独立构建，产物镜像源码目录（dist-electron/windows/），
+  // main.js 经 require('./windows/quick-panel') 引用（相对 require 不内联，运行时解析）
+  {
+    entry: 'electron/windows/quick-panel.js',
+    vite: {
+      build: {
+        outDir: 'dist-electron',
+        rollupOptions: {
+          output: {
+            entryFileNames: 'windows/quick-panel.js'
+          },
+          external: ['electron']
+        }
+      }
+    }
+  },
+  // 屏幕截取模块（P0-M3）：同 quick-panel 构建模式，main.js 经相对 require 引用
+  {
+    entry: 'electron/windows/capture.js',
+    vite: {
+      build: {
+        outDir: 'dist-electron',
+        rollupOptions: {
+          output: {
+            entryFileNames: 'windows/capture.js'
+          },
+          external: ['electron']
+        }
+      }
+    }
+  },
+  // 自动更新模块（N1 检测引导 / N5 electron-updater 全自动）：同 quick-panel 构建模式，main.js 经 require('./core/updater') 引用
+  // electron-updater 由 updater.js 运行时 require（node_modules 内），保留原生调用
+  {
+    entry: 'electron/core/updater.js',
+    vite: {
+      build: {
+        outDir: 'dist-electron',
+        rollupOptions: {
+          output: {
+            entryFileNames: 'core/updater.js'
+          },
+          external: ['electron', 'electron-updater']
+        }
+      }
+    }
+  },
+  // 壁纸市场拉取模块：同 quick-panel 构建模式，main.js 经相对 require 引用
+  {
+    entry: 'electron/services/wallpaper-fetch.js',
+    vite: {
+      build: {
+        outDir: 'dist-electron',
+        rollupOptions: {
+          output: {
+            entryFileNames: 'services/wallpaper-fetch.js'
+          },
+          external: ['electron']
+        }
+      }
+    }
+  },
+  // 启动依赖预检（P1）：同 quick-panel 构建模式，main.js 经 require('./core/deps') 引用
+  // adm-zip 由 deps.js 运行时 require（Windows 首启解压内置 MinGit），保留原生调用
+  {
+    entry: 'electron/core/deps.js',
+    vite: {
+      build: {
+        outDir: 'dist-electron',
+        rollupOptions: {
+          output: {
+            entryFileNames: 'core/deps.js'
+          },
+          external: ['electron', 'adm-zip']
+        }
+      }
+    }
+  },
+  {
+    entry: 'electron/preload.js',
+    onstart(args) {
+      args.reload()
+    },
+    vite: {
+      build: {
+        outDir: 'dist-electron'
+      }
+    }
+  }
+]
 
 export default defineConfig({
   plugins: [
     vue(),
-    electron([
-      {
-        entry: 'electron/main.js',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()
-              external: ['electron', '@earendil-works/pi-coding-agent', '@anthropic-ai/sandbox-runtime']
-            }
-          }
-        }
-      },
-      // agent 模块为 CJS require 互相引用：逐文件构建，保留 require 结构
-      ...['index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime', 'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'pkg-registry', 'web-search', 'rules', 'profile', 'memory', 'file-changes', 'attachments', 'market', 'connectors', 'usage', 'export', 'doc-export', 'checkpoints', 'branchView', 'scheduler', 'workflows'].map(name => ({
-        entry: `electron/agent/${name}.js`,
-        vite: {
-          build: {
-            outDir: 'dist-electron/agent',
-            rollupOptions: {
-              output: {
-                entryFileNames: `${name}.js`
-              },
-              // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()；
-              // pi-mcp-adapter 随应用打包，mcp.js 以 require.resolve 定位其运行时路径，须保留原生调用；
-              // pi-subagents 随应用打包，builtin-tools.js 以 require.resolve 定位其运行时路径，须保留原生调用；
-              // pi-web-access 随应用打包，pkg-registry.js 以 require.resolve 定位其运行时路径，须保留原生调用；
-              // adm-zip 由 skills.js 运行时 require（node_modules 内），保留原生调用；
-              // pdf-parse 由 attachments.js 运行时 require，保留原生调用；
-              // markdown-it 由 export.js 运行时 require（会话导出 HTML 渲染），保留原生调用
-              external: ['electron', '@earendil-works/pi-coding-agent', '@anthropic-ai/sandbox-runtime', 'pi-mcp-adapter', 'pi-subagents', 'pi-web-access', 'adm-zip', 'pdf-parse', 'markdown-it']
-            }
-          }
-        }
-      })),
-      // 快捷入口主进程模块（P0）：独立构建，产物镜像源码目录（dist-electron/windows/），
-      // main.js 经 require('./windows/quick-panel') 引用（相对 require 不内联，运行时解析）
-      {
-        entry: 'electron/windows/quick-panel.js',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              output: {
-                entryFileNames: 'windows/quick-panel.js'
-              },
-              external: ['electron']
-            }
-          }
-        }
-      },
-      // 屏幕截取模块（P0-M3）：同 quick-panel 构建模式，main.js 经相对 require 引用
-      {
-        entry: 'electron/windows/capture.js',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              output: {
-                entryFileNames: 'windows/capture.js'
-              },
-              external: ['electron']
-            }
-          }
-        }
-      },
-      // 自动更新模块（N1 检测引导 / N5 electron-updater 全自动）：同 quick-panel 构建模式，main.js 经 require('./core/updater') 引用
-      // electron-updater 由 updater.js 运行时 require（node_modules 内），保留原生调用
-      {
-        entry: 'electron/core/updater.js',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              output: {
-                entryFileNames: 'core/updater.js'
-              },
-              external: ['electron', 'electron-updater']
-            }
-          }
-        }
-      },
-      // 壁纸市场拉取模块：同 quick-panel 构建模式，main.js 经相对 require 引用
-      {
-        entry: 'electron/services/wallpaper-fetch.js',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              output: {
-                entryFileNames: 'services/wallpaper-fetch.js'
-              },
-              external: ['electron']
-            }
-          }
-        }
-      },
-      // 启动依赖预检（P1）：同 quick-panel 构建模式，main.js 经 require('./core/deps') 引用
-      // adm-zip 由 deps.js 运行时 require（Windows 首启解压内置 MinGit），保留原生调用
-      {
-        entry: 'electron/core/deps.js',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              output: {
-                entryFileNames: 'core/deps.js'
-              },
-              external: ['electron', 'adm-zip']
-            }
-          }
-        }
-      },
-      {
-        entry: 'electron/preload.js',
-        onstart(args) {
-          args.reload()
-        },
-        vite: {
-          build: {
-            outDir: 'dist-electron'
-          }
-        }
-      }
-    ])
+    ...(hasCore ? [electron(electronEntries)] : [])
   ],
   resolve: {
     alias: {

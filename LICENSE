@@ -1,0 +1,187 @@
+OmniDeck 源码与官方发布制品许可协议
+=====================================
+
+版权所有 (c) 2026 OmniDeck 项目作者
+
+本仓库（OmniDeck）的源代码及官方发布的二进制制品，按以下两部分条款授权：
+
+-----------------------------------------------------------------
+第一部分：源代码 —— PolyForm Noncommercial License 1.0.0
+-----------------------------------------------------------------
+
+本仓库中的源代码（不含官方发布制品，见第二部分）依据
+PolyForm Noncommercial License 1.0.0 授权：
+
+  https://polyformproject.org/licenses/noncommercial/1.0.0/
+
+# PolyForm Noncommercial License 1.0.0
+
+## Acceptance
+
+In order to get any license under these terms, you must agree
+to them as both strict obligations and conditions to all your
+licenses.
+
+## Copyright License
+
+The licensor grants you a copyright license for the software to
+do everything you might do with the software that would otherwise
+infringe the licensor's copyright in it for any permitted purpose.
+However, you may only distribute the software according to
+Distribution License and make changes or new works based on the
+software according to Changes and New Works License.
+
+## Distribution License
+
+The licensor grants you an additional copyright license to
+distribute copies of the software. Your license to distribute
+covers distributing the software with changes and new works
+permitted by Changes and New Works License.
+
+## Notices
+
+You must ensure that anyone who gets a copy of any part of the
+software from you also gets a copy of these terms or the URL for
+them above, as well as copies of any plain-text lines beginning
+with `Required Notice:` that the licensor provided with the
+software. For example:
+
+> Required Notice: Copyright OmniDeck (https://gitcode.com/m0_59492087/OmniDeck)
+
+## Changes and New Works License
+
+The licensor grants you an additional copyright license to make
+changes or new works based on the software for any permitted
+purpose.
+
+## Patent License
+
+The licensor grants you a patent license for the software that
+covers patent claims the licensor can license, or becomes able to
+license, that you would infringe by using the software.
+
+## Noncommercial Purposes
+
+Any noncommercial purpose is a permitted purpose.
+
+## Personal Uses
+
+Personal use for research, experiment, and testing for the
+benefit of public knowledge, personal study, private entertainment,
+hobby projects, amateur pursuits, or religious observance, without
+any anticipated commercial application, is use for a permitted
+purpose.
+
+## Noncommercial Organizations
+
+Use by any charitable organization, educational institution,
+public research organization, public safety or health organization,
+environmental protection organization, or government institution
+is use for a permitted purpose regardless of the source of funding
+or obligations resulting from the funding.
+
+## Fair Use
+
+You may have "fair use" rights for the software under the law.
+These terms do not limit them.
+
+## No Other Rights
+
+These terms do not allow you to sublicense or transfer any of your
+licenses to anyone else, or prevent the licensor from granting
+licenses to anyone else. These terms do not imply any other
+licenses.
+
+## Patent Defense
+
+If you make any written claim that the software infringes or
+contributes to infringement of any patent, your patent license for
+the software granted under these terms ends immediately. If your
+company makes such a claim, your patent license ends immediately
+for work on behalf of your company.
+
+## Violations
+
+The first time you are notified in writing that you have violated
+any of these terms, or done anything with the software not covered
+by your licenses, your licenses can nonetheless continue if you
+come into full compliance with these terms, and take practical
+steps to correct past violations, within 32 days of receiving
+notice. Otherwise, all your licenses end immediately.
+
+## No Liability
+
+***As far as the law allows, the software comes as is, without any
+warranty or condition, and the licensor will not be liable to you
+for any damages arising out of these terms or the use or nature of
+the software, under any kind of legal claim.***
+
+## Definitions
+
+The **licensor** is the individual or entity offering these terms,
+and the **software** is the software the licensor makes available
+under these terms.
+
+**You** refers to the individual or entity agreeing to these terms.
+
+**Your company** is any legal entity, sole proprietorship, or other
+kind of organization that you work for, plus all organizations that
+have control over, are under the control of, or are under common
+control with that organization. **Control** means ownership of
+substantially all the assets of an entity, or the power to direct
+its management and policies by vote, contract, or otherwise.
+Control can be direct or indirect.
+
+**Your licenses** are all the licenses granted to you for the
+software under these terms.
+
+**Use** means anything you do with the software requiring one of
+your licenses.
+
+-----------------------------------------------------------------
+第二部分：官方发布制品附加授权（Official Build Exception）
+-----------------------------------------------------------------
+
+作为对第一部分的例外与补充，版权所有人对【官方发布制品】
+授予如下附加权利：
+
+1. 定义：官方发布制品指由版权所有人发布在本仓库
+   Releases 页面（https://gitcode.com/m0_59492087/OmniDeck/releases
+   及其镜像地址）的未修改二进制安装包，包括 dmg / zip /
+   exe / blockmap 及更新元数据（latest*.yml）文件。
+
+2. 任何人（包括商业组织及其员工）均可免费下载、安装、
+   运行官方发布制品，以及在其个人或组织内部的设备上使用，
+   无需另行获得商业授权。该授权包含为运行制品所必需的
+   复制与内部再分发（如企业内部软件中心统一分发安装包）。
+
+3. 本附加授权不改变以下仍受第一部分约束的行为：
+   - 对源代码或官方制品进行修改后分发；
+   - 将源代码、官方制品整体或其衍生版本嵌入、集成到
+     任何对外提供的商业产品或商业服务中；
+   - 对官方制品进行反编译以还原源代码，或提取其中的
+     未公开源码部分用于再实现、分发；
+   - 收费分发官方制品（收取合理的介质/传输成本除外）。
+
+4. 第三方依赖：官方发布制品中包含的第三方开源组件
+   （如 Vue、Element UI、Electron 生态组件等）仍遵循其
+   各自的原许可证，相关许可证文本已随制品分发，本协议
+   不影响其在各自许可证下的权利。
+
+-----------------------------------------------------------------
+第三部分：核心代码不开源声明
+-----------------------------------------------------------------
+
+OmniDeck 采用 open-core 模式：本仓库包含应用的部分源码
+（界面层、工具箱、文档等），核心闭源部分（Agent 引擎等）
+不在此仓库分发。任何人不得通过反编译、反汇编、字节码
+还原等手段获取核心闭源部分的源代码，亦不得将由此获得的
+源代码以任何形式分发或用于再实现。
+
+若您需要商业授权（将 OmniDeck 或其部分能力用于商业产品
+或服务），或需要获取闭源部分的授权合作，请通过仓库
+Issue 与作者联系。
+
+-----------------------------------------------------------------
+商标声明：OmniDeck 名称与标识归项目作者所有，未经许可
+不得用于推广衍生产品或服务。
