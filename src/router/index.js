@@ -350,9 +350,9 @@ const routes = [
         path: 'tools/encrypt',
         name: 'Encrypt',
         component: () => import('@/views/deck/tools/encrypt/index.vue'),
-        meta: { title: '加密', group: 'tools' }
+        meta: { title: '加解密', group: 'tools' }
       },
-      // 加密分类下的具体工具
+      // 加解密分类下的具体工具
       {
         path: 'tools/encrypt/password',
         name: 'EncryptPassword',
@@ -388,6 +388,12 @@ const routes = [
         name: 'EncryptRsa',
         component: () => import('@/views/deck/tools/encrypt/rsa.vue'),
         meta: { title: 'RSA 加解密', group: 'tools' }
+      },
+      {
+        path: 'tools/encrypt/sm4',
+        name: 'EncryptSm4',
+        component: () => import('@/views/deck/tools/encrypt/sm4.vue'),
+        meta: { title: 'SM4 加解密', group: 'tools' }
       },
       {
         path: 'tools/image',

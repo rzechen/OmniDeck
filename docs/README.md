@@ -11,7 +11,7 @@ OmniDeck = **OmniBuddy（AI 编程助手）** + **OmniDeck（开发者工具箱�
 | [全局总览](overview.md) | 应用定位、双视图体系、全局能力层、工具中心工厂模式、存储分层——**建议从这里读起** |
 | [技术架构](architecture.md) | 进程模型、IPC、目录结构、构建/运行时装配/发版链路、开发约定 |
 | [组件与依赖](tech-stack.md) | 技术栈选型与三方组件、自研核心组件盘点 |
-| [功能总索引](feature-overview.md) | 全部功能模块与 74 个工具的一页式索引（链到各功能文档） |
+| [功能总索引](feature-overview.md) | 全部功能模块与 75 个工具的一页式索引（链到各功能文档） |
 
 ## Deck · 开发者工具箱（[deck/](deck/README.md)）
 
@@ -20,7 +20,7 @@ OmniDeck = **OmniBuddy（AI 编程助手）** + **OmniDeck（开发者工具箱�
 | 首页仪表盘 / 我的收藏 / 我的代办 | [home](deck/home.md) · [favorites](deck/favorites.md) · [todo](deck/todo.md) |
 | 剪贴板 / 快捷搜索 / 版本更新 / 问题反馈 | [clipboard](deck/clipboard.md) · [search](deck/search.md) · [version](deck/version.md) · [feedback](deck/feedback.md) |
 | 理财看板（基金 / 详情 / 黄金） | [finance](deck/finance.md) |
-| 工具中心 8 分类（格式化 / 转换 / 换算 / 加密 / 图像 / 文本 / 生活 / 其它） | [tools-format](deck/tools-format.md) · [tools-convert](deck/tools-convert.md) · [tools-unit](deck/tools-unit.md) · [tools-encrypt](deck/tools-encrypt.md) · [tools-image](deck/tools-image.md) · [tools-text](deck/tools-text.md) · [tools-life](deck/tools-life.md) · [tools-other](deck/tools-other.md) |
+| 工具中心 8 分类（格式化 / 转换 / 换算 / 加解密 / 图像 / 文本 / 生活 / 其它） | [tools-format](deck/tools-format.md) · [tools-convert](deck/tools-convert.md) · [tools-unit](deck/tools-unit.md) · [tools-encrypt](deck/tools-encrypt.md) · [tools-image](deck/tools-image.md) · [tools-text](deck/tools-text.md) · [tools-life](deck/tools-life.md) · [tools-other](deck/tools-other.md) |
 
 ## Buddy · AI 编程助手（[buddy/](buddy/README.md)）
 

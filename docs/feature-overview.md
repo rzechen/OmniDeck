@@ -2,7 +2,7 @@
 
 > [← 返回文档中心](README.md)
 
-一页式总索引：三大板块全部功能与 74 个工具，链至各功能文档。
+一页式总索引：三大板块全部功能与 75 个工具，链至各功能文档。
 
 ## 一、OmniBuddy · AI 编程助手（[buddy/](buddy/README.md)）
 
@@ -22,14 +22,14 @@
 | 资源市场 | `/omnibuddy/market` | [market.md](buddy/market.md) |
 | 用量统计 | `/omnibuddy/usage` | [usage.md](buddy/usage.md) |
 
-## 二、OmniDeck · 工具中心（8 分类 · 74 工具）
+## 二、OmniDeck · 工具中心（8 分类 · 75 工具）
 
 | 分类 | 数量 | 代表工具 | 文档 |
 | --- | --- | --- | --- |
 | 格式化 | 6 | JSON 树形可视化、Markdown、SQL | [tools-format.md](deck/tools-format.md) |
 | 转换 | 12 | JSON ↔ Excel/SQL/Java/Go/TS、正则、时间戳 | [tools-convert.md](deck/tools-convert.md) |
 | 换算 | 9 | 字节 / 速率 / 长度 / 温度 等 9 维 | [tools-unit.md](deck/tools-unit.md) |
-| 加密 | 6 | AES/DES、RSA、Hash、Base | [tools-encrypt.md](deck/tools-encrypt.md) |
+| 加解密 | 7 | AES/DES、RSA、SM4、Hash、Base | [tools-encrypt.md](deck/tools-encrypt.md) |
 | 图像 | 8 | 压缩、格式转换、GIF、水印、二维码 | [tools-image.md](deck/tools-image.md) |
 | 文本 | 4 | VLookup、大小写、火星文、白板 | [tools-text.md](deck/tools-text.md) |
 | 生活 | 12 | 农历、房贷、身份证、亲戚称谓 | [tools-life.md](deck/tools-life.md) |

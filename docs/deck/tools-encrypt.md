@@ -1,4 +1,4 @@
-# 工具中心 · 加密 Encrypt
+# 工具中心 · 加解密 Encrypt
 
 > [← Deck 文档](README.md) · [工具中心设计](../overview.md#四工具中心配置驱动的工厂模式)
 
@@ -8,9 +8,9 @@
 
 ## 分类定位
 
-提供随机密码生成、URL 编解码、多种哈希算法计算、Base 系列编码，以及 AES、DES、RSA 等对称与非对称加解密能力，保障数据安全。全部本地计算，数据不出本机。
+提供随机密码生成、URL 编解码、多种哈希算法计算、Base 系列编码，以及 AES、DES、RSA、国密 SM4 等对称与非对称加解密能力，保障数据安全。全部本地计算，数据不出本机。
 
-## 工具清单（6）
+## 工具清单（7）
 
 | 工具 | 说明 | 路由 | 源文件 |
 | --- | --- | --- | --- |
@@ -20,8 +20,12 @@
 | Base 编码 | Base64 / Base32 编解码，兼容中文 Unicode | `/tools/encrypt/base` | `base.vue` |
 | AES/DES 加解密 | 对称加解密，支持 ECB / CBC 模式 | `/tools/encrypt/aes-des` | `aes-des.vue` |
 | RSA 加解密 | RSA 签名与加密，支持多位密钥对生成 | `/tools/encrypt/rsa` | `rsa.vue` |
+| SM4 加解密 | 国密 SM4/ECB/PKCS7，SHA1PRNG 种子派生密钥 | `/tools/encrypt/sm4` | `sm4.vue` |
 
 ## 实现
 
 - **依赖组件**：crypto-js（AES/DES、Hash）、js-sha3（SHA3 系列）、hi-base32（Base32）、jsencrypt + node-forge（RSA 密钥对 / 签名）
+- **SM4**：`src/utils/sm4.js` 零依赖纯 JS 实现（GB/T 32907-2016），密钥派生精确复刻 Java `SHA1PRNG`（`KeyGenerator("SM4")` + `SecureRandom.setSeed(seed)`），默认种子 `risenhzsjds00000`，已通过国标向量与 Java demo 密文双向验证
+  - 双模式：「整段」单文本加解密；「逐行 k=v」批量处理配置片段（每行仅对第一个 `=` 后的值加解密，空行 / 注释 / 失败行原样保留，适用于 properties 配置整体脱敏还原）
+  - 解密输入自动识别 Base64 / Hex；已接入统一执行历史（tool-history，含种子与模式回填）
 - **分类页**：`index.vue` 经 category-page 工厂渲染
