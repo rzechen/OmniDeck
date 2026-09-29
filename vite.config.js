@@ -4,13 +4,12 @@ import electron from 'vite-plugin-electron'
 import path from 'path'
 import fs from 'fs'
 
-// build overlay：electron/ 由外部目录按相对路径覆盖合入（见 scripts/release-upload.sh，
-// 环境变量 OMNIDECK_CORE_DIR 指定，缺省 ../core）。
-// 本仓缺省无 electron/ —— 跳过主进程构建，仅构建渲染层（UI 预览）；
-// 核心合入后（release-upload.sh 或手动 cp）本配置无需改动，自动恢复全量构建。
+// 主进程构建开关：本仓完整开发仓，electron/ 缺省在位；
+// 检测失败时（目录被误删等）跳过主进程构建，仅构建渲染层，避免构建报错中断。
+// 公开仓镜像不含 electron/（见 scripts/mirror-public.sh），克隆公开仓即处于该降级形态。
 const hasCore = fs.existsSync(path.resolve(__dirname, 'electron/main.js'))
 
-// electron 主进程构建入口（核心合入后启用）
+// electron 主进程构建入口
 const electronEntries = [
   {
     entry: 'electron/main.js',

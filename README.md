@@ -109,7 +109,7 @@
 ### 方式二：从源码运行（仅 UI 预览）
 
 > [!IMPORTANT]
-> OmniDeck 采用 **open-core** 模式：本仓库包含界面层与工具箱源码，**Agent 引擎等核心部分闭源**（Electron 主进程 `electron/` 不在此仓库）。因此从本仓库源码只能启动**纯 UI 预览**（无 Electron 壳与 AI 能力），完整功能请使用方式一的官方安装包。
+> OmniDeck 采用 **源码可用（source-available）** 模式：本仓库包含界面层与工具箱源码，**Agent 引擎等核心部分不在此仓库**（Electron 主进程 `electron/` 缺失）。因此从本仓库源码只能启动**纯 UI 预览**（无 Electron 壳与 AI 能力），完整功能请使用方式一的官方安装包。
 
 ```bash
 # 环境要求：Node.js ≥ 16、npm
@@ -118,22 +118,21 @@ npm install
 # ① 纯 UI 预览（浏览器访问 Vite dev server，无 Electron 主进程）
 npm run dev
 
-# ② 打包（需闭源核心，见下方 open-core 说明；核心未合入时打包不完整）
+# ② 打包（需核心部分，本仓库不含，无法产出完整安装包）
 npm run build:mac   # macOS DMG
 npm run build:win   # Windows NSIS 安装包（x64）
 
-# ③ 发版（自动合入同级核心仓 ../core → 打包 → 上传 Release）
+# ③ 发版（维护者流程：自动镜像公开仓 → 打包 → 上传 Release）
 npm run release -- v0.3.0 mac   # 第二参数为 mac | win | all
 npm run release -- local mac    # 仅本地打包，不上传
 ```
 
 <details>
-<summary><b>open-core：核心合入机制（维护者参考）</b></summary>
+<summary><b>源码分发机制（维护者参考）</b></summary>
 
-- 工作区布局：`OmniDeck/deck`（本公开仓）与 `OmniDeck/core`（核心仓）同级并存，核心仓结构与本仓库相对路径一致（`electron/`、`src/config/remote.cjs`），可用 `OMNIDECK_CORE_DIR` 指定路径
-- `scripts/release-upload.sh` 打包前自动将核心仓文件**逐文件覆盖合入**本工作区；`vite.config.js` 检测到 `electron/main.js` 即自动启用主进程构建，无需改配置
-- 合入文件已被 `.gitignore` 排除，**不会被提交到本仓库**
-- 日常开发：核心代码改动在 core 仓提交（或在公开工作区直接改后用 core 仓 `sync.sh pull` 收集），`npm run dev` 即为完整 Electron 开发模式
+- 完整开发在一处进行：开发仓持有全部源码（含 `electron/` 与 `src/config/remote.cjs`），日常开发、提交、发版均在单仓完成
+- `scripts/mirror-public.sh` 将开发仓**剥离核心路径后全历史镜像**到本公开仓（`git filter-repo` 剥离，commit hash 确定性稳定），`scripts/release-upload.sh` 发版时自动调用，无需手动同步
+- 公开仓为只读镜像：Issue / PR 欢迎提交，但 main 分支不接受直接推送
 
 </details>
 
@@ -178,14 +177,14 @@ OmniDeck/
 ├── native/                 # NAPI 插件（windows.cpp：窗口枚举，截图 hover 拾取用）
 ├── lib/                    # 运行时离线备料包（Git LFS 管理，按平台分目录）
 ├── runtime/                # 运行时装配产物（install 生成，打包时拷进安装包）
-├── scripts/                # 构建脚本：运行时装配 / 发版上传（含核心合入）/ afterPack 钩子
+├── scripts/                # 构建脚本：运行时装配 / 发版上传 / 公开仓镜像 / afterPack 钩子
 ├── src/                    # 渲染进程（Vue 2）
 │   ├── layout/             # 双视图布局（index.vue=Deck，BuddyLayout.vue=Buddy）
 │   ├── views/              # 页面：buddy/（chat/workspace/mcp/…）deck/（tools/* finance…）
 │   ├── components/         # 共享组件，按域划分：buddy/ deck/ common/ tool/
 │   ├── config/             # 工具注册表（tools.js）、应用与基金 API 配置
 │   └── utils/              # 工具函数：buddy-api（IPC 桥）/ db / markdown / theme…
-└── （electron/ 为闭源核心，位于私有仓 OmniDeck-core，发版时自动合入）
+└── （electron/ 为主进程，位于开发仓，公开仓不含，见「源码分发机制」）
 ```
 
 > 构建产物（`dist/` `dist-electron/`）、装配产物（`runtime/` `release/`）与 `node_modules/` 均已 gitignore，不入库。
