@@ -1,20 +1,20 @@
 #!/bin/bash
-# OmniDeck 发版脚本：合入闭源核心 + 打包（mac/win）+ 上传 Release（GitCode / GitHub）
+# OmniDeck 发版脚本：合入核心代码 + 打包（mac/win）+ 上传 Release（GitCode / GitHub）
 #
 # 用法：
 #   ./scripts/release-upload.sh local [mac|win|all]                        # 仅本地打包（不上传）
 #   ./scripts/release-upload.sh v0.3.0 [mac|win|all] [gitcode|github|all]  # 打包 + 上传 Release 附件
 #     上传目标缺省 gitcode（现有 feed 链路）；github 发布到 github.com/rzechen/OmniDeck
 #
-# open-core 流程（闭源核心合入）：
-#   OMNIDECK_CORE_DIR 指向私有核心仓（缺省 ../OmniDeck-core，不存在则跳过），
-#   构建前将其中源码（electron/agent 等闭源部分）覆盖合入本工作区再打包；
-#   制品上传至公开仓 Release——公开仓可下载使用制品，但拿不到核心源码。
-#   注意：覆盖进来的闭源文件为未跟踪状态，请勿提交到公开仓（建议将核心
+# 核心代码合入（build overlay）：
+#   OMNIDECK_CORE_DIR 指向核心代码目录（缺省 ../OmniDeck-core，不存在则跳过），
+#   构建前将其中的文件（electron/agent 等）按相对路径覆盖到本工作区再打包；
+#   制品上传至 Release 供下载使用。
+#   注意：覆盖进来的文件为未跟踪状态，请勿提交（脚本已自动将相关
 #   路径记入 .git/info/exclude）。
 #
 # 流程：
-#   1. 闭源核心覆盖合入（可选，见上）
+#   1. 核心代码覆盖合入（可选，见上）
 #   2. native 插件兜底编译（windows.node 缺失时才编译；截图 hover 拾取窗口用）
 #   3. vite build + electron-builder 打包（afterPack 拷运行时 + mac ad-hoc 签名）
 #   4. tag 模式：上传 release/ 产物到 GitCode / GitHub Release（release 不存在时自动创建）
@@ -50,11 +50,11 @@ case "$DEST" in
   *) echo "错误: 上传目标须为 gitcode / github / all" >&2; exit 1 ;;
 esac
 
-# 1) 闭源核心覆盖合入（open-core：核心仓存在才合入，缺省 ../OmniDeck-core）
+# 1) 核心代码覆盖合入（overlay：核心目录存在才合入，缺省 ../OmniDeck-core）
 CORE_DIR="${OMNIDECK_CORE_DIR:-$ROOT/../OmniDeck-core}"
 if [ -d "$CORE_DIR" ] && [ -n "$(ls -A "$CORE_DIR" 2>/dev/null)" ]; then
-  echo "==> 合入闭源核心: $CORE_DIR → $ROOT"
-  # 逐文件覆盖（只增改不删，避免误动公开仓文件；核心侧删除文件需手动同步）
+  echo "==> 合入核心代码: $CORE_DIR → $ROOT"
+  # 逐文件覆盖（只增改不删，避免误动本仓文件；核心侧删除文件需手动同步）
   ( cd "$CORE_DIR" && find . -path ./.git -prune -o -type f -print ) | while IFS= read -r rel; do
     rel="${rel#./}"
     case "$rel" in .git/*|.gitignore|README.md) continue ;; esac
@@ -63,12 +63,12 @@ if [ -d "$CORE_DIR" ] && [ -n "$(ls -A "$CORE_DIR" 2>/dev/null)" ]; then
   done
   # 防误提交：核心覆盖路径记入本地排除（.git/info/exclude 不入库，幂等追加）
   EXCLUDE_FILE="$ROOT/.git/info/exclude"
-  EXCLUDE_MARK='# open-core 闭源核心（release-upload.sh 覆盖合入，勿提交）'
+  EXCLUDE_MARK='# release-upload.sh 覆盖合入的构建文件，勿提交'
   if ! grep -qF "$EXCLUDE_MARK" "$EXCLUDE_FILE" 2>/dev/null; then
     printf '%s\n/electron/\n/src/config/remote.cjs\n' "$EXCLUDE_MARK" >> "$EXCLUDE_FILE" 2>/dev/null || true
   fi
 else
-  echo "==> 未发现闭源核心仓（$CORE_DIR），按公开仓现状打包"
+  echo "==> 未发现核心代码目录（$CORE_DIR），按本仓现状打包"
 fi
 
 # 2) native 插件兜底编译（产物已存在则跳过）

@@ -4,8 +4,9 @@ import electron from 'vite-plugin-electron'
 import path from 'path'
 import fs from 'fs'
 
-// open-core：electron/ 属闭源核心（私有仓 OmniDeck-core，发版脚本按路径覆盖合入）。
-// 公开仓缺省无 electron/ —— 跳过主进程构建，仅构建渲染层（UI 预览）；
+// build overlay：electron/ 由外部目录按相对路径覆盖合入（见 scripts/release-upload.sh，
+// 环境变量 OMNIDECK_CORE_DIR 指定，缺省 ../OmniDeck-core）。
+// 本仓缺省无 electron/ —— 跳过主进程构建，仅构建渲染层（UI 预览）；
 // 核心合入后（release-upload.sh 或手动 cp）本配置无需改动，自动恢复全量构建。
 const hasCore = fs.existsSync(path.resolve(__dirname, 'electron/main.js'))
 
