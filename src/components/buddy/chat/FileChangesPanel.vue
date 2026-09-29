@@ -36,73 +36,73 @@
       <svg-icon icon-class="arrow-down" class="ob-fcp-trigger-arrow" :class="{ open: expanded }" />
     </div>
 
-    <!-- 单文件变更详情抽屉：左=变更历史树形 tab，右=选中变更的双列 diff
+    <!-- 单文件变更详情弹窗：左=变更历史树形 tab，右=选中变更的双列 diff
          v-if 按需挂载，避免长会话中大量历史弹窗常驻 DOM；
-         diff 内容宽高需求大 → 右侧全高抽屉（宽 70vw） -->
-    <transition name="ob-drawer">
-      <div
-        v-if="groupIndex !== null && dialogVisible"
-        ref="drawer"
-        class="ob-drawer"
-        @click.self="onDialogClose"
-      >
-        <div class="ob-drawer-panel ob-fcd-panel">
-          <header class="ob-drawer-header">
-            <div v-if="group" class="ob-fcd-head">
-              <span v-if="detail" class="ob-fcd-type" :class="detail.type">{{ typeLabel(detail.type) }}</span>
-              <span class="ob-fcd-file" :title="group.file">{{ group.file }}</span>
-              <span v-if="detail && addedOf(detail) !== null" class="ob-fcp-add">+{{ addedOf(detail) }}</span>
-              <span v-if="detail && removedOf(detail) !== null" class="ob-fcp-del">-{{ removedOf(detail) }}</span>
-            </div>
-            <svg-icon icon-class="close" class="ob-dialog-close" @click="onDialogClose" />
-          </header>
+         diff 内容宽高需求大 → 宽幅居中弹窗；append-to-body 挂到 body 下，
+         脱离消息滚动区的 mask 层叠上下文（否则 fixed 被裁剪且无法置顶） -->
+    <el-dialog
+      v-if="groupIndex !== null"
+      :visible.sync="dialogVisible"
+      custom-class="ob-fcd-dialog"
+      width="min(1180px, 92vw)"
+      append-to-body
+      @closed="groupIndex = null; changeIndex = -1"
+    >
+      <div v-if="group" class="ob-fcd-wrap">
+        <header class="ob-fcd-head">
+          <span v-if="detail" class="ob-fcd-type" :class="detail.type">{{ typeLabel(detail.type) }}</span>
+          <span class="ob-fcd-file" :title="group.file">{{ group.file }}</span>
+          <span v-if="detail && addedOf(detail) !== null" class="ob-fcp-add">+{{ addedOf(detail) }}</span>
+          <span v-if="detail && removedOf(detail) !== null" class="ob-fcp-del">-{{ removedOf(detail) }}</span>
+          <svg-icon icon-class="close" class="ob-dialog-close" @click="dialogVisible = false" />
+        </header>
 
-          <div v-if="group" class="ob-fcd-body">
-            <!-- 左侧：变更历史（按时间正序，默认选中最新一次；高度随右侧内容自适应） -->
-            <div class="ob-fcd-history">
-              <div class="ob-fcd-history-list">
-                <div
-                  v-for="(c, hi) in group.history"
-                  :key="hi"
-                  class="ob-fcd-history-item"
-                  :class="{ active: hi === changeIndex }"
-                  @click="changeIndex = hi"
-                >
-                  <span class="ob-fcd-history-name">第 {{ hi + 1 }} 次</span>
-                  <span class="ob-fcd-history-type" :class="c.type">{{ typeLabel(c.type) }}</span>
-                  <span v-if="addedOf(c) !== null" class="ob-fcp-add">+{{ addedOf(c) }}</span>
-                  <span v-if="removedOf(c) !== null" class="ob-fcp-del">-{{ removedOf(c) }}</span>
-                </div>
+        <div class="ob-fcd-body">
+          <!-- 左侧：变更历史（按时间正序，默认选中最新一次；固定高度内部滚动） -->
+          <div class="ob-fcd-history">
+            <div class="ob-fcd-history-title">变更历史</div>
+            <div class="ob-fcd-history-list">
+              <div
+                v-for="(c, hi) in group.history"
+                :key="hi"
+                class="ob-fcd-history-item"
+                :class="{ active: hi === changeIndex }"
+                @click="changeIndex = hi"
+              >
+                <span class="ob-fcd-history-name">第{{ hi + 1 }}次</span>
+                <span class="ob-fcd-history-type" :class="c.type">{{ typeLabel(c.type) }}</span>
+                <span v-if="addedOf(c) !== null" class="ob-fcp-add">+{{ addedOf(c) }}</span>
+                <span v-if="removedOf(c) !== null" class="ob-fcp-del">-{{ removedOf(c) }}</span>
               </div>
             </div>
+          </div>
 
-            <!-- 右侧：选中变更的 GitHub 风格双列 diff（左旧右新，hunk 收敛） -->
-            <div class="ob-fcd-main" v-if="detail">
-              <div v-if="detail.rows && detail.rows.length" class="ob-fcd-table">
-                <div v-for="(row, ri) in detail.rows" :key="ri" class="ob-fcd-row" :class="row.type">
-                  <template v-if="row.type === 'header'">
-                    <span class="ob-fcd-hdr">{{ row.text }}</span>
-                  </template>
-                  <template v-else>
-                    <span class="ob-fcd-ln">{{ row.left ? row.left.n : '' }}</span>
-                    <span class="ob-fcd-cell old">{{ cellText(row.left) }}</span>
-                    <span class="ob-fcd-ln">{{ row.right ? row.right.n : '' }}</span>
-                    <span class="ob-fcd-cell new">{{ cellText(row.right) }}</span>
-                  </template>
-                </div>
+          <!-- 右侧：选中变更的 GitHub 风格双列 diff（左旧右新，hunk 收敛；代码行不折行，超宽横向滚动） -->
+          <div class="ob-fcd-main" v-if="detail">
+            <div v-if="detail.rows && detail.rows.length" class="ob-fcd-table">
+              <div v-for="(row, ri) in detail.rows" :key="ri" class="ob-fcd-row" :class="row.type">
+                <template v-if="row.type === 'header'">
+                  <span class="ob-fcd-hdr">{{ row.text }}</span>
+                </template>
+                <template v-else>
+                  <span class="ob-fcd-ln">{{ row.left ? row.left.n : '' }}</span>
+                  <span class="ob-fcd-cell old">{{ cellText(row.left) }}</span>
+                  <span class="ob-fcd-ln">{{ row.right ? row.right.n : '' }}</span>
+                  <span class="ob-fcd-cell new">{{ cellText(row.right) }}</span>
+                </template>
               </div>
-              <!-- 无逐行内容的场景：超限 / 删除 / 新建目录 -->
-              <div v-else-if="detail.truncated" class="ob-fcd-empty">
-                文件较大（超过 512KB），仅记录了变更类型与行数，未做逐行对比
-              </div>
-              <div v-else-if="detail.type === 'deleted'" class="ob-fcd-empty">该文件已被删除</div>
-              <div v-else-if="detail.type === 'mkdir'" class="ob-fcd-empty">已创建目录</div>
-              <div v-else class="ob-fcd-empty">无逐行对比内容</div>
             </div>
+            <!-- 无逐行内容的场景：超限 / 删除 / 新建目录 -->
+            <div v-else-if="detail.truncated" class="ob-fcd-empty">
+              文件较大（超过 512KB），仅记录了变更类型与行数，未做逐行对比
+            </div>
+            <div v-else-if="detail.type === 'deleted'" class="ob-fcd-empty">该文件已被删除</div>
+            <div v-else-if="detail.type === 'mkdir'" class="ob-fcd-empty">已创建目录</div>
+            <div v-else class="ob-fcd-empty">无逐行对比内容</div>
           </div>
         </div>
       </div>
-    </transition>
+    </el-dialog>
   </div>
 </template>
 
@@ -183,26 +183,6 @@ export default {
       this.groupIndex = i
       this.changeIndex = g.history.length - 1
       this.dialogVisible = true
-      // 抽屉挂到 body：消息滚动区带 mask-image（创建层叠上下文），
-      // 留在原位 fixed 会被其裁剪且无法盖住侧栏/输入区（等同 el-dialog 的 append-to-body）
-      this.$nextTick(() => {
-        if (this.$refs.drawer && this.$refs.drawer.parentNode !== document.body) {
-          document.body.appendChild(this.$refs.drawer)
-        }
-      })
-    },
-    // 关闭后延迟卸载弹窗，等待关闭过渡完成（立即 v-if 移除会截断动画）
-    onDialogClose() {
-      setTimeout(() => {
-        this.groupIndex = null
-        this.changeIndex = -1
-      }, 350)
-    }
-  },
-  beforeDestroy() {
-    // 已挂到 body 的抽屉节点需手动移除（Vue2 只会清理原父级下的节点）
-    if (this.$refs.drawer && this.$refs.drawer.parentNode === document.body) {
-      document.body.removeChild(this.$refs.drawer)
     }
   }
 }
@@ -264,7 +244,8 @@ export default {
 
 .ob-fcp-add,
 .ob-fcp-del {
-  flex-shrink: 0;
+  flex-shrink: 0; /* flex 容器（触发行/弹窗头部）防压缩；grid 中自动忽略 */
+  justify-self: center;
   font-size: 11.5px;
   font-weight: 600;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
@@ -288,15 +269,28 @@ export default {
   background: var(--bg-secondary, rgba(0, 0, 0, 0.02));
 }
 
+/* 列表行：grid 固定列宽 + 显式列定位，图标/文件名自适应，
+   次数/类型/增删统计各列纵向对齐（某列缺失时占位空列，后续列不错位） */
 .ob-fcp-item {
-  display: flex;
+  display: grid;
+  /* 图标 | 文件名(弹性) | 次数 | 类型 | +新增 | -删除 | 箭头：定宽列保证跨行严格对齐 */
+  grid-template-columns: auto minmax(0, 1fr) 44px 56px 40px 40px auto;
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
   min-width: 0;
   padding: 5px 8px;
   border-radius: 7px;
   cursor: pointer;
   transition: background 0.12s ease;
+
+  /* 显式列定位：次数/增删列 v-if 缺失时不塌陷，后续列保持原位 */
+  .ob-fcp-item-ico { grid-column: 1; }
+  .ob-fcp-item-file { grid-column: 2; }
+  .ob-fcp-item-times { grid-column: 3; }
+  .ob-fcp-item-type { grid-column: 4; }
+  .ob-fcp-add { grid-column: 5; }
+  .ob-fcp-del { grid-column: 6; }
+  .ob-fcp-item-arrow { grid-column: 7; }
 
   &:hover {
     background: var(--search-bg-hover, rgba(0, 0, 0, 0.05));
@@ -329,11 +323,11 @@ export default {
     font-family: 'SF Mono', Menlo, Consolas, monospace;
   }
 
-  /* 同文件多次变更提示 */
+  /* 同文件多次变更提示（定宽列内居中） */
   .ob-fcp-item-times {
-    flex-shrink: 0;
+    justify-self: center;
     font-size: 10px;
-    padding: 1px 6px;
+    padding: 1px 4px;
     border-radius: 4px;
     color: var(--text-secondary);
     border: 1px solid var(--border-color);
@@ -350,11 +344,12 @@ export default {
 }
 
 .ob-fcp-item-type {
-  flex-shrink: 0;
+  justify-self: center;
   font-size: 10px;
   font-weight: 600;
   padding: 1px 7px;
   border-radius: 4px;
+  white-space: nowrap;
 
   &.created,
   &.mkdir {
@@ -385,19 +380,43 @@ export default {
   transform: translateY(4px);
 }
 
-/* ===== 详情抽屉（自绘 ob-drawer，样式位于全局 buddy-settings.scss） ===== */
-/* 面板加宽：diff 双列需要横向空间 */
-.ob-fcd-panel {
-  --ob-drawer-w: 70vw;
+/* ===== 详情弹窗（el-dialog append-to-body，custom-class 定制样式需非 scoped 生效） ===== */
+::v-deep .ob-fcd-dialog {
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+  background: var(--bg-primary, #fff);
+
+  .el-dialog__header,
+  .el-dialog__footer {
+    display: none; /* 头/底部由自绘 ob-fcd-head 承载 */
+  }
+
+  .el-dialog__body {
+    padding: 0;
+  }
 }
 
-/* 抽屉头部：类型徽章 + 文件路径 + 增删统计（占满标题行） */
+/* 弹窗内容包裹层 */
+.ob-fcd-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+  max-height: min(78vh, 860px);
+}
+
+/* 弹窗头部：类型徽章 + 文件路径 + 增删统计 + 关闭钮 */
 .ob-fcd-head {
   display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
-  flex: 1;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border-color);
+
+  .ob-dialog-close {
+    margin-left: auto;
+  }
 }
 
 .ob-fcd-type {
@@ -436,22 +455,32 @@ export default {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
-/* ===== 抽屉主体：左=变更历史树形 tab，右=选中变更 diff
-   两栏并列撑满面板剩余高度，各自独立滚动 ===== */
+/* ===== 弹窗主体：左=变更历史树形 tab，右=选中变更 diff
+   两栏并列撑满弹窗剩余高度，各自独立滚动 ===== */
 .ob-fcd-body {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   flex: 1;
   min-height: 0;
-  padding: 0 22px 20px;
+  padding: 14px 18px 18px;
 }
 
 .ob-fcd-history {
   flex-shrink: 0;
-  width: 196px;
+  width: 176px;
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* 左栏小标题 */
+.ob-fcd-history-title {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  padding: 0 4px 8px;
 }
 
 .ob-fcd-history-list {
@@ -459,24 +488,33 @@ export default {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   overflow-y: auto;
-  padding: 6px;
+  padding: 8px;
   border: 1px solid var(--border-color);
   border-radius: 10px;
   background: var(--bg-secondary, rgba(0, 0, 0, 0.02));
 }
 
-/* 树形 tab 项：时间正序，左侧状态点 + 竖向引导线 */
+/* 树形 tab 项：时间正序，左侧状态点 + 竖向引导线；grid 定宽列 + 显式列定位，
+   类型/统计列缺失时占位空列，后续列保持原位不错位 */
 .ob-fcd-history-item {
   position: relative;
-  display: flex;
+  display: grid;
+  /* 第N次 | 类型 | +新增 | -删除（定宽列纵向严格对齐） */
+  grid-template-columns: minmax(0, 1fr) 44px 32px 32px;
   align-items: center;
-  gap: 7px;
-  padding: 6px 8px 6px 16px;
+  column-gap: 4px;
+  padding: 8px 8px 8px 18px;
   border-radius: 7px;
   cursor: pointer;
   transition: background 0.12s ease;
+
+  /* 显式列定位 */
+  .ob-fcd-history-name { grid-column: 1; }
+  .ob-fcd-history-type { grid-column: 2; }
+  .ob-fcp-add { grid-column: 3; }
+  .ob-fcp-del { grid-column: 4; }
 
   /* 竖向引导线 */
   &::before {
@@ -519,7 +557,9 @@ export default {
   }
 
   .ob-fcd-history-name {
-    flex-shrink: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 11.5px;
     font-weight: 600;
     color: var(--text-primary);
@@ -528,11 +568,12 @@ export default {
 }
 
 .ob-fcd-history-type {
-  flex-shrink: 0;
+  justify-self: center;
   font-size: 10px;
   font-weight: 600;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: 4px;
+  white-space: nowrap;
 
   &.created,
   &.mkdir {
@@ -561,18 +602,26 @@ export default {
 }
 
 /* ===== 双列 diff（GitHub split 风格：行号 + 旧文 | 行号 + 新文） ===== */
+/* 整表单一 grid：行 display: contents 摊平，列宽由全表最宽单元格统一决定
+   （若每行独立 grid，max-content 各行自算会导致行间错位）；
+   代码行不折行（white-space: pre），超宽在 .ob-fcd-main 横向滚动 */
 .ob-fcd-table {
   flex: 1;
+  align-self: flex-start;
+  display: grid;
+  grid-template-columns: 44px max-content 44px max-content;
+  width: max-content;
+  min-width: 100%;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.75;
 }
 
+/* 行摊平进父级 grid（DOM 结构不变，行类型 class 仍可作用到单元格） */
 .ob-fcd-row {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px minmax(0, 1fr);
+  display: contents;
 
   /* 删除行：左半红调；新增行：右半绿调；上下文行无底色 */
   &.del .ob-fcd-cell.old {
@@ -585,18 +634,14 @@ export default {
     color: #047857;
   }
 
-  /* hunk 头横幅（GitHub 蓝调） */
-  &.header {
-    display: block;
-
-    .ob-fcd-hdr {
-      display: block;
-      padding: 2px 12px;
-      background: rgba(9, 105, 218, 0.08);
-      color: #0550AE;
-      font-size: 11px;
-      user-select: none;
-    }
+  /* hunk 头横幅（GitHub 蓝调）：整行摊平后，横幅跨满全部 4 列 */
+  &.header .ob-fcd-hdr {
+    grid-column: 1 / -1;
+    padding: 4px 12px;
+    background: rgba(9, 105, 218, 0.08);
+    color: #0550AE;
+    font-size: 11px;
+    user-select: none;
   }
 }
 
@@ -610,9 +655,8 @@ export default {
 }
 
 .ob-fcd-cell {
-  padding: 0 10px;
-  white-space: pre-wrap;
-  word-break: break-all;
+  padding: 1px 12px;
+  white-space: pre;
   color: var(--text-primary);
 
   /* 左右分栏中线 */

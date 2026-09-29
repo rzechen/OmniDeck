@@ -40,7 +40,7 @@
             <svg-icon icon-class="plus" />
           </div>
 
-          <!-- 菜单区（分组）：资源市场 → 能力（技能/连接器/项目规则/权限策略）→ 配置（工作空间/模型供应商）→ 用量统计/能力清单 -->
+          <!-- 菜单区（分组）：资源市场 → 能力（技能/连接器/项目规则/权限策略）→ 配置（工作空间/模型管理）→ 用量统计/能力清单 -->
           <nav class="buddy-menu">
             <div
               v-for="(group, gi) in menuGroups"
@@ -175,7 +175,7 @@ export default {
             // 我的资料（B 方案）：结构化个人背景 + 全局规则折叠区（原项目规则页收编）
             { label: '我的资料', name: 'OmniBuddyProfile', path: '/omnibuddy/profile', icon: 'user' },
             { label: '工作空间', name: 'OmniBuddyWorkspace', path: '/omnibuddy/workspace', icon: 'folder' },
-            { label: '模型供应商', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' }
+            { label: '模型管理', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' }
           ]
         },
         {

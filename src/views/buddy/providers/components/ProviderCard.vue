@@ -12,7 +12,7 @@
           <span class="ob-name-text">{{ provider.name }}</span>
           <span v-if="provider.isDefault" class="ob-item-default-badge">默认</span>
           <span class="ob-item-format" :class="'fmt-' + (provider.apiFormat || 'openai')">
-            {{ provider.apiFormat === 'anthropic' ? 'Anthropic' : 'OpenAI' }}
+            {{ formatLabel }}
           </span>
         </div>
         <div class="ob-card-meta">
@@ -61,6 +61,14 @@ export default {
     }
   },
   computed: {
+    // API 格式标签（三格式：OpenAI / Responses / Anthropic）
+    formatLabel() {
+      return {
+        openai: 'OpenAI',
+        'openai-responses': 'Responses',
+        anthropic: 'Anthropic'
+      }[this.provider.apiFormat] || 'OpenAI'
+    },
     tierLabel() {
       return { small: '轻量档', medium: '标准档', big: '强力档' }[this.provider.tier] || ''
     }
