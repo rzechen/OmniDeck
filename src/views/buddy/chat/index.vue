@@ -208,18 +208,27 @@
           </buddy-composer>
         </div>
       </div>
+
+      <!-- 问题导航指示器（圆点列垂直居中常驻）：锚定对话列右缘留白区，
+           右栏预览打开时随对话列收窄自然左移，不遮挡预览面板；
+           状态着色（绿完成/红终止/黄输出/灰等待），悬停浮出问题列表面板，点击定位到对应问答位置 -->
+      <question-outline
+        :questions="questions"
+        :active-id="outlineActiveId"
+        @locate="locateQuestion"
+      />
     </div>
+
+    <!-- 右栏：产物 / 代码放大预览（P2-2）：消息流内点产物卡片或代码块「放大」滑出，
+         宽屏利用（消息流保持 768px 不动）；组件内部自治加载与渲染 -->
+    <transition name="ob-preview-slide">
+      <div v-if="preview" class="ob-preview-col">
+        <artifact-preview :item="preview" @close="closePreview" />
+      </div>
+    </transition>
 
     <!-- 消息区划选工具条（复制 / 追问）：fixed 定位随选区浮现，作用域限定消息滚动区 -->
     <selection-toolbar ref="selbar" :get-area="getSelArea" @quote="onQuote" />
-
-    <!-- 问题导航指示器（右侧，圆点列垂直居中常驻）：状态着色（绿完成/红终止/黄输出/灰等待），
-         悬停浮出问题列表面板，点击定位到对应问答位置 -->
-    <question-outline
-      :questions="questions"
-      :active-id="outlineActiveId"
-      @locate="locateQuestion"
-    />
 
     <!-- 检查点抽屉（N4）：写操作前自动快照，时间线倒序 + 一键回滚（自治组件，内部加载与回滚） -->
     <checkpoint-drawer
@@ -238,6 +247,7 @@ import ChatPlaceholder from '@/components/buddy/chat/ChatPlaceholder.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
 import SelectionToolbar from '@/components/buddy/chat/SelectionToolbar.vue'
 import ChatMessageList from './components/ChatMessageList.vue'
+import ArtifactPreview from './components/ArtifactPreview.vue'
 import TodoCard from '@/components/buddy/chat/TodoCard.vue'
 import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
@@ -248,7 +258,7 @@ import { computeBranchView } from '@/utils/branchView'
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
 export default {
   name: 'OmniBuddyChat',
-  components: { BuddyComposer, BuddySkeleton, ChatPlaceholder, ComposerPicker, SelectionToolbar, ChatMessageList, TodoCard, QuestionOutline, CheckpointDrawer },
+  components: { BuddyComposer, BuddySkeleton, ChatPlaceholder, ComposerPicker, SelectionToolbar, ChatMessageList, ArtifactPreview, TodoCard, QuestionOutline, CheckpointDrawer },
   data() {
     return {
       // 实例绑定的会话 id：初始化时快照路由 query.s（keep-alive 一签一实例，
@@ -269,6 +279,10 @@ export default {
       webEnabled: true,
       // ===== 检查点（N4）：抽屉开关（列表加载与回滚在 CheckpointDrawer 内自治） =====
       cpDrawer: false,
+      // ===== 右栏预览（P2-2）：当前预览目标（产物文件 / 放大代码块），null 为关闭 =====
+      preview: null,
+      // ===== 本实例是否为当前激活页签（keep-alive 后台实例不响应预览唤起） =====
+      tabActive: true,
       // ===== 问题导航：当前视口所在轮次 id（滚动时更新） =====
       outlineActiveId: ''
     }
@@ -441,11 +455,20 @@ export default {
     }
   },
   watch: {
+    // 右栏预览开合：联动 BuddyLayout 临时收起侧栏（对齐豆包：对话与预览各占一半，
+    // 侧栏收起腾出阅读宽度；关闭预览恢复用户原侧栏状态）
+    preview(v) {
+      this.$bus.emit('buddy:sidebar-hold', !!v)
+      // 同步消息流内代码块「放大→缩小」按钮标记
+      this.markZoomingCode()
+    },
     // 消息条数变化（用户消息/新占位/非流式新消息）：
     // 仅在「贴底」时自动跟滚 —— 用户手动上滚后（atBottom=false）以用户操作为最高优先级，
     // 不再强制滚到底，回看历史不被新内容打断
     'messages.length'() {
       if (this.sess && this.sess.atBottom) this.scrollToBottom()
+      // 气泡重渲染会重建代码块 DOM（zooming 标记丢失）：兜底重新标记
+      this.markZoomingCode()
     },
     // 本轮消息内容更新（delta 正文 / 思考块 / 工具块，均不改 messages.length）：
     // 同样只在贴底时跟滚，保证用户上滚后输出不打扰回看
@@ -454,6 +477,10 @@ export default {
       handler() {
         if (this.sess && this.sess.atBottom) this.scrollToBottom()
       }
+    },
+    // 流式结束：末轮气泡渲染完成，恢复可能被重建 DOM 冲掉的 zooming 标记
+    streaming(v) {
+      if (!v) this.$nextTick(() => this.markZoomingCode())
     },
     // store 会话池的 UI 事件（$message / $root 广播 / 检查点刷新）：
     // 多个缓存实例同时 watch，经 claim 认领保证每条只被消费一次
@@ -474,9 +501,14 @@ export default {
     this.loadWebEnabled()
     // 工作空间重命名后同步底部空间名：主进程已级联更新会话快照与登记表
     this.$bus.on('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
+    // 右栏预览唤起（消息流内产物卡片点击 / 代码块「放大」按钮经全局总线上抛）
+    this.$bus.on('chat:artifact-preview', this.onArtifactPreview)
   },
   beforeUnmount() {
     this.$bus.off('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
+    this.$bus.off('chat:artifact-preview', this.onArtifactPreview)
+    // 页签销毁：释放侧栏临时收起
+    this.$bus.emit('buddy:sidebar-hold', false)
     // 仅移除全局监听；不打断流式 —— 主进程继续执行并落盘，回来自会话池/历史恢复
     window.removeEventListener('keydown', this.onPermKeydown)
     document.removeEventListener('mousedown', this.onDocMouseDown)
@@ -490,8 +522,10 @@ export default {
     if (this.$refs.selbar) this.$refs.selbar.setup()
   },
   activated() {
-    // keep-alive 页签切回：模型/工作空间可能在其他页签（模型管理、工作空间）有增删，
-    // 重新加载列表（loadProviders 内部会保留当前选中，不会打断已选模型）
+    // keep-alive 页签切回：标记激活（预览唤起仅当前页签响应），模型/工作空间可能在
+    // 其他页签（模型管理、工作空间）有增删，重新加载列表（loadProviders 内部会
+    // 保留当前选中，不会打断已选模型）
+    this.tabActive = true
     this.loadProviders()
     this.loadWorkspaces()
     // 会话池可能因删除会话被清理，补拉（loaded 命中时为空操作）
@@ -503,13 +537,18 @@ export default {
     document.addEventListener('mousedown', this.onDocMouseDown)
     // 划选工具条恢复监听
     if (this.$refs.selbar) this.$refs.selbar.setup()
+    // 预览随页签保留：切回时若仍开着，恢复侧栏临时收起
+    if (this.preview) this.$bus.emit('buddy:sidebar-hold', true)
   },
   deactivated() {
     // keep-alive 页签切走：移除快捷键/面板外点击，避免在其他页签误触
+    this.tabActive = false
     window.removeEventListener('keydown', this.onPermKeydown)
     document.removeEventListener('mousedown', this.onDocMouseDown)
     // 划选工具条停止监听并隐藏
     if (this.$refs.selbar) this.$refs.selbar.teardown()
+    // 切走释放侧栏临时收起（其它页面不受预览影响）
+    this.$bus.emit('buddy:sidebar-hold', false)
   },
   methods: {
     api() {
@@ -538,6 +577,38 @@ export default {
         listCheckpoints: async () => ({ ok: true, items: [] }),
         rollbackCheckpoint: async () => ({ ok: false, error: '检查点需要 OmniDeck 桌面端' })
       }
+    },
+    // ===== 右栏预览（P2-2）=====
+    // 全局总线唤起：仅当前激活页签响应（keep-alive 后台实例静默忽略）
+    onArtifactPreview(payload) {
+      if (!this.tabActive) return
+      const next = Object.assign({ kind: '', path: '', name: '', format: '', lang: '', code: '' }, payload)
+      // 再次点击同一目标（代码块按钮已显示「缩小」）：关闭预览
+      if (this.preview && this.preview.kind === next.kind && this.preview.lang === next.lang &&
+          this.preview.code === next.code && this.preview.path === next.path) {
+        this.preview = null
+        return
+      }
+      this.preview = next
+    },
+    closePreview() {
+      this.preview = null
+    },
+    // 标记正在右栏放大的代码块：v-html 渲染的 DOM 不受 Vue 管理，
+    // 用类标记驱动按钮「缩小」文案（比对 lang + code 定位目标块）
+    markZoomingCode() {
+      const root = this.$refs.body
+      if (!root) return
+      root.querySelectorAll('.ob-code.zooming').forEach(el => el.classList.remove('zooming'))
+      const p = this.preview
+      if (!p || p.kind !== 'code') return
+      root.querySelectorAll('.ob-code').forEach(el => {
+        const langEl = el.querySelector('.ob-code-lang')
+        const codeEl = el.querySelector('pre code')
+        if (langEl && codeEl && langEl.textContent.trim() === p.lang && codeEl.textContent === p.code) {
+          el.classList.add('zooming')
+        }
+      })
     },
     loadProviders() {
       const list = getItem('aiProviderList', [])
@@ -1091,7 +1162,7 @@ export default {
 
 <style lang="scss" scoped>
 .ob-chat {
-  position: relative; // 问题导航指示器（absolute）的定位基准
+  position: relative; // 悬浮层（fixed 组件）布局参考
   flex: 1;
   min-width: 0;
   display: flex;
@@ -1108,6 +1179,29 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* ===== 右栏预览列（P2-2）：与主列以细分隔线相接，滑入过渡 ===== */
+/* 右栏：与对话列各占一半（对齐豆包放大态；侧栏由预览联动临时收起腾宽度） */
+.ob-preview-col {
+  flex-shrink: 0;
+  width: 50%;
+  min-width: 0;
+  border-left: 1px solid $divider;
+  overflow: hidden;
+}
+
+/* 右栏滑入 / 滑出：自右侧平移 + 淡入（与权限条同节奏） */
+.ob-preview-slide-enter-active,
+.ob-preview-slide-leave-active {
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1), opacity 0.18s ease;
+}
+
+.ob-preview-slide-enter,
+.ob-preview-slide-enter-from,
+.ob-preview-slide-leave-to {
+  transform: translateX(24px);
+  opacity: 0;
 }
 
 /* ===== 主体 ===== */

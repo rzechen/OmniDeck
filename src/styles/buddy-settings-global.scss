@@ -29,6 +29,7 @@
 }
 
 .ob-code-copy,
+.ob-code-zoom,
 .ob-table-csv {
   font-size: 11.5px;
   color: var(--text-secondary);
@@ -43,9 +44,27 @@
   }
 }
 
-/* 表格工具条为「表格 | CSV 复制」三项：lang 居左，CSV 与复制相邻居右 */
-.ob-table-csv {
+/* 表格工具条为「表格 | CSV 复制」三项：lang 居左，CSV 与复制相邻居右；
+   代码块工具条为「lang | 放大 复制」同法（放大与复制相邻居右） */
+.ob-table-csv,
+.ob-code-zoom {
   margin-left: auto;
+}
+
+/* 放大按钮文案由 CSS 承载（HTML 不放文字）：正在右栏放大中的代码块
+   （页面层 DOM 标记 .zooming）显示「缩小」，其余显示「放大」 */
+.ob-code-zoom::before {
+  content: '放大';
+}
+
+.ob-code.zooming .ob-code-zoom::before {
+  content: '缩小';
+}
+
+/* 放大中：按钮主题色高亮，提示当前预览即此代码块 */
+.ob-code.zooming .ob-code-zoom {
+  color: var(--primary-color);
+  background: rgba(var(--primary-color-rgb), 0.1);
 }
 
 /* 容器内 pre 复位（边框/圆角/底色由 .ob-code 统一承载） */
