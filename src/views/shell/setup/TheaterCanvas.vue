@@ -24,8 +24,8 @@ const C = {
 }
 
 const Q = '介绍一下 OmniDeck'
-// 答案分四段（\n 分隔）：总览 → 加密 → 格式化 → Buddy 连接器/长记忆/智能体
-const A = 'OmniDeck 是一体化 AI 工作台，双区引擎协同：\n· 内容安全 — 本地 AES 加密、隐私脱敏，敏感数据不出设备\n· 效率工具 — JSON/XML 一键格式化、Markdown 排版、多格式导出\nOmniBuddy 更内置业界流行的连接器、跨会话长记忆与可编排智能体，问答直达执行。'
+// 答案分四段（\n 分隔）：总览（首句控制单行不折）→ 加密 → 格式化 → Buddy 连接器/长记忆/智能体
+const A = 'OmniDeck 是一体化双区 AI 工作台：\n· 内容安全 — 本地 AES 加密、隐私脱敏，敏感数据不出设备\n· 效率工具 — JSON/XML 一键格式化、Markdown 排版、多格式导出\nOmniBuddy 更内置业界流行的连接器、跨会话长记忆与可编排智能体，问答直达执行。'
 const TYPE_MS = 45 // 流式输出速度（答案加长后提速，保证 15s 周期内完成 + 留出 chips 时间）
 // 追问建议 chips（回答流式完成后逐个弹出）
 const SUGGESTS = ['怎么格式化 JSON？', '能导出 Word 吗？', '支持哪些快捷键？']
@@ -77,7 +77,19 @@ export default {
   name: 'SetupTheaterCanvas',
   props: {
     // 本舞台演示的产品侧：buddy = 流式问答 / deck = JSON 格式化
-    side: { type: String, default: 'buddy' }
+    side: { type: String, default: 'buddy' },
+    // 离场/切页前置暂停：停止 rAF，避免与主视图首渲染争抢主线程造成切页卡顿
+    paused: { type: Boolean, default: false }
+  },
+  watch: {
+    paused(v) {
+      if (v) {
+        cancelAnimationFrame(this._raf)
+        this._raf = 0
+      } else if (!this._raf) {
+        this._raf = requestAnimationFrame(this.tick)
+      }
+    }
   },
   mounted() {
     this.ctx = this.$refs.cv.getContext('2d')
@@ -218,7 +230,7 @@ export default {
         const aShown = Math.floor((t - 2400) / TYPE_MS)
         const aText = A.slice(0, Math.min(A.length, aShown))
         ctx.font = '11px system-ui, sans-serif'
-        const maxTextW = innerW - 40
+        const maxTextW = innerW - pad - 24 - 16 // 头像 24 + 气泡左右内边距，防右溢
         const lines = wrapText(ctx, aText, maxTextW)
         const bh = Math.max(24, lines.length * 16 + 12)
         // 头像
