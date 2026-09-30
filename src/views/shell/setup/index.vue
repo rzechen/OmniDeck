@@ -68,84 +68,76 @@
           <span class="og-btn-text">{{ mainBtnText }}</span>
           <svg-icon icon-class="arrow-right" class="og-btn-arrow" />
         </button>
-        <a v-if="!checking && pendingItems.length" class="og-skip" @click="skip">网络不佳？稍后在设置中装配</a>
       </div>
 
       <!-- ===== 第 2 步：装配进度（整页视图，后台异步执行，可随时先进入应用） ===== -->
       <div v-else-if="step === 2" key="install" class="og-page">
-        <h2 class="og-h2">{{ sessionFailed ? '装配遇到问题' : '正在装配运行环境' }}</h2>
-        <p class="og-sub-s">
-          {{ sessionFailed ? '已完成的部分无需重新下载，可重试继续' : '装配在后台进行，不会阻塞你进入应用' }}
-        </p>
+        <!-- 两侧梯形舞台：左 Buddy 流式问答 / 右 Deck 格式化（互联网产品 hero 感） -->
+        <theater-canvas v-if="!sessionFailed" side="buddy" class="og-stage og-stage-l" />
+        <div class="og-mid">
+          <h2 class="og-h2">{{ h2Text }}</h2>
+          <p class="og-sub-s">
+            {{ sessionFailed
+              ? '已完成的部分无需重新下载，可重试继续'
+              : sessionDone ? '运行环境装配完成，全部能力已解锁，可关闭' : '装配在后台进行，不会阻塞你进入应用' }}
+          </p>
 
-        <!-- 整体进度：大百分比 + 进度条 + ETA -->
-        <div class="og-progress-hero">
-          <div class="og-progress-num">
-            <span class="og-pct">{{ overallPct }}<i>%</i></span>
-            <span class="og-progress-meta">
-              <template v-if="currentItem">
-                正在装配 · {{ currentItem.label }}<template v-if="sessionItems.length">（{{ doneCount + 1 }}/{{ sessionItems.length }}）</template>
-              </template>
-              <template v-else-if="sessionFailed">装配中断于「{{ failedItems[0] && failedItems[0].label }}」</template>
-              <template v-else>全部组件装配完成</template>
-              <template v-if="etaText"> · 预计剩余 {{ etaText }}</template>
-            </span>
+          <!-- 整体进度：大百分比 + 进度条 + ETA -->
+          <div class="og-progress-hero">
+            <div class="og-progress-num">
+              <span class="og-pct">{{ overallPct }}<i>%</i></span>
+              <span class="og-progress-meta">
+                <template v-if="sessionDone">全部组件装配完成</template>
+                <template v-else-if="currentItem">
+                  正在装配 · {{ currentItem.label }}<template v-if="sessionItems.length">（{{ doneCount + 1 }}/{{ sessionItems.length }}）</template>
+                </template>
+                <template v-else-if="sessionFailed">装配中断于「{{ failedItems[0] && failedItems[0].label }}」</template>
+                <template v-else>全部组件装配完成</template>
+                <template v-if="!sessionDone && etaText"> · 预计剩余 {{ etaText }}</template>
+              </span>
+            </div>
+            <div class="og-progress-track" :class="{ failed: sessionFailed }">
+              <div class="og-progress-fill" :style="{ width: overallPct + '%' }" />
+            </div>
+            <div v-if="!sessionFailed && bytesText" class="og-progress-bytes">{{ bytesText }}</div>
           </div>
-          <div class="og-progress-track" :class="{ failed: sessionFailed }">
-            <div class="og-progress-fill" :style="{ width: overallPct + '%' }" />
+
+          <!-- 组件清单：required 全集（已就绪跳过项也在列，呈现完整装配清单） -->
+          <div class="og-list">
+            <div v-for="c in sessionItems" :key="c.name" class="og-item" :class="['is-' + c.state, { 'is-skipped': c.skipped }]">
+              <span class="og-item-mark">
+                <svg-icon v-if="c.state === 'ok'" icon-class="check" />
+                <span v-else-if="c.state === 'installing'" class="og-mini-ring" />
+                <span v-else-if="c.state === 'error'" class="og-item-x">!</span>
+                <span v-else class="og-item-dot" />
+              </span>
+              <span class="og-item-label">{{ c.label }}</span>
+              <span class="og-item-desc">{{ c.desc }}</span>
+              <span v-if="c.state === 'installing'" class="og-item-pct">{{ itemPctText(c) }}</span>
+              <span v-else class="og-item-state">{{ stateText(c.state, c.skipped) }}</span>
+            </div>
           </div>
-          <div v-if="!sessionFailed && bytesText" class="og-progress-bytes">{{ bytesText }}</div>
-        </div>
 
-        <!-- 等待小剧场：左 Buddy 流式问答 / 右 Deck 格式化（12s 循环） -->
-        <theater-canvas v-if="!sessionFailed" class="og-theater" />
+          <div v-if="sessionFailed" class="og-note og-note-warn">{{ failedItems[0] && failedItems[0].error }}</div>
 
-        <!-- 组件清单：required 全集（已就绪跳过项也在列，呈现完整装配清单） -->
-        <div class="og-list">
-          <div v-for="c in sessionItems" :key="c.name" class="og-item" :class="['is-' + c.state, { 'is-skipped': c.skipped }]">
-            <span class="og-item-mark">
-              <svg-icon v-if="c.state === 'ok'" icon-class="check" />
-              <span v-else-if="c.state === 'installing'" class="og-mini-ring" />
-              <span v-else-if="c.state === 'error'" class="og-item-x">!</span>
-              <span v-else class="og-item-dot" />
-            </span>
-            <span class="og-item-label">{{ c.label }}</span>
-            <span class="og-item-desc">{{ c.desc }}</span>
-            <span v-if="c.state === 'installing'" class="og-item-pct">{{ itemPctText(c) }}</span>
-            <span v-else class="og-item-state">{{ stateText(c.state, c.skipped) }}</span>
+          <div class="og-actions">
+            <template v-if="sessionFailed">
+              <button class="og-btn-main" @click="retry"><span class="og-btn-shine" /><span class="og-btn-text">重试装配</span></button>
+              <a class="og-skip" @click="skip">稍后在设置中装配</a>
+            </template>
+            <template v-else-if="sessionDone">
+              <button class="og-btn-main" @click="enter"><span class="og-btn-shine" /><span class="og-btn-text">开始使用 OmniDeck</span><svg-icon icon-class="arrow-right" class="og-btn-arrow" /></button>
+            </template>
+            <template v-else>
+              <a class="og-enter-link" @click="enter">
+                先进入 OmniDeck
+                <svg-icon icon-class="arrow-right" class="og-enter-link-icon" />
+              </a>
+              <div class="og-waiting">后台装配中，进入应用后顶部会继续显示进度</div>
+            </template>
           </div>
         </div>
-
-        <div v-if="sessionFailed" class="og-note og-note-warn">{{ failedItems[0] && failedItems[0].error }}</div>
-
-        <div class="og-actions">
-          <template v-if="sessionFailed">
-            <button class="og-btn-main" @click="retry"><span class="og-btn-shine" /><span class="og-btn-text">重试装配</span></button>
-            <a class="og-skip" @click="skip">稍后在设置中装配</a>
-          </template>
-          <template v-else>
-            <a class="og-enter-link" @click="enter">
-              先进入 OmniDeck
-              <svg-icon icon-class="arrow-right" class="og-enter-link-icon" />
-            </a>
-            <div class="og-waiting">后台装配中，进入应用后顶部会继续显示进度</div>
-          </template>
-        </div>
-      </div>
-
-      <!-- ===== 第 3 步：完成 ===== -->
-      <div v-else key="done" class="og-page og-page-done">
-        <div class="og-done-mark">
-          <svg viewBox="0 0 72 72" class="og-done-svg">
-            <circle class="og-done-circle" cx="36" cy="36" r="32" />
-            <path class="og-done-check" d="M22 37.5 L32 47 L50 27" />
-          </svg>
-        </div>
-        <h1 class="og-h1">一切就绪</h1>
-        <p class="og-sub">运行环境装配完成，全部能力已解锁。<br />组件可在「设置 → 运行时」中随时管理。</p>
-        <div class="og-actions">
-          <button class="og-btn-main" @click="enter"><span class="og-btn-shine" /><span class="og-btn-text">开始使用 OmniDeck</span><svg-icon icon-class="arrow-right" class="og-btn-arrow" /></button>
-        </div>
+        <theater-canvas v-if="!sessionFailed" side="deck" class="og-stage og-stage-r" />
       </div>
     </transition>
   </div>
@@ -225,6 +217,15 @@ export default {
     sessionFailed() {
       return !!(this.session && this.session.state === 'failed')
     },
+    // 装配完成态：留在本页呈现 100% + 完成按钮（不自动跳「一切就绪」页）
+    sessionDone() {
+      return !!(this.session && this.session.state === 'done')
+    },
+    h2Text() {
+      if (this.sessionFailed) return '装配遇到问题'
+      if (this.sessionDone) return '装配完成'
+      return '正在装配运行环境'
+    },
     currentItem() {
       return this.sessionItems.find(c => c.state === 'installing') || null
     },
@@ -237,8 +238,9 @@ export default {
       if (this.pendingItems.length) return '开始探索'
       return '立即进入'
     },
-    // 整体进度（字节口径优先；无字节时按项数）
+    // 整体进度（字节口径优先；无字节时按项数）；完成态精确 100%
     overallPct() {
+      if (this.sessionDone) return 100
       const total = this.sessionItems.length
       if (!total) return 0
       const s = this.session
@@ -263,10 +265,7 @@ export default {
     }
   },
   watch: {
-    // 快照终态自动切步：完成 → 第 3 步
-    session(s) {
-      if (s && s.state === 'done' && this.step === 2) this.step = 3
-    }
+    // 快照驱动已由 computed 呈现（完成态留在第 2 步），无需自动切步
   },
   created() {
     this.bindProgress()
@@ -355,6 +354,7 @@ export default {
         const s = await api.setupSnapshot()
         if (s && s.items) {
           this.session = s
+          // 会话进行中/已完成（刷新恢复）→ 停留在装配页
           if (this.step === 1 && s.state === 'installing') this.step = 2
         }
       } catch (e) { /* 快照失败不阻断 */ }
@@ -845,19 +845,23 @@ export default {
   &:hover { opacity: 1; text-decoration: underline; }
 }
 
-/* ===== 第 2 / 3 步：整页视图（hero 退后压暗，内容整页铺陈非弹窗） ===== */
+/* ===== 第 2 步：整页视图（两侧梯形舞台 + 中栏内容，互联网产品 hero 感） ===== */
 .og-page {
   position: absolute;
   inset: 44px 0 0 0; /* 顶部留拖动条 */
   z-index: 5;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 48px 48px 36px;
-  overflow-y: auto;
-  background: rgba(245, 246, 248, 0.88);
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  gap: 18px;
+  padding: 30px 24px 26px;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 500px at 18% -8%, rgba(116, 82, 232, 0.07), transparent 60%),
+    radial-gradient(1100px 480px at 84% 110%, rgba(47, 98, 232, 0.08), transparent 60%),
+    rgba(245, 246, 248, 0.9);
   backdrop-filter: blur(20px) saturate(1.1);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   text-align: center;
 }
 
@@ -865,21 +869,67 @@ export default {
   flex-shrink: 0;
 }
 
-/* 内容柱：清单类内容用 720px 中栏，整页但不空旷 */
-.og-page > .og-h2,
-.og-page > .og-sub-s,
-.og-page > .og-progress-hero,
-.og-page > .og-theater,
-.og-page > .og-list,
-.og-page > .og-note,
-.og-page > .og-actions,
-.og-page > .og-sub {
+/* 两侧梯形舞台：斜切渐变衬底（::before 承载 clip-path，canvas 白卡浮于其上不被裁切） */
+.og-stage {
+  position: relative;
+  width: min(300px, 25vw);
+  align-self: center;
+  height: min(430px, 100%);
+  padding: 0 10px 14px; /* canvas 自带 44px 顶部让位斜边，CSS 侧不再叠加 */
+}
+
+.og-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  filter: drop-shadow(0 18px 34px rgba(30, 41, 59, 0.16));
+}
+
+/* 左舞台（Buddy）：右上斜切，渐变从顶部展开 */
+.og-stage-l::before {
+  background: linear-gradient(150deg, rgba(116, 82, 232, 0.18), rgba(116, 82, 232, 0.04) 70%);
+  clip-path: polygon(0 0, 100% 10%, 100% 90%, 0 100%);
+}
+
+/* 右舞台（Deck）：镜像斜切 */
+.og-stage-r::before {
+  background: linear-gradient(210deg, rgba(47, 98, 232, 0.18), rgba(47, 98, 232, 0.04) 70%);
+  clip-path: polygon(0 10%, 100% 0, 100% 100%, 0 90%);
+}
+
+.og-stage .theater-cv {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+/* 中栏：进度 + 清单（720px 内容柱，可纵向滚动） */
+.og-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 1 720px;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 6px 2px;
+}
+
+.og-mid > .og-h2,
+.og-mid > .og-sub-s,
+.og-mid > .og-progress-hero,
+.og-mid > .og-list,
+.og-mid > .og-note,
+.og-mid > .og-actions {
   width: min(720px, 100%);
 }
 
-.og-theater {
-  flex-shrink: 0;
-  margin-top: 18px;
+/* 窄窗时舞台退场（中栏独占整页） */
+@media (max-width: 980px) {
+  .og-page { flex-direction: column; align-items: center; overflow-y: auto; }
+  .og-stage { display: none; }
+  .og-mid { overflow: visible; flex-basis: auto; }
 }
 
 .og-h2 {
@@ -887,13 +937,6 @@ export default {
   font-size: 24px;
   font-weight: 800;
   color: $text-primary;
-}
-
-.og-sub {
-  margin: 14px 0 0;
-  font-size: 13.5px;
-  line-height: 1.9;
-  color: $text-secondary;
 }
 
 .og-sub-s {
@@ -1138,58 +1181,6 @@ export default {
   }
 }
 
-/* ===== 第 3 步：完成动画 ===== */
-.og-page-done {
-  animation: og-done-in 0.5s ease;
-}
-
-@keyframes og-done-in {
-  from { opacity: 0; transform: translateY(18px); }
-}
-
-.og-done-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 96px;
-  height: 96px;
-  margin-bottom: 24px;
-}
-
-.og-done-svg {
-  width: 96px;
-  height: 96px;
-}
-
-.og-done-circle {
-  fill: none;
-  stroke: #46a87f;
-  stroke-width: 3;
-  stroke-dasharray: 202;
-  stroke-dashoffset: 202;
-  transform: rotate(-90deg);
-  transform-origin: center;
-  animation: og-circle-draw 0.6s ease-out forwards;
-}
-
-.og-done-check {
-  fill: none;
-  stroke: #46a87f;
-  stroke-width: 4.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 44;
-  stroke-dashoffset: 44;
-  animation: og-check-draw 0.35s ease-out 0.5s forwards;
-}
-
-@keyframes og-circle-draw {
-  to { stroke-dashoffset: 0; }
-}
-
-@keyframes og-check-draw {
-  to { stroke-dashoffset: 0; }
-}
 
 /* ===== 步骤切换过渡 ===== */
 .og-fade-enter-active,
