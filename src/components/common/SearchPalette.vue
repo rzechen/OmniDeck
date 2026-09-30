@@ -10,7 +10,7 @@
     top="12vh"
   >
     <div class="palette-input-wrap">
-      <i class="el-icon-search"></i>
+      <svg-icon icon-class="search" />
       <input
         ref="searchInput"
         v-model="searchQuery"
@@ -36,11 +36,11 @@
       >
         <svg-icon :icon-class="item.iconSvg" class="item-icon" />
         <span class="item-label">{{ item.title }}</span>
-        <i v-if="i === activeIndex" class="el-icon-right item-enter"></i>
+        <svg-icon v-if="i === activeIndex" icon-class="right" class-name="item-enter" />
       </div>
     </div>
     <div class="palette-empty" v-else-if="searchQuery">
-      <i class="el-icon-search"></i>
+      <svg-icon icon-class="search" />
       <span>未找到「{{ searchQuery }}」相关内容</span>
     </div>
 
@@ -193,7 +193,7 @@ export default {
   padding: 16px 18px;
   border-bottom: 1px solid $border-color;
 
-  .el-icon-search {
+  .search-ic {
     font-size: 20px;
     color: $text-secondary;
   }
@@ -283,7 +283,7 @@ export default {
   padding: 32px 0 28px;
   color: $text-secondary;
 
-  .el-icon-search {
+  .search-ic {
     font-size: 28px;
     opacity: 0.4;
   }

@@ -8,12 +8,12 @@
   >
     <template #toolbar>
       <button class="tool-btn is-primary" :disabled="flipping" @click="flip">
-        <i :class="flipping ? 'el-icon-loading' : 'el-icon-coin'"></i>
+        <svg-icon :icon-class="(flipping ? 'loading' : 'coin')" />
         {{ flipping ? '翻转中…' : '抛硬币' }}
       </button>
       <button class="tool-btn" @click="flip10">连抛 10 次</button>
       <button class="tool-btn is-danger" @click="reset">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空统计
       </button>
     </template>

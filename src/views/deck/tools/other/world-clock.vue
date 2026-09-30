@@ -29,12 +29,12 @@
         <template #item="{ element: c }">
         <div class="wc-card" :class="{ 'is-day': isDay(c) }">
           <button class="wc-remove" title="移除" @click="removeCity(c)">
-            <i class="el-icon-close"></i>
+            <svg-icon icon-class="close" />
           </button>
           <div class="wc-head">
             <span class="wc-city">{{ label(c) }}</span>
             <span class="wc-day-night" :title="isDay(c) ? '白天' : '夜晚'">
-              <i :class="isDay(c) ? 'el-icon-sunny' : 'el-icon-moon'"></i>
+              <svg-icon :icon-class="(isDay(c) ? 'sunny' : 'moon')" :class-name="(isDay(c) ? '' : 'night-ic')" />
             </span>
           </div>
           <!-- 模拟表盘 -->
@@ -89,7 +89,7 @@
         </template>
       </draggable>
       <div v-if="!cities.length" class="wc-empty">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         <p>从右上角添加城市开始使用</p>
       </div>
     </div>
@@ -345,7 +345,7 @@ export default {
   color: var(--warning-color);
   flex-shrink: 0;
 
-  .el-icon-moon {
+  .night-ic {
     color: #722ED1;
   }
 }

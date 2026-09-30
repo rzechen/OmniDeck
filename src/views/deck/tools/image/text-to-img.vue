@@ -34,7 +34,7 @@
         </div>
       </div>
       <button class="tool-btn is-primary" :disabled="!text.trim()" @click="exportImage">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         导出 PNG
       </button>
     </template>

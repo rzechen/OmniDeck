@@ -88,9 +88,11 @@ export default {
     }
   },
   watch: {
-    // 目睹完成 → 短暂展示后自动收起
-    'session.state'(st) {
-      if (st === 'done') {
+    // 目睹装配从 installing/failed 走到 done → 短暂展示后自动收起。
+    // 挂载时快照同步带来的 ''→done 不算（视图切换重建组件会重新拉快照，
+    // 老用户常态下切来切去不该反复弹"装配完成"）
+    'session.state'(st, old) {
+      if (st === 'done' && (old === 'installing' || old === 'failed')) {
         this.justDone = true
         clearTimeout(this.hideTimer)
         this.hideTimer = setTimeout(() => { this.justDone = false }, 4000)

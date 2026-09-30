@@ -8,19 +8,15 @@
       </div>
       <!-- 搜索框：Mac 胶囊风格，过滤当前 Tab 的收藏 -->
       <div class="search-box">
-        <i class="el-icon-search search-icon"></i>
+        <svg-icon icon-class="search" class-name="search-icon" />
         <input
           v-model="keyword"
           placeholder="搜索收藏..."
           @keydown.esc="keyword = ''"
         />
         <span v-if="keyword" class="search-count">{{ searchCount }}</span>
-        <i
-          v-if="keyword"
-          class="el-icon-circle-close search-clear"
-          title="清空 (Esc)"
-          @click="keyword = ''"
-        ></i>
+        <svg-icon v-if="keyword" icon-class="circle-close" class-name="search-clear" title="清空 (Esc)"
+          @click="keyword = ''" />
       </div>
     </header>
 
@@ -48,11 +44,11 @@
       <!-- 网站 Tab 操作：新建分组 + 添加网站 -->
       <div v-if="activeTab === 'site'" class="toolbar-actions">
         <span class="add-btn is-plain" @click="createGroup">
-          <i class="el-icon-folder-add"></i>
+          <svg-icon icon-class="folder-add" />
           新建分组
         </span>
         <span class="add-btn" @click="openAddDialog()">
-          <i class="el-icon-plus"></i>
+          <svg-icon icon-class="plus" />
           添加
         </span>
       </div>
@@ -92,7 +88,7 @@
             title="取消收藏"
             @click.stop="removeFavorite(item)"
           >
-            <i class="el-icon-close"></i>
+            <svg-icon icon-class="close" class-name="act-close" />
           </span>
         </div>
         </template>
@@ -126,7 +122,7 @@
           <template v-if="c.kind === 'image'">
             <div class="clip-thumb" @click.stop="previewClip(c)">
               <img :src="c.thumb" alt="图片收藏" loading="lazy" />
-              <span class="clip-thumb-mask"><i class="el-icon-view"></i></span>
+              <span class="clip-thumb-mask"><svg-icon icon-class="view" /></span>
             </div>
             <div class="clip-meta">
               <span class="clip-size">{{ c.width }} × {{ c.height }}</span>
@@ -139,13 +135,13 @@
 
           <div class="clip-ops">
             <button title="复制" @click.stop="copyClip(c)">
-              <i class="el-icon-document-copy"></i>
+              <svg-icon icon-class="document-copy" />
             </button>
             <button v-if="c.kind === 'image'" title="另存为 PNG" @click.stop="saveClip(c)">
-              <i class="el-icon-download"></i>
+              <svg-icon icon-class="download" />
             </button>
             <button title="取消收藏" @click.stop="removeClip(c)">
-              <i class="el-icon-delete"></i>
+              <svg-icon icon-class="delete" class-name="act-delete" />
             </button>
           </div>
         </div>
@@ -171,12 +167,12 @@
         <div v-for="g in visibleGroups" :key="g.name || '__uncategorized'" class="site-group">
           <!-- 分组头：名称 + 数量 + 管理操作（仅自定义分组） -->
           <div class="group-header">
-            <i :class="g.name ? 'el-icon-folder' : 'el-icon-folder-opened'" class="group-icon"></i>
+            <svg-icon :icon-class="(g.name ? 'folder' : 'folder-opened')" class-name="group-icon" />
             <span class="group-title">{{ g.name || '未分类' }}</span>
             <span class="group-count">{{ g.sites.length }}</span>
             <span v-if="g.name" class="group-actions">
-              <i class="el-icon-edit-outline" title="重命名分组" @click="renameGroup(g)"></i>
-              <i class="el-icon-delete" title="删除分组" @click="deleteGroup(g)"></i>
+              <i class='edit-outline' title="重命名分组" @click="renameGroup(g)"></i>
+              <i class='delete' title="删除分组" @click="deleteGroup(g)"></i>
             </span>
           </div>
 
@@ -210,8 +206,8 @@
               <span v-else class="chip-letter">{{ item.name.charAt(0) }}</span>
               <span class="chip-name">{{ item.name }}</span>
               <span class="chip-ops">
-                <i class="el-icon-edit" title="编辑" @click.stop="openEditDialog(item)"></i>
-                <i class="el-icon-close" title="移除" @click.stop="removeSite(item)"></i>
+                <i class='edit' title="编辑" @click.stop="openEditDialog(item)"></i>
+                <i class='close' title="移除" @click.stop="removeSite(item)"></i>
               </span>
             </div>
             </template>
@@ -264,15 +260,12 @@
             clearable
           >
             <template #suffix>
-              <i
-                v-if="urlChecking"
-                class="el-icon-loading url-loading"
-              ></i>
+              <svg-icon v-if="urlChecking" icon-class="loading" class-name="url-loading" />
             </template>
           </el-input>
           <!-- 自动获取状态行：可达性 -->
           <div v-if="urlStatus" class="url-meta" :class="urlStatus.type">
-            <i :class="urlStatus.type === 'ok' ? 'el-icon-circle-check' : 'el-icon-warning-outline'"></i>
+            <svg-icon :icon-class="(urlStatus.type === 'ok' ? 'circle-check' : 'warning-outline')" />
             <span>{{ urlStatus.text }}</span>
           </div>
         </el-form-item>
@@ -326,7 +319,7 @@
     >
       <div class="clip-preview">
         <img v-if="clipPreviewData" :src="clipPreviewData" alt="预览" />
-        <div v-else class="clip-preview-loading"><i class="el-icon-loading"></i></div>
+        <div v-else class="clip-preview-loading"><svg-icon icon-class="loading" /></div>
       </div>
       <template #footer>
         <el-button size="small" round @click="copyClip(clipPreviewRec)">复制</el-button>
@@ -1351,7 +1344,7 @@ export default {
         color: $primary-color;
       }
 
-      &.el-icon-delete:hover {
+      &.act-delete:hover {
         color: var(--danger-color);
       }
     }
@@ -1457,7 +1450,7 @@ export default {
         color: $primary-color;
       }
 
-      &.el-icon-close:hover {
+      &.act-close:hover {
         background: rgba(var(--danger-color-rgb),  0.12);
         color: var(--danger-color);
       }

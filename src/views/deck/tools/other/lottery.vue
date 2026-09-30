@@ -8,10 +8,10 @@
   >
     <template #toolbar>
       <button class="tool-btn" @click="drawerVisible = true">
-        <i class="el-icon-setting"></i>抽奖设置
+        <svg-icon icon-class="setting" />抽奖设置
       </button>
       <button class="tool-btn" @click="toggleFullscreen">
-        <i :class="isFullscreen ? 'el-icon-close' : 'el-icon-full-screen'"></i>
+        <svg-icon :icon-class="(isFullscreen ? 'close' : 'full-screen')" />
         {{ isFullscreen ? '退出全屏' : '全屏抽奖' }}
       </button>
     </template>
@@ -25,7 +25,7 @@
         title="退出全屏（Esc）"
         @click="toggleFullscreen"
       >
-        <i class="el-icon-close"></i>
+        <svg-icon icon-class="close" />
         退出全屏
       </button>
       <div class="lot-confetti">🎉</div>
@@ -82,24 +82,24 @@
           <el-input-number v-model="p.count" size="small" :min="0" :max="999" controls-position="right" class="lot-prize-count" />
           <el-input v-model="p.gift" size="small" placeholder="奖品（选填）" class="lot-prize-gift" />
           <button class="lot-row-del" title="删除奖项" @click="removePrize(i)">
-            <i class="el-icon-delete"></i>
+            <svg-icon icon-class="delete" />
           </button>
         </div>
-        <button class="tool-btn" @click="addPrize"><i class="el-icon-plus"></i>添加奖项</button>
+        <button class="tool-btn" @click="addPrize"><svg-icon icon-class="plus" />添加奖项</button>
 
         <!-- 人员管理 -->
         <div class="lot-section-title">
           抽奖人员（{{ userList.length }}）
           <span class="lot-section-actions">
-            <button class="tool-btn" @click="downloadTemplate"><i class="el-icon-download"></i>模板</button>
-            <button class="tool-btn" @click="$refs.fileInput.click()"><i class="el-icon-upload2"></i>导入</button>
+            <button class="tool-btn" @click="downloadTemplate"><svg-icon icon-class="download" />模板</button>
+            <button class="tool-btn" @click="$refs.fileInput.click()"><svg-icon icon-class="upload2" />导入</button>
           </span>
         </div>
         <input ref="fileInput" type="file" accept=".txt,.csv" style="display: none" @change="handleFileChange" />
         <div class="lot-user-add">
           <el-input v-model="newUser.name" size="small" placeholder="姓名" style="width: 110px" />
           <el-input v-model="newUser.phone" size="small" placeholder="手机号 / 工号" style="width: 150px" />
-          <button class="tool-btn is-primary" @click="addUser"><i class="el-icon-plus"></i>添加</button>
+          <button class="tool-btn is-primary" @click="addUser"><svg-icon icon-class="plus" />添加</button>
         </div>
         <el-table :data="pagedUsers" size="small" max-height="240">
           <el-table-column prop="name" label="姓名" min-width="80" />
@@ -123,7 +123,7 @@
         <!-- 危险操作 -->
         <div class="lot-section-title">数据管理</div>
         <button class="tool-btn is-danger" @click="resetAllData">
-          <i class="el-icon-refresh-left"></i>重置所有数据
+          <svg-icon icon-class="refresh-left" />重置所有数据
         </button>
       </div>
     </el-drawer>

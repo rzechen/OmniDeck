@@ -86,18 +86,16 @@
             <p class="ob-field-error" :class="{ visible: !!errors.apiKey }">{{ errors.apiKey }}</p>
           </div>
 
-          <!-- ===== 高级配置（折叠面板：macOS 设置组风格） ===== -->
+          <!-- ===== 高级配置（平铺展示：macOS 设置组风格） ===== -->
           <div class="pf-advanced">
-            <!-- 折叠触发器 -->
-            <button type="button" class="pf-adv-toggle" @click="advancedOpen = !advancedOpen">
-              <svg-icon icon-class="arrow-right" class="pf-adv-arrow" :class="{ open: advancedOpen }" />
-              <span class="pf-adv-toggle-title">高级配置</span>
-              <span class="pf-adv-toggle-desc">模型系列 · 上下文 · 工具调用 · 图片与思考</span>
-            </button>
+            <!-- 分组标题 -->
+            <div class="pf-adv-title">
+              <span class="pf-adv-title-text">高级配置</span>
+              <span class="pf-adv-title-desc">模型系列 · 上下文 · 工具调用 · 图片与思考</span>
+            </div>
 
             <!-- 设置组卡片：左标签右控件，行间细分隔 -->
-            <transition name="pf-adv">
-              <div v-show="advancedOpen" class="pf-adv-body">
+            <div class="pf-adv-body">
                 <!-- 模型系列 -->
                 <div class="pf-adv-row">
                   <div class="pf-adv-info">
@@ -266,8 +264,7 @@
                     </el-select>
                   </div>
                 </div>
-              </div>
-            </transition>
+            </div>
           </div>
         </div>
 
@@ -292,7 +289,7 @@
 </template>
 
 <script>
-// 新建/编辑模型抽屉：基础必填项 + 高级配置折叠面板，
+// 新建/编辑模型抽屉：基础必填项 + 高级配置平铺设置组，
 // 失焦校验、保存前真实请求测试连接、组装数据交父级持久化
 let uid = Date.now()
 
@@ -337,8 +334,6 @@ export default {
   data() {
     return {
       form: this.emptyForm(),
-      // 高级配置折叠展开状态（默认收起）
-      advancedOpen: false,
       inputChips: INPUT_CHIPS,
       outputChips: OUTPUT_CHIPS,
       // 必填字段失焦校验的错误提示
@@ -419,7 +414,6 @@ export default {
           thinkingMode: p.thinkingMode || 'follow'
         }
         : this.emptyForm()
-      this.advancedOpen = false
       this.resetErrors()
     },
     // 重置：恢复打开时的初始值（新建→空白默认；编辑→回填数据）
@@ -658,41 +652,20 @@ export default {
   margin-top: 4px;
 }
 
-/* 折叠触发器：整行按钮（图标旋转 + 标题 + 弱化说明） */
-.pf-adv-toggle {
+/* 分组标题：文字 + 弱化说明 */
+.pf-adv-title {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  width: 100%;
-  padding: 10px 12px;
-  background: $search-bg;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-base;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-
-  &:hover {
-    background: $search-bg-hover;
-  }
-
-  .pf-adv-arrow {
-    font-size: 12px;
-    color: $text-secondary;
-    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
-
-    &.open {
-      transform: rotate(90deg);
-    }
-  }
 }
 
-.pf-adv-toggle-title {
+.pf-adv-title-text {
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 700;
   color: $text-primary;
 }
 
-.pf-adv-toggle-desc {
+.pf-adv-title-desc {
   margin-left: auto;
   font-size: 11px;
   color: $text-secondary;
@@ -829,18 +802,6 @@ export default {
 /* 工具调用轮数：窄输入 */
 .pf-turns-input {
   width: 200px;
-}
-
-/* 展开过渡：高度收放 + 淡入 */
-.pf-adv-enter-active,
-.pf-adv-leave-active {
-  transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.pf-adv-enter,
-.pf-adv-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
 }
 
 /* 帮助图标：随标签行内展示 */

@@ -35,11 +35,11 @@
         </div>
       </div>
       <button class="tool-btn is-primary" :disabled="!file || !text.trim()" @click="exportImage">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         导出 PNG
       </button>
       <button class="tool-btn is-danger" :disabled="!file" @click="reset">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

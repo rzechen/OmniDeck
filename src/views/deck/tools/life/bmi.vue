@@ -60,7 +60,7 @@
           </div>
           <!-- 指针 -->
           <div v-if="bmi" class="bmi-pointer" :style="{ left: pointerPos + '%' }">
-            <i class="el-icon-caret-top"></i>
+            <svg-icon icon-class="caret-top" />
           </div>
         </div>
         <div class="bmi-scale-nums">

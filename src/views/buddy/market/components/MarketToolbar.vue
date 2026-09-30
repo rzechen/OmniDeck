@@ -5,18 +5,14 @@
       <span class="ob-market-current-count">{{ resultCount }} 个资源</span>
     </div>
     <div class="ob-market-search">
-      <i class="el-icon-search search-icon"></i>
+      <svg-icon icon-class="search" class-name="search-icon" />
       <input
         v-model="localKeyword"
         placeholder="搜索技能、代理或连接器..."
         @keydown.esc="localKeyword = ''"
       />
       <span v-if="modelValue" class="search-count">{{ resultCount }}</span>
-      <i
-        v-if="modelValue"
-        class="el-icon-circle-close search-clear"
-        @click="localKeyword = ''"
-      ></i>
+      <svg-icon v-if="modelValue" icon-class="circle-close" class-name="search-clear" @click="localKeyword = ''" />
     </div>
   </div>
 </template>

@@ -19,9 +19,9 @@ export const presetColors = [
 
 // 外观模式选项（设置页展示用）；强调色独立于此单独选择
 export const themeModes = [
-  { value: 'light', label: '浅色', desc: '明亮的界面风格', icon: 'el-icon-sunny' },
-  { value: 'dark', label: '深色', desc: '深邃的界面风格', icon: 'el-icon-moon' },
-  { value: 'system', label: '跟随系统', desc: '自动匹配系统外观', icon: 'el-icon-monitor' }
+  { value: 'light', label: '浅色', desc: '明亮的界面风格', icon: 'sunny' },
+  { value: 'dark', label: '深色', desc: '深邃的界面风格', icon: 'moon' },
+  { value: 'system', label: '跟随系统', desc: '自动匹配系统外观', icon: 'monitor' }
 ]
 
 // 当前主题状态（模块级，供系统变化监听回调用）

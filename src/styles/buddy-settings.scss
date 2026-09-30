@@ -68,15 +68,15 @@
   display: flex;
   flex-direction: column;
   padding: 16px;
-  // 无边框卡片：surface 底色分层，hover 才浮起变亮（与市场卡片一致）
-  background: $surface-muted;
+  // 卡片带可见描边：底色分层 + 边框勾勒边界，hover 才浮起变亮
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color);
   border-radius: $radius-lg;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   cursor: default;
 
   &:hover {
-    background: $card-bg;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
     transform: translateY(-2px);
   }

@@ -8,14 +8,14 @@
   >
     <template #toolbar>
       <button class="tool-btn" @click="showDataSource = true">
-        <i class="el-icon-data-line"></i>数据源
+        <svg-icon icon-class="data-line" />数据源
         <span v-if="dataRows.length" class="api-badge">{{ dataRows.length }}</span>
       </button>
       <button class="tool-btn" @click="addStep">
-        <i class="el-icon-plus"></i>添加步骤
+        <svg-icon icon-class="plus" />添加步骤
       </button>
       <button class="tool-btn is-primary" :disabled="running" @click="executePipeline">
-        <i :class="running ? 'el-icon-loading' : 'el-icon-video-play'"></i>
+        <svg-icon :icon-class="(running ? 'loading' : 'video-play')" />
         {{ running ? '执行中…' : '执行' }}
       </button>
     </template>
@@ -29,7 +29,7 @@
         </div>
         <div class="pane-body api-steps">
           <div v-if="!steps.length" class="api-empty">
-            <i class="el-icon-connection"></i>
+            <svg-icon icon-class="connection" />
             <p>点击右上角「添加步骤」构建请求链</p>
           </div>
           <template v-for="(step, index) in steps" :key="index">
@@ -43,12 +43,12 @@
                 <div class="api-step-url mono">{{ step.url || '未配置 URL' }}</div>
               </div>
               <div class="api-step-actions">
-                <button title="编辑" @click.stop="openConfig(index)"><i class="el-icon-edit"></i></button>
-                <button title="删除" class="is-danger" @click.stop="removeStep(index)"><i class="el-icon-delete"></i></button>
+                <button title="编辑" @click.stop="openConfig(index)"><svg-icon icon-class="edit" /></button>
+                <button title="删除" class="is-danger" @click.stop="removeStep(index)"><svg-icon icon-class="delete" /></button>
               </div>
             </div>
             <div v-if="index < steps.length - 1" class="api-step-link">
-              <i class="el-icon-bottom"></i>
+              <svg-icon icon-class="bottom" />
             </div>
           </template>
         </div>
@@ -141,10 +141,10 @@
               <div v-for="(h, i) in currentStep.headers" :key="i" class="api-kv-row">
                 <el-input v-model="h.key" placeholder="Key（如 Authorization）" class="api-mono-input" />
                 <el-input v-model="h.value" placeholder="Value（支持 ${input} / ${prev.xxx}）" class="api-mono-input" />
-                <button class="api-kv-del" @click="currentStep.headers.splice(i, 1)"><i class="el-icon-delete"></i></button>
+                <button class="api-kv-del" @click="currentStep.headers.splice(i, 1)"><svg-icon icon-class="delete" /></button>
               </div>
               <button class="tool-btn" @click="currentStep.headers.push({ key: '', value: '' })">
-                <i class="el-icon-plus"></i>添加请求头
+                <svg-icon icon-class="plus" />添加请求头
               </button>
             </el-tab-pane>
             <el-tab-pane label="请求体" name="body" :disabled="currentStep.method === 'GET'">

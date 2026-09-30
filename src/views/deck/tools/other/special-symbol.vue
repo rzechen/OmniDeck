@@ -8,15 +8,11 @@
   >
     <div class="sym-body">
       <div class="doc-search">
-        <i class="el-icon-search"></i>
+        <svg-icon icon-class="search" />
         <input v-model="keyword" placeholder="搜索符号…" />
         <span v-if="keyword" class="sym-count">{{ matchCount }} / {{ total }}</span>
-        <i
-          v-if="keyword"
-          class="el-icon-circle-close sym-clear"
-          title="清空"
-          @click="keyword = ''"
-        ></i>
+        <svg-icon v-if="keyword" icon-class="circle-close" class-name="sym-clear" title="清空"
+          @click="keyword = ''" />
       </div>
       <div class="sym-groups">
         <div v-for="g in visibleGroups" :key="g.name" class="sym-group">

@@ -16,11 +16,11 @@
         @keyup.enter="query"
       />
       <button class="tool-btn is-primary" :disabled="loading" @click="manualQuery">
-        <i :class="loading ? 'el-icon-loading' : 'el-icon-search'"></i>
+        <svg-icon :icon-class="(loading ? 'loading' : 'search')" />
         {{ loading ? '查询中…' : '查询' }}
       </button>
       <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         历史
       </button>
     </template>
@@ -40,7 +40,7 @@
         </div>
         <div class="ip-copy-row">
           <button class="tool-btn" @click="copyResult">
-            <i class="el-icon-document-copy"></i>复制全部信息
+            <svg-icon icon-class="document-copy" />复制全部信息
           </button>
         </div>
       </div>
@@ -61,7 +61,7 @@
 
       <!-- 空态 -->
       <div v-else class="ip-empty">
-        <i class="el-icon-location-information"></i>
+        <svg-icon icon-class="location-information" />
         <p>输入 IP 地址查询归属地，留空则查询本机公网 IP</p>
       </div>
     </div>

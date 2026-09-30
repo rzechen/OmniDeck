@@ -2,7 +2,7 @@
   <div class="deck-search-page">
     <!-- 页签宿主页：居中搜索触发框（点击重新唤起面板），进入页签时自动弹出搜索面板 -->
     <div class="dsp-box" @click="openPalette">
-      <i class="el-icon-search dsp-icon"></i>
+      <svg-icon icon-class="search" class-name="dsp-icon" />
       <span class="dsp-placeholder">搜索工具、页面...</span>
       <span class="dsp-kbd">{{ shortcutText }}</span>
     </div>

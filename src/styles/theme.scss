@@ -343,27 +343,22 @@ html[data-wallpaper='on'][data-theme='dark'] {
     line-height: 1.6;
   }
 
-  /* 状态图标配色（EP 2.x 状态图标为 svg 组件，类名改为 __icon--type 形式；
-     多选择器兼容 EP 各版本的类名变体） */
+  /* 状态图标配色（EP 2.x 状态图标类名：__icon--type） */
   .el-message-box__status {
     font-size: 20px !important;
 
-    &.el-icon-warning,
     &.el-message-box__icon--warning {
       color: var(--warning-color);
     }
 
-    &.el-icon-success,
     &.el-message-box__icon--success {
       color: var(--success-color);
     }
 
-    &.el-icon-error,
     &.el-message-box__icon--error {
       color: var(--danger-color);
     }
 
-    &.el-icon-info,
     &.el-message-box__icon--info {
       color: var(--primary-color);
     }

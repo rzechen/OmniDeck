@@ -8,7 +8,7 @@
   >
     <template #toolbar>
       <button class="tool-btn" title="上个月" @click="shiftMonth(-1)">
-        <i class="el-icon-arrow-left"></i>
+        <svg-icon icon-class="arrow-left" />
       </button>
       <div class="cal-picker">
         <el-select
@@ -29,7 +29,7 @@
         </el-select>
       </div>
       <button class="tool-btn" title="下个月" @click="shiftMonth(1)">
-        <i class="el-icon-arrow-right"></i>
+        <svg-icon icon-class="arrow-right" />
       </button>
       <button class="tool-btn" @click="goToday">今天</button>
     </template>

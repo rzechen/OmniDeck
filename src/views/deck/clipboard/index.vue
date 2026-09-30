@@ -7,17 +7,17 @@
   >
     <template #toolbar>
       <div class="ss-search">
-        <i class="el-icon-search"></i>
+        <svg-icon icon-class="search" class-name="search-ic" />
         <input
           v-model="keyword"
           type="text"
           placeholder="搜索记录"
           spellcheck="false"
         />
-        <i v-if="keyword" class="el-icon-circle-close ss-search-clear" @click="keyword = ''"></i>
+        <svg-icon v-if="keyword" icon-class="circle-close" class-name="ss-search-clear" @click="keyword = ''" />
       </div>
       <button v-if="history.length" class="tool-btn is-danger" @click="clearHistory">
-        <i class="el-icon-delete"></i> 清空
+        <svg-icon icon-class="delete" /> 清空
       </button>
     </template>
 
@@ -33,7 +33,7 @@
         <template v-if="groups.length">
           <div v-for="g in visibleGroups" :key="g.key" class="ss-group">
             <div class="ss-group-date">
-              <i class="el-icon-date mr-1"></i>
+              <svg-icon icon-class="date" class-name="mr-1" />
               {{ g.label }}
             </div>
             <div class="ss-items">
@@ -50,7 +50,7 @@
                 <template v-else>
                   <div class="ss-thumb-wrapper" @click.stop="preview(c)">
                     <img class="ss-item-thumb" :src="c.thumb" alt="图片记录" loading="lazy" />
-                    <span class="ss-thumb-mask"><i class="el-icon-view"></i></span>
+                    <span class="ss-thumb-mask"><svg-icon icon-class="view" /></span>
                   </div>
                   <div class="ss-image-meta">
                     <span class="ss-item-size">{{ c.width }} × {{ c.height }}</span>
@@ -65,26 +65,26 @@
                 <!-- 操作栏 -->
                 <div class="ss-item-ops">
                   <button title="复制" @click.stop="copyItem(c)">
-                    <i class="el-icon-document-copy"></i>
+                    <svg-icon icon-class="document-copy" />
                   </button>
                   <button
                     :title="isFaved(c) ? '取消收藏' : '加入收藏'"
                     @click.stop="toggleFav(c)"
                   >
-                    <i :class="isFaved(c) ? 'el-icon-star-on is-faved' : 'el-icon-star-off'"></i>
+                    <svg-icon :icon-class="(isFaved(c) ? 'star-on is-faved' : 'star-off')" />
                   </button>
                   <button v-if="c.kind === 'image'" title="另存为 PNG" @click.stop="saveItem(c)">
-                    <i class="el-icon-download"></i>
+                    <svg-icon icon-class="download" />
                   </button>
                   <button title="删除" @click.stop="removeItem(c)">
-                    <i class="el-icon-delete"></i>
+                    <svg-icon icon-class="delete" />
                   </button>
                 </div>
               </div>
             </div>
           </div>
           <!-- 滚动加载提示 -->
-          <div v-if="hasMore" class="ss-more"><i class="el-icon-loading"></i></div>
+          <div v-if="hasMore" class="ss-more"><svg-icon icon-class="loading" /></div>
           <div v-else-if="history.length > PAGE_SIZE" class="ss-more-end">已全部加载</div>
         </template>
         <div v-else class="ss-empty">
@@ -109,14 +109,14 @@
     >
       <div class="ss-preview">
         <img v-if="previewData" :src="previewData" alt="预览" />
-        <div v-else class="ss-preview-loading"><i class="el-icon-loading"></i></div>
+        <div v-else class="ss-preview-loading"><svg-icon icon-class="loading" /></div>
       </div>
       <template #footer>
         <button class="tool-btn" @click="copyItem(previewRec)">
-          <i class="el-icon-document-copy"></i> 复制
+          <svg-icon icon-class="document-copy" /> 复制
         </button>
         <button class="tool-btn" @click="saveItem(previewRec)">
-          <i class="el-icon-download"></i> 另存为
+          <svg-icon icon-class="download" /> 另存为
         </button>
       </template>
     </el-dialog>
@@ -136,7 +136,7 @@
       </div>
       <template #footer>
         <button class="tool-btn" @click="copyItem(textPreviewRec)">
-          <i class="el-icon-document-copy"></i> 复制文本
+          <svg-icon icon-class="document-copy" /> 复制文本
         </button>
       </template>
     </el-dialog>
@@ -477,7 +477,7 @@ export default {
   background: var(--search-bg, #f5f5f5);
   transition: all 0.2s ease;
 
-  .el-icon-search {
+  .search-ic {
     flex-shrink: 0;
     font-size: 12px;
     color: var(--text-secondary);

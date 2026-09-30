@@ -45,7 +45,7 @@
         <!-- 密码解锁 -->
         <div v-if="showPwdForm" class="applock-form">
           <div class="applock-input-wrap">
-            <i class="el-icon-key applock-input-icon"></i>
+            <svg-icon icon-class="key" class-name="applock-input-icon" />
             <input
               ref="pwdInput"
               v-model="password"
@@ -58,7 +58,7 @@
             />
             <i
               class="applock-eye"
-              :class="showPwd ? 'el-icon-view' : 'el-icon-hide'"
+              :class="showPwd ? 'view' : 'hide'"
               @click="showPwd = !showPwd"
             ></i>
           </div>

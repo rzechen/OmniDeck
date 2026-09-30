@@ -31,7 +31,7 @@
                 <el-input v-model="row.key" size="small" class="ac-row-key" placeholder="键（如 API_TOKEN）" maxlength="50" />
                 <!-- 密码框呈现，点眼睛查看明文；编辑态回显已存值，改动后覆盖 -->
                 <el-input v-model="row.value" size="small" class="ac-row-val" show-password :placeholder="isEdit ? '留空保持原值' : '值'" maxlength="500" />
-                <el-button size="small" round class="ac-row-del" @click="rows.splice(i, 1)"><i class="el-icon-delete" /></el-button>
+                <el-button size="small" round class="ac-row-del" @click="rows.splice(i, 1)"><svg-icon icon-class="delete" /></el-button>
               </div>
             </div>
             <!-- addRow() 显式无参调用：原生 @click="addRow" 会把 PointerEvent 当作 presetKey 传入 -->

@@ -40,7 +40,7 @@
         <!-- 无更新 / 已是最新 -->
         <template v-else-if="updateState.checked && !updateState.hasUpdate">
           <div class="update-status is-ok">
-            <i class="el-icon-circle-check"></i>
+            <svg-icon icon-class="circle-check" />
             <span>{{ updateState.noRelease ? '暂无发布版本（首个 Release 发布后可检测更新）' : '已是最新版本 v' + appVersion }}</span>
           </div>
         </template>
@@ -49,7 +49,7 @@
         <template v-else-if="updateState.checked && updateState.hasUpdate">
           <div class="nv-banner">
             <div class="nv-icon">
-              <i class="el-icon-top"></i>
+              <svg-icon icon-class="top" />
             </div>
 
             <div class="nv-body">
@@ -61,7 +61,7 @@
 
               <div class="nv-versions">
                 <span class="nv-old">v{{ appVersion }}</span>
-                <i class="el-icon-right nv-arrow"></i>
+                <svg-icon icon-class="right" class-name="nv-arrow" />
                 <span class="nv-new">v{{ updateState.release.tag }}</span>
               </div>
 
@@ -82,11 +82,11 @@
                   <span class="dl-speed">{{ dlSpeedText }}</span>
                 </div>
                 <div v-else-if="dlState.status === 'ready'" class="update-status is-ok nv-line">
-                  <i class="el-icon-circle-check"></i>
+                  <svg-icon icon-class="circle-check" />
                   <span>v{{ dlState.version || updateState.release.tag }} 已下载完成，重启后自动安装</span>
                 </div>
                 <div v-else-if="dlState.status === 'error'" class="update-status is-err nv-line">
-                  <i class="el-icon-warning-outline"></i>
+                  <svg-icon icon-class="warning-outline" />
                   <span>下载失败：{{ dlState.error || '网络异常' }}（可改用手动下载）</span>
                 </div>
                 <div class="update-actions nv-actions">
@@ -128,13 +128,13 @@
 
         <!-- 检查失败 -->
         <div v-else-if="updateState.error" class="update-status" :class="updateState.noRelease ? 'is-ok' : 'is-err'">
-          <i :class="updateState.noRelease ? 'el-icon-info' : 'el-icon-warning-outline'"></i>
+          <svg-icon :icon-class="(updateState.noRelease ? 'info' : 'warning-outline')" />
           <span>{{ updateState.noRelease ? '暂无发布版本（首个 Release 发布后可检测更新）' : '检查失败：' + updateState.error }}</span>
         </div>
 
         <!-- 初始态 -->
         <div v-else class="update-status">
-          <i class="el-icon-refresh"></i>
+          <svg-icon icon-class="refresh" />
           <span>当前版本 v{{ appVersion }}</span>
         </div>
 

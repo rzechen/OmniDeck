@@ -10,19 +10,19 @@
       <input v-model="className" class="name-input mono" placeholder="类名" spellcheck="false" />
       <input v-model="packageName" class="name-input mono" placeholder="包名（可选）" spellcheck="false" />
       <button class="tool-btn is-primary" @click="copyOutput">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制
       </button>
       <button class="tool-btn" @click="downloadOutput">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         下载
       </button>
       <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         历史
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

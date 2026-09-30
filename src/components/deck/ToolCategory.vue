@@ -20,7 +20,7 @@
       <div class="section-header">
         <span class="section-title">全部工具</span>
         <div class="filter-box">
-          <i class="el-icon-search filter-icon"></i>
+          <svg-icon icon-class="search" class-name="filter-icon" />
           <input
             v-model="keyword"
             placeholder="筛选工具..."
@@ -29,12 +29,8 @@
           <span v-if="keyword" class="filter-count">
             {{ filteredTools.length }}/{{ tools.length }}
           </span>
-          <i
-            v-if="keyword"
-            class="el-icon-circle-close filter-clear"
-            title="清空 (Esc)"
-            @click="keyword = ''"
-          ></i>
+          <svg-icon v-if="keyword" icon-class="circle-close" class-name="filter-clear" title="清空 (Esc)"
+            @click="keyword = ''" />
         </div>
       </div>
 
@@ -62,14 +58,14 @@
             :title="isFavorite(tool) ? '取消收藏' : '收藏'"
             @click.stop="toggleFavorite(tool)"
           >
-            <i :class="isFavorite(tool) ? 'el-icon-star-on' : 'el-icon-star-off'"></i>
+            <svg-icon :icon-class="(isFavorite(tool) ? 'star-on' : 'star-off')" />
           </span>
         </div>
       </div>
 
       <!-- 筛选无结果 -->
       <div v-else class="filter-empty">
-        <i class="el-icon-search empty-icon"></i>
+        <svg-icon icon-class="search" class-name="empty-icon" />
         <p>没有找到与「{{ keyword }}」匹配的工具</p>
       </div>
     </div>

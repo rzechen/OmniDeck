@@ -14,7 +14,7 @@
         @click="manualRefresh"
       >
         <i
-          class="el-icon-refresh"
+          class='refresh'
           :class="{ 'is-rotating': cdState === 'refreshing' }"
         ></i>
         <span class="gold-cd-text mono">{{ cdText }}</span>
@@ -34,7 +34,7 @@
 
       <!-- 错误态 -->
       <div v-else-if="loadError && !hasData" class="gold-error">
-        <i class="el-icon-warning-outline"></i>
+        <svg-icon icon-class="warning-outline" />
         <span>{{ loadError }}</span>
         <el-button size="small" round @click="manualRefresh">重试</el-button>
       </div>
