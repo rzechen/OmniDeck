@@ -92,9 +92,9 @@ export default {
 /* ===== 消息列表 ===== */
 .ob-messages {
   width: 100%;
-  // 外框 976 = 内容 920 + 两侧 28 padding（border-box）：内容区与输入框
-  // （.ob-composer-inner 920px）严格对齐，消息不再比输入框缩进
-  max-width: 976px;
+  // 外框 824 = 内容 768 + 两侧 28 padding（border-box）：内容区与输入框
+  // （.ob-composer-inner 768px）严格对齐，消息不再比输入框缩进
+  max-width: 824px;
   margin: 0 auto;
   // 顶部留白 40px：与窗口顶/页签行拉开间距，避免首条消息贴顶
   padding: 40px 28px 12px;

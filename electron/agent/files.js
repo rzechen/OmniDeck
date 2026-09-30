@@ -137,6 +137,57 @@ async function trash(p) {
   return { ok: true }
 }
 
+// 批量删除：逐个移入废纸篓（多选删除），单项失败不中断整体，返回成功数
+async function trashBatch(paths) {
+  const list = Array.isArray(paths) ? paths.filter(Boolean) : []
+  if (!list.length) return { ok: false, error: '未指定要删除的项目' }
+  let count = 0
+  let firstError = ''
+  for (const p of list) {
+    const abs = safePath(p)
+    if (!abs) {
+      if (!firstError) firstError = '路径不在已关联的空间目录内'
+      continue
+    }
+    try {
+      await shell.trashItem(abs)
+      count++
+    } catch (e) {
+      if (!firstError) firstError = e.message
+    }
+  }
+  if (!count) return { ok: false, error: '删除失败：' + (firstError || '未知错误') }
+  return { ok: true, count, error: count < list.length ? '部分项目删除失败：' + firstError : '' }
+}
+
+// 清空空间：仅允许清空工作空间根目录（防误清子目录），全部内容移入废纸篓
+async function empty(dir) {
+  const abs = safePath(dir)
+  if (!abs) return { ok: false, error: '路径不在已关联的空间目录内' }
+  // 限定根目录：清空动作只针对空间本身，避免在深层子目录误触清空
+  if (!allowedRoots().some(r => abs === r)) {
+    return { ok: false, error: '仅支持清空工作空间根目录' }
+  }
+  let names
+  try {
+    names = fs.readdirSync(abs)
+  } catch (e) {
+    return { ok: false, error: '读取目录失败：' + e.message }
+  }
+  let count = 0
+  let firstError = ''
+  for (const name of names) {
+    try {
+      await shell.trashItem(path.join(abs, name))
+      count++
+    } catch (e) {
+      if (!firstError) firstError = e.message
+    }
+  }
+  if (!count && names.length) return { ok: false, error: '清空失败：' + firstError }
+  return { ok: true, count, error: count < names.length ? '部分项目删除失败：' + firstError : '' }
+}
+
 // 读取文本内容（小文件 + 简单二进制嗅探）
 function read(p) {
   const abs = safePath(p)
@@ -222,4 +273,4 @@ function importPaths(dir, filePaths) {
   return { ok: true, count }
 }
 
-module.exports = { init, list, mkdir, createFile, rename, trash, read, write, reveal, open, importDialog, importPaths }
+module.exports = { init, list, mkdir, createFile, rename, trash, trashBatch, empty, read, write, reveal, open, importDialog, importPaths }

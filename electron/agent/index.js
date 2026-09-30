@@ -292,14 +292,16 @@ function upsertSummaryEntry(existing, sid8, entry) {
   return { text: existing && existing.trim() ? existing.replace(/\n*$/, '\n\n') + entry : entry, replaced: false }
 }
 
-async function writeExitSummary(chatId) {
+// presetMsgs 可选：外部预取的消息快照（会话已删除场景自持数据，无法再从 sessions 读）
+async function writeExitSummary(chatId, presetMsgs) {
   try {
     if (summaryInflight.has(chatId)) return
     summaryInflight.add(chatId)
     try {
       const info = piRuntime.getProviderInfo()
       if (!info || !info.baseUrl || !info.model) return
-      const msgs = sessions.getMessages(chatId).filter(m => m.role === 'user' || m.role === 'assistant')
+      const msgs = (Array.isArray(presetMsgs) ? presetMsgs : sessions.getMessages(chatId))
+        .filter(m => m.role === 'user' || m.role === 'assistant')
       if (msgs.length < SUMMARY_MIN_MESSAGES) return
       const file = dailyLogPath()
       const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : ''
@@ -365,6 +367,34 @@ async function writeExitSummary(chatId) {
   } catch (e) {
     console.warn('[omnibuddy:memory] 摘要生成失败（不影响对话）:', (e && e.message) || e)
   }
+}
+
+// 摘要写盘串行队列：daily 文件为读-改-写，并发 upsert 会互相覆盖丢条目
+let summaryQueue = Promise.resolve()
+function enqueueSummary(task) {
+  summaryQueue = summaryQueue
+    .then(task)
+    .catch(e => console.warn('[omnibuddy:memory] 摘要任务异常:', (e && e.message) || e))
+  return summaryQueue
+}
+
+// 删除会话（快速路径）：中止运行中回合 → 快照消息 → 销毁运行时会话与磁盘记录，立即完成；
+// 记忆摘要 fire-and-forget 后台补写（自持消息快照，不依赖已删会话，LLM 耗时不阻塞删除交互）。
+// 原生 reload 摘要依赖存活的运行时会话，随销毁放弃，留档由兜底链路覆盖
+async function deleteSessionFast(id) {
+  if (running.has(id)) {
+    const r = running.get(id)
+    try { r.abort() } catch (err) { /* 忽略 */ }
+    running.delete(id)
+  }
+  // 深度研究（P3）：清理该会话的 workflow 轮询
+  workflows.unwatchChat(id)
+  // 先快照消息：下方删除后 JSONL 即清除，后台摘要需自持数据
+  const msgs = sessions.getMessages(id)
+  await piRuntime.disposeSession(id)
+  sessions.deleteSession(id)
+  // 入队而非直接执行：批量删除（解绑工作空间）时逐个串行写 daily 文件，防覆盖丢条目
+  enqueueSummary(() => writeExitSummary(id, msgs))
 }
 
 // 工具结果规整为字符串：pi 的部分工具返回结构化对象（content 块数组 / output 等），
@@ -917,18 +947,8 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   ipcMain.handle('omnibuddy:session:pin', (_e, { id, pinned }) => sessions.setPinned(id, !!pinned))
 
   ipcMain.handle('omnibuddy:session:delete', async (_e, id) => {
-    if (running.has(id)) {
-      const r = running.get(id)
-      try { r.abort() } catch (err) { /* 忽略 */ }
-      running.delete(id)
-    }
-    // 深度研究（P3）：清理该会话的 workflow 轮询
-    workflows.unwatchChat(id)
-    // 销毁前触发会话记忆摘要（删除即会话终结，摘要留档）：原生 reload + 自有兜底
-    await piRuntime.finalizeSession(id)
-    await writeExitSummary(id)
-    await piRuntime.disposeSession(id)
-    sessions.deleteSession(id)
+    // 删除即会话终结，记忆摘要后台留档（deleteSessionFast），IPC 秒回不阻塞 UI
+    await deleteSessionFast(id)
     return true
   })
 
@@ -1432,16 +1452,8 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
       .filter(s => s.workspaceId === id)
       .map(s => s.id)
     for (const sid of removed) {
-      if (running.has(sid)) {
-        const r = running.get(sid)
-        try { r.abort() } catch (err) { /* 忽略 */ }
-        running.delete(sid)
-      }
-      // 销毁前触发会话记忆摘要（删除即会话终结，摘要留档）：原生 reload + 自有兜底
-      await piRuntime.finalizeSession(sid)
-      await writeExitSummary(sid)
-      await piRuntime.disposeSession(sid)
-      sessions.deleteSession(sid)
+      // 复用单会话删除快速路径：本地清理即时完成，摘要后台串行留档
+      await deleteSessionFast(sid)
     }
     const r = workspaces.remove(id)
     if (!r.ok) return r
@@ -1465,6 +1477,8 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   ipcMain.handle('omnibuddy:files:create', (_e, payload) => files.createFile(payload.dir, payload.name))
   ipcMain.handle('omnibuddy:files:rename', (_e, payload) => files.rename(payload.path, payload.name))
   ipcMain.handle('omnibuddy:files:trash', (_e, p) => files.trash(p))
+  ipcMain.handle('omnibuddy:files:trash-batch', (_e, paths) => files.trashBatch(paths))
+  ipcMain.handle('omnibuddy:files:empty', (_e, dir) => files.empty(dir))
   ipcMain.handle('omnibuddy:files:read', (_e, p) => files.read(p))
   ipcMain.handle('omnibuddy:files:write', (_e, payload) => files.write(payload.path, payload.content))
   ipcMain.handle('omnibuddy:files:reveal', (_e, p) => files.reveal(p))

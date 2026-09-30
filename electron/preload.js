@@ -176,6 +176,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       createFile: payload => ipcRenderer.invoke('omnibuddy:files:create', payload),
       rename: payload => ipcRenderer.invoke('omnibuddy:files:rename', payload),
       trash: p => ipcRenderer.invoke('omnibuddy:files:trash', p),
+      trashBatch: paths => ipcRenderer.invoke('omnibuddy:files:trash-batch', paths),
+      empty: dir => ipcRenderer.invoke('omnibuddy:files:empty', dir),
       read: p => ipcRenderer.invoke('omnibuddy:files:read', p),
       write: payload => ipcRenderer.invoke('omnibuddy:files:write', payload),
       reveal: p => ipcRenderer.invoke('omnibuddy:files:reveal', p),

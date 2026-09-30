@@ -79,10 +79,11 @@ export default {
 
 <style lang="scss" scoped>
 .ob-todo-card {
-  // 消息列已与输入框（920px）严格对齐，卡片直接同宽即可
-  border: 1px solid var(--border-color);
+  // 消息列已与输入框（768px）严格对齐，卡片直接同宽即可
+  // 无边框浮层：层次由底色 + 柔和阴影承载（与输入胶囊一致）
   border-radius: 12px;
   background: var(--card-bg, #fff);
+  box-shadow: var(--shadow-sm);
   padding: 10px 14px;
 }
 
@@ -90,7 +91,7 @@ export default {
 .ob-todo-list {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px dashed var(--border-color);
+  border-top: 1px solid var(--divider);
   max-height: 280px;
   overflow-y: auto;
 }

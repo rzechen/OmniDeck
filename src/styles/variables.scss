@@ -15,6 +15,8 @@ $sidebar-divider: var(--sidebar-divider, rgba(0, 0, 0, 0.06));
 // 内容区
 $content-bg: var(--content-bg, #FBFCFD);
 $card-bg: var(--card-bg, #FFFFFF);
+// 卡片去边框后的底色分层：无框卡片靠比内容区深一档的底色区分层次
+$surface-muted: var(--surface-muted, rgba(0, 0, 0, 0.03));
 $topbar-bg: var(--topbar-bg, rgba(255, 255, 255, 0.72));
 $search-bg: var(--search-bg, rgba(0, 0, 0, 0.04));
 $search-bg-hover: var(--search-bg-hover, rgba(0, 0, 0, 0.07));
@@ -27,6 +29,8 @@ $text-sidebar-active: var(--text-sidebar-active, #1A1A1F);
 
 // 边框
 $border-color: var(--border-color, #E6E6EB);
+// 分割线：比边框更轻，用于卡内行分隔与分组留白分区（替代 1px 实线边框）
+$divider: var(--divider, rgba(0, 0, 0, 0.05));
 
 // 语义状态色（见 theme.scss；rgb 后缀变量供 rgba(var(--xxx-rgb), a) 组合用）
 $success-color: var(--success-color, #52C41A);

@@ -85,6 +85,15 @@
       <button class="sp-tool-btn" title="从本机导入文件" @click="$emit('import')"><svg-icon icon-class="upload" /><span>导入</span></button>
       <!-- 空间规则（B 方案收编）：编辑当前工作空间的 AGENTS.md，仅该空间对话生效 -->
       <button class="sp-tool-btn" title="编辑此空间的规则，仅该空间对话生效" @click="$emit('space-rule')"><svg-icon icon-class="rules" /><span>空间规则</span></button>
+      <!-- 多选删除：选中项 ≥ 1 时出现，批量移入废纸篓（确认在页面层） -->
+      <button
+        v-if="selectedCount > 0"
+        class="sp-tool-btn danger"
+        title="将所选项目移到废纸篓"
+        @click="$emit('trash-selected')"
+      ><svg-icon icon-class="delete" /><span>删除所选{{ selectedCount > 1 ? ' ' + selectedCount + ' 项' : '' }}</span></button>
+      <!-- 清空当前空间：根目录全部内容（含隐藏项）移入废纸篓，二次确认在页面层 -->
+      <button class="sp-tool-btn danger" title="清空此空间全部文件（移到废纸篓）" @click="$emit('empty')"><svg-icon icon-class="delete" /><span>清空空间</span></button>
       <button class="sp-icon-btn" title="重命名此空间" @click="$emit('rename')">
         <svg-icon icon-class="edit" />
       </button>
@@ -93,7 +102,7 @@
       </button>
       <!-- 解绑当前工作空间（连带删除该空间任务记录，二次确认在页面层） -->
       <button class="sp-icon-btn" title="解绑此空间" @click="$emit('unbind')">
-        <svg-icon icon-class="delete" />
+        <svg-icon icon-class="unlink" />
       </button>
     </div>
   </header>
@@ -140,6 +149,11 @@ export default {
     loading: {
       type: Boolean,
       default: false
+    },
+    // 当前目录多选中的条目数（> 0 时显示「删除所选」按钮）
+    selectedCount: {
+      type: Number,
+      default: 0
     }
   },
   data() {
@@ -404,6 +418,25 @@ export default {
 
     .svg-icon {
       color: var(--primary-color);
+    }
+  }
+
+  /* 危险操作（清空空间 / 删除所选）：红色描边 + hover 红底 */
+  &.danger {
+    border-color: rgba(245, 34, 45, 0.35);
+    color: var(--danger-color);
+
+    .svg-icon {
+      color: var(--danger-color);
+    }
+
+    &:hover {
+      border-color: rgba(245, 34, 45, 0.6);
+      background: rgba(245, 34, 45, 0.06);
+
+      .svg-icon {
+        color: var(--danger-color);
+      }
     }
   }
 }

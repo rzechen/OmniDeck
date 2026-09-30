@@ -236,16 +236,15 @@ export default {
 <style lang="scss" scoped>
 .bc-composer {
   width: 100%;
-  max-width: 920px;
+  max-width: 768px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
 }
 
-/* 输入容器：悬浮卡片式大圆角气泡 */
+/* 输入容器：悬浮卡片式大圆角气泡（无边框，层次由阴影承载） */
 .bc-box {
   border-radius: 22px;
-  border: 1px solid var(--border-color);
   background: var(--card-bg, #fff);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
   padding: 12px 12px 8px 16px;

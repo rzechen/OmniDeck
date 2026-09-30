@@ -1,6 +1,6 @@
 <template>
   <div class="ob-manage-page">
-    <!-- 顶部 Banner（简约大气风格：极简标题 + 关键数据计数） -->
+    <!-- 顶部 Hero：纯排版（无框无底色，标题 + 计数徽标 + 描述 + 刷新） -->
     <header class="ob-market-hero">
       <div class="ob-hero-content">
         <div class="ob-hero-title-group">
@@ -24,25 +24,41 @@
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
     <div class="ob-page-body">
-      <!-- ===== 主体：左侧分类边栏 + 右侧内容区 ===== -->
-      <div class="ob-market-layout" v-if="!loading && !error && items.length">
-      <!-- 左侧垂直边栏：一级类型 + 二级主题分类（Chrome Web Store 式） -->
-      <market-sidebar
-        :categories="categories"
-        :category-chips="categoryChips"
-        :type-filter="typeFilter"
-        :category-filter="categoryFilter"
-        @select-type="selectType"
-        @select-category="selectCategory"
-      />
-
-      <!-- 右侧：搜索工具栏 + 内容网格 -->
-      <div class="ob-market-main">
+      <!-- ===== 主体：搜索工具栏 + 顶部筛选 chips + 内容网格（单列布局） ===== -->
+      <div class="ob-market-main" v-if="!loading && !error && items.length">
         <market-toolbar
           v-model="keyword"
-          :current-label="currentLabel"
           :result-count="filteredItems.length"
         />
+
+        <!-- 顶部筛选 chips：一级类型 + 二级主题（两组互斥，选中即筛选；
+             类型与主题选中关系由 selectType / selectCategory 维护） -->
+        <div class="ob-filter-bar">
+          <div class="ob-chip-row">
+            <button
+              v-for="c in categories"
+              :key="'type-' + (c.value || 'all')"
+              type="button"
+              class="ob-chip"
+              :class="{ active: typeFilter === c.value }"
+              @click="selectType(c.value)"
+            >
+              {{ c.label }}<span v-if="c.count !== undefined" class="ob-chip-count">{{ c.count }}</span>
+            </button>
+          </div>
+          <div v-if="categoryChips.length > 1" class="ob-chip-row">
+            <button
+              v-for="c in categoryChips"
+              :key="'cat-' + (c.value || 'all')"
+              type="button"
+              class="ob-chip"
+              :class="{ active: categoryFilter === c.value }"
+              @click="selectCategory(c.value)"
+            >
+              {{ c.label }}<span class="ob-chip-count">{{ c.count }}</span>
+            </button>
+          </div>
+        </div>
 
         <!-- ===== 市场主体 ===== -->
         <!-- 搜索无结果 -->
@@ -94,30 +110,29 @@
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- ===== 全页状态（加载中 / 加载失败 / 空索引） ===== -->
-    <!-- 加载中：卡片骨架占位 -->
-    <div v-if="loading" class="ob-sk-wrap">
-      <buddy-skeleton type="cards" :count="9" />
-    </div>
-
-    <div v-else-if="error" class="ob-empty">
-      <div class="ob-empty-icon">
-        <svg-icon icon-class="market" />
+      <!-- ===== 全页状态（加载中 / 加载失败 / 空索引） ===== -->
+      <!-- 加载中：卡片骨架占位 -->
+      <div v-if="loading" class="ob-sk-wrap">
+        <buddy-skeleton type="cards" :count="9" />
       </div>
-      <div class="ob-empty-title">市场索引加载失败</div>
-      <div class="ob-empty-desc">{{ error }}</div>
-      <el-button size="small" round type="primary" plain @click="loadIndex">重试</el-button>
-    </div>
 
-    <div v-else-if="!items.length" class="ob-empty">
-      <div class="ob-empty-icon">
-        <svg-icon icon-class="market" />
+      <div v-else-if="error" class="ob-empty">
+        <div class="ob-empty-icon">
+          <svg-icon icon-class="market" />
+        </div>
+        <div class="ob-empty-title">市场索引加载失败</div>
+        <div class="ob-empty-desc">{{ error }}</div>
+        <el-button size="small" round type="primary" plain @click="loadIndex">重试</el-button>
       </div>
-      <div class="ob-empty-title">市场暂无可用资源</div>
-      <div class="ob-empty-desc">官方资源仓库筹备中，敬请期待</div>
-    </div>
+
+      <div v-else-if="!items.length" class="ob-empty">
+        <div class="ob-empty-icon">
+          <svg-icon icon-class="market" />
+        </div>
+        <div class="ob-empty-title">市场暂无可用资源</div>
+        <div class="ob-empty-desc">官方资源仓库筹备中，敬请期待</div>
+      </div>
     </div>
 
     <!-- ===== 卡片详情弹窗（共享组件）：完整描述 / 版本 / 更新时间 / 版本历史 ===== -->
@@ -182,14 +197,13 @@
 <script>
 import ItemDetailDialog from '@/components/buddy/ItemDetailDialog.vue'
 import MarketCard from './components/MarketCard.vue'
-import MarketSidebar from './components/MarketSidebar.vue'
 import MarketToolbar from './components/MarketToolbar.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApiSection } from '@/utils/buddy-api'
 
 export default {
   name: 'OmniBuddyMarket',
-  components: { ItemDetailDialog, MarketCard, MarketSidebar, MarketToolbar, BuddySkeleton },
+  components: { ItemDetailDialog, MarketCard, MarketToolbar, BuddySkeleton },
   data() {
     return {
       loading: false,
@@ -236,19 +250,6 @@ export default {
           .filter(c => counts[c.value])
           .map(c => ({ label: c.label, value: c.value, count: counts[c.value] }))
       ]
-    },
-    // 右侧工具栏当前筛选标题
-    currentLabel() {
-      if (this.keyword) return `“${this.keyword}” 的搜索结果`
-      if (this.typeFilter && this.categoryFilter) {
-        return `${this.categoryLabel(this.categoryFilter)} · ${this.typeLabel(this.typeFilter)}`
-      }
-      if (this.typeFilter) {
-        const c = this.categories.find(x => x.value === this.typeFilter)
-        return c ? c.label : '全部'
-      }
-      if (this.categoryFilter) return this.categoryLabel(this.categoryFilter)
-      return '全部资源'
     },
     filteredItems() {
       const kw = this.keyword.trim().toLowerCase()
@@ -420,11 +421,6 @@ export default {
       })
     },
     // ---------- 展示辅助 ----------
-    typeLabel(type) {
-      if (type === 'connector') return '连接器'
-      if (type === 'agent') return '子代理'
-      return '技能'
-    },
     categoryLabel(value) {
       const def = this.categoryDefs.find(c => c.value === value)
       return def ? def.label : value
@@ -441,17 +437,13 @@ export default {
   padding: 18px 4px;
 }
 
-/* ===== 顶部精细 Header ===== */
+/* ===== 顶部 Header：纯排版（无框无底色，留白 + 字重分区） ===== */
 .ob-market-hero {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   flex-shrink: 0;
-  margin-bottom: 12px;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.04) 0%, rgba(0, 0, 0, 0.01) 100%);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
-  border-radius: $radius-lg;
+  margin-bottom: 18px;
 
   .ob-hero-actions {
     display: inline-flex;
@@ -498,22 +490,9 @@ export default {
   }
 }
 
-/* ===== 主体布局：左侧边栏 + 右侧内容 ===== */
-.ob-market-layout {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  gap: 20px;
-  align-items: stretch;
-  /* 布局占满视口剩余高度并裁切，滚动下放至右侧内容区
-     —— 左侧边栏随布局撑满高度，滚动时保持不动 */
-  overflow: hidden;
-}
-
-/* 右侧内容区：工具栏 + 卡片网格的唯一滚动容器 */
+/* ===== 主体：单列滚动区（工具栏 + 筛选 chips + 卡片网格） ===== */
 .ob-market-main {
   flex: 1;
-  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -530,17 +509,70 @@ export default {
   }
 }
 
-/* ===== 分组板块 (Sections) ===== */
+/* ===== 顶部筛选 chips：类型 / 主题两组胶囊（互斥选择，无框轻量；吸顶常驻） ===== */
+.ob-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  // 吸顶：滚动浏览卡片时筛选 chips 始终可见可点（与 hero 一样常驻顶部）
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  // 上下留白均为背景延伸：滚动内容从 chips 背后穿过时上下不露缝
+  padding: 8px 0 14px;
+  margin-bottom: 6px;
+  background: var(--content-bg, #FBFCFD);
+}
+
+.ob-chip-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ob-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: $text-secondary;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: $search-bg;
+    color: $text-primary;
+  }
+
+  &.active {
+    background: rgba(var(--primary-color-rgb), 0.1);
+    color: var(--primary-color);
+    font-weight: 600;
+  }
+
+  .ob-chip-count {
+    font-size: 10.5px;
+    opacity: 0.72;
+    font-weight: 500;
+  }
+}
+
+/* ===== 分组板块 (Sections)：留白 + 字重分区，无分隔线 ===== */
 .ob-market-section {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 
   .ob-section-label {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 12px;
-    padding-bottom: 6px;
-    border-bottom: 1px dashed var(--border-color, rgba(0, 0, 0, 0.08));
+    margin-bottom: 14px;
 
     .section-icon {
       font-size: 15px;
