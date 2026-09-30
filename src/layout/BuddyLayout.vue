@@ -17,8 +17,16 @@
             <img src="@/assets/logo.png" alt="OmniDeck" class="buddy-logo-img" />
           </div>
           <span v-if="!collapsed" class="buddy-logo-text">OmniBuddy</span>
-          <!-- 新建任务（清空本地数据入口已收纳至 设置-通用-Buddy 视图） -->
+          <!-- 设置 + 新建任务（清空本地数据入口已收纳至 设置-通用-Buddy 视图） -->
           <div v-if="!collapsed" class="buddy-head-actions">
+            <div
+              class="buddy-set-icon"
+              :class="{ active: $route.name === 'OmniBuddySettings' }"
+              title="设置"
+              @click="goSettings"
+            >
+              <svg-icon icon-class="settings" />
+            </div>
             <div
               class="buddy-new-icon"
               title="新建任务"
@@ -30,14 +38,23 @@
         </div>
 
         <div class="buddy-scroll">
-          <!-- 收起态新建任务入口（头部 + 按钮因红绿灯让位被隐藏，补在菜单顶部） -->
-          <div
-            v-if="collapsed"
-            class="buddy-collapse-new"
-            title="新建任务"
-            @click="onNewChat"
-          >
-            <svg-icon icon-class="plus" />
+          <!-- 收起态快捷入口（头部按钮因红绿灯让位被隐藏，补在菜单顶部）：设置 + 新建任务 -->
+          <div v-if="collapsed" class="buddy-collapse-quick">
+            <div
+              class="buddy-collapse-set"
+              :class="{ active: $route.name === 'OmniBuddySettings' }"
+              title="设置"
+              @click="goSettings"
+            >
+              <svg-icon icon-class="settings" />
+            </div>
+            <div
+              class="buddy-collapse-new"
+              title="新建任务"
+              @click="onNewChat"
+            >
+              <svg-icon icon-class="plus" />
+            </div>
           </div>
 
           <!-- 菜单区（分组）：资源市场 → 能力（技能/连接器/项目规则/权限策略）→ 配置（工作空间/模型管理）→ 用量统计/能力清单 -->
@@ -118,14 +135,13 @@
         <svg-icon :icon-class="collapsed ? 'expand' : 'fold'" class="buddy-side-toggle-ico" />
       </div>
 
-      <!-- 主区：页签行 + 对话/管理页（参考 Deck：Topbar 位换为页签栏 + 设置入口） -->
+      <!-- 主区：对话/管理页（无页签行，对齐市面 AI 产品的单页简约结构；
+           设置入口在侧栏头部，macOS 无顶栏，Windows 仅留窗口控制条） -->
       <div class="buddy-right">
-        <!-- 顶部页签行：页签本体/设置钮可点，空白处可拖动窗口 -->
-        <div class="buddy-tags-row">
-          <TagsBar side="buddy" class="buddy-tags-row-bar" />
-          <div class="buddy-tags-row-actions">
-            <global-topbar-actions />
-          </div>
+        <!-- Windows 顶栏：无边框窗口自绘控制贴窗口右缘，空白处可拖动窗口
+             （macOS 走系统红绿灯，不渲染） -->
+        <div v-if="isWindows" class="buddy-winbar">
+          <global-topbar-actions win-only />
         </div>
         <div class="buddy-main">
           <keep-alive :max="10">
@@ -140,16 +156,17 @@
 <script>
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
-import TagsBar from '@/components/common/TagsBar.vue'
 import { getItem, setItem } from '@/utils/db'
 
 // OmniBuddy 视图壳：与主 Layout 平级的独立视图
-// 顶部页签条（TagsBar + 设置入口）+ 侧边栏（新建入口 + 菜单 + 任务列表，可拖宽/收起）+ 主区（对话/管理页）
+// 侧边栏（新建/设置入口 + 菜单 + 任务列表，可拖宽/收起）+ 主区（对话/管理页，无页签行）
 export default {
   name: 'BuddyLayout',
-  components: { BuddyTaskList, GlobalTopbarActions, TagsBar },
+  components: { BuddyTaskList, GlobalTopbarActions },
   data() {
     return {
+      // Windows 无边框窗口：主区顶部保留窗口控制条（macOS 走系统红绿灯）
+      isWindows: !!(window.electronAPI && window.electronAPI.platform === 'win32'),
       // 侧边栏菜单（分组，置于任务列表上方）：市场独立置顶 → 能力（含定时任务）→ 配置 → 用量统计独立
       // 命名与分组对齐业界（Claude Capabilities / Cursor Customize）：技能+规则+连接器聚合为「能力」
       menuGroups: [
@@ -206,22 +223,13 @@ export default {
     activeChatId() {
       return this.$route.query.s || ''
     },
-    // 页签缓存 key：keep-alive 以 vnode.key 缓存，每个页签（每个会话）独立一份组件实例
+    // 会话缓存 key：keep-alive 以 vnode.key 缓存，每个会话独立一份组件实例
+    // （页签登记仍在 router.afterEach，保证新会话 REBIND 时流式组件不重建）
     buddyTabKey() {
       return this.$store.getters['tagsView/keyOf']('buddy', this.$route.fullPath)
     }
   },
   watch: {
-    // 会话列表变化（新建/删除/他处刷新）后同步会话页签标题
-    chats: {
-      handler() {
-        this.syncChatTabTitles()
-      }
-    },
-    // 切换会话页签后补齐新登记页签的标题
-    activeChatId() {
-      this.syncChatTabTitles()
-    },
     // 会话池 UI 事件（与 chat 实例共用 claim 认领去重）：
     // perm-pending = 权限确认到达但当前页签不是该会话（浮动条不可见），
     // 弹持续通知引导跳转，避免隐形挂起直到主进程超时拒绝
@@ -249,8 +257,6 @@ export default {
           const c = this.chats.find(x => x.id === e.sessionId)
           if (c && c.title !== e.title) {
             c.title = e.title
-            // chats 为浅 watch（不感知对象内部属性变化），手动同步页签标题
-            this.syncChatTabTitles()
           }
           return
         }
@@ -360,19 +366,6 @@ export default {
         })
       }
     },
-    // 会话页签标题同步：页签登记时仅有路由 meta（OmniBuddy），此处按任务列表补齐会话名
-    syncChatTabTitles() {
-      const tabs = (this.$store.state.tagsView && this.$store.state.tagsView.buddy) || []
-      tabs.forEach(tab => {
-        if (tab.path !== '/omnibuddy') return
-        const id = tab.fullPath.split('s=')[1]
-        if (!id) return
-        const c = this.chats.find(x => x.id === id)
-        if (c && c.title && tab.title !== c.title) {
-          this.$store.commit('tagsView/UPDATE_TAB_TITLE', { side: 'buddy', fullPath: tab.fullPath, title: c.title })
-        }
-      })
-    },
     renameChat(c) {
       this.$prompt('请输入新的任务名称', '重命名任务', {
         confirmButtonText: '保存',
@@ -384,8 +377,6 @@ export default {
         const api = this.buddyApi()
         if (api) await api.renameSession({ id: c.id, title })
         c.title = title
-        // 同步更新该会话的页签标题
-        this.$store.commit('tagsView/UPDATE_TAB_TITLE', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id, title })
       }).catch(() => {})
     },
     // 置顶/取消置顶：meta.pinned 持久化 + 本地数组同步（groups 计算属性自动重排）
@@ -415,7 +406,7 @@ export default {
         const api = this.buddyApi()
         if (api) await api.deleteSession(c.id)
         this.chats = this.chats.filter(x => x.id !== c.id)
-        // 同步移除该会话的页签，并清理会话状态池（防泄漏）
+        // 同步移除该会话的缓存登记，并清理会话状态池（防泄漏）
         this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id })
         this.$store.commit('buddyChat/DROP_SESSION', c.id)
         // 删除的是当前会话：回到新建页
@@ -428,6 +419,12 @@ export default {
     // ===== 导航 =====
     goRoute(p) {
       if (this.$route.path !== p) this.$router.push(p).catch(() => {})
+    },
+    // 设置（Buddy 视图专属设置页，保持视图上下文）
+    goSettings() {
+      if (this.$route.name !== 'OmniBuddySettings') {
+        this.$router.push({ name: 'OmniBuddySettings' }).catch(() => {})
+      }
     },
     // 返回进入 OmniBuddy 前所在的 deck 页面（无记录时回首页）
     goMain() {
@@ -555,15 +552,24 @@ $buddy-sidebar-w: 260px;
   }
 }
 
-/* 收起态图标入口：新建任务 / 任务列表（与菜单项同尺寸居中圆钮） */
+/* 收起态快捷入口容器：新建任务 + 设置（居中纵排，替代被红绿灯让位隐藏的头部按钮） */
+.buddy-collapse-quick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+
+/* 收起态图标入口：新建任务 / 设置 / 任务列表（与菜单项同尺寸居中圆钮） */
 .buddy-collapse-new,
+.buddy-collapse-set,
 .buddy-collapse-tasks {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin: 4px auto 10px;
   border-radius: 9px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -586,8 +592,27 @@ $buddy-sidebar-w: 260px;
   }
 }
 
+.buddy-collapse-set {
+  color: $text-secondary;
+  background: $sidebar-item-hover;
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb), 0.1);
+    color: var(--primary-color);
+  }
+
+  &:active {
+    transform: scale(0.9);
+  }
+
+  &.active {
+    color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.12);
+  }
+}
+
 .buddy-collapse-tasks {
-  margin-bottom: 4px;
+  margin: 4px auto 4px;
   color: $text-sidebar;
   border-radius: $radius-sm;
   width: 100%;
@@ -632,7 +657,7 @@ $buddy-sidebar-w: 260px;
   }
 }
 
-/* 新建任务 icon：侧边栏头部小圆钮（标题右侧，margin-left 自动推到行尾）。
+/* 新建任务 / 设置 icon：侧边栏头部小圆钮（标题右侧，margin-left 自动推到行尾）。
 侧边栏为窗口拖拽区，按钮必须显式 no-drag 才能接收点击 */
 .buddy-head-actions {
   display: flex;
@@ -667,6 +692,40 @@ $buddy-sidebar-w: 260px;
 
   &:active {
     transform: scale(0.9);
+  }
+}
+
+/* 设置 icon：与新建按钮同排同尺寸的次级圆钮（常态浅灰底、hover 主题色浮起、激活时主题色） */
+.buddy-set-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: $text-secondary;
+  background: $sidebar-item-hover;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  -webkit-app-region: no-drag;
+
+  .svg-icon {
+    font-size: 13px;
+  }
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb), 0.1);
+    color: var(--primary-color);
+  }
+
+  &:active {
+    transform: scale(0.9);
+  }
+
+  &.active {
+    color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.12);
   }
 }
 
@@ -867,29 +926,19 @@ $buddy-sidebar-w: 260px;
   position: relative;
 }
 
-/* ===== 主区顶部页签行（参考 Deck：Topbar 位换为页签栏 + 设置入口） =====
-   页签本体/设置钮可点（no-drag），空白处可拖动窗口 */
-.buddy-tags-row {
+/* ===== Windows 顶栏：无边框窗口自绘控制贴窗口右缘（macOS 走系统红绿灯，无顶栏） =====
+   空白处可拖动窗口，控制钮本身可点（no-drag，见 GlobalTopbarActions） */
+.buddy-winbar {
   display: flex;
   align-items: stretch;
+  justify-content: flex-end;
   flex-shrink: 0;
-  -webkit-app-region: drag;
-}
-
-/* 页签栏占满行内剩余宽度 */
-.buddy-tags-row-bar {
-  flex: 1;
-  min-width: 0;
-}
-
-/* 右侧：齿轮（Windows 下含窗口控制钮）贴窗口右缘，与 Deck 顶栏同位 */
-.buddy-tags-row-actions {
-  display: flex;
-  align-items: center;
-  padding: 0 10px 0 2px;
+  height: 36px;
+  /* 抵消 win-controls 的 -10px 负边距，使控制钮贴窗口右缘 */
+  padding-right: 10px;
   background: $content-bg;
   border-bottom: 1px solid $border-color;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 
 /* macOS 交通灯按钮让位行（与主布局 Sidebar 的 sidebar-topbar 一致）：
@@ -984,15 +1033,6 @@ $buddy-sidebar-w: 260px;
   &:active {
     transform: translateY(-50%) scale(0.92);
   }
-}
-
-/* 右侧：齿轮贴窗口右缘（与 Deck 顶栏同位），可点击不可拖窗 */
-.buddy-tabstrip-actions {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  -webkit-app-region: no-drag;
 }
 
 /* ===== 主区 ===== */

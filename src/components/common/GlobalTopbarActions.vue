@@ -1,16 +1,9 @@
 <template>
   <!-- 顶栏右上角通用操作：全局设置入口 + Windows 窗口控制按钮（macOS 用系统红绿灯，不渲染）。
-       两视图（Deck/Buddy）页签行尾部同位复用 -->
+       Deck 顶栏全量使用；Buddy 视图设置入口已移至侧栏头部，仅以 win-only 模式复用窗口控制 -->
   <div class="global-topbar-actions">
     <div
-      class="gta-btn"
-      title="刷新页面"
-      @click="reloadPage"
-    >
-      <svg-icon icon-class="refresh-left" class="gta-icon" :class="{ spinning: reloading }" />
-    </div>
-
-    <div
+      v-if="!winOnly"
       class="gta-btn"
       :class="{ active: isActive }"
       title="设置"
@@ -37,13 +30,15 @@
 <script>
 export default {
   name: 'GlobalTopbarActions',
+  props: {
+    // 仅渲染 Windows 窗口控制（Buddy 视图：设置入口在侧栏头部，顶栏只留窗口控制）
+    winOnly: { type: Boolean, default: false }
+  },
   data() {
     return {
       // Windows 无边框窗口控制（macOS 走系统红绿灯）
       isWindows: !!(window.electronAPI && window.electronAPI.platform === 'win32'),
-      winMaximized: false,
-      // 刷新按钮旋转动画状态（重载前短暂旋转反馈）
-      reloading: false
+      winMaximized: false
     }
   },
   computed: {
@@ -70,12 +65,6 @@ export default {
     if (this.offMaximized) this.offMaximized()
   },
   methods: {
-    // 刷新当前页面（重载渲染进程，与设置页「重载界面」一致）
-    reloadPage() {
-      if (this.reloading) return
-      this.reloading = true
-      setTimeout(() => location.reload(), 200)
-    },
     goSettings() {
       const name = this.isBuddy ? 'OmniBuddySettings' : 'Settings'
       if (this.$route.name !== name) {
@@ -104,7 +93,7 @@ export default {
   -webkit-app-region: no-drag;
 }
 
-/* 图标按钮（刷新 / 设置）通用样式 */
+/* 图标按钮（设置）通用样式 */
 .gta-btn {
   display: inline-flex;
   align-items: center;
@@ -121,11 +110,6 @@ export default {
     height: 16px;
   }
 
-  /* 刷新点击：旋转一圈反馈（重载即中断，动画仅作瞬时动效） */
-  .gta-icon.spinning {
-    animation: gta-spin 0.6s linear infinite;
-  }
-
   &:hover {
     background: var(--nav-hover-bg, rgba(128, 128, 128, 0.12));
     color: var(--text-primary, #333);
@@ -134,12 +118,6 @@ export default {
   &.active {
     color: var(--primary-color);
     background: rgba(var(--primary-color-rgb), 0.12);
-  }
-}
-
-@keyframes gta-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 

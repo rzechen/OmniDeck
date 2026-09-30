@@ -287,6 +287,11 @@ export default {
   mounted() {
     this.loadIndex()
   },
+  activated() {
+    // keep-alive 页面重入：安装状态可能在别处已变更（如技能管理页删除 Skill），
+    // 重新拉取市场索引刷新 installed 状态（首次进入由 mounted 加载，items 为空时跳过）
+    if (!this.loading && (this.items.length || this.error)) this.loadIndex()
+  },
   methods: {
     api() {
       return buddyApiSection('market')
@@ -366,7 +371,8 @@ export default {
     applyLocalState(id, patch) {
       const item = this.items.find(x => x.id === id)
       if (item) Object.assign(item, patch)
-      // 详情抽屉展示同一引用，自动同步
+      // 详情抽屉展示的是 openDetail 时的浅拷贝（附加 categoryLabel），同步补丁保持弹窗与列表一致
+      if (this.detailItem && this.detailItem.id === id) Object.assign(this.detailItem, patch)
     },
     resetFilter() {
       this.keyword = ''
