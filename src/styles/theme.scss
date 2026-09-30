@@ -498,6 +498,18 @@ html[data-theme='dark'] {
 }
 
 /* 弹出面板：macOS 菜单（大圆角 + 毛玻璃 + 选中项对勾） */
+/* 外壳（.el-popper）为直角容器并自带箭头，与内层 12px 圆角形成"圆角套直角"：
+   透出外壳背景/边框并隐藏箭头，让内层面板圆角完整呈现 */
+.el-select__popper.el-popper {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+
+  .el-popper__arrow {
+    display: none;
+  }
+}
+
 .el-select-dropdown {
   border: 1px solid var(--border-color);
   border-radius: 12px;

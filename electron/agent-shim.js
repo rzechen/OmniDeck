@@ -3,7 +3,8 @@
 // 使 electron/agent/ 全部模块零改动运行在 utilityProcess（Node 子进程）中。
 // 仅仿真 agent 子树实际用到的 API 面（已 grep 全量核对）：
 //   ipcMain / app / dialog / shell / BrowserWindow / Notification /
-//   safeStorage（异步桥接版，__bridged 标记）/ nativeImage（缩略图桥接版）/ __host.fetchBuffer
+//   safeStorage（异步桥接版，__bridged 标记）/ nativeImage（缩略图桥接版）/
+//   clipboard（写入桥接版）/ __host.fetchBuffer / __host.fetchArticle
 // 无法在子进程存在的能力（窗口实例、系统通知、钥匙串、Chromium net、图像对象）
 // 一律经 hostCall 转发主进程宿主执行（见 agent-bridge.js 的 HOST 方法表）。
 
@@ -210,12 +211,33 @@ const __host = {
     const r = await state.hostCall('fetchBuffer', [url, opts])
     if (r && r.ok && r.dataB64) r.data = Buffer.from(r.dataB64, 'base64')
     return r || { ok: false, error: '下载失败' }
+  },
+  // 公众号模板抓取：主进程隐藏视图加载作品页提取 article，
+  // 返回 { html, text, images }（wechat/import.js 消费）
+  fetchArticle(url) {
+    assertWired()
+    return state.hostCall('wx.fetchArticle', [url])
+  },
+  // 公众号编辑器注入：主进程定位 mp.weixin.qq.com 页面写入渲染成品，
+  // 返回 { ok, url, nodes, filled / error }（wechat/editor.js 消费）
+  injectEditor(html, fields) {
+    assertWired()
+    return state.hostCall('wx.injectEditor', [html, fields])
+  }
+}
+
+// ===== clipboard（桥接版：子进程无系统剪贴板，写入转发主进程） =====
+const clipboard = {
+  // 组合写入：clipboard.write({ text, html })（wechat copy 工具富文本粘贴用）
+  write(payload) {
+    assertWired()
+    return state.hostCall('clipboard.write', [payload])
   }
 }
 
 module.exports = {
   ipcMain, app, dialog, shell, BrowserWindow, Notification,
-  safeStorage, nativeImage, __host
+  safeStorage, nativeImage, clipboard, __host
 }
 
 // ===== 宿主接线（仅 agent-host.js 调用） =====

@@ -2,24 +2,26 @@
 # OmniBuddy 运行时组件发布脚本：私有组件 zip → OmniBuddy-Plugins 仓库 Release
 #
 # 用法：
-#   ./scripts/runtime-publish.sh [runtime-v1.0.0]   # tag 缺省 runtime-v1.0.0
+#   ./scripts/runtime-publish.sh [runtime-v1.1.0]   # tag 缺省 runtime-v1.1.0
 #
-# 流程：
-#   1. 扫描 lib/<plat>/ 私有组件（python-env / node-tools），计算 sha256/size
-#   2. 生成 runtime-manifest.json（私有组件双仓库 Release URL + 公共组件官方镜像 URL）
-#   3. clone（空仓库则初始化）OmniBuddy-Plugins → 写 README + manifest → push 双远端
-#   4. GitCode Release：创建 + 预签名 PUT 上传私有 zip
+# 流程（继承式 merge，适配 lib 已瘦身：本地无需备齐全部组件）：
+#   1. clone OmniBuddy-Plugins，读 repo 内旧 runtime-manifest.json 作继承基础
+#   2. 逐组件比对：本地有且 sha256 变 → 更新条目 + 计入上传；本地有未变 / 本地无
+#      → 继承旧条目（公共组件官方源 URL / 私有组件旧 tag Release 资产仍可下载）
+#   3. 生成 runtime-manifest.json → 写 README + manifest → push 双远端
+#   4. GitCode Release：创建 + 预签名 PUT 上传增量私有 zip
 #   5. GitHub Release：草稿创建 + 上传 + 发布
 #
 # 依赖：git 凭证存储中有 gitcode.com / github.com 的 token（git credential fill）
 #   私有组件（app 内下载解压装配）：
 #     python-env-*.zip（解释器 + 预装数据栈）  node-tools-*.zip（sharp/docx 等）
+#     MinGit-*.zip（Windows git 兜底，统一在线装配）
 #   公共组件不入仓库，manifest 直接给官方/镜像 URL（npmmirror / playwright cdn）。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIB_ROOT="$ROOT/lib"
-TAG="${1:-runtime-v1.0.0}"
+TAG="${1:-runtime-v1.1.0}"
 
 # ---- 目标仓库 ----
 GC_OWNER="m0_59492087"; GC_REPO="OmniBuddy-Plugins"
@@ -31,6 +33,7 @@ PW_CFT_BUILD=154.0.8037.0
 PW_FFMPEG_REV=1011
 PW_WINLDD_REV=1007
 PANDOC_VERSION=3.6.3
+MINGIT_VERSION=2.55.0
 
 # ---- 凭证 ----
 GC_TOKEN=$(printf 'protocol=https\nhost=gitcode.com\n\n' | git credential fill 2>/dev/null | grep '^password=' | cut -d= -f2-)
@@ -39,22 +42,17 @@ GH_TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill 2>
 [ -n "$GC_TOKEN" ] || { echo "✗ 无法从 git 凭证获取 GitCode token"; exit 1; }
 [ -n "$GH_TOKEN" ] || { echo "✗ 无法从 git 凭证获取 GitHub token"; exit 1; }
 
-# ---- 私有组件清单（file → component）----
-PRIVATE_FILES=(
-  "darwin-arm64/python-env-osx-arm64.zip:python-env"
-  "darwin-arm64/node-tools-darwin-arm64.zip:node-tools"
-  "windows-x86_64/python-env-win-64.zip:python-env"
-  "windows-x86_64/node-tools-win-x64.zip:node-tools"
-)
-private_paths=()
-for e in "${PRIVATE_FILES[@]}"; do
-  p="$LIB_ROOT/${e%%:*}"
-  [ -f "$p" ] || { echo "✗ 私有组件缺失：$p（先跑 bash scripts/provision-runtime.sh archive）"; exit 1; }
-  private_paths+=("$p")
-done
-
-echo "==> 生成 runtime-manifest.json（tag=${TAG}）"
+# ---- git 工作副本提前 clone（manifest 继承需要 repo 内旧清单）----
+echo "==> clone OmniBuddy-Plugins（读取旧 manifest 作继承基础）"
 WORK=$(mktemp -d /tmp/omnibuddy-plugins.XXXXXX)
+cd "$WORK"
+git clone -q "https://x-access-token:${GH_TOKEN}@github.com/${GH_OWNER}/${GH_REPO}.git" repo 2>/dev/null || {
+  echo "✗ clone github 仓库失败"; exit 1
+}
+cd repo
+git checkout -q -B main 2>/dev/null || git checkout -q -b main
+
+echo "==> 生成 runtime-manifest.json（tag=${TAG}，继承式 merge）"
 export LIB_ROOT RT_TAG="$TAG" RT_WORK="$WORK"
 python3 <<'PYEOF'
 import hashlib, json, os
@@ -64,7 +62,7 @@ lib, tag, work = os.environ['LIB_ROOT'], os.environ['RT_TAG'], os.environ['RT_WO
 gc_base = f'https://gitcode.com/m0_59492087/OmniBuddy-Plugins/releases/download/{tag}'
 gh_base = f'https://github.com/rzechen/OmniBuddy-Plugins/releases/download/{tag}'
 
-NV, CFT, FFR, WLR, PV = '22.23.1', '154.0.8037.0', '1011', '1007', '3.6.3'
+NV, CFT, FFR, WLR, PV, MGV = '22.23.1', '154.0.8037.0', '1011', '1007', '3.6.3', '2.55.0'
 NPM = 'https://registry.npmmirror.com/-/binary/node'
 NODEJS = 'https://nodejs.org/dist'
 PWCDN = 'https://cdn.playwright.dev'
@@ -88,6 +86,7 @@ SPEC = {
     'ffmpeg-win64.zip': ('ffmpeg', [f'{PWPRSS}/builds/ffmpeg/{FFR}/ffmpeg-win64.zip', f'{PWCDN}/builds/ffmpeg/{FFR}/ffmpeg-win64.zip']),
     f'pandoc-{PV}-windows-x86_64.zip': ('pandoc', [f'https://github.com/jgm/pandoc/releases/download/{PV}/pandoc-{PV}-windows-x86_64.zip']),
     'winldd-win64.zip': ('winldd', [f'{PWPRSS}/builds/winldd/{WLR}/winldd-win64.zip', f'{PWCDN}/builds/winldd/{WLR}/winldd-win64.zip']),
+    f'MinGit-{MGV}-64-bit.zip': ('mingit', []),
   },
 }
 
@@ -98,17 +97,38 @@ def sha256(p):
             h.update(chunk)
     return h.hexdigest()
 
+# 继承基础：repo 内旧 manifest（lib 瘦身后本地无文件的组件靠它保留 sha256/size）
+base = {}
+try:
+    with open(os.path.join(work, 'repo', 'runtime-manifest.json')) as f:
+        base = (json.load(f) or {}).get('components', {})
+except Exception:
+    print('  （repo 无旧 manifest，全新生成）')
+
+uploads = []  # 本次需上传的私有包（本地存在且 sha256 较旧清单有变化）
 comps = {}
 for plat, files in SPEC.items():
     for fname, (comp, urls) in files.items():
         p = os.path.join(lib, plat, fname)
-        if not os.path.exists(p):
-            continue  # 组件未备料则不进清单（下载端按需处理）
-        if not urls:
-            urls = [f'{gc_base}/{fname}', f'{gh_base}/{fname}']
-        comps.setdefault(comp, {}).setdefault('targets', {})[plat] = {
-            'file': fname, 'size': os.path.getsize(p), 'sha256': sha256(p), 'urls': urls,
-        }
+        old = base.get(comp, {}).get('targets', {}).get(plat)
+        if os.path.exists(p):
+            digest = sha256(p)
+            # 内容未变且旧条目 URL 不指向本次 tag → 继承（资产在旧 tag Release，可免传）；
+            # URL 指向本次 tag 的（同 tag 重跑）无法确认资产已传，保守计入上传（幂等重传）
+            if old and old.get('sha256') == digest and tag not in str(old.get('urls', [])):
+                entry, state = old, 'unchanged'
+            else:
+                if not urls:
+                    urls = [f'{gc_base}/{fname}', f'{gh_base}/{fname}']
+                    uploads.append(p)
+                entry = {'file': fname, 'size': os.path.getsize(p), 'sha256': digest, 'urls': urls}
+                state = 'updated'
+        elif old:
+            entry, state = old, 'inherited'  # 本地无：继承（公共官方源 / 私有旧 tag 资产）
+        else:
+            continue  # 本地无且旧 manifest 无：未备料不进清单
+        comps.setdefault(comp, {}).setdefault('targets', {})[plat] = entry
+        print(f'  [{state:9s}] {comp:22s} {plat:14s} {entry["size"]/1048576:7.1f}M  {entry["sha256"][:12]}…')
 
 manifest = {
     'runtimeVersion': tag,
@@ -118,37 +138,36 @@ manifest = {
 out = os.path.join(work, 'runtime-manifest.json')
 with open(out, 'w') as f:
     json.dump(manifest, f, indent=2, ensure_ascii=False)
-print('  组件数:', len(comps), '→', out)
-for c, d in comps.items():
-    for plat, t in d['targets'].items():
-        print(f'  {c:22s} {plat:14s} {t["size"]/1048576:7.1f}M  {t["sha256"][:12]}…')
+with open(os.path.join(work, 'upload-list.txt'), 'w') as f:
+    f.write('\n'.join(uploads))
+print('  组件数:', len(comps), '/ 需上传增量:', len(uploads), '个私有包 →', out)
 PYEOF
 
-# ---- git 工作副本：clone（空仓库则初始化）→ 提交 manifest → push 双远端 ----
-echo "==> 推送 manifest 到 OmniBuddy-Plugins（GitCode + GitHub）"
-cd "$WORK"
-git clone -q "https://x-access-token:${GH_TOKEN}@github.com/${GH_OWNER}/${GH_REPO}.git" repo 2>/dev/null || {
-  echo "✗ clone github 仓库失败"; exit 1
-}
-cd repo
-git checkout -q -B main 2>/dev/null || git checkout -q -b main
+# 本次需上传的私有包（内容有变化的；全部继承则数组为空）
+# 注：macOS 自带 bash 3.2 无 mapfile，用 while read；read 对无尾随换行的末行
+# 返回非零，须以 || [ -n "$line" ] 兜底，否则唯一一行会被静默丢弃
+private_paths=()
+while IFS= read -r line || [ -n "$line" ]; do
+  [ -n "$line" ] && private_paths+=("$line") || true
+done < "$WORK/upload-list.txt"
 
 cat > README.md <<'MD'
 # OmniBuddy-Plugins
 
 OmniBuddy / OmniDeck 的**运行时组件分发仓库**（按需懒加载方案）。
 
-- `runtime-manifest.json`：组件清单（版本 / sha256 / 多源下载 URL），应用首启或功能按需时读取
-- Release 附件：私有组件包（`python-env-*` Python 解释器+预装数据栈、`node-tools-*` sharp/docx 等预装库）
-- 公共组件（node / chrome-headless-shell / ffmpeg / pandoc）直接使用官方源与国内镜像，不入库
+- `runtime-manifest.json`：组件清单（版本 / sha256 / 多源下载 URL），应用首启引导装配或功能按需时读取
+- Release 附件：私有组件包（`python-env-*` Python 解释器+预装数据栈、`node-tools-*` sharp/docx 等预装库、`MinGit-*` Windows git 兜底）
+- 公共组件（node / chrome-headless-shell / ffmpeg / pandoc / winldd）直接使用官方源与国内镜像，不入库
 
-组件内软件版权归上游各自所有（node MIT、pandoc GPL-2.0+、Chromium/ffmpeg 见上游许可）。
+组件内软件版权归上游各自所有（node MIT、pandoc GPL-2.0+、Chromium/ffmpeg/Git 见上游许可）。
 MD
 cp "$WORK/runtime-manifest.json" .
 GIT_AUTHOR="$(git config user.name || echo 'OmniBuddy CI')"
 GIT_MAIL="$(git config user.email || echo 'ci@omnibuddy.local')"
 git add README.md runtime-manifest.json
-git -c user.name="$GIT_AUTHOR" -c user.email="$GIT_MAIL" commit -qm "runtime manifest ${TAG}"
+# 与远端内容一致（同日重跑）时 nothing to commit 是合法态，跳过提交继续上传
+git -c user.name="$GIT_AUTHOR" -c user.email="$GIT_MAIL" commit -qm "runtime manifest ${TAG}" || echo "  （manifest 与远端一致，无新提交）"
 push_gh="https://x-access-token:${GH_TOKEN}@github.com/${GH_OWNER}/${GH_REPO}.git"
 push_gc="https://${GC_USER}:${GC_TOKEN}@gitcode.com/${GC_OWNER}/${GC_REPO}.git"
 # 资产清单仓库（机器生成线性历史）：普通 push 被拒（远端 init 过）时 force-with-lease 覆盖
@@ -158,7 +177,12 @@ echo "✓ manifest 已推送（raw 地址）"
 echo "  GitCode: https://raw.gitcode.com/${GC_OWNER}/${GC_REPO}/raw/main/runtime-manifest.json"
 echo "  GitHub:  https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/main/runtime-manifest.json"
 
-# ---- GitCode Release：创建 + 上传私有 zip ----
+# ---- GitCode Release：创建 + 上传增量私有 zip ----
+if [ "${#private_paths[@]}" -eq 0 ]; then
+  echo ""
+  echo "==> 无私有包需上传（manifest 条目全部继承旧 Release 资产），发布完成"
+  exit 0
+fi
 echo "==> [gitcode] release $TAG"
 rel=$(curl -s --max-time 20 -H "Authorization: Bearer $GC_TOKEN" \
   "https://api.gitcode.com/api/v5/repos/$GC_OWNER/$GC_REPO/releases/tags/$TAG")
@@ -232,6 +256,8 @@ for f in "${private_paths[@]}"; do
     "https://uploads.github.com/repos/$GH_OWNER/$GH_REPO/releases/$REL_ID/assets?name=$name")
   if [ "$code" = "201" ]; then
     echo "  上传响应: $code"
+  elif [ "$code" = "422" ]; then
+    echo "  上传响应: $code（同名资产已存在，视为已传）"
   else
     echo "  ✗ 上传失败（$code）：$(head -c 200 /tmp/gh-rt-resp.$$.json 2>/dev/null)"
     fail=$((fail + 1))

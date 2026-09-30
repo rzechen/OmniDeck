@@ -219,6 +219,15 @@ export const clipboardItem = {
   iconSvg: 'clipboard'
 }
 
+// 浏览器菜单项（应用内网页容器；双语对照翻译为容器特性：不修改原页面排版，
+// 译后段落以兄弟节点追加展示；Google / 模型双引擎可切换）
+export const browserItem = {
+  name: 'Browser',
+  path: '/browser',
+  title: '浏览器',
+  iconSvg: 'translate-browser'
+}
+
 // 设置菜单项
 export const settingsItem = {
   name: 'Settings',
@@ -247,6 +256,7 @@ export const feedbackItem = {
 export const searchItems = [
   { ...homeItem },
   { ...favoriteItem },
+  { ...browserItem },
   ...financeCategories.map(t => ({ path: t.path, title: t.title, iconSvg: t.iconSvg })),
   ...toolCategories.map(t => ({
     path: t.path,

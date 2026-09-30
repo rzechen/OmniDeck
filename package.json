@@ -12,7 +12,6 @@
     "build": "electron-vite build",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:win": "electron-vite build && electron-builder --win --x64",
-    "build:mac:slim": "OMNIDECK_SKIP_RUNTIME=1 electron-vite build && electron-builder --mac",
     "release": "bash scripts/release-upload.sh"
   },
   "dependencies": {
@@ -119,16 +118,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.ico",
-      "extraResources": [
-        {
-          "from": "lib/windows-x86_64",
-          "to": "git",
-          "filter": [
-            "MinGit*.zip"
-          ]
-        }
-      ]
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,

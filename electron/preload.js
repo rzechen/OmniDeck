@@ -62,6 +62,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pendingPermissions: () => ipcRenderer.invoke('omnibuddy:permission:pending'),
     // 能力中心（工具分类清单 + 权限策略可选对象）
     capabilityList: () => ipcRenderer.invoke('omnibuddy:capability:list'),
+    // 运行时组件在线装配（瘦身版按需下载 python-env / node / node-tools / pandoc）
+    runtimeStatus: () => ipcRenderer.invoke('omnibuddy:runtime:status'),
+    runtimeInstall: name => ipcRenderer.invoke('omnibuddy:runtime:install', name),
+    runtimeUninstall: name => ipcRenderer.invoke('omnibuddy:runtime:uninstall', name),
+    onRuntimeProgress: handler => {
+      ipcRenderer.on('omnibuddy:runtime:progress', handler)
+      return () => ipcRenderer.removeListener('omnibuddy:runtime:progress', handler)
+    },
+    // 首启引导装配：必需组件就绪检查 + 完成放行（安装动作复用 runtimeInstall）
+    setupStatus: () => ipcRenderer.invoke('omnibuddy:setup:status'),
+    setupComplete: () => ipcRenderer.invoke('omnibuddy:setup:complete'),
+    // 后台批量装配（主进程串行驱动，页面切走不中断）：触发 / 快照 / 进度推送
+    setupStartInstall: () => ipcRenderer.invoke('omnibuddy:setup:start-install'),
+    setupSnapshot: () => ipcRenderer.invoke('omnibuddy:setup:install-snapshot'),
+    onSetupProgress: handler => {
+      const wrapped = (_e, s) => handler(s)
+      ipcRenderer.on('omnibuddy:setup:progress', wrapped)
+      return () => ipcRenderer.removeListener('omnibuddy:setup:progress', wrapped)
+    },
     // 权限模式（输入框常驻选择器，即时生效）
     getPermissionMode: () => ipcRenderer.invoke('omnibuddy:permission:get-mode'),
     setPermissionMode: mode => ipcRenderer.invoke('omnibuddy:permission:set-mode', mode),
@@ -222,6 +241,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_e, v) => cb(v)
       ipcRenderer.on('quick:visibility', handler)
       return () => ipcRenderer.removeListener('quick:visibility', handler)
+    }
+  },
+  // 翻译浏览器（Deck 一级入口）：WebContentsView 容器控制 + 双语对照翻译
+  browser: {
+    navigate: url => ipcRenderer.invoke('browser:navigate', url),
+    back: () => ipcRenderer.invoke('browser:back'),
+    forward: () => ipcRenderer.invoke('browser:forward'),
+    reload: () => ipcRenderer.invoke('browser:reload'),
+    stop: () => ipcRenderer.invoke('browser:stop'),
+    // 容器 rect 上报：{ rect: {x,y,width,height}, innerWidth, innerHeight }（CSS px）
+    setBounds: payload => ipcRenderer.invoke('browser:set-bounds', payload),
+    // 原生下拉菜单（DOM 弹层会被原生子视图盖住）：{ x, y, items: [{value,label,checked?}] }
+    // 返回选中 value，取消返回 null
+    popupMenu: payload => ipcRenderer.invoke('browser:popup-menu', payload),
+    show: () => ipcRenderer.invoke('browser:show'),
+    hide: () => ipcRenderer.invoke('browser:hide'),
+    getState: () => ipcRenderer.invoke('browser:get-state'),
+    // 翻译开关：true 注入并启用双语对照，false 移除全部译文
+    setTranslate: enabled => ipcRenderer.invoke('browser:translate', enabled),
+    // 引擎/目标语言切换：{ engine: 'google'|'llm', target: 'zh-CN'|'en'|..., provider: { baseUrl, apiKey, model } }
+    setEngine: opts => ipcRenderer.invoke('browser:set-engine', opts),
+    // 导航状态回推（url/title/loading/canGoBack/canGoForward/engine/enabled）
+    onState: cb => {
+      const handler = (_e, v) => cb(v)
+      ipcRenderer.on('browser:state', handler)
+      return () => ipcRenderer.removeListener('browser:state', handler)
+    },
+    // 翻译进度回推：{ total, done, failed, error? }
+    onProgress: cb => {
+      const handler = (_e, v) => cb(v)
+      ipcRenderer.on('browser:progress', handler)
+      return () => ipcRenderer.removeListener('browser:progress', handler)
     }
   },
   // 屏幕截取（iShot 风格截图工具）：状态 / 全屏 / 选区 / 长截图 / 统一复制历史 / 权限设置

@@ -34,6 +34,13 @@ export const CAPABILITY_CATEGORIES = [
     logo: 'logo-skill'
   },
   {
+    key: 'wechat',
+    label: '公众号',
+    desc: '公众号模板资产管线：秀米模板抓取导入、变量化渲染与草稿发布',
+    icon: 'doc',
+    logo: 'logo-skill'
+  },
+  {
     key: 'workflow',
     label: '深度研究',
     desc: 'pi-dynamic-workflows 提供的多代理工作流编排（并行搜集与交叉验证）',

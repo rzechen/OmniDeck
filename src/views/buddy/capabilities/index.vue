@@ -124,7 +124,7 @@ export default {
     return {
       loading: false,
       loaded: false,
-      groups: { core: [], builtin: [], web: [], docs: [], workflow: [], ui: [], memory: [], connectors: [] },
+      groups: { core: [], builtin: [], web: [], docs: [], wechat: [], workflow: [], ui: [], memory: [], connectors: [] },
       // 分类元信息（共享定义，与权限策略下拉一致）
       categories: CAPABILITY_CATEGORIES,
       // 预装依赖弹窗：当前查看的运行时工具及其依赖分组
@@ -195,7 +195,7 @@ export default {
       try {
         const res = await api.capabilityList()
         if (res && res.ok && res.groups) {
-          this.groups = Object.assign({ core: [], builtin: [], web: [], docs: [], workflow: [], ui: [], memory: [], connectors: [] }, res.groups)
+          this.groups = Object.assign({ core: [], builtin: [], web: [], docs: [], wechat: [], workflow: [], ui: [], memory: [], connectors: [] }, res.groups)
           this.loaded = true
         }
       } finally {

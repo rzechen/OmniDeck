@@ -53,6 +53,12 @@ function extToolsWithRuntimeStatus() {
     if (probe.source === 'builtin') {
       return Object.assign({}, t, { runtime: detail, description: t.description + '解释器来自内置运行时。' })
     }
+    if (probe.source === 'downloaded') {
+      return Object.assign({}, t, {
+        runtime: detail,
+        description: t.description + '解释器来自在线装配的运行时组件（设置 → 运行时可管理）。'
+      })
+    }
     if (probe.source === 'system') {
       return Object.assign({}, t, {
         runtime: detail,
@@ -63,7 +69,7 @@ function extToolsWithRuntimeStatus() {
       disabled: true,
       runtime: detail,
       description: '未检测到 ' + (t.name === 'python' ? 'Python' : 'Node.js')
-        + ' 解释器（内置运行时未装配且系统 PATH 上无可用解释器）。'
+        + ' 解释器（运行时未装配且系统 PATH 上无可用解释器，可在设置 → 运行时在线装配）。'
     })
   })
 }
@@ -136,6 +142,15 @@ function workflowTools() {
     description: '深度研究能力尚未就绪（应用启动时自动装配，稍后重试）。' + t.description
   }))
 }
+
+// 公众号工具：模板资产管线（wechat/import.js + render.js + editor.js 注册）
+const WECHAT_TOOLS = [
+  { name: 'import_wechat_template', label: '导入秀米模板', description: '从秀米模板市场批量导入公众号排版模板：抓取作品页正文（内联样式），图片本地化，落盘为本地模板资产（userData/wechat/templates/），供变量化渲染与发布。', perm: 'allow' },
+  { name: 'render_wechat_template', label: '渲染公众号模板', description: '按变量值渲染公众号模板（{{变量}} 替换 + {{#each}} 循环展开），落盘为可预览 HTML，返回残留变量清单。', perm: 'allow' },
+  { name: 'publish_wechat_draft', label: '发布公众号草稿', description: '渲染成品发布到公众号草稿箱（不群发）：正文图片与封面自动转存素材库，返回 media_id。需环境变量 WECHAT_APP_ID / WECHAT_APP_SECRET 与 IP 白名单。', perm: 'ask' },
+  { name: 'copy_wechat_html', label: '复制公众号排版', description: '渲染成品以富文本写入剪贴板，粘贴公众号编辑器保留排版（不走开放接口的兜底发文通道）。', perm: 'allow' },
+  { name: 'inject_wechat_editor', label: '注入公众号编辑器', description: '渲染成品直接写入已打开的公众号图文编辑页（内置浏览器登录 mp.weixin.qq.com）：正文追加进编辑器、本地图片内联转存、回填标题摘要作者。走网页登录态，免 API 凭据与 IP 白名单。', perm: 'ask' }
+]
 
 // 交互与任务工具（UI 耦合扩展，pi.js 内联注册）
 const UI_TOOLS = [
@@ -214,6 +229,7 @@ function listCapabilities() {
     builtin: extToolsWithRuntimeStatus(),
     web: webTools(),
     docs: docTools(),
+    wechat: WECHAT_TOOLS,
     workflow: workflowTools(),
     ui: UI_TOOLS,
     memory: memoryTools(),
@@ -230,6 +246,7 @@ const TOOL_GROUPS = [
   ['builtin', EXT_TOOLS],
   ['web', WEB_TOOLS],
   ['docs', DOC_TOOLS],
+  ['wechat', WECHAT_TOOLS],
   ['workflow', WORKFLOW_TOOLS],
   ['ui', UI_TOOLS],
   ['memory', MEMORY_TOOLS],

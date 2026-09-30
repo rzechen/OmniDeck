@@ -138,16 +138,17 @@ npm run release -- local mac    # 仅本地打包，不上传
 
 产物统一输出至 `release/`，命名 `OmniDeck-${version}-${os}-${arch}.${ext}`。
 
-### 内置运行时装配（进阶）
+### 运行时组件开发备料（进阶）
 
 ```bash
-bash scripts/provision-runtime.sh fetch   [plat]   # 备料：按清单下载装配包至 lib/<plat>/
+bash scripts/provision-runtime.sh fetch   [plat]   # 备料：按清单下载装配包至 lib/<plat>/（本地开发装配用）
 bash scripts/provision-runtime.sh install [plat]   # 装配：python/node/node-tools/playwright/npx-cache 落位
 bash scripts/provision-runtime.sh verify  [plat]   # 核对：布局 / 可执行 / 版本 / 预装依赖冒烟
 ```
 
 - `plat` 省略时取当前平台，可选 `darwin-arm64` / `windows-x86_64` 等
-- **离线优先**：`lib/<plat>/` 离线备料包已通过 **Git LFS** 入库，clone 即得，命中本地档即解压、不再联网；缺档才在线下载并回存 `lib/` 供后续零网络复用
+- **统一在线装配**：安装包不带 runtime / lib，全部组件（含 MinGit）由首启引导页从云端仓库（OmniBuddy-Plugins Release + 官方源）在线装配至用户数据目录；本地 `runtime/` 仅供开发调试（dev 启动命中内置根，不触发引导）
+- **云端发布**：组件包更新走 `scripts/runtime-publish.sh`（继承式 manifest merge，本地只需备齐增量组件包）
 - **跨平台备料**：解压型组件支持在 mac 宿主上直接为 `windows-x86_64` 落位（`bash scripts/provision-runtime.sh install windows-x86_64`）
 
 <details>
@@ -158,10 +159,9 @@ bash scripts/provision-runtime.sh verify  [plat]   # 核对：布局 / 可执行
 ```
 vite build（渲染包 → dist/，主进程 → dist-electron/）
       ↓
-electron-builder（files 白名单 + asarUnpack，输出 release/）
+electron-builder（files 白名单 + asarUnpack，输出 release/，不含 runtime/lib）
       ↓
 scripts/afterPack.js 钩子
-  ├─ 拷 runtime/<plat>/ → 应用 Resources/runtime/<plat>/（未装配则跳过，不阻塞打包）
   └─ macOS：ad-hoc 签名（codesign --force --deep --sign -）
 ```
 
@@ -175,9 +175,8 @@ scripts/afterPack.js 钩子
 OmniDeck/
 ├── build/                  # 应用图标与托盘资源（随 extraResources 打包）
 ├── native/                 # NAPI 插件（windows.cpp：窗口枚举，截图 hover 拾取用）
-├── lib/                    # 运行时离线备料包（Git LFS 管理，按平台分目录）
-├── runtime/                # 运行时装配产物（install 生成，打包时拷进安装包）
-├── scripts/                # 构建脚本：运行时装配 / 发版上传 / 公开仓镜像 / afterPack 钩子
+├── runtime/                # 运行时装配产物（install 生成，仅本地开发用，不打包）
+├── scripts/                # 构建脚本：运行时装配 / 组件发布 / 发版上传 / afterPack 钩子
 ├── src/                    # 渲染进程（Vue 3）
 │   ├── layout/             # 双视图布局（index.vue=Deck，BuddyLayout.vue=Buddy）
 │   ├── views/              # 页面：buddy/（chat/workspace/mcp/…）deck/（tools/* finance…）

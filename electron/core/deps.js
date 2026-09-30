@@ -138,8 +138,9 @@ async function ensureDeps() {
 }
 
 // ===== git 预检（P2）=====
-// Windows：内置 MinGit（win extraResources 的 resources/git/MinGit-*.zip）首启
-//   解压到 userData/omnibuddy/git，cmd 目录前置 PATH（bash 等工具即可用 git）。
+// Windows：MinGit 已改为在线装配组件（首启引导页 / 设置 → 运行时，落位
+//   userData/omnibuddy/runtime/win-x86_64/git），cmd 目录前置 PATH（bash 等
+//   工具即可用 git）；老版本曾解压到 userData/omnibuddy/git，双目录兼容探测。
 // mac/linux：实测系统 git——用 --version 实测而非 which 判定（mac 的
 //   /usr/bin/git 是 xcrun shim，未装 CLT 时执行会触发 GUI 安装弹窗）；
 //   缺失仅一次性提示，不阻断启动（git 非核心链路，只影响工作空间 git 命令）。
@@ -158,51 +159,34 @@ function probeGit(bin) {
   })
 }
 
-// 内置 MinGit zip：dev 在 <app>/lib/windows-x86_64（与参考项目 lib/<平台> 结构对齐）；
-// 打包在 resources/git（win extraResources filter 仅取 MinGit zip）
-function mingitZip() {
-  const dir = app.isPackaged
-    ? path.join(process.resourcesPath, 'git')
-    : path.join(app.getAppPath(), 'lib', 'windows-x86_64')
-  try {
-    const f = fs.readdirSync(dir).find(n => /^MinGit.*\.zip$/i.test(n))
-    return f ? path.join(dir, f) : ''
-  } catch (e) {
-    return ''
-  }
-}
-
-// 解压目标（userData/omnibuddy/git，官方 zip 根目录即 cmd\git.exe 布局）
-function unpackedGitDir() {
-  return path.join(app.getPath('userData'), 'omnibuddy', 'git')
+// MinGit 候选目录：在线装配根（runtime-downloader 'mingit' 组件落位）+ 老版本解压目录
+// （win32 下 runtime.platKey 恒为 win-x86_64，无需引 runtime 模块）
+function mingitDirs() {
+  const base = path.join(app.getPath('userData'), 'omnibuddy')
+  return [
+    path.join(base, 'runtime', 'win-x86_64', 'git'),
+    path.join(base, 'git')
+  ]
 }
 
 async function ensureGit() {
-  // 1) 系统 git 实测（PATH 可能已含此前注入的内置目录）
+  // 1) 系统 git 实测（PATH 可能已含此前注入的装配目录）
   if (await probeGit()) {
     console.log('[deps] git 可用（系统 PATH）')
     return true
   }
-  // 2) Windows：解压内置 MinGit → cmd 目录前置 PATH → 复测
+  // 2) Windows：探测装配目录 → cmd 前置 PATH → 复测（不再内置解压，未装走引导页/设置装配）
   if (process.platform === 'win32') {
-    try {
-      const gitExe = path.join(unpackedGitDir(), 'cmd', 'git.exe')
-      if (!fs.existsSync(gitExe)) {
-        const zip = mingitZip()
-        if (!zip) throw new Error('未找到内置 MinGit 包')
-        console.log('[deps] 首次启动：解压内置 MinGit…')
-        const AdmZip = require('adm-zip')
-        fs.mkdirSync(unpackedGitDir(), { recursive: true })
-        new AdmZip(zip).extractAllTo(unpackedGitDir(), true) // 覆盖式幂等
-      }
+    for (const dir of mingitDirs()) {
+      const gitExe = path.join(dir, 'cmd', 'git.exe')
+      if (!fs.existsSync(gitExe)) continue
       process.env.PATH = path.dirname(gitExe) + path.delimiter + process.env.PATH
       if (await probeGit(gitExe)) {
-        console.log('[deps] 内置 MinGit 已就绪')
+        console.log('[deps] MinGit 已就绪：', dir)
         return true
       }
-    } catch (e) {
-      console.warn('[deps] MinGit 解压失败：', e.message)
     }
+    console.warn('[deps] MinGit 未装配：可在首启引导页或「设置 → 运行时」在线装配')
   }
   // 3) 缺失：打包环境下一次性提示安装（不阻断启动）
   console.warn('[deps] 未检测到 git：工作空间内的 git 命令将不可用')
@@ -217,7 +201,7 @@ async function ensureGit() {
         message: 'Agent 工作空间中的 git 命令将不可用。',
         detail: process.platform === 'darwin'
           ? '可执行「xcode-select --install」安装命令行工具（含 git）后重启应用。'
-          : '可在 https://git-scm.com/downloads 安装 git 后重启应用。',
+          : '可在「设置 → 运行时」在线装配 Git 工具，或从 https://git-scm.com/downloads 安装后重启应用。',
         buttons: ['知道了']
       })
       try {

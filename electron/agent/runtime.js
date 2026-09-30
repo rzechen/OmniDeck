@@ -1,7 +1,9 @@
 // OmniDeck 内置运行时定位（python / node / playwright 浏览器 / npx 缓存）
 // 由 scripts/provision-runtime.sh 装配到 <root>/runtime/<plat>/，
 // afterPack 打进安装包 Resources/runtime/<plat>（开箱即用，不依赖宿主环境）。
-// 解析优先级：内置运行时 → 系统（PATH）；未装配时全部走系统回退。
+// 瘦身版另支持在线装配：runtime-downloader 按需下载解压到
+// <userData>/omnibuddy/runtime/<plat>/（与内置包同构布局）。
+// 解析优先级：内置运行时 → 在线装配（userData）→ 系统（PATH）；未装配时走系统回退。
 // 布局差异：POSIX（python/bin/python3、node/bin/、node/lib/node_modules）
 // vs Windows（python\python.exe、node\ 根级 node.exe、node\node_modules\）
 const path = require('path')
@@ -35,79 +37,99 @@ function rootDir() {
   return ''
 }
 
-// 内置 python 解释器
+// userData 目录（主进程直取；agent 子进程内 require('electron') 被 agent-shim
+// 重定向，getPath 从注入的 init.paths.userData 返回——两进程模型下均可用）
+function userDataDir() {
+  try {
+    const { app } = require('electron')
+    return app.getPath('userData')
+  } catch (e) {
+    return ''
+  }
+}
+
+// 在线装配运行时根目录：<userData>/omnibuddy/runtime/<plat>
+// （runtime-downloader 主进程模块解压落位，与内置包同构布局；未装配返回 ''）
+function downloadedRootDir() {
+  const plat = platKey()
+  if (!plat) return ''
+  const ud = userDataDir()
+  if (!ud) return ''
+  const dir = path.join(ud, 'omnibuddy', 'runtime', plat)
+  return fs.existsSync(dir) ? dir : ''
+}
+
+// 候选根链：内置（安装包 Resources）→ 在线装配（userData），供多根扫描场景
+function rootDirs() {
+  return [rootDir(), downloadedRootDir()].filter(Boolean)
+}
+
+// 两根下探测落位相对路径 → { path, source: 'builtin'|'downloaded' } | null
+// （source 供 probe* 上报来源；内置根优先——升级残留的旧装配不遮蔽安装包）
+function locate(rel) {
+  const builtin = rootDir()
+  if (builtin && fs.existsSync(path.join(builtin, rel))) {
+    return { path: path.join(builtin, rel), source: 'builtin' }
+  }
+  const dl = downloadedRootDir()
+  if (dl && fs.existsSync(path.join(dl, rel))) {
+    return { path: path.join(dl, rel), source: 'downloaded' }
+  }
+  return null
+}
+
+// 应用侧 python 解释器（内置运行时或在线装配；函数名沿用历史调用方口径，
+// 返回 '' 时调用方回退系统 PATH）
 function builtinPython() {
-  const root = rootDir()
-  if (!root) return ''
-  const bin = isWin()
-    ? path.join(root, 'python', 'python.exe')
-    : path.join(root, 'python', 'bin', 'python3')
-  return fs.existsSync(bin) ? bin : ''
+  const hit = locate(isWin() ? 'python/python.exe' : 'python/bin/python3')
+  return hit ? hit.path : ''
 }
 
-// 内置 node 的 bin 目录（POSIX：bin/ 含 node/npm/npx；Windows：node 根级）
+// 应用侧 node 的 bin 目录（POSIX：bin/ 含 node/npm/npx；Windows：node 根级）
 function nodeBinDir() {
-  const root = rootDir()
-  if (!root) return ''
-  const bin = isWin() ? path.join(root, 'node') : path.join(root, 'node', 'bin')
-  const marker = isWin() ? path.join(bin, 'node.exe') : path.join(bin, 'node')
-  return fs.existsSync(marker) ? bin : ''
+  const hit = locate(isWin() ? 'node/node.exe' : 'node/bin/node')
+  return hit ? path.dirname(hit.path) : ''
 }
 
-// 内置 node 可执行文件（无内置运行时返回 ''，调用方回退 PATH 上的 node）
+// 应用侧 node 可执行文件（无运行时返回 ''，调用方回退 PATH 上的 node）
 function nodeExe() {
-  const binDir = nodeBinDir()
-  if (!binDir) return ''
-  return isWin() ? path.join(binDir, 'node.exe') : path.join(binDir, 'node')
+  const hit = locate(isWin() ? 'node/node.exe' : 'node/bin/node')
+  return hit ? hit.path : ''
 }
 
-// 内置 npx 入口脚本（npx-cli.js）——统一走 node + npx-cli.js 而非 npx
+// 应用侧 npx 入口脚本（npx-cli.js）——统一走 node + npx-cli.js 而非 npx
 // 可执行：Windows spawn .cmd 受限，且跨平台同构无需按平台拼命令名
 function npxCli() {
-  const root = rootDir()
-  if (!root) return ''
-  const cli = isWin()
-    ? path.join(root, 'node', 'node_modules', 'npm', 'bin', 'npx-cli.js')
-    : path.join(root, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npx-cli.js')
-  return fs.existsSync(cli) ? cli : ''
+  const hit = locate(isWin()
+    ? 'node/node_modules/npm/bin/npx-cli.js'
+    : 'node/lib/node_modules/npm/bin/npx-cli.js')
+  return hit ? hit.path : ''
 }
 
-// 内置 node 预装库目录（provision 的 node-tools 组件装配，沙箱增强集
-// sharp/docx/pptxgenjs 等；require 不搜全局路径，须 NODE_PATH 注入）
+// 应用侧 node 预装库目录（provision / runtime-downloader 的 node-tools 组件装配，
+// 沙箱增强集 sharp/docx/pptxgenjs 等；require 不搜全局路径，须 NODE_PATH 注入）
 function nodeGlobalModulesDir() {
-  const root = rootDir()
-  if (!root) return ''
-  const dir = isWin()
-    ? path.join(root, 'node', 'node_modules')
-    : path.join(root, 'node', 'lib', 'node_modules')
-  return fs.existsSync(dir) ? dir : ''
+  const hit = locate(isWin() ? 'node/node_modules' : 'node/lib/node_modules')
+  return hit ? hit.path : ''
 }
 
-// 内置 playwright 浏览器目录
+// 应用侧 playwright 浏览器目录
 function playwrightBrowsersDir() {
-  const root = rootDir()
-  if (!root) return ''
-  const dir = path.join(root, 'playwright-browsers')
-  return fs.existsSync(dir) ? dir : ''
+  const hit = locate('playwright-browsers')
+  return hit ? hit.path : ''
 }
 
-// 内置 npx 缓存目录（预热 @playwright/mcp，离线可用）
+// 应用侧 npx 缓存目录（预热 @playwright/mcp，离线可用）
 function npxCacheDir() {
-  const root = rootDir()
-  if (!root) return ''
-  const dir = path.join(root, 'npx-cache')
-  return fs.existsSync(dir) ? dir : ''
+  const hit = locate('npx-cache')
+  return hit ? hit.path : ''
 }
 
-// 内置 pandoc 二进制（doc_export 工具与 pi-markdown-preview 的转换引擎；
-// pandoc 为静态单文件，provision 落位 runtime/<plat>/pandoc/bin/）
+// 应用侧 pandoc 二进制（doc_export 工具与 pi-markdown-preview 的转换引擎；
+// pandoc 为静态单文件，落位 runtime/<plat>/pandoc/bin/）
 function pandocBin() {
-  const root = rootDir()
-  if (!root) return ''
-  const bin = isWin()
-    ? path.join(root, 'pandoc', 'bin', 'pandoc.exe')
-    : path.join(root, 'pandoc', 'bin', 'pandoc')
-  return fs.existsSync(bin) ? bin : ''
+  const hit = locate(isWin() ? 'pandoc/bin/pandoc.exe' : 'pandoc/bin/pandoc')
+  return hit ? hit.path : ''
 }
 
 // 内置 chrome-headless-shell 可执行文件（playwright-browsers 下；
@@ -151,10 +173,16 @@ function systemPython() {
 }
 
 // python 可用性总览（能力清单 / 工具执行共用）
-// → { bin, source: 'builtin'|'system'|null, sourceLabel }
+// → { bin, source: 'builtin'|'downloaded'|'system'|null, sourceLabel }
 function probePython() {
-  const builtin = builtinPython()
-  if (builtin) return { bin: builtin, source: 'builtin', sourceLabel: '内置运行时' }
+  const hit = locate(isWin() ? 'python/python.exe' : 'python/bin/python3')
+  if (hit) {
+    return {
+      bin: hit.path,
+      source: hit.source,
+      sourceLabel: hit.source === 'downloaded' ? '在线装配' : '内置运行时'
+    }
+  }
   const sys = systemPython()
   if (sys) return { bin: sys, source: 'system', sourceLabel: '系统解释器' }
   return { bin: '', source: null, sourceLabel: '未检测到' }
@@ -175,8 +203,14 @@ function systemNode() {
 
 // node 可用性总览（能力清单 / 工具执行共用；与 probePython 同构）
 function probeNode() {
-  const exe = nodeExe()
-  if (exe) return { bin: exe, source: 'builtin', sourceLabel: '内置运行时' }
+  const hit = locate(isWin() ? 'node/node.exe' : 'node/bin/node')
+  if (hit) {
+    return {
+      bin: hit.path,
+      source: hit.source,
+      sourceLabel: hit.source === 'downloaded' ? '在线装配' : '内置运行时'
+    }
+  }
   const sys = systemNode()
   if (sys) return { bin: sys, source: 'system', sourceLabel: '系统解释器' }
   return { bin: '', source: null, sourceLabel: '未检测到' }
@@ -198,19 +232,21 @@ function systemPandoc() {
 // pandoc 可用性总览（能力清单 / doc-export 共用；附版本号供展示）
 // → { bin, source, sourceLabel, version }
 function probePandoc() {
-  const builtin = pandocBin()
-  const bin = builtin || systemPandoc()
-  if (!bin) return { bin: '', source: null, sourceLabel: '未检测到', version: '' }
+  const hit = locate(isWin() ? 'pandoc/bin/pandoc.exe' : 'pandoc/bin/pandoc')
+  const bin = hit ? hit.path : ''
+  const sys = bin ? '' : systemPandoc()
+  const resolved = bin || sys
+  if (!resolved) return { bin: '', source: null, sourceLabel: '未检测到', version: '' }
   let version = ''
   try {
     const { spawnSync } = require('child_process')
-    const r = spawnSync(builtin || 'pandoc', ['--version'], { timeout: 5000, encoding: 'utf-8' })
+    const r = spawnSync(resolved, ['--version'], { timeout: 5000, encoding: 'utf-8' })
     if (r.status === 0) version = (String(r.stdout || '').split('\n')[0] || '').replace(/^pandoc\.exe\s*/i, '').trim()
   } catch (e) { /* 版本探测失败不影响可用性判定 */ }
   return {
-    bin: builtin || 'pandoc',
-    source: builtin ? 'builtin' : 'system',
-    sourceLabel: builtin ? '内置运行时' : '系统 PATH',
+    bin: bin || 'pandoc',
+    source: hit ? hit.source : 'system',
+    sourceLabel: hit ? (hit.source === 'downloaded' ? '在线装配' : '内置运行时') : '系统 PATH',
     version
   }
 }
@@ -255,26 +291,31 @@ function normalizePkgName(name) {
   return String(name || '').toLowerCase().replace(/[-_.]+/g, '-')
 }
 
-// python site-packages 目录：
+// python site-packages 目录（内置与在线装配两根合并扫描）：
 // POSIX（python/lib/python3.x/site-packages，兼容多版本目录）；Windows（python/Lib/site-packages）
 function pythonSitePackagesDirs() {
-  const root = rootDir()
-  if (!root) return []
-  const base = isWin() ? path.join(root, 'python', 'Lib') : path.join(root, 'python', 'lib')
-  if (isWin()) {
-    const dir = path.join(base, 'site-packages')
-    return fs.existsSync(dir) ? [dir] : []
-  }
-  let entries = []
-  try {
-    entries = fs.readdirSync(base)
-  } catch (e) {
-    return []
-  }
-  return entries
-    .filter(n => /^python3\.\d+$/.test(n))
-    .map(n => path.join(base, n, 'site-packages'))
-    .filter(dir => fs.existsSync(dir))
+  const out = []
+  rootDirs().forEach(root => {
+    const base = isWin() ? path.join(root, 'python', 'Lib') : path.join(root, 'python', 'lib')
+    if (isWin()) {
+      const dir = path.join(base, 'site-packages')
+      if (fs.existsSync(dir)) out.push(dir)
+      return
+    }
+    let entries = []
+    try {
+      entries = fs.readdirSync(base)
+    } catch (e) {
+      return
+    }
+    entries
+      .filter(n => /^python3\.\d+$/.test(n))
+      .forEach(n => {
+        const dir = path.join(base, n, 'site-packages')
+        if (fs.existsSync(dir)) out.push(dir)
+      })
+  })
+  return out
 }
 
 // 扫描 *.dist-info → { 归一化包名: 版本 }
@@ -403,7 +444,7 @@ function playwrightRuntime() {
 }
 
 module.exports = {
-  platKey, rootDir, builtinPython,
+  platKey, rootDir, downloadedRootDir, builtinPython,
   nodeBinDir, nodeExe, npxCli, nodeGlobalModulesDir,
   playwrightBrowsersDir, npxCacheDir,
   pandocBin, chromeHeadlessBin, probePandoc,

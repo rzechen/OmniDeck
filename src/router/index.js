@@ -60,6 +60,8 @@ const routes = [
         component: () => import('@/views/buddy/capabilities/index.vue'),
         meta: { title: '能力清单' }
       },
+      // 运行时组件管理已收编至设置页（shared/settings「运行时」分区，
+      // 由 RuntimeManager 组件承载），不再提供独立路由
       {
         path: 'permissions',
         name: 'OmniBuddyPermissions',
@@ -108,6 +110,14 @@ const routes = [
         meta: { title: '问题反馈' }
       }
     ]
+  },
+  // 首启引导装配页（独立壳页不挂 Layout）：检查运行 buddy 所需的全部运行时组件，
+  // 未就绪时在此在线装配（打包不带 runtime / lib，云端仓库拉取），完成后进主视图
+  {
+    path: '/setup',
+    name: 'Setup',
+    component: () => import('@/views/shell/setup/index.vue'),
+    meta: { title: '环境装配' }
   },
   // 快捷面板（P0-M1）：Spotlight 式独立壳页（不挂任何 Layout；
   // 锁定遮罩由 App.vue 全局 AppLock 组件覆盖，无需本页处理）
@@ -160,6 +170,13 @@ const routes = [
         name: 'Favorites',
         component: () => import('@/views/deck/favorites/index.vue'),
         meta: { title: '我的收藏' }
+      },
+      // 浏览器（一级入口：应用内 WebContentsView 网页容器，双语翻译等为容器特性）
+      {
+        path: 'browser',
+        name: 'Browser',
+        component: () => import('@/views/deck/browser/index.vue'),
+        meta: { title: '浏览器' }
       },
       // 工具分类
       {
@@ -757,10 +774,34 @@ const router = createRouter({
   routes
 })
 
+// 首启引导装配守卫：主视图（deck / buddy）首次导航前查询必需运行时组件就绪态，
+// 未就绪强制进入 /setup 引导页在线装配（打包不带 runtime / lib）。结果缓存在
+// router.setupNeeded（undefined=未探测），引导页完成/跳过后置 false 放行；
+// /quick、截图小窗等独立壳页不依赖运行时组件，不拦截（避免小窗加载引导页）
+async function setupGuard(to) {
+  const rootComp = to.matched[0] && to.matched[0].components && to.matched[0].components.default
+  const isMainView = rootComp === Layout || rootComp === BuddyLayout
+  if (!isMainView || to.path === '/setup') return true
+  if (router.setupNeeded === undefined) {
+    try {
+      const api = window.electronAPI && window.electronAPI.omnibuddy
+      const st = api && api.setupStatus ? await api.setupStatus() : null
+      router.setupNeeded = !!(st && st.ok !== false && st.needed)
+    } catch (e) {
+      router.setupNeeded = false // 非 Electron / IPC 异常不阻断导航
+    }
+  }
+  return !router.setupNeeded
+}
+
 // 全局兜底守卫：未匹配的路径不会渲染任何页面，会导致顶层 <router-view> 空白
 // （表现为只剩壁纸、侧边栏一并消失）。这里统一回退首页并提示，
 // 同时因为导航目标是首页，坏路径不会被 afterEach 写进 lastDeckPath
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
+  if (!(await setupGuard(to))) {
+    next('/setup')
+    return
+  }
   if (to.matched.length === 0 || to.name === 'NotFound') {
     const bad = to.fullPath
     next('/home')

@@ -223,6 +223,11 @@ export default {
         const text = decrypted.toString(CryptoJS.enc.Utf8)
         if (!text) throw new Error('解密结果为空，请检查密钥 / IV / 密文格式')
         this.outputText = text
+        record(TOOL_PATH, {
+          input: before,
+          output: this.outputText,
+          options: { action: 'decrypt', algorithm: this.algorithm, mode: this.mode, key: this.key, iv: this.iv }
+        })
       } catch (e) {
         this.errorMsg = '解密失败：' + (e.message || '密钥错误或密文无效')
       }
@@ -235,6 +240,25 @@ export default {
       navigator.clipboard.writeText(this.outputText).then(() => {
         this.$message.success('复制成功')
       })
+    },
+    // 从历史恢复：回填输入输出与算法/模式/密钥/IV
+    async restoreFromHistory(item) {
+      const full = await getHistory(item.id)
+      if (!full) {
+        this.$message.warning('该记录已被删除')
+        return
+      }
+      this.inputText = full.input || ''
+      this.outputText = full.output || ''
+      if (full.options) {
+        if (full.options.algorithm) this.algorithm = full.options.algorithm
+        if (full.options.mode) this.mode = full.options.mode
+        if (full.options.key) this.key = full.options.key
+        if (full.options.iv) this.iv = full.options.iv
+      }
+      this.errorMsg = ''
+      this.$nextTick(() => this.$refs.inputEditor && this.$refs.inputEditor.focus())
+      this.$message.success('已从历史恢复')
     },
     clearAll() {
       this.inputText = ''

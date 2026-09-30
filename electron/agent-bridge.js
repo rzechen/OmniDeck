@@ -13,10 +13,160 @@
 const path = require('path')
 const {
   app, ipcMain, dialog, shell, BrowserWindow, Notification,
-  nativeImage, safeStorage, net, utilityProcess
+  nativeImage, safeStorage, net, utilityProcess,
+  clipboard, WebContentsView
 } = require('electron')
 
 let started = false
+
+// ===== 公众号模板抓取宿主服务（agent 子进程无 Chromium，隐藏视图只有主进程能建） =====
+// wechat/import.js 经 shim __host.fetchArticle 桥调用；串行队列保证单视图复用。
+const WX_PAGE_TIMEOUT = 25000    // 单页加载超时
+const WX_ARTICLE_TIMEOUT = 10000 // article 出现轮询上限
+
+let wxFetchView = null
+let wxFetchQueue = Promise.resolve()
+
+function getWxFetchView() {
+  if (wxFetchView && !wxFetchView.webContents.isDestroyed()) return wxFetchView
+  wxFetchView = new WebContentsView({
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      // 非 persist：抓取会话不落盘，与应用浏览容器（persist:web）隔离
+      partition: 'wechat-import'
+    }
+  })
+  const wc = wxFetchView.webContents
+  // UA 清洗：去 Electron/应用 token，避免站点指纹拦截（与 windows/browser.js 同规则）
+  try {
+    const cleanUa = wc.getUserAgent()
+      .replace(/\s+(?!Chrome\/|Safari\/|AppleWebKit\/|Mozilla\/)[a-zA-Z][a-zA-Z0-9._-]*\/\S+/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+    if (cleanUa) wc.setUserAgent(cleanUa)
+  } catch (e) { /* UA 获取失败保持默认 */ }
+  return wxFetchView
+}
+
+function destroyWxFetchView() {
+  if (!wxFetchView) return
+  try { wxFetchView.webContents.close() } catch (e) { /* 已销毁 */ }
+  wxFetchView = null
+}
+
+app.on('will-quit', destroyWxFetchView)
+
+// article 轮询提取：部分展示页 JS 渲染慢，did-finish 后正文未必就绪；
+// 返回 { html, text, images }（images 取原始 src 属性值，供子进程精确替换本地化）
+function wxExtractArticle(wc) {
+  const started = Date.now()
+  return new Promise((resolve, reject) => {
+    const poll = async () => {
+      try {
+        const r = await wc.executeJavaScript(`(() => {
+          const a = document.querySelector('article')
+          if (!a) return null
+          const imgs = []
+          a.querySelectorAll('img').forEach(img => {
+            const src = img.getAttribute('src')
+            if (src) imgs.push(src)
+          })
+          return {
+            html: a.innerHTML,
+            text: (a.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 200),
+            images: imgs
+          }
+        })()`)
+        if (r && r.html) return resolve(r)
+      } catch (e) { /* 执行异常（页面跳转中）继续轮询 */ }
+      if (Date.now() - started > WX_ARTICLE_TIMEOUT) {
+        return reject(new Error('未找到 article 正文(' + WX_ARTICLE_TIMEOUT / 1000 + 's)'))
+      }
+      setTimeout(poll, 500)
+    }
+    poll()
+  })
+}
+
+async function wxFetchArticleInMain(url) {
+  const wc = getWxFetchView().webContents
+  await Promise.race([
+    wc.loadURL(url),
+    new Promise((_r, reject) => setTimeout(
+      () => reject(new Error('页面加载超时(' + WX_PAGE_TIMEOUT / 1000 + 's)')),
+      WX_PAGE_TIMEOUT
+    ))
+  ])
+  return wxExtractArticle(wc)
+}
+
+// 串行入口：HOST 'wx.fetchArticle' 调用；失败不断链
+function wxFetchArticleHost(url) {
+  const run = wxFetchQueue.then(() => wxFetchArticleInMain(url))
+  wxFetchQueue = run.catch(() => { /* 队列不断链 */ })
+  return run
+}
+
+// ===== 公众号编辑器注入宿主服务（wechat/editor.js 经 shim __host.injectEditor 桥调用） =====
+// 页面内注入函数：编辑器四级回退定位（新版 ProseMirror 优先）+ 空文档占位段落清理
+// + 离屏解析逐节点追加（不覆盖已有内容）+ 受控表单回填（派发 input 事件）
+const WX_INJECT_FN = function (html, opts) {
+  const editor = document.querySelector('.ProseMirror[contenteditable="true"]')
+    || document.querySelector('#js_editor')
+    || document.querySelector('.rich_media_content')
+    || document.querySelector('[contenteditable="true"]')
+  if (!editor) {
+    return { ok: false, error: '页面已找到但未检测到编辑器区域（请进入图文编辑页再试）' }
+  }
+  // 新版 ProseMirror 空文档占位段落（trailing break 节点）清理，避免追加后残留空段
+  try {
+    const emptySection = editor.querySelector('section:has(span[leaf] .ProseMirror-trailingBreak)')
+    if (emptySection) emptySection.remove()
+  } catch (e) { /* :has 不支持时忽略 */ }
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = html
+  let nodes = 0
+  while (wrapper.firstChild) {
+    editor.appendChild(wrapper.firstChild)
+    nodes++
+  }
+  // 表单回填：直接设 value + 派发冒泡 input 事件，让受控组件感知变更
+  const filled = []
+  const fill = (sel, val) => {
+    if (!val) return
+    const el = document.querySelector(sel)
+    if (!el) return
+    el.value = val
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    filled.push(sel)
+  }
+  fill('#title', opts.title)
+  fill('#js_description', opts.digest)
+  fill('#author', opts.author)
+  return { ok: true, nodes, filled }
+}
+
+// 遍历全部 WebContents 定位公众号页（内置浏览器 / 独立窗口均可），取最近一个注入
+async function wxInjectEditorHost(html, fields) {
+  let target = null
+  for (const wc of BrowserWindow.getAllWebContents()) {
+    try {
+      if (new URL(wc.getURL()).hostname === 'mp.weixin.qq.com') target = wc
+    } catch (e) { /* 非标准 URL 跳过 */ }
+  }
+  if (!target) {
+    return {
+      ok: false,
+      error: '未找到已打开的公众号页面（mp.weixin.qq.com）——请先在内置浏览器登录并进入图文编辑页'
+    }
+  }
+  const script = '(' + WX_INJECT_FN.toString() + ')('
+    + JSON.stringify(String(html || '')) + ', ' + JSON.stringify(fields || {}) + ')'
+  const r = await target.executeJavaScript(script, true)
+  return Object.assign({ url: target.getURL() }, r || { ok: false, error: '注入无返回' })
+}
 
 function startAgentBridge(getWindow, baseDir) {
   if (started) return
@@ -171,7 +321,16 @@ function startAgentBridge(getWindow, baseDir) {
       const quality = (opts && opts.quality) != null ? opts.quality : 72
       return { dataUrl: img.resize({ width }).toJPEG(quality).toDataURL() }
     },
-    'fetchBuffer': (url, opts) => fetchBufferViaNet(url, opts)
+    'fetchBuffer': (url, opts) => fetchBufferViaNet(url, opts),
+    // 公众号模板抓取：隐藏 WebContentsView 加载作品页并提取 article（子进程无 Chromium）
+    'wx.fetchArticle': (url) => wxFetchArticleHost(url),
+    // 公众号编辑器注入：定位已打开的 mp.weixin.qq.com 页面写入渲染成品
+    'wx.injectEditor': (html, fields) => wxInjectEditorHost(html, fields),
+    // 剪贴板组合写入（wechat/copy 工具：html 富文本 + text 纯文本兜底）
+    'clipboard.write': (payload) => {
+      clipboard.write(payload || {})
+      return true
+    }
   }
 
   // ===== 子进程消息路由 =====

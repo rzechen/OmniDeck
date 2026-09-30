@@ -5,8 +5,11 @@ const { registerOmnibuddyIpc } = require('./agent')
 const { startAgentBridge } = require('./agent-bridge')
 const quickPanel = require('./windows/quick-panel')
 const capture = require('./windows/capture')
+const browser = require('./windows/browser')
 const updater = require('./core/updater')
 const deps = require('./core/deps')
+const runtimeDownloader = require('./core/runtime-downloader')
+const setup = require('./core/setup')
 const wallpaperFetch = require('./services/wallpaper-fetch')
 
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true'
@@ -101,13 +104,18 @@ ipcMain.handle('app:relaunch', () => {
 
 function createWindow() {
   const isMac = process.platform === 'darwin'
+  // 首启引导期用设计尺寸居中展示（不最大化）；正常启动保持最大化
+  const setupMode = setup.isSetupNeeded()
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 840,
+    width: setupMode ? 1180 : 1280,
+    height: setupMode ? 760 : 840,
     minWidth: 960,
     minHeight: 640,
     backgroundColor: '#F0F0F2',
     show: false,
+    center: true,
+    // 引导期禁拖拉调整大小（固定设计尺寸展示斜分视图），完成后恢复
+    resizable: !setupMode,
     // 平台差异：mac 用红绿灯 + 毛玻璃；Windows 无边框，由 Topbar 自绘窗口控制按钮
     ...(isMac
       ? {
@@ -137,8 +145,9 @@ function createWindow() {
   mainWindow.on('maximize', () => sendMax(true))
   mainWindow.on('unmaximize', () => sendMax(false))
 
-  // 启动默认最大化（保留用户手动还原后的尺寸记忆由系统管理）
-  mainWindow.maximize()
+  // 启动默认最大化（双保险：部分环境 show 前的设置会在显示时被还原，ready-to-show 再补一次）；
+  // 首启引导期不最大化——设计尺寸居中展示引导页
+  if (!setupMode) mainWindow.maximize()
 
   // 开发模式加载 dev server，生产模式加载打包文件
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -157,6 +166,9 @@ function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
+    // 部分环境下 show 前的 maximize 会在窗口显示时被还原，显示时再补一次确保最大化；
+    // 首启引导期跳过（保持设计尺寸居中）
+    if (!setupMode && !mainWindow.isMaximized()) mainWindow.maximize()
     mainWindow.show()
   })
 
@@ -187,6 +199,8 @@ function createWindow() {
   })
 
   mainWindow.on('closed', () => {
+    // 翻译浏览器视图随主窗销毁，避免残留 WebContentsView
+    browser.destroy()
     mainWindow = null
   })
 }
@@ -394,8 +408,8 @@ app.whenReady().then(async () => {
   // 启动依赖预检：qmd 等必需外部 CLI 缺失时弹窗引导安装，不满足不放行
   if (!await deps.ensureDeps()) return
 
-  // git 预检：Windows 首启后台解压内置 MinGit 并注入 PATH（几秒内就绪，
-  // 后续启动毫秒级）；mac/linux 实测系统 git，缺失一次性提示，均不阻断启动
+  // git 预检：实测系统 PATH；Windows 缺失时探测在线装配根（首启引导页装配的
+  // MinGit），仅提示不阻断启动（mac/linux 缺失一次性提示）
   deps.ensureGit()
 
   // OmniBuddy Agent：pi 运行时（agentDir/workspace）+ 会话持久化 + 流式对话 IPC
@@ -406,6 +420,16 @@ app.whenReady().then(async () => {
   } else {
     startAgentBridge(() => mainWindow, omnibuddyDir)
   }
+
+  // 运行时组件在线装配（主进程直挂 IPC，不经 agent 桥——大文件流式下载与进度推送
+  // 依赖主进程 net 的系统代理语义；装配后 runtime.js 双根解析链即时生效）
+  runtimeDownloader.init(omnibuddyDir)
+  runtimeDownloader.registerIpc()
+
+  // 首启引导装配：/setup 引导页查询必需组件就绪态、完成后写放行标记并恢复主窗（可拖拉 + 最大化）
+  setup.registerIpc(() => mainWindow)
+  // 启动续装：完成标记在但组件仍有缺失（上次装配中断 / 被卸载）→ 后台静默续装不拦截
+  setup.maybeAutoResume()
 
   // 屏幕截取（iShot 风格截图工具）：内存记录池（无落盘），IPC 注册；
   // getWindows：快捷键截图时需隐藏的应用窗口（主窗 + 快捷面板）
@@ -428,6 +452,11 @@ app.whenReady().then(async () => {
   wallpaperFetch.registerIpc()
 
   createWindow()
+
+  // 浏览器容器（Deck 一级入口）：主窗内 WebContentsView 通用网页容器；
+  // 业务能力以特性方式挂载——translate 为双语对照翻译，后续公众号编辑器注入等
+  browser.init({ getWindow: () => mainWindow })
+  browser.registerFeature(require('./translate/controller'))
 
   // 快捷入口（P0-M1）：托盘 + 全局快捷键 + 快捷面板壳
   quickPanel.init({ getWindow: () => mainWindow })

@@ -68,8 +68,20 @@ const mainInput = hasCore
       ...Object.fromEntries(agentNames.map(name => [`agent/${name}`, abs(`electron/agent/${name}.js`)])),
       'windows/quick-panel': abs('electron/windows/quick-panel.js'),
       'windows/capture': abs('electron/windows/capture.js'),
+      'windows/browser': abs('electron/windows/browser.js'),
+      // 翻译浏览器：引擎层 / 注入脚本（browser.js 相对引用，产物镜像源码结构）
+      'translate/engines': abs('electron/translate/engines.js'),
+      'translate/inject': abs('electron/translate/inject.js'),
+      // 公众号模板管线：秀米导入 / 渲染发布复制 / 编辑器注入（agent/pi.js 相对引用，产物镜像源码结构）
+      'wechat/import': abs('electron/wechat/import.js'),
+      'wechat/render': abs('electron/wechat/render.js'),
+      'wechat/editor': abs('electron/wechat/editor.js'),
       'core/updater': abs('electron/core/updater.js'),
       'core/deps': abs('electron/core/deps.js'),
+      // 运行时组件在线装配（main.js require；产物镜像源码结构，运行时解析）
+      'core/runtime-downloader': abs('electron/core/runtime-downloader.js'),
+      // 首启引导装配检查（require runtime-downloader；引导页经 IPC 查询必需组件就绪态）
+      'core/setup': abs('electron/core/setup.js'),
       'services/wallpaper-fetch': abs('electron/services/wallpaper-fetch.js')
     }
   : { main: abs('scripts/stub-main.js') }
@@ -94,10 +106,14 @@ export default defineConfig({
       // 与 main 共用 dist-electron：不清空目录，否则会把先构建完成的主进程产物删掉
       emptyOutDir: false,
       rollupOptions: {
-        input: { preload: hasCore ? abs('electron/preload.js') : abs('scripts/stub-main.js') },
+        // 双入口：主 preload + 浏览器容器 WebContentsView 通用 preload（browser/view-preload.js）
+        input: {
+          preload: hasCore ? abs('electron/preload.js') : abs('scripts/stub-main.js'),
+          ...(hasCore ? { 'browser/view-preload': abs('electron/browser/view-preload.js') } : {})
+        },
         output: {
           format: 'cjs',
-          entryFileNames: 'preload.js'
+          entryFileNames: '[name].js'
         }
       }
     }
