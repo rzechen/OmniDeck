@@ -365,7 +365,7 @@ export default {
     }
   },
   methods: {
-    // Markdown 区点击委托：链接拦截 + 代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+    // Markdown 区点击委托：链接拦截 + 代码块复制/放大按钮（v-html 内容不归 Vue 管，走事件委托）
     onMdClick(e) {
       // 链接不导航应用窗口（伪链接如 http://entries.md 会白屏）：合法外链交系统浏览器
       const anchor = e.target.closest && e.target.closest('a')
@@ -373,6 +373,21 @@ export default {
         e.preventDefault()
         const href = anchor.getAttribute('href') || ''
         if (/^https?:\/\//i.test(href)) window.open(href, '_blank')
+        return
+      }
+      // 代码块「放大」：内容与语言标记经全局总线送右栏预览面板（页面层监听）
+      const zoom = e.target.closest && e.target.closest('.ob-code-zoom')
+      if (zoom) {
+        const box = zoom.closest('.ob-code')
+        if (box) {
+          const langEl = box.querySelector('.ob-code-lang')
+          const codeEl = box.querySelector('pre code')
+          this.$bus.emit('chat:artifact-preview', {
+            kind: 'code',
+            lang: langEl ? langEl.textContent.trim() : '',
+            code: codeEl ? codeEl.textContent : ''
+          })
+        }
         return
       }
       handleCodeCopy(e).then(ok => {

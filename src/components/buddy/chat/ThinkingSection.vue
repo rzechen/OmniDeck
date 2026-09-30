@@ -272,6 +272,21 @@ export default {
         if (/^https?:\/\//i.test(href)) window.open(href, '_blank')
         return
       }
+      // 代码块「放大」：内容与语言标记经全局总线送右栏预览面板（页面层监听）
+      const zoom = e.target.closest && e.target.closest('.ob-code-zoom')
+      if (zoom) {
+        const box = zoom.closest('.ob-code')
+        if (box) {
+          const langEl = box.querySelector('.ob-code-lang')
+          const codeEl = box.querySelector('pre code')
+          this.$bus.emit('chat:artifact-preview', {
+            kind: 'code',
+            lang: langEl ? langEl.textContent.trim() : '',
+            code: codeEl ? codeEl.textContent : ''
+          })
+        }
+        return
+      }
       handleCodeCopy(e).then(ok => {
         if (ok) this.$message.success('已复制')
       })

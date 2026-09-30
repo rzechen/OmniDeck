@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     searchSessions: q => ipcRenderer.invoke('omnibuddy:sessions:search', q),
     createSession: opts => ipcRenderer.invoke('omnibuddy:session:create', opts),
     getMessages: id => ipcRenderer.invoke('omnibuddy:session:messages', id),
+    isRunning: id => ipcRenderer.invoke('omnibuddy:session:is-running', id),
     // 点赞/点踩持久化（'like' | 'dislike' | '' 取消）
     setFeedback: payload => ipcRenderer.invoke('omnibuddy:session:feedback', payload),
     renameSession: payload => ipcRenderer.invoke('omnibuddy:session:rename', payload),
@@ -179,6 +180,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       trashBatch: paths => ipcRenderer.invoke('omnibuddy:files:trash-batch', paths),
       empty: dir => ipcRenderer.invoke('omnibuddy:files:empty', dir),
       read: p => ipcRenderer.invoke('omnibuddy:files:read', p),
+      readImage: p => ipcRenderer.invoke('omnibuddy:files:read-image', p),
       write: payload => ipcRenderer.invoke('omnibuddy:files:write', payload),
       reveal: p => ipcRenderer.invoke('omnibuddy:files:reveal', p),
       open: p => ipcRenderer.invoke('omnibuddy:files:open', p),

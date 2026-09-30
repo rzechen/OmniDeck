@@ -30,6 +30,7 @@ md.renderer.rules.fence = (tokens, idx) => {
   return '<div class="ob-code">' +
     '<div class="ob-code-head">' +
     '<span class="ob-code-lang">' + esc(lang || 'text') + '</span>' +
+    '<span class="ob-code-zoom" role="button" title="在右侧面板放大查看"></span>' +
     '<span class="ob-code-copy" role="button" title="复制代码">复制</span>' +
     '</div>' +
     '<pre><code' + langAttr + '>' + esc(token.content) + '</code></pre>' +

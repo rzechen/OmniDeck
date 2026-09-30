@@ -4,7 +4,13 @@
        平铺为产物卡片：类型图标（工作空间同款）+ 文件名 + 类型·大小 +「打开 / 所在文件夹」操作；
        数据随消息 items 的 artifacts 字段落盘，重开会话仍可见 -->
   <div v-if="artifacts.length" class="ob-arts">
-    <div v-for="(a, i) in artifacts" :key="(a.path || '') + i" class="ob-art-card">
+    <div
+      v-for="(a, i) in artifacts"
+      :key="(a.path || '') + i"
+      class="ob-art-card"
+      title="点击在右侧面板预览"
+      @click="previewArtifact(a)"
+    >
       <img class="ob-art-ico" :src="fileIcon(a.name || a.path || '')" alt="" draggable="false" />
       <div class="ob-art-info">
         <div class="ob-art-name" :title="a.path">{{ a.name || a.path }}</div>
@@ -41,6 +47,14 @@ export default {
   methods: {
     // 文件类型图标（与工作空间文件列表同源：按扩展名映射 PNG 素材）
     fileIcon,
+    // 点击卡片：经全局总线送右侧预览面板（chat 页面层监听渲染）
+    previewArtifact(a) {
+      this.$bus.emit('chat:artifact-preview', {
+        path: a.path || '',
+        name: a.name || a.path || '',
+        format: this.fmtOf(a)
+      })
+    },
     // 格式归一：显式 format > 扩展名兜底
     fmtOf(a) {
       const f = String(a.format || '').toLowerCase()

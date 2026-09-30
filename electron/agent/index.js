@@ -936,6 +936,8 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   ipcMain.handle('omnibuddy:session:create', (_e, opts) => sessions.createSession(opts || {}))
 
   ipcMain.handle('omnibuddy:session:messages', (_e, id) => sessions.getMessages(id))
+  // 会话运行态查询（前端 loadHistory 兜底恢复流式占位：定时任务在页面打开前已启动的场景）
+  ipcMain.handle('omnibuddy:session:is-running', (_e, id) => running.has(id))
 
   // 点赞/点踩持久化（'like' | 'dislike' | '' 取消），写入消息 JSONL 记录
   ipcMain.handle('omnibuddy:session:feedback', (_e, { id, messageId, feedback }) =>
@@ -1480,6 +1482,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   ipcMain.handle('omnibuddy:files:trash-batch', (_e, paths) => files.trashBatch(paths))
   ipcMain.handle('omnibuddy:files:empty', (_e, dir) => files.empty(dir))
   ipcMain.handle('omnibuddy:files:read', (_e, p) => files.read(p))
+  ipcMain.handle('omnibuddy:files:read-image', (_e, p) => files.readImage(p))
   ipcMain.handle('omnibuddy:files:write', (_e, payload) => files.write(payload.path, payload.content))
   ipcMain.handle('omnibuddy:files:reveal', (_e, p) => files.reveal(p))
   ipcMain.handle('omnibuddy:files:open', (_e, p) => files.open(p))

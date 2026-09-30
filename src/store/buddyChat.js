@@ -331,6 +331,20 @@ export default {
         ? list.filter(m => m.role !== 'todo' || m === [...list].reverse().find(x => x.role === 'todo'))
         : list
       commit('SET_MESSAGES', { id, messages: normalizeHistory(filtered) })
+      // 切换到运行中会话的兜底恢复：定时任务可能在页面打开前已启动
+      // （渲染层重载会错过一次性的 automation:run 推送），以主进程运行表为准。
+      // 仅当末条是 user（尚无任何助手输出落盘）才建占位，避免在
+      // 「done 已处理、running 表删除前的毫秒窗口」误挂永久转圈的占位
+      if (typeof api.isRunning !== 'function') return
+      let live = false
+      try { live = await api.isRunning(id) } catch (e) { /* 非 Electron 环境忽略 */ }
+      const cur = state.sessions[id]
+      const last = cur && cur.messages[cur.messages.length - 1]
+      if (live && cur && !cur.streaming && last && last.role === 'user') {
+        cur.streaming = true
+        cur.thinkTicking = true
+        ensureTurnMessage(cur).thinking = true
+      }
     },
     // 新对话状态迁移到正式会话
     migrate({ commit }, { from, to }) {
@@ -350,6 +364,12 @@ export default {
     // 主进程流式事件：按 sessionId 定向写入会话池（组件在不在场都照常累积）
     // （自 chat 组件 onAgentEvent 迁入，行为保持一致；UI 提示改走 notice）
     handleEvent({ state, commit, dispatch }, e) {
+      // 定时任务启动（P2 自动化）：会话可能从未在前端打开（池中无记录），
+      // 先建池再进入流式乐观占位 —— 否则事件在下方「会话不在池」守卫被丢，
+      // 切到该对话要等 pi 冷启动 + LLM 首 token 后才见「思考中」
+      if (e.type === 'automation:run' && e.sessionId && !state.sessions[e.sessionId]) {
+        commit('ENSURE', e.sessionId)
+      }
       const s = state.sessions[e.sessionId]
       if (!s) return
       // 中断后迟到的 assistant_end：pi 中止后仍会送达本轮落盘回执（含消息 id、
@@ -391,6 +411,16 @@ export default {
         return
       }
       switch (e.type) {
+        // 定时任务启动：立即进入流式态（乐观占位，与手动发送一致）。
+        // 任务启动到模型首个事件之间隔着 pi 会话冷启动 + LLM 首 token 延迟，
+        // 占位让「思考中」秒计时即刻可见，后续 thinking / delta 复用同一条自然续上
+        case 'automation:run': {
+          if (s.streaming) break
+          s.streaming = true
+          s.thinkTicking = true
+          ensureTurnMessage(s).thinking = true
+          break
+        }
         // 用户消息落盘回执：回填 id 到前端乐观消息（发送时无 id，
         // 编辑重问 / 分支切换按钮依赖 id 判定可用）
         case 'user_message': {

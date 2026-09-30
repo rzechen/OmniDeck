@@ -212,6 +212,41 @@ function read(p) {
   return { ok: true, content: buf.toString('utf-8'), size: stat.size, mtime: stat.mtimeMs }
 }
 
+// 读取图片为 base64 dataURL（右栏产物预览用）：文本读取 read 的二进制嗅探会拒绝
+// 图片，故单独走本通道（按扩展名白名单 + 8MB 上限）
+const MAX_IMAGE_SIZE = 8 * 1024 * 1024
+const IMAGE_MIME = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml'
+}
+
+function readImage(p) {
+  const abs = safePath(p)
+  if (!abs) return { ok: false, error: '路径不在已关联的空间目录内' }
+  let stat
+  try {
+    stat = fs.statSync(abs)
+  } catch (e) {
+    return { ok: false, error: '文件不存在' }
+  }
+  if (stat.isDirectory()) return { ok: false, error: '不支持预览文件夹' }
+  const mime = IMAGE_MIME[path.extname(abs).toLowerCase()]
+  if (!mime) return { ok: false, error: '不支持的图片格式' }
+  if (stat.size > MAX_IMAGE_SIZE) return { ok: false, tooLarge: true, error: '图片超过 8MB，请使用系统应用打开' }
+  let buf
+  try {
+    buf = fs.readFileSync(abs)
+  } catch (e) {
+    return { ok: false, error: '读取失败：' + e.message }
+  }
+  return { ok: true, src: 'data:' + mime + ';base64,' + buf.toString('base64'), size: stat.size }
+}
+
 function write(p, content) {
   const abs = safePath(p)
   if (!abs) return { ok: false, error: '路径不在已关联的空间目录内' }
@@ -273,4 +308,4 @@ function importPaths(dir, filePaths) {
   return { ok: true, count }
 }
 
-module.exports = { init, list, mkdir, createFile, rename, trash, trashBatch, empty, read, write, reveal, open, importDialog, importPaths }
+module.exports = { init, list, mkdir, createFile, rename, trash, trashBatch, empty, read, readImage, write, reveal, open, importDialog, importPaths }

@@ -214,6 +214,8 @@ export default {
       collapsedW: 68, // 与主布局收起轨道同宽：容得下 macOS 红绿灯组，收起不溢出
       // 收起状态（持久化）
       collapsed: getItem('omnibuddy:sidebar-collapsed', false),
+      // 预览联动临时收起中（不持久化；关闭右栏预览恢复 collapsed 原值）
+      sidebarHold: false,
       // 拖拽中（宽度跟随鼠标，禁用过渡）
       dragging: false
     }
@@ -247,6 +249,8 @@ export default {
     this.$bus.on('omnibuddy:sessions-changed', this.loadChats)
     // 工作空间重命名（级联更新了会话 displayName）后刷新分组
     this.$bus.on('omnibuddy:workspaces-changed', this.loadChats)
+    // 右栏预览联动：打开/关闭预览时临时收起/恢复侧栏（对话与预览各占一半，腾出阅读宽度）
+    this.$bus.on('buddy:sidebar-hold', this.onSidebarHold)
     // 自动标题：主进程 LLM 生成新标题后实时刷新侧栏（store 事件池只写会话状态不外发，
     // 此处独立订阅；preload onEvent 返回退订函数，与 store 的订阅互不影响）
     const api = this.buddyApi()
@@ -273,6 +277,7 @@ export default {
   beforeUnmount() {
     this.$bus.off('omnibuddy:sessions-changed', this.loadChats)
     this.$bus.off('omnibuddy:workspaces-changed', this.loadChats)
+    this.$bus.off('buddy:sidebar-hold', this.onSidebarHold)
     if (this._unsubTitle) {
       this._unsubTitle()
       this._unsubTitle = null
@@ -323,6 +328,8 @@ export default {
       document.body.style.userSelect = ''
       // 左拖过阈值（比下限还少 32px）→ 收起；否则持久化宽度
       if (this.sidebarW <= 232) {
+        // 拖拽收起是用户主动操作：解除预览联动的临时收起，正常持久化
+        this.releaseSidebarHold()
         this.collapsed = true
         setItem('omnibuddy:sidebar-collapsed', true)
         // 恢复默认展开宽度，下次展开不意外过窄
@@ -332,7 +339,29 @@ export default {
         setItem('omnibuddy:sidebar-w', this.sidebarW)
       }
     },
+    // ===== 侧栏临时收起（右栏预览联动） =====
+    // 打开/关闭右栏预览时由 chat 页 emit；临时收起不持久化，关闭预览恢复用户原状态
+    onSidebarHold(on) {
+      if (on) {
+        this._holdBefore = this.collapsed
+        this.sidebarHold = true
+        this.collapsed = true
+      } else if (this.sidebarHold) {
+        this.sidebarHold = false
+        // 恢复预览打开前的用户原状态（原本就收起则保持收起）
+        this.collapsed = !!this._holdBefore
+        this._holdBefore = null
+      }
+    },
+    // 用户在临时收起期间手动操作侧栏：解除恢复义务，以用户操作为准
+    releaseSidebarHold() {
+      if (this.sidebarHold) {
+        this.sidebarHold = false
+        this._holdBefore = null
+      }
+    },
     toggleSidebar() {
+      this.releaseSidebarHold()
       this.collapsed = !this.collapsed
       setItem('omnibuddy:sidebar-collapsed', this.collapsed)
     },
