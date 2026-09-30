@@ -296,12 +296,15 @@ function registerIpc() {
         checked: !!it.checked,
         click: () => done(it.value)
       })))
-      // callback 是菜单关闭（含点击选中后）的官方通知；窗口销毁兜底
+      // callback 是菜单关闭（含点击选中后）的官方通知；窗口销毁兜底。
+      // 坐标来源：渲染层点击事件坐标（CSS px）× zoomFactor + 窗口内容区原点
+      const sx = Math.round(wx + (payload.x || 0) * zoom)
+      const sy = Math.round(wy + (payload.y || 0) * zoom)
+      console.log('[od:browser] popup-menu at', sx, sy, '(css', payload.x, payload.y, 'zoom', zoom, ')')
       menu.popup({
         window: w,
-        x: Math.round(wx + (payload.x || 0) * zoom),
-        y: Math.round(wy + (payload.y || 0) * zoom),
-        positioningItem: typeof payload.positioningItem === 'number' ? payload.positioningItem : -1,
+        x: sx,
+        y: sy,
         callback: () => done(null)
       })
       w.once('closed', () => done(null))
