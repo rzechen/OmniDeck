@@ -316,35 +316,32 @@ export default {
         this.notice = { text: '', type: 'info' }
       }, 8000)
     },
-    // 原生菜单：锚点为按钮左下角（CSS px）；positioningItem 让当前选中项
-    // 对齐按钮（原生 select 行为）。CSS px → 屏幕 DIP 由主进程按 zoomFactor 换算
-    popupAt(refName, items) {
-      const el = this.$refs[refName]
-      if (!el || !this.browser) return Promise.resolve(null)
-      const r = el.getBoundingClientRect()
+    // 原生菜单：直接用点击事件坐标（与 getBoundingClientRect 同为 CSS px，
+    // 但无需测 rect，且天然就是用户视觉锚点）；主进程换算屏幕 DIP
+    popupAt(evt, items) {
+      if (!this.browser) return Promise.resolve(null)
       return this.browser.popupMenu({
-        x: Math.round(r.left),
-        y: Math.round(r.bottom + 4),
-        positioningItem: items.findIndex(it => it.checked),
+        x: Math.round(evt.clientX),
+        y: Math.round(evt.clientY + 12),
         items
       })
     },
-    async openLangMenu() {
-      const val = await this.popupAt('langBtn', Object.keys(LANGS).map(code => ({
+    async openLangMenu(evt) {
+      const val = await this.popupAt(evt, Object.keys(LANGS).map(code => ({
         value: code,
         label: LANGS[code],
         checked: code === this.targetLang
       })))
       if (val) this.targetLang = val
     },
-    async openEngineMenu() {
+    async openEngineMenu(evt) {
       const items = [{ value: 'google', label: 'Google 翻译', checked: this.engine === 'google' }]
         .concat(this.providers.map(p => ({
           value: 'llm:' + p.id,
           label: (p.displayName || p.name) + ' · 模型翻译',
           checked: this.engine === 'llm' && this.providerId === p.id
         })))
-      const val = await this.popupAt('engineBtn', items)
+      const val = await this.popupAt(evt, items)
       if (!val) return
       if (val === 'google') {
         this.engine = 'google'
