@@ -21,6 +21,32 @@ function activeWc() {
   return view && !view.webContents.isDestroyed() ? view.webContents : null
 }
 
+// 缩放感知：Cmd+± 是 Chromium 内置缩放，主窗 UI 与内嵌网页各自独立。
+// 任一缩放变化即回推当前倍率（App UI / 网页双值），页面据此显示徽标
+function pushZoom() {
+  const w = win()
+  if (!w) return
+  const wc = activeWc()
+  const ui = Math.round((w.webContents.getZoomFactor() || 1) * 100)
+  const web = wc ? Math.round((wc.getZoomFactor() || 1) * 100) : 100
+  w.webContents.send('browser:zoom', { ui, web })
+}
+
+function watchZoom() {
+  const w = win()
+  if (!w) return
+  try {
+    w.webContents.setVisualZoomLevelLimits(1, 1) // 禁捏合，只留 Cmd+±
+    w.webContents.on('zoom-changed', pushZoom)
+  } catch (e) { /* noop */ }
+  if (view) {
+    try {
+      view.webContents.setVisualZoomLevelLimits(1, 1)
+      view.webContents.on('zoom-changed', pushZoom)
+    } catch (e) { /* noop */ }
+  }
+}
+
 // 组装完整状态：容器基础字段 + 各特性扩展字段（consume=true 时特性可读清一次性状态）
 function buildState(consume) {
   const w = win()
@@ -59,6 +85,10 @@ function ensureView() {
     }
   })
   view.setBackgroundColor('#ffffff')
+  // 创建即应用缓存的容器 rect（首次导航场景：rect 先于 view 到达）
+  applyRect()
+  // 补挂网页侧缩放监听（watchZoom 先于 view 创建时只挂了主窗）
+  watchZoom()
   const wc = view.webContents
 
   // 清洗 UA：去掉 Electron/应用名 token（如 "omnideck/1.0.0 Electron/31.0.0"），避免站点
@@ -127,6 +157,25 @@ function destroyView() {
 
 // 视图当前 bounds 记录（resize 时复算用）
 let curBounds = null
+// 渲染层最近一次上报的容器 rect（view 创建后立即应用，防 0×0 挂载）
+let lastRect = null
+
+// 将缓存的渲染层 rect 换算 DIP 后应用到视图；view 未创建时静默等待
+function applyRect() {
+  const w = win()
+  if (!w || !view || !lastRect) return
+  const { rect, innerWidth, innerHeight } = lastRect
+  const [cw, ch] = w.getContentSize()
+  const sx = innerWidth > 0 ? cw / innerWidth : 1
+  const sy = innerHeight > 0 ? ch / innerHeight : sx
+  view.setBounds({
+    x: Math.round(rect.x * sx),
+    y: Math.round(rect.y * sy),
+    width: Math.max(0, Math.round(rect.width * sx)),
+    height: Math.max(0, Math.round(rect.height * sy))
+  })
+  curBounds = { ...view.getBounds() }
+}
 
 // 地址归一化：无协议补 https，localhost/IP 补 http
 function normalizeUrl(input) {
@@ -215,28 +264,24 @@ function registerIpc() {
 
   // rect 上报：CSS px → DIP 换算（scale = 内容区宽 / 渲染层视口宽）
   ipcMain.handle('browser:set-bounds', (_e, payload) => {
-    const w = win()
-    if (!w || !view || !payload || !payload.rect) return
-    const { rect, innerWidth, innerHeight } = payload
-    const [cw, ch] = w.getContentSize()
-    const sx = innerWidth > 0 ? cw / innerWidth : 1
-    const sy = innerHeight > 0 ? ch / innerHeight : sx
-    view.setBounds({
-      x: Math.round(rect.x * sx),
-      y: Math.round(rect.y * sy),
-      width: Math.max(0, Math.round(rect.width * sx)),
-      height: Math.max(0, Math.round(rect.height * sy))
-    })
-    curBounds = { ...view.getBounds() }
+    // 先缓存再应用：首次导航前 view 尚未创建，rect 会被丢弃，
+    // 导致新 view 以默认 0×0 bounds 挂载（页面加载完也看不见）
+    if (!payload || !payload.rect) return
+    lastRect = payload
+    applyRect()
     return { ok: true }
   })
 
   // 原生下拉菜单：DOM 弹层会被原生子视图盖住，改用系统 Menu（浮于一切之上）。
-  // items: [{ value, label, checked? }]；返回选中 value（取消/关闭返回 null）
+  // items: [{ value, label, checked? }]；positioningItem: 选中项对齐锚点下标。
+  // 坐标：渲染层上报按钮的 CSS px，屏幕坐标 = 窗口 contentBounds 原点 + CSS × 缩放倍率
+  // （zoomFactor 为 1 时 CSS px 即 DIP；retina 下 devicePixelRatio 已含于 zoomFactor）
   ipcMain.handle('browser:popup-menu', (_e, payload) => {
     const w = win()
     if (!w || !payload || !Array.isArray(payload.items)) return Promise.resolve(null)
-    const { x, y } = w.getContentBounds()
+    let zoom = 1
+    try { zoom = w.webContents.getZoomFactor() || 1 } catch (err) { zoom = 1 }
+    const { x: wx, y: wy } = w.getContentBounds()
     return new Promise(resolve => {
       let settled = false
       const done = v => {
@@ -254,8 +299,9 @@ function registerIpc() {
       // callback 是菜单关闭（含点击选中后）的官方通知；窗口销毁兜底
       menu.popup({
         window: w,
-        x: Math.round(x + (payload.x || 0)),
-        y: Math.round(y + (payload.y || 0)),
+        x: Math.round(wx + (payload.x || 0) * zoom),
+        y: Math.round(wy + (payload.y || 0) * zoom),
+        positioningItem: typeof payload.positioningItem === 'number' ? payload.positioningItem : -1,
         callback: () => done(null)
       })
       w.once('closed', () => done(null))
@@ -266,6 +312,22 @@ function registerIpc() {
     wantShow = true
     // 首次进入且尚无页面内容时保持分离（避免白板盖住空态引导）
     if (view && view.webContents.getURL()) attach()
+    watchZoom()
+    pushZoom()
+    return { ok: true }
+  })
+
+  // 恢复 100%：target: 'ui' | 'web'（徽标点击）
+  ipcMain.handle('browser:reset-zoom', (_e, payload) => {
+    const w = win()
+    if (!w) return { ok: false }
+    if (payload && payload.target === 'web') {
+      const wc = activeWc()
+      if (wc) wc.setZoomFactor(1)
+    } else {
+      w.webContents.setZoomFactor(1)
+    }
+    pushZoom()
     return { ok: true }
   })
 
@@ -283,10 +345,34 @@ function init(opts) {
   registerIpc()
 }
 
+// 路由校正：主窗为 hash 路由，页内导航触发 did-navigate-in-page。
+// 当前 URL 不含 /browser 时强制摘视图——不依赖渲染层调用（keep-alive + HMR
+// 下组件 deactivated 钩子可能丢失，原生视图会残留盖住其他页面）。
+// 事件监听为主（即时），120ms 轮询为兜底（防事件在某些环境不触发），双保险
+let routeTimer = null
+function watchAppRoute() {
+  const w = win()
+  if (!w || routeTimer) return
+  const check = (why) => {
+    try {
+      const url = w.webContents.getURL()
+      const hash = (url.split('#')[1] || '')
+      if (wantShow && hash.indexOf('/browser') === -1) {
+        console.warn('[od:browser] 路由校正摘除视图 (' + why + ') hash=' + hash)
+        wantShow = false
+        detach()
+      }
+    } catch (e) { /* noop */ }
+  }
+  w.webContents.on('did-navigate-in-page', () => check('in-page'))
+  routeTimer = setInterval(() => check('poll'), 120)
+}
+
 // 主窗销毁时调用：关闭视图 webContents 并解除引用
 function destroy() {
+  if (routeTimer) { clearInterval(routeTimer); routeTimer = null }
   detach()
   destroyView()
 }
 
-module.exports = { init, destroy, registerFeature }
+module.exports = { init, destroy, registerFeature, watchAppRoute }

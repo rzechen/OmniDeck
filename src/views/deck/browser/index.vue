@@ -36,6 +36,13 @@
 
       <div class="br-actions">
         <span v-if="progressText" class="br-progress" :title="progressTitle">{{ progressText }}</span>
+        <!-- 缩放徽标：任一（App UI / 网页）非 100% 即显示，点击恢复 100% -->
+        <button
+          v-if="zoomBadges.length"
+          class="br-zoom-badge"
+          :title="zoomTitle"
+          @click="onZoomBadge"
+        >{{ zoomBadges }}</button>
         <!-- 源语言检测 → 目标语言流向展示 -->
         <span v-if="langFlow" class="br-lang-flow" :title="langFlowTitle">{{ langFlow }}</span>
         <!-- 原生菜单下拉（DOM 弹层会被原生子视图盖住，系统菜单浮于一切之上） -->
@@ -139,6 +146,7 @@ export default {
       lastError: '',
       notice: { text: '', type: 'info' },
       noticeTimer: null,
+      zoom: { ui: 100, web: 100 },
       offState: null,
       offProgress: null,
       ro: null
@@ -165,6 +173,16 @@ export default {
       if (this.engine === 'google') return 'Google 翻译'
       const p = this.findProvider()
       return p ? (p.displayName || p.name) + ' · 模型' : '模型翻译'
+    },
+    // 缩放徽标文案："125%" / "网页 150%" / "界面 110% · 网页 150%"
+    zoomBadges() {
+      const parts = []
+      if (this.zoom.ui !== 100) parts.push('界面 ' + this.zoom.ui + '%')
+      if (this.zoom.web !== 100) parts.push('网页 ' + this.zoom.web + '%')
+      return parts.join(' · ')
+    },
+    zoomTitle() {
+      return '当前缩放：界面 ' + this.zoom.ui + '%，网页 ' + this.zoom.web + '%（点击恢复 100%）'
     },
     progressText() {
       const p = this.progress
@@ -239,6 +257,14 @@ export default {
       this.progress = p
     })
 
+    // 缩放回推（Cmd+± 界面/网页双值）；旧 preload 无此 API 时静默跳过
+    // （preload 不支持热更新，应用重启前页面 HMR 会出现版本差）
+    if (typeof browser.onZoom === 'function') {
+      this.offZoom = browser.onZoom(z => {
+        if (z && typeof z.ui === 'number') this.zoom = z
+      })
+    }
+
     // 初始状态 + 容器尺寸监听
     browser.getState().then(st => {
       if (st) {
@@ -271,11 +297,17 @@ export default {
     if (this.browser) this.browser.hide()
     if (this.offState) this.offState()
     if (this.offProgress) this.offProgress()
+    if (this.offZoom) this.offZoom()
     if (this.ro) this.ro.disconnect()
     if (this.noticeTimer) clearTimeout(this.noticeTimer)
     window.removeEventListener('resize', this.reportBounds)
   },
   methods: {
+    // 徽标点击：恢复全部 100%（UI + 网页）
+    onZoomBadge() {
+      if (this.browser) this.browser.resetZoom('ui')
+      if (this.browser) this.browser.resetZoom('web')
+    },
     // 页内提示条（8s 自动消失）：$message 挂 body 会被原生视图遮挡
     notify(type, text) {
       this.notice = { type, text }
@@ -496,6 +528,24 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 缩放徽标：非 100% 时出现，点击恢复 */
+.br-zoom-badge {
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 11px;
+  background: rgba(64, 158, 255, 0.14);
+  color: #409eff;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s ease;
+
+  &:hover {
+    background: rgba(64, 158, 255, 0.24);
+  }
 }
 
 /* 原生菜单触发按钮（引擎/语言）：视觉与工具栏按钮一致 */

@@ -257,6 +257,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     popupMenu: payload => ipcRenderer.invoke('browser:popup-menu', payload),
     show: () => ipcRenderer.invoke('browser:show'),
     hide: () => ipcRenderer.invoke('browser:hide'),
+    // 缩放：恢复 100%（target: 'ui' 主窗界面 | 'web' 内嵌网页）
+    resetZoom: target => ipcRenderer.invoke('browser:reset-zoom', { target }),
+    // 缩放变化回推 { ui, web }（百分比整数）
+    onZoom: handler => {
+      const fn = (_e, payload) => handler(payload)
+      ipcRenderer.on('browser:zoom', fn)
+      return () => ipcRenderer.removeListener('browser:zoom', fn)
+    },
     getState: () => ipcRenderer.invoke('browser:get-state'),
     // 翻译开关：true 注入并启用双语对照，false 移除全部译文
     setTranslate: enabled => ipcRenderer.invoke('browser:translate', enabled),

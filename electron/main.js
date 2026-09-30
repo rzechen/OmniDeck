@@ -456,6 +456,10 @@ app.whenReady().then(async () => {
   // 浏览器容器（Deck 一级入口）：主窗内 WebContentsView 通用网页容器；
   // 业务能力以特性方式挂载——translate 为双语对照翻译，后续公众号编辑器注入等
   browser.init({ getWindow: () => mainWindow })
+  // 主窗 hash 路由校正：离开 /browser 路由时摘除内嵌网页视图
+  // （防 keep-alive 钩子丢失导致原生视图残留盖住其他页面）。
+  // 必须在 browser.init 之后调用：init 注入 getWindow，否则 win() 为 null 监听挂不上
+  browser.watchAppRoute()
   browser.registerFeature(require('./translate/controller'))
 
   // 快捷入口（P0-M1）：托盘 + 全局快捷键 + 快捷面板壳

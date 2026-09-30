@@ -808,6 +808,12 @@ router.beforeEach(async (to, from, next) => {
     ElMessage.warning('路由「' + bad + '」不存在，已返回首页')
     return
   }
+  // 翻译浏览器原生视图摘除：离开 /browser 即时隐藏（不依赖组件 deactivated
+  // 钩子——keep-alive + HMR 下钩子可能丢失，原生视图会残留盖住其他页面）
+  if (from.path === '/browser' && to.path !== '/browser') {
+    const api = window.electronAPI
+    if (api && api.browser) api.browser.hide()
+  }
   next()
 })
 
