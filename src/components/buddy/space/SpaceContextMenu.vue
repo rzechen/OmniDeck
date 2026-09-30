@@ -17,8 +17,9 @@
       <div class="sp-menu-item" @click="$emit('action', 'rename')">
         <svg-icon icon-class="edit" /> 重命名
       </div>
+      <!-- 多选时（右键项在选中集合内）对全部选中项生效 -->
       <div class="sp-menu-item danger" @click="$emit('action', 'trash')">
-        <svg-icon icon-class="delete" /> 移到废纸篓
+        <svg-icon icon-class="delete" /> 移到废纸篓{{ selectedCount > 1 ? '（' + selectedCount + ' 项）' : '' }}
       </div>
     </div>
   </transition>
@@ -47,6 +48,11 @@ export default {
     item: {
       type: Object,
       default: null
+    },
+    // 当前多选中的条目数（>1 且右键项在选中集合内时，删除作用于全部选中项）
+    selectedCount: {
+      type: Number,
+      default: 0
     }
   },
   computed: {

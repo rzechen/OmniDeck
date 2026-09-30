@@ -2286,9 +2286,9 @@ export default {
   border-radius: $radius-lg;
   overflow: hidden;
 
-  // 行间细分隔线（Mac 系统设置风格）
+  // 行间细分隔线（Mac 系统设置风格，弱化 divider 与全局 token 对齐）
   .settings-row + .settings-row {
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid $divider;
   }
 }
 
@@ -2335,9 +2335,9 @@ export default {
 
   .tray-menu-group {
     padding: 10px 14px 12px;
-    border: 1px solid var(--border-color);
+    // 无框分组：surface 底色分层替代边框（与全局卡片策略一致）
     border-radius: 10px;
-    background: var(--bg-secondary, rgba(0, 0, 0, 0.02));
+    background: $surface-muted;
 
     // 分组之间留出间距
     & + .tray-menu-group {

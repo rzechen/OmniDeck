@@ -11,8 +11,8 @@
       v-for="en in entries"
       :key="en.name"
       class="sp-row"
-      :class="{ selected: en.name === selected, hidden: en.hidden }"
-      @click="$emit('select', en.name)"
+      :class="{ selected: selected.includes(en.name), hidden: en.hidden }"
+      @click="$emit('select', en.name, $event)"
       @dblclick="$emit('open', en)"
       @contextmenu.prevent="$emit('menu', $event, en)"
     >
@@ -40,9 +40,10 @@ export default {
       type: Array,
       default: () => []
     },
+    // 当前选中项名集合（多选，高亮）
     selected: {
-      type: String,
-      default: ''
+      type: Array,
+      default: () => []
     }
   },
   methods: { iconOf, formatSize, formatTime }

@@ -14,6 +14,8 @@
   /* 内容区底色再提亮一档，接近纯白的冷调，更通透明亮 */
   --content-bg: #FBFCFD;
   --card-bg: #FFFFFF;
+  /* 无框卡片的底色分层（比内容区深一档） */
+  --surface-muted: rgba(0, 0, 0, 0.03);
   --topbar-bg: rgba(255, 255, 255, 0.72);
   --search-bg: rgba(0, 0, 0, 0.04);
   --search-bg-hover: rgba(0, 0, 0, 0.07);
@@ -29,6 +31,7 @@
   /* 边框与分割 */
   /* 边框加深一档（原 #E6E6EB 偏浅，卡片与内容区背景近乎融合） */
   --border-color: #DFDFE7;
+  --divider: rgba(0, 0, 0, 0.05);
   --sidebar-divider: rgba(0, 0, 0, 0.06);
   --sidebar-item-hover: rgba(0, 0, 0, 0.06);
   --sidebar-item-active: rgba(var(--primary-color-rgb), 0.12);
@@ -63,6 +66,7 @@ html[data-theme='dark'] {
   --sidebar-bg: #232327;
   --content-bg: #1B1B1F;
   --card-bg: #26262B;
+  --surface-muted: rgba(255, 255, 255, 0.04);
   --topbar-bg: rgba(35, 35, 39, 0.78);
   --search-bg: rgba(255, 255, 255, 0.07);
   --search-bg-hover: rgba(255, 255, 255, 0.12);
@@ -74,6 +78,7 @@ html[data-theme='dark'] {
   --text-sidebar-active: #F2F2F5;
 
   --border-color: #36363C;
+  --divider: rgba(255, 255, 255, 0.07);
   --sidebar-divider: rgba(255, 255, 255, 0.07);
   --sidebar-item-hover: rgba(255, 255, 255, 0.07);
   --sidebar-item-active: rgba(var(--primary-color-rgb), 0.22);

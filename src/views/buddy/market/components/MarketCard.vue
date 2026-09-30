@@ -146,16 +146,16 @@ export default {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  // 无边框卡片：surface 底色分层，hover 才浮起变亮
+  background: $surface-muted;
   border-radius: $radius-lg;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   cursor: pointer;
 
   &:hover {
-    border-color: rgba(var(--primary-color-rgb), 0.35);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+    background: var(--card-bg, #fff);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
     transform: translateY(-2px);
   }
 }
@@ -322,7 +322,7 @@ export default {
 .ob-market-foot {
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.04));
+  border-top: 1px solid var(--divider, rgba(0, 0, 0, 0.05));
   display: flex;
   align-items: center;
   justify-content: space-between;

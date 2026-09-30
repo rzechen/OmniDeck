@@ -39,7 +39,7 @@
       <!-- 底部：输入框（磁盘路径/模型选择内嵌于对话框工具栏） -->
       <div class="ob-composer">
         <!-- 任务清单面板（固定贴住输入框上方，不随消息流滚动）：
-             会话内仅一张，todo_update 实时替换，与输入框/权限条同宽 920px -->
+             会话内仅一张，todo_update 实时替换，与输入框/权限条同宽 768px -->
         <todo-card
           v-if="todoTodos && todoTodos.length"
           class="ob-todo-bar"
@@ -47,7 +47,7 @@
           :streaming="streaming"
         />
         <!-- 权限确认浮动条（confirm 模式下有待确认项时显示，不进消息流）：
-             底部滑出面板，与输入框同宽（920px）：问题 + 授权内容 + 四档编号选项（支持键盘 1-4） -->
+             底部滑出面板，与输入框同宽（768px）：问题 + 授权内容 + 四档编号选项（支持键盘 1-4） -->
         <transition name="ob-perm-bar">
           <div v-if="pendingPerm" class="ob-perm-bar">
             <div class="ob-perm-bar-head">
@@ -1189,7 +1189,7 @@ export default {
 /* 历史加载骨架：与消息列表同宽同 padding，占位形状贴合真实对话 */
 .ob-history-skel {
   width: 100%;
-  max-width: 976px;
+  max-width: 824px;
   margin: 0 auto;
   padding: 40px 28px 12px;
 }
@@ -1201,20 +1201,20 @@ export default {
   padding: 10px 18px 14px;
 }
 
-/* ===== 任务清单固定面板（输入框上方，与输入框/权限条同宽 920px；不随消息流滚动） ===== */
+/* ===== 任务清单固定面板（输入框上方，与输入框/权限条同宽 768px；不随消息流滚动） ===== */
 .ob-todo-bar {
-  max-width: 920px;
+  max-width: 768px;
   margin: 0 auto 10px;
   // 面板可展开收起：展开高度变化时压缩滚动区（ob-body flex 收缩），
   // 已在流的末尾之外，无需滚动补偿
 }
 
-/* ===== 权限确认面板（输入框上方底部滑出，与输入框/消息列同宽 920px） ===== */
+/* ===== 权限确认面板（输入框上方底部滑出，与输入框/消息列同宽 768px） ===== */
 .ob-perm-bar {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 920px;
+  max-width: 768px;
   margin: 0 auto 10px;
   padding: 14px 16px;
   border: 1px solid rgba(var(--warning-color-rgb, 230, 162, 60), 0.4);
@@ -1432,7 +1432,7 @@ export default {
 
 .ob-composer-inner {
   width: 100%;
-  max-width: 920px;
+  max-width: 768px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;

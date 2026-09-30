@@ -1,8 +1,7 @@
 <template>
-  <!-- 工具行：当前筛选标题 + 搜索框 -->
+  <!-- 工具行：结果计数 + 搜索框（筛选状态由顶部 chips 承载） -->
   <div class="ob-market-toolbar">
     <div class="ob-market-current">
-      {{ currentLabel }}
       <span class="ob-market-current-count">{{ resultCount }} 个资源</span>
     </div>
     <div class="ob-market-search">
@@ -29,8 +28,6 @@ export default {
   props: {
     // 搜索关键词（v-model）
     modelValue: { type: String, default: '' },
-    // 当前筛选标题（页面 computed currentLabel）
-    currentLabel: { type: String, default: '' },
     // 当前筛选结果数量（filteredItems.length）
     resultCount: { type: Number, default: 0 }
   },
@@ -59,25 +56,17 @@ export default {
 
 .ob-market-current {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
   min-width: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: $text-primary;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12px;
+  color: $text-secondary;
 
   .ob-market-current-count {
-    font-size: 11.5px;
-    font-weight: 400;
-    color: $text-secondary;
     flex-shrink: 0;
   }
 }
 
-/* 极简搜索框 */
+/* 极简搜索框：无边框（聚焦才浮现主题色描边） */
 .ob-market-search {
   display: flex;
   align-items: center;
@@ -86,7 +75,7 @@ export default {
   height: 32px;
   padding: 0 12px;
   background: var(--bg-hover, rgba(0, 0, 0, 0.03));
-  border: 1px solid var(--border-color, transparent);
+  border: 1px solid transparent;
   border-radius: 16px;
   flex-shrink: 0;
   transition: all 0.2s ease;

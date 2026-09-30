@@ -71,11 +71,10 @@
         <span v-show="!collapsed" class="nav-label">{{ clipboard.title }}</span>
       </div>
 
-      <div class="nav-divider" v-if="!collapsed"></div>
-
-      <!-- 组列表（可拖拽排序） -->
+      <!-- 组列表（可拖拽排序，与固定项之间以留白分隔） -->
       <draggable
         v-model="groups"
+        class="nav-groups-list"
         :disabled="collapsed"
         handle=".nav-group-header"
         animation="200"
@@ -587,10 +586,9 @@ export default {
   }
 }
 
-.nav-divider {
-  height: 1px;
-  background: $sidebar-divider;
-  margin: 8px 12px;
+// 组列表：与上方固定项以留白分隔（替代原 1px 分隔线，对齐 Buddy 侧栏做法）
+.nav-groups-list {
+  margin-top: 10px;
 }
 
 // 图标容器：统一宽度对齐（SVG / PNG / 字体图标）
@@ -641,8 +639,12 @@ export default {
   }
 }
 
-// 组容器
+// 组容器（组间以留白分隔，不再画线）
 .nav-group {
+  & + .nav-group {
+    margin-top: 10px;
+  }
+
   // 组头（拖拽把手）
   .nav-group-header {
     display: flex;

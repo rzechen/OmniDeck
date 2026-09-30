@@ -26,6 +26,7 @@
         :loading="loading"
         :workspaces="workspaceItems"
         :active-id="activeId"
+        :selected-count="selected.length"
         @select-workspace="selectWorkspace"
         @create-folder="createFolder"
         @create-file="createFile"
@@ -34,6 +35,8 @@
         @rename="renameWorkspace"
         @unbind="confirmUnbind"
         @space-rule="openSpaceRule"
+        @trash-selected="confirmTrashSelected"
+        @empty="confirmEmpty"
       />
 
       <!-- 面包屑 -->
@@ -60,7 +63,7 @@
           v-else-if="view === 'grid'"
           :entries="visibleEntries"
           :selected="selected"
-          @select="selected = $event"
+          @select="selectEntry"
           @open="openEntry"
           @menu="openMenu"
         />
@@ -68,7 +71,7 @@
           v-else
           :entries="visibleEntries"
           :selected="selected"
-          @select="selected = $event"
+          @select="selectEntry"
           @open="openEntry"
           @menu="openMenu"
         />
@@ -91,6 +94,7 @@
       :x="menu.x"
       :y="menu.y"
       :item="menu.item"
+      :selected-count="selected.length"
       @action="menuAction"
     />
 
@@ -142,7 +146,10 @@ export default {
       currentDir: '',
       entries: [],
       loading: false,
-      selected: '',
+      // 多选：选中项名集合（Cmd/Ctrl 加选、Shift 范围选、单击单选）
+      selected: [],
+      // Shift 范围选择的锚点（最近一次单击/加选项）
+      lastAnchor: '',
       // 视图与筛选
       view: 'list',
       showHidden: false,
@@ -214,7 +221,8 @@ export default {
   },
   watch: {
     currentDir() {
-      this.selected = ''
+      this.selected = []
+      this.lastAnchor = ''
       this.search = ''
       this.load()
     }
@@ -357,6 +365,9 @@ export default {
       this.loading = false
       if (res && res.ok) {
         this.entries = res.entries || []
+        // 清理已消失的选中项（删除 / 重命名 / 导入覆盖后保持高亮一致）
+        this.selected = this.selected.filter(n => this.entries.some(x => x.name === n))
+        if (!this.selected.includes(this.lastAnchor)) this.lastAnchor = this.selected[this.selected.length - 1] || ''
       } else {
         this.entries = []
         if (res && res.error) this.$message.error(res.error)
@@ -365,6 +376,28 @@ export default {
     // ===== 浏览 =====
     entryPath(en) {
       return this.currentDir.replace(/[/\\]+$/, '') + '/' + en.name
+    },
+    // 列表项点击选择（访达式多选）：普通单击单选 / Cmd+Ctrl 切换加选 / Shift 范围选
+    selectEntry(name, e) {
+      const toggle = e && (e.metaKey || e.ctrlKey)
+      const range = e && e.shiftKey
+      if (toggle) {
+        this.selected = this.selected.includes(name)
+          ? this.selected.filter(n => n !== name)
+          : this.selected.concat(name)
+        this.lastAnchor = name
+      } else if (range && this.lastAnchor) {
+        const names = this.visibleEntries.map(x => x.name)
+        const a = names.indexOf(this.lastAnchor)
+        const b = names.indexOf(name)
+        if (a >= 0 && b >= 0) {
+          const [s, t] = a < b ? [a, b] : [b, a]
+          this.selected = names.slice(s, t + 1)
+        }
+      } else {
+        this.selected = [name]
+        this.lastAnchor = name
+      }
     },
     openEntry(en) {
       if (en.isDir) {
@@ -461,6 +494,46 @@ export default {
         }
       }).catch(() => {})
     },
+    // 批量删除所选（工具栏按钮 / 多选态右键菜单入口）
+    confirmTrashSelected() {
+      const names = this.selected.slice()
+      if (!names.length || !this.filesApi) return
+      this.$confirm('将把所选 ' + names.length + ' 个项目（含文件夹及其内容）移到系统废纸篓，确定删除吗？', '删除所选', {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(async () => {
+        const res = await this.filesApi.trashBatch(names.map(n => this.entryPath({ name: n })))
+        if (res && res.ok) {
+          this.$message.success('已移到废纸篓 ' + res.count + ' 项' + (res.error ? '，' + res.error : ''))
+          this.selected = []
+          this.lastAnchor = ''
+          this.load()
+        } else {
+          this.$message.error((res && res.error) || '删除失败')
+        }
+      }).catch(() => {})
+    },
+    // 清空当前空间：根目录全部内容（含隐藏项）移到废纸篓，不影响空间绑定与任务记录
+    confirmEmpty() {
+      const ws = this.active
+      if (!ws || !this.filesApi) return
+      this.$confirm(
+        '将把「' + this.displayName(ws) + '」根目录下的全部内容（含隐藏项目）移到系统废纸篓。空间绑定与任务记录不受影响，确定清空吗？',
+        '清空空间',
+        { confirmButtonText: '清空', cancelButtonText: '取消', type: 'warning' }
+      ).then(async () => {
+        const res = await this.filesApi.empty(ws.path)
+        if (res && res.ok) {
+          this.$message.success('已清空 ' + res.count + ' 个项目' + (res.error ? '，' + res.error : ''))
+          this.selected = []
+          this.lastAnchor = ''
+          this.load()
+        } else {
+          this.$message.error((res && res.error) || '清空失败')
+        }
+      }).catch(() => {})
+    },
     async revealEntry(en) {
       const res = await this.filesApi.reveal(this.entryPath(en))
       if (!res || !res.ok) this.$message.error((res && res.error) || '操作失败')
@@ -471,7 +544,11 @@ export default {
     },
     // ===== 右键菜单 =====
     openMenu(e, en) {
-      this.selected = en.name
+      // 右键项不在选中集合内：重置为单选；在集合内：保留多选（删除项作用于全部选中）
+      if (!this.selected.includes(en.name)) {
+        this.selected = [en.name]
+        this.lastAnchor = en.name
+      }
       // 视口边缘收敛
       const x = Math.min(e.clientX, window.innerWidth - 190)
       const y = Math.min(e.clientY, window.innerHeight - 190)
@@ -504,7 +581,12 @@ export default {
           this.renameEntry(en)
           break
         case 'trash':
-          this.trashEntry(en)
+          // 多选态下（右键项在选中集合内）：批量删除全部选中项，否则删单条
+          if (this.selected.length > 1 && this.selected.includes(en.name)) {
+            this.confirmTrashSelected()
+          } else {
+            this.trashEntry(en)
+          }
           break
         default:
           break
