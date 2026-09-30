@@ -71,6 +71,19 @@
         <span v-show="!collapsed" class="nav-label">{{ clipboard.title }}</span>
       </div>
 
+      <!-- 浏览器（固定，不可拖拽：应用内网页容器，翻译等为容器特性） -->
+      <div
+        class="nav-item"
+        :class="{ active: isActive(browser) }"
+        @click="navigate(browser)"
+        :title="collapsed ? browser.title : ''"
+      >
+        <span class="nav-icon-wrap">
+          <svg-icon :icon-class="browser.iconSvg" class="nav-svg" />
+        </span>
+        <span v-show="!collapsed" class="nav-label">{{ browser.title }}</span>
+      </div>
+
       <!-- 组列表（可拖拽排序，与固定项之间以留白分隔） -->
       <draggable
         v-model="groups"
@@ -171,6 +184,7 @@ import {
   favoriteItem,
   todoItem,
   clipboardItem,
+  browserItem,
   menuGroups
 } from '@/config/tools'
 import { getMenuOrder, saveMenuOrder } from '@/utils/menu-order'
@@ -191,6 +205,7 @@ export default {
       favorite: favoriteItem,
       todo: todoItem,
       clipboard: clipboardItem,
+      browser: browserItem,
       groups: [],
       expandedMap: { tools: true },
       // 滑动指示器位置（相对 nav 内容坐标）

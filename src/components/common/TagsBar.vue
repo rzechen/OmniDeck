@@ -72,6 +72,7 @@ import {
   favoriteItem,
   todoItem,
   clipboardItem,
+  browserItem,
   settingsItem,
   versionItem,
   feedbackItem,
@@ -82,7 +83,7 @@ import {
 // 固定入口 + 分组页 + 各工具页；/search 为快捷搜索页签补充项）
 const deckIconMap = (() => {
   const map = { '/search': 'search' }
-  ;[homeItem, favoriteItem, todoItem, clipboardItem, settingsItem, versionItem, feedbackItem].forEach(it => {
+  ;[homeItem, favoriteItem, todoItem, clipboardItem, browserItem, settingsItem, versionItem, feedbackItem].forEach(it => {
     if (it && it.path) map[it.path] = it.iconSvg
   })
   menuGroups.forEach(g => {

@@ -591,6 +591,16 @@
           </div>
         </template>
 
+        <!-- 运行时组件（按需在线装配：瘦身版安装包的 python-env / node 等大组件） -->
+        <template v-else-if="activeTab === 'runtime'">
+          <header class="settings-section-header">
+            <h2 class="section-title">运行时</h2>
+            <p class="section-desc">Python / Node.js 等运行时按需装配：从官方发布仓库在线下载（sha256 校验后解压到用户数据目录），未装配时工具自动回退系统环境</p>
+          </header>
+
+          <runtime-manager />
+        </template>
+
         <!-- 关于（应用级：版本信息 + 问题反馈） -->
         <template v-else-if="activeTab === 'about'">
           <header class="settings-section-header">
@@ -774,6 +784,7 @@ import {
 } from '@/utils/wallpaper-market'
 import * as toolHistory from '@/utils/tool-history'
 import { toolCategories } from '@/config/tools'
+import RuntimeManager from '@/components/buddy/RuntimeManager.vue'
 
 // 字节数人性化
 function fmtBytes(n) {
@@ -813,6 +824,7 @@ function flattenRoutes(list, base) {
 
 export default {
   name: 'Settings',
+  components: { RuntimeManager },
   data() {
     return {
       activeTab: 'general',
@@ -822,6 +834,7 @@ export default {
         { key: 'quick', label: '快捷键', icon: 'el-icon-magic-stick' },
         { key: 'tray', label: '托盘项', icon: 'el-icon-menu' },
         { key: 'security', label: '安全项', icon: 'el-icon-lock' },
+        { key: 'runtime', label: '运行时', icon: 'el-icon-cpu' },
         { key: 'about', label: '关于项', icon: 'el-icon-info' }
       ],
       themeModes,
@@ -1108,6 +1121,7 @@ export default {
     }
   },
   mounted() {
+    this.syncTabFromQuery()
     this.loadLockState()
     this.loadShortcuts()
     this.loadTrayMenu()
@@ -1115,12 +1129,29 @@ export default {
     this.loadClipKeep()
     this.loadBuddySessions()
   },
+  watch: {
+    // 外部跳转（如启动检查横幅「去装配」）带 ?tab= 直达指定分区；
+    // 组件被 keep-alive 复用时 route 变化不重走 mounted，watch 兜底
+    '$route.query.tab': {
+      immediate: false,
+      handler() {
+        this.syncTabFromQuery()
+      }
+    }
+  },
   beforeUnmount() {
     window.removeEventListener('keydown', this.onRecordKeydown, true)
     window.removeEventListener('keyup', this.onRecordKeyup, true)
     document.removeEventListener('mousedown', this.onRecordBlur, true)
   },
   methods: {
+    // 从路由 query 同步激活分区（tab 键不合法时保持当前值）
+    syncTabFromQuery() {
+      const tab = this.$route.query.tab
+      if (tab && this.tabs.some(t => t.key === tab)) {
+        this.activeTab = tab
+      }
+    },
     // ===== 工具执行历史管理 =====
     // 加载历史状态：条数上限 + 各工具记录数 + 本地数据用量
     async loadHistoryState() {
