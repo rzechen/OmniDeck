@@ -69,7 +69,8 @@ const mainInput = hasCore
       'windows/quick-panel': abs('electron/windows/quick-panel.js'),
       'windows/capture': abs('electron/windows/capture.js'),
       'windows/browser': abs('electron/windows/browser.js'),
-      // 翻译浏览器：引擎层 / 注入脚本（browser.js 相对引用，产物镜像源码结构）
+      // 翻译浏览器：控制器 / 引擎层 / 注入脚本（main.js 与 browser.js 相对引用，产物镜像源码结构）
+      'translate/controller': abs('electron/translate/controller.js'),
       'translate/engines': abs('electron/translate/engines.js'),
       'translate/inject': abs('electron/translate/inject.js'),
       // 公众号模板管线：秀米导入 / 渲染发布复制 / 编辑器注入（agent/pi.js 相对引用，产物镜像源码结构）
