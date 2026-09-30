@@ -114,27 +114,43 @@ upload_gitcode() {
   for f in "${files[@]}"; do
     echo "→ [gitcode] 上传 $(basename "$f") ..."
 
-    # 1. 取预签名上传地址
-    local resp url
-    resp=$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" \
-      "https://api.gitcode.com/api/v5/repos/$OWNER/$REPO/releases/$TAG/upload_url?file_name=$(basename "$f")")
-    url=$(echo "$resp" | python3 -c "import json,sys; print(json.load(sys.stdin)['url'])" 2>/dev/null) || {
-      echo "  ✗ 获取上传地址失败：$resp"; fail=$((fail + 1)); continue
-    }
-
-    # 2. PUT 上传到预签名地址
-    python3 - "$resp" "$f" <<'PYEOF' || fail=$((fail + 1))
-import json, subprocess, sys
+    # 1+2. 取预签名地址并 PUT 上传（失败自动换新预签名地址重试 1 次；响应体留存便于诊断）
+    local resp attempt rc
+    rc=1
+    for attempt in 1 2; do
+      [ "$attempt" -eq 2 ] && { echo "  → 重试上传（重新取预签名地址）..."; sleep 3; }
+      resp=$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" \
+        "https://api.gitcode.com/api/v5/repos/$OWNER/$REPO/releases/$TAG/upload_url?file_name=$(basename "$f")")
+      echo "$resp" | python3 -c "import json,sys; json.load(sys.stdin)['url']" 2>/dev/null || {
+        echo "  ✗ 获取上传地址失败：$resp"; continue
+      }
+      if python3 - "$resp" "$f" <<'PYEOF'; then
+import json, os, subprocess, sys
 resp, file = sys.argv[1], sys.argv[2]
 d = json.loads(resp)
-cmd = ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'PUT', '--data-binary', '@' + file, d['url']]
+tmp = '/tmp/gitcode-put-resp.' + str(os.getpid())
+cmd = ['curl', '-sS', '-o', tmp, '-w', '%{http_code}',
+       '--connect-timeout', '30', '--speed-time', '60', '--speed-limit', '10240',
+       '-X', 'PUT', '--data-binary', '@' + file, d['url']]
 for k, v in d['headers'].items():
     cmd += ['-H', f'{k}: {v}']
 p = subprocess.run(cmd, capture_output=True)
-code = p.stdout.decode()
+code = p.stdout.decode().strip()
 print('  上传响应:', code)
-sys.exit(0 if code == '200' else 1)
+if code != '200':
+    detail = ''
+    try:
+        detail = open(tmp, errors='replace').read(200)
+    except OSError:
+        pass
+    print('  ✗ 失败详情:', detail or p.stderr.decode(errors='replace')[:200])
+    sys.exit(1)
 PYEOF
+        rc=0
+        break
+      fi
+    done
+    [ "$rc" -eq 0 ] || fail=$((fail + 1))
   done
 
   if [ "$fail" -eq 0 ]; then
@@ -201,15 +217,19 @@ print(next((a['id'] for a in assets if a['name'] == '$name'), ''))" 2>/dev/null)
       curl -s --max-time 20 -o /dev/null "${auth_header[@]}" -X DELETE "$API/repos/$OWNER/$REPO/releases/assets/$dup_id"
     fi
 
-    local code
-    code=$(curl -s -o /tmp/gh-upload-resp.json -w '%{http_code}' --max-time 600 \
+    local code resp_file="/tmp/gh-upload-resp.$$.json"
+    # 不设总超时（661MB 国内直连 10 分钟内常传不完）；改用连接超时 + 断流检测 + 自动重试
+    rm -f "$resp_file"
+    code=$(curl -sS -o "$resp_file" -w '%{http_code}' \
+      --connect-timeout 30 --speed-time 60 --speed-limit 10240 \
+      --retry 2 --retry-delay 5 \
       "${auth_header[@]}" -H "Content-Type: application/octet-stream" \
       --data-binary "@$f" \
       "$UPLOAD_URL/repos/$OWNER/$REPO/releases/$REL_ID/assets?name=$name")
     if [ "$code" = "201" ]; then
       echo "  上传响应: $code"
     else
-      echo "  ✗ 上传失败（${code}）：$(head -c 200 /tmp/gh-upload-resp.json)"
+      echo "  ✗ 上传失败（${code}）：$(head -c 200 "$resp_file" 2>/dev/null || echo '（无响应体，原因见上方 curl 错误）')"
       fail=$((fail + 1))
     fi
   done
