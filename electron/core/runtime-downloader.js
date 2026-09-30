@@ -372,11 +372,13 @@ function writeLedger(ledger) {
 
 // ---------- 状态探测 ----------
 
-// marker 相对路径探测（相对根目录；根为空字符串时防 path.join 假阳性）
+// marker 相对路径探测（相对根目录；根为空字符串时防 path.join 假阳性）。
+// 存在即命中（文件或目录）：node-tools 的 marker 是 node/lib/node_modules/sharp 目录，
+// 若限定 isFile 会永远探测失败 → 每次启动重复装配该组件
 function markerHit(root, rel) {
   if (!root) return false
   try {
-    return fs.statSync(path.join(root, rel)).isFile()
+    return fs.existsSync(path.join(root, rel))
   } catch (e) {
     return false
   }

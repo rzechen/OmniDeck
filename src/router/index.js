@@ -812,9 +812,11 @@ router.beforeEach(async (to, from, next) => {
 })
 
 // 记录 deck 主界面最后所在页面：从 OmniBuddy「返回 OmniDeck」时
-// 回到进入前的页面（而非固定回首页）；快捷面板为独立窗口壳页，不参与记录
+// 回到进入前的页面（而非固定回首页）；快捷面板为独立窗口壳页，不参与记录。
+// /setup 引导页也不记录：首启被拦进引导页后 lastDeckPath 若存 '/setup'，
+// 装配完成进入应用再「返回 OmniDeck」会被推回引导页
 router.afterEach((to) => {
-  if (!to.path.startsWith('/omnibuddy') && to.path !== '/quick') {
+  if (!to.path.startsWith('/omnibuddy') && to.path !== '/quick' && to.path !== '/setup') {
     router.lastDeckPath = to.path
   }
   // 对称记录 buddy 侧最后所在页面（含会话 query）：从 deck 切回 OmniBuddy 时
