@@ -8,19 +8,19 @@
   >
     <template #toolbar>
       <button class="tool-btn" @click="copyMarkdown">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制 Markdown
       </button>
       <button class="tool-btn" @click="copyHtml">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制 HTML
       </button>
       <button class="tool-btn is-primary" @click="exportHtml">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         导出 HTML
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

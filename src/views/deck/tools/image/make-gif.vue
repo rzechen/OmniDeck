@@ -18,15 +18,15 @@
         <b class="mono">{{ gifWidth }}px</b>
       </label>
       <button class="tool-btn is-primary" :disabled="items.length < 2 || rendering" @click="renderGif">
-        <i :class="rendering ? 'el-icon-loading' : 'el-icon-video-play'"></i>
+        <svg-icon :icon-class="(rendering ? 'loading' : 'video-play')" />
         {{ rendering ? '合成中…' : '生成 GIF' }}
       </button>
       <button class="tool-btn" :disabled="!gifUrl" @click="downloadGif">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         下载
       </button>
       <button class="tool-btn is-danger" :disabled="!items.length && !gifUrl" @click="resetAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -46,7 +46,7 @@
               <span class="gif-index">{{ i + 1 }}</span>
               <img :src="item.url" alt="" />
               <button class="fc-remove" @click="removeItem(i)">
-                <i class="el-icon-close"></i>
+                <svg-icon icon-class="close" />
               </button>
             </div>
             </template>
@@ -64,7 +64,7 @@
         <div class="gif-preview-body">
           <img v-if="gifUrl" :src="gifUrl" alt="GIF 预览" />
           <div v-else class="gif-empty">
-            <i class="el-icon-video-camera"></i>
+            <svg-icon icon-class="video-camera" />
             <p>添加至少 2 张图片后生成</p>
           </div>
         </div>

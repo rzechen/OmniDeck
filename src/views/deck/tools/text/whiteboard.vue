@@ -9,11 +9,11 @@
     <template #toolbar>
       <div class="tool-seg">
         <div class="tool-seg-item" :class="{ active: tool === 'pen' }" @click="tool = 'pen'">
-          <i class="el-icon-edit"></i>
+          <svg-icon icon-class="edit" />
           画笔
         </div>
         <div class="tool-seg-item" :class="{ active: tool === 'eraser' }" @click="tool = 'eraser'">
-          <i class="el-icon-umbrella"></i>
+          <svg-icon icon-class="umbrella" />
           橡皮
         </div>
         <div
@@ -22,7 +22,7 @@
           title="拖拽平移画布"
           @click="tool = 'hand'"
         >
-          <i class="el-icon-thumb"></i>
+          <svg-icon icon-class="thumb" />
           抓手
         </div>
       </div>
@@ -45,36 +45,36 @@
         <input v-model="customColor" type="color" class="color-input" title="自定义颜色" />
       </template>
       <button class="tool-btn" :disabled="!strokes.length" @click="undo">
-        <i class="el-icon-refresh-left"></i>
+        <svg-icon icon-class="refresh-left" />
         撤销
       </button>
       <button class="tool-btn" :disabled="!redoStack.length" @click="redo">
-        <i class="el-icon-refresh-right"></i>
+        <svg-icon icon-class="refresh-right" />
         重做
       </button>
       <div class="tool-seg">
         <div class="tool-seg-item wb-zoom-btn" title="缩小" @click="zoomBy(1 / 1.25)">
-          <i class="el-icon-zoom-out"></i>
+          <svg-icon icon-class="zoom-out" />
         </div>
         <div class="tool-seg-item wb-zoom-label" title="重置为 100%" @click="resetZoom">
           {{ Math.round(zoom * 100) }}%
         </div>
         <div class="tool-seg-item wb-zoom-btn" title="放大" @click="zoomBy(1.25)">
-          <i class="el-icon-zoom-in"></i>
+          <svg-icon icon-class="zoom-in" />
         </div>
         <div class="tool-seg-item wb-zoom-btn" title="适应内容" @click="fitContent">
-          <i class="el-icon-full-screen"></i>
+          <svg-icon icon-class="full-screen" />
         </div>
         <div class="tool-seg-item wb-zoom-btn" title="回到中心（重置视图）" @click="resetView">
-          <i class="el-icon-aim"></i>
+          <svg-icon icon-class="aim" />
         </div>
       </div>
       <button class="tool-btn is-primary" @click="exportPng">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         导出 PNG
       </button>
       <button class="tool-btn is-danger" :disabled="!strokes.length" @click="clearBoard">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

@@ -9,15 +9,11 @@
     <div class="flag-page">
       <!-- 顶部搜索框：Mac 胶囊风格 -->
       <div class="flag-search">
-        <i class="el-icon-search"></i>
+        <svg-icon icon-class="search" />
         <input v-model="keyword" placeholder="搜索国家…" />
         <span v-if="keyword" class="flag-count">{{ filtered.length }} / {{ countries.length }}</span>
-        <i
-          v-if="keyword"
-          class="el-icon-circle-close flag-clear"
-          title="清空"
-          @click="keyword = ''"
-        ></i>
+        <svg-icon v-if="keyword" icon-class="circle-close" class-name="flag-clear" title="清空"
+          @click="keyword = ''" />
       </div>
 
       <!-- 国家卡片网格：点击复制国旗 Emoji -->

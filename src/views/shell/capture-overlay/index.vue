@@ -21,7 +21,7 @@
 
     <!-- editing：整屏定格帧背景 -->
     <div v-if="phase === 'editing'" class="co-frame" :style="{ backgroundImage: `url(${frame})` }"></div>
-    <div v-if="phase === 'freezing'" class="co-freezing"><i class="el-icon-loading"></i></div>
+    <div v-if="phase === 'freezing'" class="co-freezing"><svg-icon icon-class="loading" /></div>
 
     <template v-if="phase === 'editing' && ready">
       <!-- 选区画布（物理分辨率绘制，CSS 缩放到选区显示大小） -->
@@ -97,8 +97,8 @@
 
         <div class="co-div"></div>
 
-        <button class="co-btn" title="撤销 (⌘Z)" @click="undo"><i class="el-icon-refresh-left"></i></button>
-        <button class="co-btn" title="重做 (⌘⇧Z)" @click="redo"><i class="el-icon-refresh-right"></i></button>
+        <button class="co-btn" title="撤销 (⌘Z)" @click="undo"><svg-icon icon-class="refresh-left" /></button>
+        <button class="co-btn" title="重做 (⌘⇧Z)" @click="redo"><svg-icon icon-class="refresh-right" /></button>
         <button class="co-btn" title="重选区域 (R)" @click="restartPick">
           <svg viewBox="0 0 24 24" class="co-ico"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/></g></svg>
         </button>
@@ -106,13 +106,13 @@
         <div class="co-div"></div>
 
         <button class="co-btn co-ok" title="确认 (Enter / 双击)" @click="confirm">
-          <i class="el-icon-check"></i><span>确认</span>
+          <svg-icon icon-class="check" /><span>确认</span>
         </button>
         <button class="co-btn co-pin" title="贴屏" @click="pin">
-          <i class="el-icon-pushpin"></i><span>贴屏</span>
+          <svg-icon icon-class="pushpin" /><span>贴屏</span>
         </button>
         <button class="co-btn co-no" title="取消 (Esc)" @click="cancel">
-          <i class="el-icon-close"></i>
+          <svg-icon icon-class="close" />
         </button>
       </div>
 

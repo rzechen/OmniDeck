@@ -8,11 +8,11 @@
     <img v-if="src" :src="src" alt="贴图" draggable="false" />
     <!-- 操作角标（hover 显示） -->
     <button class="cp-close" title="关闭 (双击)" @click.stop="close">
-      <i class="el-icon-close"></i>
+      <svg-icon icon-class="close" />
     </button>
     <div class="cp-zoom" v-show="hovering">
-      <button title="放大" @click.stop="resize(1.2)"><i class="el-icon-zoom-in"></i></button>
-      <button title="缩小" @click.stop="resize(0.8)"><i class="el-icon-zoom-out"></i></button>
+      <button title="放大" @click.stop="resize(1.2)"><svg-icon icon-class="zoom-in" /></button>
+      <button title="缩小" @click.stop="resize(0.8)"><svg-icon icon-class="zoom-out" /></button>
     </div>
   </div>
 </template>

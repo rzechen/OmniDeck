@@ -8,7 +8,7 @@
   >
     <template #toolbar>
       <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         历史
       </button>
     </template>
@@ -79,7 +79,7 @@
                 {{ parsed.ok ? '✓ 表达式有效' : '✕ ' + parsed.error }}
               </span>
               <button class="tool-btn" :disabled="!parsed.ok" @click="copyExpr">
-                <i class="el-icon-document-copy"></i>复制
+                <svg-icon icon-class="document-copy" />复制
               </button>
             </div>
           </div>

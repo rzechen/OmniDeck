@@ -7,7 +7,7 @@
   >
     <template #toolbar>
       <button class="tool-btn" @click="openAdd">
-        <i class="el-icon-plus"></i>添加持仓
+        <svg-icon icon-class="plus" />添加持仓
       </button>
       <!-- 循环倒计时刷新按钮：59s→…→1s→刷新中…→获取成功→59s -->
       <button
@@ -17,7 +17,7 @@
         @click="manualRefresh"
       >
         <i
-          class="el-icon-refresh"
+          class='refresh'
           :class="{ 'is-rotating': cdState === 'refreshing' }"
         ></i>
         <span class="fp-cd-text mono">{{ cdText }}</span>
@@ -94,14 +94,14 @@
             :title="hideAmount ? '显示金额' : '隐藏金额'"
             @click="toggleHide"
           >
-            <i class="el-icon-view"></i>
+            <svg-icon icon-class="view" />
           </button>
           <!-- 市场状态胶囊：交易中(绿)/午间休市(橙)/已收盘(灰) -->
           <span class="fp-market-chip" :class="marketStatus.type">
             <span class="chip-dot"></span>{{ marketStatus.label }}
           </span>
           <div class="fp-sum-time">
-            <i class="el-icon-time"></i>
+            <svg-icon icon-class="time" />
             {{ updateTime || '—' }}
           </div>
         </div>
@@ -141,7 +141,7 @@
               <span v-if="row.quote && row.quote.time" class="fp-quote-time">
                 {{ fmtQuoteDate(row.quote.date) }} {{ fmtQuoteTime(row.quote.time) }}
               </span>
-              <span v-if="row.error" class="fp-error"><i class="el-icon-warning"></i> {{ row.error }}</span>
+              <span v-if="row.error" class="fp-error"><svg-icon icon-class="warning" /> {{ row.error }}</span>
             </div>
           </div>
 
@@ -182,23 +182,23 @@
               <svg-icon icon-class="top" />
             </button>
             <button class="fp-op" :title="i === 0 ? '已是第一个' : '上移'" :disabled="i === 0" @click="moveRow(i, -1)">
-              <i class="el-icon-arrow-up"></i>
+              <svg-icon icon-class="arrow-up" />
             </button>
             <button class="fp-op" :title="i === positions.length - 1 ? '已是最后一个' : '下移'" :disabled="i === positions.length - 1" @click="moveRow(i, 1)">
-              <i class="el-icon-arrow-down"></i>
+              <svg-icon icon-class="arrow-down" />
             </button>
             <button class="fp-op" title="编辑持仓" @click="openEdit(i)">
-              <i class="el-icon-edit"></i>
+              <svg-icon icon-class="edit" />
             </button>
             <button class="fp-op is-danger" title="删除持仓" @click="removeRow(i)">
-              <i class="el-icon-delete"></i>
+              <svg-icon icon-class="delete" />
             </button>
           </div>
         </div>
 
         <!-- 空状态 -->
         <div v-if="!positions.length" class="fp-empty">
-          <i class="el-icon-wallet"></i>
+          <svg-icon icon-class="wallet" />
           <p>暂无持仓，点击右上角「添加持仓」开始</p>
           <p class="fp-empty-sub">只需录入当前份额与成本，无需历史交易记录</p>
         </div>
@@ -224,7 +224,7 @@
     >
       <!-- 基金代码：输入满 6 位后自动查询（仅添加时） -->
       <div v-if="!dialog.code" class="fp-search">
-        <i class="el-icon-search"></i>
+        <svg-icon icon-class="search" class-name="search-ic" />
         <input
           ref="searchInput"
           v-model="dialog.keyword"
@@ -233,12 +233,8 @@
           inputmode="numeric"
           @input="onSearchInput"
         />
-        <i
-          v-if="dialog.keyword"
-          class="el-icon-circle-close fp-search-clear"
-          @click="clearKeyword"
-        ></i>
-        <div v-if="searching" class="fp-search-loading"><i class="el-icon-loading"></i></div>
+        <svg-icon v-if="dialog.keyword" icon-class="circle-close" class-name="fp-search-clear" @click="clearKeyword" />
+        <div v-if="searching" class="fp-search-loading"><svg-icon icon-class="loading" /></div>
       </div>
 
       <!-- 选中信息 -->
@@ -1140,7 +1136,7 @@ export default {
   background: var(--search-bg);
   border-radius: 10px;
 
-  > .el-icon-search {
+  > .search-ic {
     color: var(--text-secondary);
     font-size: 14px;
   }

@@ -8,23 +8,23 @@
   >
     <template #toolbar>
       <button class="tool-btn" @click="pickMain">
-        <i class="el-icon-upload2"></i>
+        <svg-icon icon-class="upload2" />
         主表
       </button>
       <button class="tool-btn" @click="pickSub">
-        <i class="el-icon-upload2"></i>
+        <svg-icon icon-class="upload2" />
         从表
       </button>
       <button class="tool-btn is-primary" :disabled="!canRun" @click="runMatch">
-        <i class="el-icon-search"></i>
+        <svg-icon icon-class="search" />
         执行匹配
       </button>
       <button class="tool-btn" :disabled="!matchedRows" @click="exportXlsx">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         导出结果
       </button>
       <button class="tool-btn is-danger" @click="reset">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -33,7 +33,7 @@
       <!-- 文件与规则区 -->
       <div class="vl-config">
         <div class="vl-file" :class="{ loaded: mainBook }" @click="pickMain">
-          <i :class="mainBook ? 'el-icon-document' : 'el-icon-upload'"></i>
+          <svg-icon :icon-class="(mainBook ? 'document' : 'upload')" />
           <div class="vl-file-info">
             <b>{{ mainName || '上传主表（待填充）' }}</b>
             <span v-if="mainBook">{{ mainSheets.length }} 个 Sheet · {{ mainSheetRows.length }} 行</span>
@@ -52,7 +52,7 @@
         </div>
 
         <div class="vl-file" :class="{ loaded: subBook }" @click="pickSub">
-          <i :class="subBook ? 'el-icon-document' : 'el-icon-upload'"></i>
+          <svg-icon :icon-class="(subBook ? 'document' : 'upload')" />
           <div class="vl-file-info">
             <b>{{ subName || '上传从表（数据源）' }}</b>
             <span v-if="subBook">{{ subSheets.length }} 个 Sheet</span>
@@ -106,7 +106,7 @@
             </tbody>
           </table>
           <div v-else class="vl-empty">
-            <i class="el-icon-data-analysis"></i>
+            <svg-icon icon-class="data-analysis" />
             <p>上传两表并配置规则后执行匹配</p>
           </div>
         </div>

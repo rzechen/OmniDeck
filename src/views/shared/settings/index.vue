@@ -10,7 +10,7 @@
           :class="{ active: activeTab === tab.key }"
           @click="activeTab = tab.key"
         >
-          <i :class="tab.icon"></i>
+          <svg-icon :icon-class="tab.icon" />
           <span>{{ tab.label }}</span>
         </div>
       </aside>
@@ -60,7 +60,7 @@
                   :class="{ active: themeMode === mode.value }"
                   @click="selectMode(mode.value)"
                 >
-                  <i :class="mode.icon"></i>
+                  <svg-icon :icon-class="mode.icon" />
                   <span>{{ mode.label }}</span>
                 </div>
               </div>
@@ -82,7 +82,7 @@
                   :title="color.name"
                   @click="selectColor(color.value)"
                 >
-                  <i v-if="primaryColor === color.value" class="el-icon-check"></i>
+                  <i v-if="primaryColor === color.value" class='check'></i>
                 </div>
               </div>
             </div>
@@ -113,8 +113,8 @@
                 <span class="label-desc">从本地壁纸目录选择图片、GIF 或视频作为应用背景，界面自动转为半透明毛玻璃；也可从壁纸市场一键拉取到本地</span>
               </div>
               <div class="wp-controls">
-                <el-button size="small" round @click="pickWallpaperFiles"><i class="el-icon-picture-outline" /> 选择壁纸</el-button>
-                <el-button size="small" round @click="openMarketDrawer"><i class="el-icon-goods" /> 壁纸市场</el-button>
+                <el-button size="small" round @click="pickWallpaperFiles"><svg-icon icon-class="picture-outline" /> 选择壁纸</el-button>
+                <el-button size="small" round @click="openMarketDrawer"><svg-icon icon-class="goods" /> 壁纸市场</el-button>
                 <div class="segmented">
                   <div
                     v-for="opt in motionOptions"
@@ -140,10 +140,10 @@
                   @click="selectWallpaper(wp)"
                 >
                   <img v-if="wpThumbUrl(wp)" :src="wpThumbUrl(wp)" alt="" @error="onWpThumbError(wp)" />
-                  <i v-else class="el-icon-video-play wp-video-badge"></i>
+                  <svg-icon v-else icon-class="video-play" class-name="wp-video-badge" />
                   <span class="wp-thumb-name" :title="wp.name">{{ wp.name }}</span>
                   <span class="wp-thumb-del" title="删除" @click.stop="deleteWallpaper(wp)">
-                    <i class="el-icon-close"></i>
+                    <svg-icon icon-class="close" />
                   </span>
                 </div>
               </div>
@@ -243,7 +243,7 @@
                   :class="{ active: sidebarDefault === opt.value }"
                   @click="selectSidebarDefault(opt.value)"
                 >
-                  <i :class="opt.icon"></i>
+                  <svg-icon :icon-class="opt.icon" />
                   <span>{{ opt.label }}</span>
                 </div>
               </div>
@@ -263,7 +263,7 @@
                   :class="{ active: sidebarGroupsDefault === opt.value }"
                   @click="selectSidebarGroupsDefault(opt.value)"
                 >
-                  <i :class="opt.icon"></i>
+                  <svg-icon :icon-class="opt.icon" />
                   <span>{{ opt.label }}</span>
                 </div>
               </div>
@@ -367,7 +367,7 @@
                     title="恢复默认快捷键"
                     @click="resetShortcutItem(item.id)"
                   >
-                    <i class="el-icon-refresh-right"></i>
+                    <svg-icon icon-class="refresh-right" />
                   </span>
                 </div>
               </div>
@@ -445,7 +445,7 @@
                   </button>
                 </div>
                 <span class="tray-item-del" title="删除菜单项" @click="removeTrayItem(gi, it.id)">
-                  <i class="el-icon-delete"></i>
+                  <svg-icon icon-class="delete" />
                 </span>
               </div>
               <div v-if="!g.items.length" class="tray-item-empty">暂无菜单项，点击上方「+ {{ g.key === 'deck' ? 'Deck' : 'Buddy' }} 项」添加</div>
@@ -528,7 +528,7 @@
                 <span class="label-text">立即锁定</span>
                 <span class="label-desc">手动锁定应用（需先设置应用密码），锁定后凭密码或触控 ID 解锁；快捷键 {{ formatAccelerator(shortcuts.lock) }}</span>
               </div>
-              <el-button size="small" round @click="lockNow"><i class="el-icon-lock" /> 锁定应用</el-button>
+              <el-button size="small" round @click="lockNow"><svg-icon icon-class="lock" /> 锁定应用</el-button>
             </div>
           </div>
 
@@ -544,7 +544,7 @@
               <div class="lock-actions">
                 <el-dropdown v-if="historyTools.length" trigger="click" @command="clearToolHistory">
                   <el-button size="small" round class="hist-tool-dropdown">
-                    <i class="el-icon-eraser" /> 按工具清空<i class="el-icon-arrow-down el-icon--right"></i>
+                    <svg-icon icon-class="eraser" /> 按工具清空<svg-icon icon-class="arrow-down" class-name="dd-arrow" />
                   </el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
@@ -568,7 +568,7 @@
                   :loading="historyClearing"
                   :disabled="!historyTotalCount"
                   @click="clearAllHistory"
-                ><i class="el-icon-delete" /> 清空全部历史</el-button>
+                ><svg-icon icon-class="delete" /> 清空全部历史</el-button>
               </div>
             </div>
 
@@ -586,7 +586,7 @@
                 :loading="buddyHistoryClearing"
                 :disabled="!buddySessionCount"
                 @click="clearBuddyHistory"
-              ><i class="el-icon-delete" /> 清空全部历史</el-button>
+              ><svg-icon icon-class="delete" /> 清空全部历史</el-button>
             </div>
           </div>
         </template>
@@ -615,7 +615,7 @@
                 <span class="label-text">当前版本</span>
                 <span class="label-desc">查看版本信息与更新日志</span>
               </div>
-              <el-button size="small" round @click="goVersion"><i class="el-icon-info" /> 查看版本</el-button>
+              <el-button size="small" round @click="goVersion"><svg-icon icon-class="info" /> 查看版本</el-button>
             </div>
 
             <!-- 问题反馈 -->
@@ -624,7 +624,7 @@
                 <span class="label-text">问题反馈</span>
                 <span class="label-desc">使用中遇到问题或有功能建议，欢迎反馈</span>
               </div>
-              <el-button size="small" round @click="goFeedback"><i class="el-icon-chat-dot-round" /> 去反馈</el-button>
+              <el-button size="small" round @click="goFeedback"><svg-icon icon-class="chat-dot-round" /> 去反馈</el-button>
             </div>
           </div>
         </template>
@@ -637,7 +637,7 @@
         <div class="sec-dialog">
           <header class="sec-dialog-header">
             <h3 class="sec-dialog-title">{{ hasPassword ? '修改应用密码' : '设置应用密码' }}</h3>
-            <i class="el-icon-close sec-dialog-close" @click="pwdDialogVisible = false"></i>
+            <svg-icon icon-class="close" class-name="sec-dialog-close" @click="pwdDialogVisible = false" />
           </header>
           <div class="sec-dialog-body">
             <div class="sec-field">
@@ -673,25 +673,25 @@
       <div class="wp-market">
         <header class="wp-market-header">
           <div class="wp-market-title">
-            <i class="el-icon-goods"></i>
+            <svg-icon icon-class="goods" />
             <span>壁纸市场</span>
           </div>
           <div class="wp-market-header-actions">
             <button class="wp-market-pull-btn" :disabled="wpPullActive || wpPullBusy" @click="pullFromMarket">
-              <i :class="(wpPullActive || wpPullBusy) ? 'el-icon-loading' : 'el-icon-download'"></i>
+              <svg-icon :icon-class="((wpPullActive || wpPullBusy) ? 'loading' : 'download')" />
               <span>{{ wpPullActive ? '正在拉取中' : '从市场拉取' }}</span>
             </button>
-            <i class="el-icon-close wp-market-close" @click="marketVisible = false"></i>
+            <svg-icon icon-class="close" class-name="wp-market-close" @click="marketVisible = false" />
           </div>
         </header>
 
         <!-- 下载目录管理条：已记录目录时显示（路径 + 更换） -->
         <div v-if="marketDir" class="wp-market-dir">
           <span class="wp-market-dir-path" :title="marketDir">
-            <i class="el-icon-folder"></i>
+            <svg-icon icon-class="folder" />
             {{ marketDir }}
           </span>
-          <el-button size="small" round :disabled="wpPullActive" @click="chooseMarketDir()"><i class="el-icon-folder-opened" /> 更换</el-button>
+          <el-button size="small" round :disabled="wpPullActive" @click="chooseMarketDir()"><svg-icon icon-class="folder-opened" /> 更换</el-button>
         </div>
         <div v-if="marketMissing.length" class="wp-market-warn">未找到「{{ marketMissing.join('」「') }}」子目录</div>
 
@@ -715,11 +715,11 @@
         <!-- 网格 + 滚动分页 -->
         <div ref="marketScroll" class="wp-market-body" @scroll="onMarketScroll">
           <div v-if="wpPullActive && !marketItems.length" class="wp-market-tip is-loading">
-            <i class="el-icon-loading"></i>
+            <svg-icon icon-class="loading" />
             <p>正在从市场拉取壁纸…</p>
           </div>
           <div v-else-if="!wpPullActive && !marketItems.length" class="wp-market-tip">
-            <i class="el-icon-picture-outline"></i>
+            <svg-icon icon-class="picture-outline" />
             <p>{{ marketDir ? '目录中暂无壁纸' : '还没有壁纸' }}</p>
             <p class="wp-market-tip-sub">点击右上角「从市场拉取」开始下载壁纸</p>
           </div>
@@ -727,9 +727,9 @@
             <div v-for="item in marketItems" :key="item.id" class="wp-market-card">
               <div class="wp-market-cover">
                 <img v-if="item.coverUrl" :src="item.coverUrl" alt="" />
-                <i v-else class="el-icon-video-play wp-market-cover-empty"></i>
+                <svg-icon v-else icon-class="video-play" class-name="wp-market-cover-empty" />
                 <span class="wp-market-res">{{ item.resLabel }}</span>
-                <span v-if="item.added" class="wp-market-added"><i class="el-icon-check"></i> 已添加</span>
+                <span v-if="item.added" class="wp-market-added"><svg-icon icon-class="check" /> 已添加</span>
               </div>
               <div class="wp-market-meta">
                 <span class="wp-market-size" :title="item.name">{{ item.name }}</span>
@@ -744,7 +744,7 @@
               </div>
             </div>
           </div>
-          <div v-if="marketLoadingMore" class="wp-market-more"><i class="el-icon-loading"></i> 加载中…</div>
+          <div v-if="marketLoadingMore" class="wp-market-more"><svg-icon icon-class="loading" /> 加载中…</div>
           <div v-else-if="marketItems.length && !marketHasMore" class="wp-market-more is-end">— 到底了 —</div>
         </div>
       </div>
@@ -830,12 +830,12 @@ export default {
       activeTab: 'general',
       // 左侧二级菜单：label 统一为 3 字，避免长短参差
       tabs: [
-        { key: 'general', label: '通用项', icon: 'el-icon-setting' },
-        { key: 'quick', label: '快捷键', icon: 'el-icon-magic-stick' },
-        { key: 'tray', label: '托盘项', icon: 'el-icon-menu' },
-        { key: 'security', label: '安全项', icon: 'el-icon-lock' },
-        { key: 'runtime', label: '运行时', icon: 'el-icon-cpu' },
-        { key: 'about', label: '关于项', icon: 'el-icon-info' }
+        { key: 'general', label: '通用项', icon: 'setting' },
+        { key: 'quick', label: '快捷键', icon: 'magic-stick' },
+        { key: 'tray', label: '托盘项', icon: 'menu' },
+        { key: 'security', label: '安全项', icon: 'lock' },
+        { key: 'runtime', label: '运行时', icon: 'cpu' },
+        { key: 'about', label: '关于项', icon: 'info' }
       ],
       themeModes,
       presetColors,
@@ -855,13 +855,13 @@ export default {
       ],
       // 侧边栏启动默认状态
       sidebarOptions: [
-        { label: '展开', value: 'expand', icon: 'el-icon-s-unfold' },
-        { label: '收起', value: 'collapse', icon: 'el-icon-s-fold' }
+        { label: '展开', value: 'expand', icon: 's-unfold' },
+        { label: '收起', value: 'collapse', icon: 's-fold' }
       ],
       // 分组启动默认展开状态
       sidebarGroupsOptions: [
-        { label: '展开', value: 'expand', icon: 'el-icon-arrow-down' },
-        { label: '收起', value: 'collapse', icon: 'el-icon-arrow-right' }
+        { label: '展开', value: 'expand', icon: 'arrow-down' },
+        { label: '收起', value: 'collapse', icon: 'arrow-right' }
       ],
       // 减弱动态效果
       motionOptions: [
@@ -2786,6 +2786,11 @@ html.reduce-motion .kbd-ghost {
 }
 
 /* ===== 通用：历史记录管理下拉（mac 风格） ===== */
+/* 下拉箭头与文字的间距（原 el-icon--right 修饰类的 5px） */
+:deep(.hist-tool-dropdown .dd-arrow) {
+  margin-left: 5px;
+}
+
 /* 下拉项：工具名 + 条数徽标，两端对齐 */
 :deep(.hist-tool-item){
   display: flex;

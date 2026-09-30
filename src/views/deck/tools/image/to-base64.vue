@@ -8,11 +8,11 @@
   >
     <template #toolbar>
       <button class="tool-btn is-primary" :disabled="!result" @click="copyResult">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制结果
       </button>
       <button class="tool-btn is-danger" @click="reset">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -33,7 +33,7 @@
               <div class="b64-actions">
                 <button class="tool-btn" @click="reset">重新选择</button>
                 <button class="tool-btn" @click="downloadDataUrl(baseName(file.name) + '.txt', result)">
-                  <i class="el-icon-download"></i>
+                  <svg-icon icon-class="download" />
                   下载 .txt
                 </button>
               </div>

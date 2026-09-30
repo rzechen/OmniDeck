@@ -3,19 +3,19 @@
     <div v-if="visible" class="history-panel">
       <div class="history-header">
         <div class="history-title">
-          <i class="el-icon-time"></i>
+          <svg-icon icon-class="time" />
           <span>执行历史</span>
           <span v-if="items.length" class="history-count">{{ items.length }}</span>
         </div>
         <div class="history-actions">
           <button class="history-act" title="刷新" @click="load">
-            <i class="el-icon-refresh"></i>
+            <svg-icon icon-class="refresh" />
           </button>
           <button class="history-act" title="清空本工具历史" @click="clearAll">
-            <i class="el-icon-delete"></i>
+            <svg-icon icon-class="delete" />
           </button>
           <button class="history-act" title="关闭" @click="$emit('close')">
-            <i class="el-icon-close"></i>
+            <svg-icon icon-class="close" />
           </button>
         </div>
       </div>
@@ -23,7 +23,7 @@
       <div class="history-body">
         <div v-if="loading" class="history-empty">加载中…</div>
         <div v-else-if="!items.length" class="history-empty">
-          <i class="el-icon-folder-opened empty-ico"></i>
+          <svg-icon icon-class="folder-opened" class-name="empty-ico" />
           <p>暂无执行历史</p>
           <p class="empty-tip">执行「复制 / 转义 / 去转义」等操作后自动记录</p>
         </div>
@@ -43,7 +43,7 @@
               title="删除"
               @click.stop="removeOne(item)"
             >
-              <i class="el-icon-close"></i>
+              <svg-icon icon-class="close" />
             </span>
           </div>
         </div>

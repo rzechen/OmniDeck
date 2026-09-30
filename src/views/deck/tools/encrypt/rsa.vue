@@ -24,23 +24,23 @@
         </div>
       </div>
       <button class="tool-btn" :disabled="generating" @click="generateKeyPair">
-        <i :class="generating ? 'el-icon-loading' : 'el-icon-magic-stick'"></i>
+        <svg-icon :icon-class="(generating ? 'loading' : 'magic-stick')" />
         {{ generating ? '生成中…' : '生成密钥对' }}
       </button>
       <button class="tool-btn" @click="run">
-        <i class="el-icon-video-play"></i>
+        <svg-icon icon-class="video-play" />
         执行
       </button>
       <button class="tool-btn is-primary" @click="copyOutput">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制
       </button>
       <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         历史
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -51,7 +51,7 @@
           <div class="key-box-title">
             公钥（加密用）
             <button class="key-copy" title="复制公钥" @click="copyKey('public')">
-              <i class="el-icon-document-copy"></i>
+              <svg-icon icon-class="document-copy" />
             </button>
           </div>
           <textarea
@@ -65,7 +65,7 @@
           <div class="key-box-title">
             私钥（解密用）
             <button class="key-copy" title="复制私钥" @click="copyKey('private')">
-              <i class="el-icon-document-copy"></i>
+              <svg-icon icon-class="document-copy" />
             </button>
           </div>
           <textarea

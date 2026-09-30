@@ -2,15 +2,11 @@
   <div class="doc-list">
     <!-- 搜索栏 -->
     <div class="doc-search">
-      <i class="el-icon-search"></i>
+      <svg-icon icon-class="search" />
       <input v-model="keyword" placeholder="搜索关键词…" />
       <span v-if="keyword" class="doc-count">{{ filtered.length }} / {{ rows.length }}</span>
-      <i
-        v-if="keyword"
-        class="el-icon-circle-close doc-clear"
-        title="清空"
-        @click="keyword = ''"
-      ></i>
+      <svg-icon v-if="keyword" icon-class="circle-close" class-name="doc-clear" title="清空"
+        @click="keyword = ''" />
     </div>
     <!-- 表格 -->
     <div class="doc-table-wrap">
@@ -28,7 +24,7 @@
               :class="{ 'is-mono': c.mono, 'is-tag': c.tag }"
               @click="c.copy && copyCell(row[c.key])"
             >
-              <template v-if="c.copy && row[c.key]">{{ row[c.key] }}<i class="el-icon-document-copy doc-copy"></i></template>
+              <template v-if="c.copy && row[c.key]">{{ row[c.key] }}<svg-icon icon-class="document-copy" class-name="doc-copy" /></template>
               <template v-else>{{ row[c.key] }}</template>
             </td>
           </tr>

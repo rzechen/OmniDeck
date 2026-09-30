@@ -8,23 +8,23 @@
   >
     <template #toolbar>
       <button class="tool-btn" @click="encode">
-        <i class="el-icon-top-right"></i>
+        <svg-icon icon-class="top-right" />
         编码
       </button>
       <button class="tool-btn" @click="decode">
-        <i class="el-icon-bottom-left"></i>
+        <svg-icon icon-class="bottom-left" />
         解码
       </button>
       <button class="tool-btn is-primary" @click="copyOutput">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制
       </button>
       <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         历史
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

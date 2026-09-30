@@ -8,15 +8,15 @@
   >
     <template #toolbar>
       <button class="tool-btn is-primary" @click="generate">
-        <i class="el-icon-refresh"></i>
+        <svg-icon icon-class="refresh" />
         生成
       </button>
       <button class="tool-btn" @click="copyAll">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制全部
       </button>
       <button class="tool-btn is-danger" @click="clearResults">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -94,10 +94,10 @@
             </div>
             <span class="strength-label">{{ strengthText(p.score) }}</span>
           </div>
-          <i class="el-icon-document-copy pwd-copy"></i>
+          <svg-icon icon-class="document-copy" class-name="pwd-copy" />
         </div>
         <div v-if="!passwords.length" class="pwd-empty">
-          <i class="el-icon-key"></i>
+          <svg-icon icon-class="key" />
           <p>点击「生成」创建随机密码</p>
         </div>
       </div>

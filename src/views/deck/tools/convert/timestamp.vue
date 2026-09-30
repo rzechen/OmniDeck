@@ -8,11 +8,11 @@
   >
     <template #toolbar>
       <button class="tool-btn" @click="fillNow">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         此刻
       </button>
       <button class="tool-btn" @click="copyText(String(nowTs))">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制当前秒级
       </button>
     </template>

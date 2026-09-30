@@ -8,15 +8,15 @@
   >
     <template #toolbar>
       <button class="tool-btn is-primary" @click="copy(output)">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制结果
       </button>
       <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         历史
       </button>
       <button class="tool-btn is-danger" @click="input = ''">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

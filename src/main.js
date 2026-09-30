@@ -15,8 +15,6 @@ import './styles/index.scss'
 import './styles/theme.scss'
 import './styles/motion.scss'
 import './styles/buddy-settings-global.scss'
-// el-icon-* 字体图标兼容层（EP 移除字体图标，以 SVG mask 复刻，需晚于组件库样式加载）
-import './styles/el-icons-compat.scss'
 
 const app = createApp(App)
 app.use(ElementPlus, { size: 'small', zIndex: 3200 })
@@ -60,22 +58,26 @@ app.config.globalProperties.$alert = app.config.globalProperties.$msgbox.alert
 app.config.globalProperties.$confirm = app.config.globalProperties.$msgbox.confirm
 app.config.globalProperties.$prompt = app.config.globalProperties.$msgbox.prompt
 
-// 复制图标变形：点击带复制图标（el-icon-document-copy）的按钮时，
-// 图标短暂替换为绿色 ✓ 并弹跳，1.2s 后还原。无需改动任何工具页代码。
+// 复制图标变形：点击带复制图标的按钮时，图标短暂替换为绿色 ✓ 并弹跳，1.2s 后还原。
+// 无需改动任何工具页代码。
 function setupCopyMorph() {
   document.addEventListener(
     'click',
     e => {
       const btn = e.target && e.target.closest ? e.target.closest('button, .tool-btn, .add-btn') : null
       if (!btn) return
-      const icon = btn.querySelector('i.el-icon-document-copy')
-      if (!icon || btn.dataset.copyLock) return
+      // svg-icon 渲染为 <svg class="svg-icon..."><use href="#icon-xxx"/></svg>
+      const use = btn.querySelector('svg use[href="#icon-document-copy"], svg use[xlink\\:href="#icon-document-copy"]')
+      if (!use || btn.dataset.copyLock) return
+      const svg = use.closest('svg')
       btn.dataset.copyLock = '1'
-      icon.classList.remove('el-icon-document-copy')
-      icon.classList.add('el-icon-circle-check', 'is-copied')
+      use.setAttribute('href', '#icon-circle-check')
+      use.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#icon-circle-check')
+      svg.classList.add('is-copied')
       setTimeout(() => {
-        icon.classList.remove('el-icon-circle-check', 'is-copied')
-        icon.classList.add('el-icon-document-copy')
+        use.setAttribute('href', '#icon-document-copy')
+        use.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#icon-document-copy')
+        svg.classList.remove('is-copied')
         delete btn.dataset.copyLock
       }, 1200)
     },

@@ -53,14 +53,14 @@
             @click="copy(r)"
           >
             {{ r }}
-            <i class="el-icon-document-copy rel-copy"></i>
+            <svg-icon icon-class="document-copy" class-name="rel-copy" />
           </div>
         </div>
         <div v-else-if="text && calculated" class="rel-none">
           无法识别该关系链，试试其他表达
         </div>
         <div v-else class="rel-empty">
-          <i class="el-icon-s-custom"></i>
+          <svg-icon icon-class="s-custom" />
           <p>输入关系链自动计算，如「妈妈的哥哥」「外婆的姐姐的儿子」</p>
         </div>
       </div>

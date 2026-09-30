@@ -22,7 +22,7 @@
       <!-- 解析结果 -->
       <div v-if="result" class="id-result" :class="{ 'is-invalid': !result.valid }">
         <div class="id-status" :class="result.valid ? 'ok' : 'bad'">
-          <i :class="result.valid ? 'el-icon-success' : 'el-icon-error'"></i>
+          <svg-icon :icon-class="(result.valid ? 'success' : 'error')" />
           {{ result.valid ? '身份证号有效' : '校验失败：' + result.error }}
         </div>
 
@@ -57,7 +57,7 @@
       </div>
 
       <div v-else class="id-empty">
-        <i class="el-icon-postcard"></i>
+        <svg-icon icon-class="postcard" />
         <p>输入身份证号后自动解析（仅在本地计算，不上传）</p>
       </div>
     </div>

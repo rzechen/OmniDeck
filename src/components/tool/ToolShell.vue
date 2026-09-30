@@ -4,7 +4,7 @@
     <header class="tool-header">
       <div class="header-main">
         <button v-if="backPath" class="back-btn" title="返回" @click="goBack">
-          <i class="el-icon-arrow-left"></i>
+          <svg-icon icon-class="arrow-left" />
         </button>
         <div class="tool-icon" :style="iconStyle">
           <svg-icon :icon-class="icon" class="icon-svg" />

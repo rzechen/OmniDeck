@@ -48,7 +48,7 @@
           </div>
           <div class="quick-desc">日历视图 · 今日 {{ todayPending }} 项待办</div>
         </div>
-        <i class="el-icon-arrow-right quick-arrow"></i>
+        <svg-icon icon-class="arrow-right" class-name="quick-arrow" />
       </div>
 
       <!-- 贵金属 -->
@@ -60,7 +60,7 @@
           <div class="quick-title">贵金属</div>
           <div class="quick-desc">金银铂钯 · 实时行情 · 克价换算</div>
         </div>
-        <i class="el-icon-arrow-right quick-arrow"></i>
+        <svg-icon icon-class="arrow-right" class-name="quick-arrow" />
       </div>
 
       <!-- 我的收藏 -->
@@ -72,7 +72,7 @@
           <div class="quick-title">我的收藏</div>
           <div class="quick-desc">{{ favToolCount }} 个工具 · {{ favSiteCount }} 个网站</div>
         </div>
-        <i class="el-icon-arrow-right quick-arrow"></i>
+        <svg-icon icon-class="arrow-right" class-name="quick-arrow" />
       </div>
 
       <!-- 本地数据：配额监控 -->
@@ -90,7 +90,7 @@
             <span class="quota-used" :style="{ width: quotaPercent + '%' }"></span>
           </div>
         </div>
-        <i class="el-icon-arrow-right quick-arrow"></i>
+        <svg-icon icon-class="arrow-right" class-name="quick-arrow" />
       </div>
     </div>
 
@@ -204,7 +204,7 @@
         </span>
         <span class="cat-name">{{ cat.title }}</span>
         <span class="cat-count">{{ cat.children.length }}</span>
-        <i class="el-icon-arrow-right cat-arrow"></i>
+        <svg-icon icon-class="arrow-right" class-name="cat-arrow" />
       </div>
     </div>
   </div>

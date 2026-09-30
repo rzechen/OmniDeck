@@ -13,7 +13,7 @@
           :class="{ active: !compressed }"
           @click="setCompressed(false)"
         >
-          <i class="el-icon-s-operation"></i>
+          <svg-icon icon-class="s-operation" />
           格式化
         </div>
         <div
@@ -21,16 +21,16 @@
           :class="{ active: compressed }"
           @click="setCompressed(true)"
         >
-          <i class="el-icon-c-scale-to-original"></i>
+          <svg-icon icon-class="c-scale-to-original" />
           压缩
         </div>
       </div>
       <button class="tool-btn" @click="escapeJson">
-        <i class="el-icon-connection"></i>
+        <svg-icon icon-class="connection" />
         转义
       </button>
       <button class="tool-btn" @click="unescapeJson">
-        <i class="el-icon-scissors"></i>
+        <svg-icon icon-class="scissors" />
         去转义
       </button>
       <button class="tool-btn" @click="toggleFold">
@@ -38,19 +38,19 @@
         {{ folded ? '展开全部' : '折叠全部' }}
       </button>
       <button class="tool-btn is-primary" @click="copyOutput">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制
       </button>
       <button class="tool-btn" @click="downloadOutput">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         下载
       </button>
       <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         历史
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

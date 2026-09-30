@@ -29,15 +29,15 @@
         </div>
       </div>
       <button class="tool-btn is-primary" :disabled="!items.length" @click="compressAll">
-        <i class="el-icon-refresh"></i>
+        <svg-icon icon-class="refresh" />
         压缩
       </button>
       <button class="tool-btn" :disabled="!doneItems.length" @click="downloadAll">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         下载全部
       </button>
       <button class="tool-btn is-danger" :disabled="!items.length" @click="items = []">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -54,14 +54,14 @@
           <div v-for="(item, i) in items" :key="i" class="cp-item">
             <div class="cp-thumb">
               <img :src="item.url" alt="" />
-              <span v-if="item.out" class="cp-done"><i class="el-icon-check"></i></span>
+              <span v-if="item.out" class="cp-done"><svg-icon icon-class="check" /></span>
             </div>
             <div class="cp-info">
               <span class="cp-name">{{ item.name }}</span>
               <span class="cp-size">{{ formatSize(item.size) }}</span>
             </div>
             <button class="cp-remove" title="移除" @click="removeItem(i)">
-              <i class="el-icon-close"></i>
+              <svg-icon icon-class="close" />
             </button>
           </div>
         </div>
@@ -85,11 +85,11 @@
               {{ item.saved > 0 ? '-' : '+' }}{{ Math.abs(item.saved).toFixed(0) }}%
             </span>
             <button class="cp-dl" title="下载" @click="downloadOne(item)">
-              <i class="el-icon-download"></i>
+              <svg-icon icon-class="download" />
             </button>
           </div>
           <div v-if="!doneItems.length" class="cp-empty">
-            <i class="el-icon-picture-outline"></i>
+            <svg-icon icon-class="picture-outline" />
             <p>{{ items.length ? '点击顶部「压缩」按钮开始处理' : '先从左侧添加图片' }}</p>
           </div>
         </div>

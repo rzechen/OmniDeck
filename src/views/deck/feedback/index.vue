@@ -19,13 +19,13 @@
 
       <div class="feedback-placeholder">
         <div class="fp-icon">
-          <i class="el-icon-edit-outline"></i>
+          <svg-icon icon-class="edit-outline" />
         </div>
         <div class="fp-title">反馈功能规划中</div>
         <div class="fp-desc">表单提交、截图附带、历史反馈记录等功能正在开发中，敬请期待</div>
         <div class="fp-features">
           <div v-for="f in features" :key="f.label" class="fp-feature">
-            <i :class="f.icon"></i>
+            <svg-icon :icon-class="f.icon" />
             <span>{{ f.label }}</span>
           </div>
         </div>
@@ -41,10 +41,10 @@ export default {
   data() {
     return {
       features: [
-        { icon: 'el-icon-edit-outline', label: '问题描述' },
-        { icon: 'el-icon-picture-outline', label: '截图附带' },
-        { icon: 'el-icon-collection', label: '历史记录' },
-        { icon: 'el-icon-chat-line-round', label: '进展通知' }
+        { icon: 'edit-outline', label: '问题描述' },
+        { icon: 'picture-outline', label: '截图附带' },
+        { icon: 'collection', label: '历史记录' },
+        { icon: 'chat-line-round', label: '进展通知' }
       ]
     }
   }

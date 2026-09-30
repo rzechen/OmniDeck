@@ -108,11 +108,7 @@
               <svg-icon :icon-class="group.iconSvg" class="nav-svg" />
             </span>
             <span v-show="!collapsed" class="nav-label">{{ group.title }}</span>
-            <i
-              v-show="!collapsed"
-              class="el-icon-arrow-right nav-arrow"
-              :class="{ expanded: isGroupExpanded(group) }"
-            ></i>
+            <svg-icon v-show="!collapsed" icon-class="arrow-right" class-name="nav-arrow" :class="{ expanded: isGroupExpanded(group) }" />
           </div>
 
           <!-- 组内二级菜单（可拖拽排序） -->
@@ -160,7 +156,7 @@
         </span>
         <span class="buddy-entry-text">OmniBuddy</span>
         <span class="buddy-entry-arrow">
-          <i class="el-icon-arrow-right"></i>
+          <svg-icon icon-class="arrow-right" />
         </span>
       </div>
       <div

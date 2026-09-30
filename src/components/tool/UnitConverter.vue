@@ -22,7 +22,7 @@
         />
       </el-select>
       <button class="tool-btn" @click="clearInput">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </div>
@@ -40,7 +40,7 @@
         <div class="uc-cell-value">{{ display(results[u.key]) }}</div>
         <div class="uc-cell-label">
           {{ u.label }}
-          <i v-if="u.key === fromKey" class="el-icon-edit uc-source-mark"></i>
+          <svg-icon v-if="u.key === fromKey" icon-class="edit" class-name="uc-source-mark" />
         </div>
       </div>
     </div>

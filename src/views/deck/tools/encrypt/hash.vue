@@ -11,11 +11,11 @@
         <el-option v-for="a in algorithms" :key="a.value" :label="a.label" :value="a.value" />
       </el-select>
       <button class="tool-btn is-primary" @click="copyResult">
-        <i class="el-icon-document-copy"></i>
+        <svg-icon icon-class="document-copy" />
         复制
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -48,7 +48,7 @@
         >
           <div class="hash-head">
             <span class="hash-label">{{ r.label }}</span>
-            <i v-if="r.label === currentLabel" class="el-icon-check hash-current"></i>
+            <svg-icon v-if="r.label === currentLabel" icon-class="check" class-name="hash-current" />
           </div>
           <div class="hash-value mono">{{ r.value || '—' }}</div>
         </div>

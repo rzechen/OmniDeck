@@ -19,15 +19,15 @@
         </div>
       </div>
       <button class="tool-btn is-primary" :disabled="!items.length" @click="convertAll">
-        <i class="el-icon-refresh"></i>
+        <svg-icon icon-class="refresh" />
         转换
       </button>
       <button class="tool-btn" :disabled="!items.filter(i => i.out).length" @click="downloadAll">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         下载全部
       </button>
       <button class="tool-btn is-danger" :disabled="!items.length" @click="items = []">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -45,11 +45,11 @@
           <span v-if="item.error" class="fc-err">{{ item.error }}</span>
         </div>
         <button v-if="item.out" class="tool-btn" @click="downloadOne(item)">
-          <i class="el-icon-download"></i>
+          <svg-icon icon-class="download" />
           {{ item.outExt }}
         </button>
         <button class="fc-remove" @click="removeItem(i)">
-          <i class="el-icon-close"></i>
+          <svg-icon icon-class="close" />
         </button>
       </div>
     </div>

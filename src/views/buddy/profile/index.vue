@@ -78,7 +78,7 @@
               <div v-for="(c, i) in customs" :key="c.id" class="pf-custom">
                 <div class="pf-custom-top">
                   <el-input v-model="c.key" size="small" class="pf-custom-key" placeholder="名称（如：邮箱）" maxlength="30" />
-                  <el-button size="small" round class="pf-custom-del" @click="customs.splice(i, 1)"><i class="el-icon-delete" /></el-button>
+                  <el-button size="small" round class="pf-custom-del" @click="customs.splice(i, 1)"><svg-icon icon-class="delete" /></el-button>
                 </div>
                 <el-input
                   v-model="c.value"

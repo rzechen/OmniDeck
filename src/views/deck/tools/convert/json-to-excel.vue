@@ -8,15 +8,15 @@
   >
     <template #toolbar>
       <button class="tool-btn is-primary" @click="exportCsv">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         导出 CSV
       </button>
       <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
-        <i class="el-icon-time"></i>
+        <svg-icon icon-class="time" />
         历史
       </button>
       <button class="tool-btn is-danger" @click="clearAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>
@@ -56,7 +56,7 @@
             </tbody>
           </table>
           <div v-else class="preview-empty">
-            <i class="el-icon-document"></i>
+            <svg-icon icon-class="document" />
             <p>输入 JSON 对象数组后预览表格</p>
           </div>
         </div>

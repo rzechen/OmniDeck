@@ -35,7 +35,7 @@
         <input v-model="light" type="color" class="color-input" />
       </label>
       <button class="tool-btn is-primary" :disabled="!text.trim() || qrError" @click="download">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         下载 PNG
       </button>
     </template>

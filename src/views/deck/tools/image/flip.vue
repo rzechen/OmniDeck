@@ -9,11 +9,11 @@
     <template #toolbar>
       <div class="tool-seg">
         <div class="tool-seg-item" @click="rotate(-90)">
-          <i class="el-icon-refresh-left"></i>
+          <svg-icon icon-class="refresh-left" />
           左转 90°
         </div>
         <div class="tool-seg-item" @click="rotate(90)">
-          <i class="el-icon-refresh-right"></i>
+          <svg-icon icon-class="refresh-right" />
           右转 90°
         </div>
         <div class="tool-seg-item" @click="angle = 0">复位</div>
@@ -27,11 +27,11 @@
         <input v-model.number="angle" type="number" step="15" />
       </div>
       <button class="tool-btn is-primary" :disabled="!file" @click="exportImage">
-        <i class="el-icon-download"></i>
+        <svg-icon icon-class="download" />
         导出 PNG
       </button>
       <button class="tool-btn is-danger" :disabled="!file" @click="reset">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

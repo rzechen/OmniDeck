@@ -7,7 +7,7 @@
         <span class="todo-sub">共 {{ todos.length }} 项 · 待办 {{ pendingCount }} 项</span>
       </div>
       <button class="todo-add-btn" @click="openCreate">
-        <i class="el-icon-plus"></i>新建代办
+        <svg-icon icon-class="plus" />新建代办
       </button>
     </header>
 
@@ -17,11 +17,11 @@
         <div class="cal-toolbar">
           <div class="cal-nav">
             <button class="cal-nav-btn" title="上个月" @click="shiftMonth(-1)">
-              <i class="el-icon-arrow-left"></i>
+              <svg-icon icon-class="arrow-left" />
             </button>
             <span class="cal-month">{{ viewYear }}年{{ viewMonth + 1 }}月</span>
             <button class="cal-nav-btn" title="下个月" @click="shiftMonth(1)">
-              <i class="el-icon-arrow-right"></i>
+              <svg-icon icon-class="arrow-right" />
             </button>
           </div>
           <button class="cal-today-btn" @click="goToday">今天</button>
@@ -138,17 +138,13 @@
                 :title="t.done ? '标记为待办' : '标记为已完成'"
                 @click="toggleDone(t)"
               >
-                <i class="el-icon-check"></i>
+                <svg-icon icon-class="check" />
               </button>
               <div class="day-info" @dblclick="openEdit(t)">
                 <div class="day-item-title">
                   {{ t.title }}
                   <span v-if="timeOf(t)" class="day-item-time">{{ timeOf(t) }}</span>
-                  <i
-                    v-if="t.remindAt && !t.done"
-                    class="el-icon-alarm-outline day-item-remind"
-                    title="已设提醒"
-                  ></i>
+                  <svg-icon v-if="t.remindAt && !t.done" icon-class="alarm-outline" class-name="day-item-remind" title="已设提醒" />
                 </div>
                 <div v-if="t.desc" class="day-item-desc">{{ t.desc }}</div>
                 <div v-if="t.files && t.files.length" class="day-item-files">
@@ -159,22 +155,22 @@
                     :title="f.name + '（点击下载）'"
                     @click.stop="downloadFile(t, i)"
                   >
-                    <i class="el-icon-document"></i>
+                    <svg-icon icon-class="document" class-name="src-doc" />
                     <span class="day-item-file-name">{{ f.name }}</span>
                   </span>
                 </div>
               </div>
               <div class="day-actions" @click.stop>
-                <i class="el-icon-edit" title="编辑" @click="openEdit(t)"></i>
-                <i class="el-icon-delete" title="删除" @click="removeTodo(t)"></i>
+                <i class='edit' title="编辑" @click="openEdit(t)"></i>
+                <i class='delete act-delete' title="删除" @click="removeTodo(t)"></i>
               </div>
             </div>
           </template>
           <div v-else class="day-empty">
-            <i class="el-icon-calendar"></i>
+            <svg-icon icon-class="calendar" />
             <span>{{ filter === 'all' ? '这一天还没有代办' : '没有' + filterLabel + '的代办' }}</span>
             <button class="day-empty-add" @click="openCreate">
-              <i class="el-icon-plus"></i>添加一条
+              <svg-icon icon-class="plus" />添加一条
             </button>
           </div>
         </div>
@@ -187,7 +183,7 @@
         <div class="todo-dialog">
           <header class="td-dialog-header">
             <h3 class="td-dialog-title">{{ editingId ? '编辑代办' : '新建代办' }}</h3>
-            <i class="el-icon-close td-dialog-close" @click="closeDialog"></i>
+            <svg-icon icon-class="close" class-name="td-dialog-close" @click="closeDialog" />
           </header>
           <div class="td-dialog-body">
             <!-- 标题 -->
@@ -250,7 +246,7 @@
               <label class="td-field-label">
                 附件
                 <span class="td-attach-add" @click="pickFiles">
-                  <i class="el-icon-plus"></i> 添加文件
+                  <svg-icon icon-class="plus" /> 添加文件
                 </span>
               </label>
               <input
@@ -262,10 +258,10 @@
               />
               <div v-if="form.files.length" class="td-attach-list">
                 <div v-for="(f, i) in form.files" :key="i" class="td-attach-item">
-                  <i class="el-icon-document"></i>
+                  <svg-icon icon-class="document" class-name="src-doc" />
                   <span class="td-attach-name" :title="f.name">{{ f.name }}</span>
                   <span class="td-attach-size">{{ fmtFileSize(f.size) }}</span>
-                  <i class="el-icon-close td-attach-remove" title="移除" @click="removeFile(i)"></i>
+                  <svg-icon icon-class="close" class-name="td-attach-remove" title="移除" @click="removeFile(i)" />
                 </div>
               </div>
             </div>
@@ -1490,7 +1486,7 @@ export default {
       color: var(--primary-color);
     }
 
-    &.el-icon-delete:hover {
+    &.act-delete:hover {
       background: rgba(245, 34, 45, 0.1);
       color: #F5222D;
     }
@@ -1705,7 +1701,7 @@ export default {
   border-radius: $radius-base;
   background: $search-bg;
 
-  > .el-icon-document {
+  > .src-doc {
     font-size: 13px;
     color: $text-secondary;
     flex-shrink: 0;

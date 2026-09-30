@@ -4,21 +4,22 @@
     <div class="br-toolbar">
       <div class="br-nav">
         <button class="br-btn" :disabled="!state.canGoBack" title="后退" @click="onBack">
-          <i class="el-icon-back"></i>
+          <svg-icon icon-class="back" />
         </button>
         <button class="br-btn" :disabled="!state.canGoForward" title="前进" @click="onForward">
-          <i class="el-icon-right"></i>
+          <svg-icon icon-class="right" />
         </button>
         <button class="br-btn" :title="state.isLoading ? '停止' : '刷新'" @click="state.isLoading ? onStop() : onReload()">
-          <i :class="state.isLoading ? 'el-icon-close' : 'el-icon-refresh'"></i>
+          <svg-icon :icon-class="(state.isLoading ? 'close' : 'refresh')" />
         </button>
       </div>
 
       <div class="br-addr">
-        <i
+        <svg-icon
+          :icon-class="isHttps ? 'lock' : 'unlock'"
+          :class-name="isHttps ? 'secure' : 'unlock'"
           class="br-secure-icon"
-          :class="[isHttps ? 'el-icon-lock secure' : 'el-icon-unlock']"
-        ></i>
+        />
         <input
           ref="addr"
           v-model="input"
@@ -44,9 +45,9 @@
           :title="'目标语言：' + (LANGS[targetLang] || targetLang)"
           @click="openLangMenu"
         >
-          <i class="el-icon-postcard"></i>
+          <svg-icon icon-class="postcard" />
           <span class="br-menu-label">{{ LANGS[targetLang] || targetLang }}</span>
-          <i class="el-icon-arrow-down br-menu-caret"></i>
+          <svg-icon icon-class="arrow-down" class-name="br-menu-caret" />
         </button>
         <button
           ref="engineBtn"
@@ -55,10 +56,10 @@
           @click="openEngineMenu"
         >
           <span class="br-menu-label">{{ engineLabel }}</span>
-          <i class="el-icon-arrow-down br-menu-caret"></i>
+          <svg-icon icon-class="arrow-down" class-name="br-menu-caret" />
         </button>
         <button class="br-btn br-translate" :class="{ on: translating }" title="双语对照翻译" @click="toggleTranslate">
-          <i class="el-icon-connection"></i>
+          <svg-icon icon-class="connection" />
           <span>{{ translating ? '对照中' : '翻译' }}</span>
         </button>
       </div>
@@ -68,10 +69,10 @@
          占位高度变化经 ResizeObserver 自动推送视图 bounds -->
     <transition name="br-notice">
       <div v-if="notice.text" class="br-notice" :class="'is-' + notice.type">
-        <i :class="notice.type === 'error' ? 'el-icon-warning-outline' : 'el-icon-info'"></i>
+        <svg-icon :icon-class="(notice.type === 'error' ? 'warning-outline' : 'info')" />
         <span class="br-notice-text" :title="notice.text">{{ notice.text }}</span>
         <button class="br-notice-close" @click="notice = { text: '', type: 'info' }">
-          <i class="el-icon-close"></i>
+          <svg-icon icon-class="close" />
         </button>
       </div>
     </transition>
@@ -79,7 +80,7 @@
     <!-- WebContentsView 宿主容器：rect 经 ResizeObserver 上报主进程 setBounds -->
     <div ref="viewBox" class="br-view">
       <div v-if="!state.url" class="br-empty">
-        <i class="el-icon-monitor"></i>
+        <svg-icon icon-class="monitor" />
         <p class="br-empty-title">浏览器</p>
         <p class="br-empty-desc">在上方输入网址开始浏览，开启「翻译」即可在不破坏排版的前提下，以双语对照方式阅读外文网页。</p>
         <div class="br-empty-tags">

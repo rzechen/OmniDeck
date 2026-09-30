@@ -8,10 +8,10 @@
   >
     <template #toolbar>
       <button class="tool-btn" :class="{ 'is-disabled': loadingQuote }" @click="loadQuote(true)">
-        <i class="el-icon-refresh" :class="{ 'is-rotating': loadingQuote }"></i>刷新估值
+        <i class='refresh' :class="{ 'is-rotating': loadingQuote }"></i>刷新估值
       </button>
       <button class="tool-btn" @click="openExternal">
-        <i class="el-icon-link"></i>东方财富
+        <svg-icon icon-class="link" />东方财富
       </button>
     </template>
 
@@ -41,7 +41,7 @@
             <div class="fd-sk fd-sk-wave" style="width: 150px; height: 11px; margin-top: 8px"></div>
           </div>
           <div v-else class="fd-ov-loading">
-            <i class="el-icon-warning"></i>
+            <svg-icon icon-class="warning" />
             <span>{{ quoteError }}</span>
           </div>
         </div>
@@ -449,7 +449,7 @@
                       @error="m.pic = ''"
                     />
                     <div v-else class="fd-mgr-pic fd-mgr-pic-empty">
-                      <i class="el-icon-user"></i>
+                      <svg-icon icon-class="user" />
                     </div>
                     <div class="fd-mgr-main">
                       <div class="fd-mgr-name">

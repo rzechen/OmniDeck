@@ -8,7 +8,7 @@
   >
     <template #toolbar>
       <button class="tool-btn is-primary" @click="clearAll">
-        <i class="el-icon-delete"></i>
+        <svg-icon icon-class="delete" />
         清空
       </button>
     </template>

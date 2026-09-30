@@ -9,11 +9,11 @@
   >
     <input ref="file" type="file" class="hidden-input" :accept="accept" :multiple="multiple" @change="onChange" />
     <template v-if="compact">
-      <i class="el-icon-plus"></i>
+      <svg-icon icon-class="plus" class-name="plus-dot" />
       <p v-if="compactLabel" class="drop-compact-title">{{ compactLabel }}</p>
     </template>
     <template v-else>
-      <i class="el-icon-upload"></i>
+      <svg-icon icon-class="upload" />
       <p class="drop-title">拖拽图片到这里，或点击选择</p>
       <p class="drop-hint">{{ hint }}</p>
     </template>
@@ -112,7 +112,7 @@ export default {
     font-size: 11px;
   }
 
-  i:not(.el-icon-plus) {
+  svg:not(.plus-dot) {
     font-size: 32px;
     opacity: 0.5;
   }

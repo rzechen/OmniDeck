@@ -130,7 +130,7 @@
                   round
                   class="ob-mem-entry-del"
                   @click="removeOne(e)"
-                ><i class="el-icon-delete" /> 删除</el-button>
+                ><svg-icon icon-class="delete" /> 删除</el-button>
               </div>
               <div v-if="!filteredEntries.length" class="ob-mem-entry-empty">
                 {{ longTermEntries.length ? '该类型暂无条目' : '暂无长期记忆 — 对 OmniBuddy 说「记住 …」或在源码视图中编写' }}
