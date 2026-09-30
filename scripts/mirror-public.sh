@@ -40,17 +40,35 @@ echo "==> 剥离核心路径（electron/ 与 src/config/remote.cjs，全历史�
 GC_PUB="https://gitcode.com/m0_59492087/OmniDeck.git"
 GH_PUB="https://github.com/rzechen/OmniDeck.git"
 
+# 推送并在失败时暴露完整输出（含 remote: 开头的服务端钩子报错），任一失败即中止
+push_all() {
+  local name=$1 out ref
+  for ref in "refs/heads/main:refs/heads/main" "--tags"; do
+    if [ "$ref" = "--tags" ]; then
+      if out=$(git push --force "$name" --tags 2>&1); then
+        echo "$out" | grep -vE '^(remote:|To )' || true
+      else
+        echo "✗ $name 推送 tags 失败："; echo "$out"; exit 1
+      fi
+    else
+      if out=$(git push --force "$name" "$ref" 2>&1); then
+        echo "$out" | grep -vE '^(remote:|To )' || true
+      else
+        echo "✗ $name 推送 main 失败："; echo "$out"; exit 1
+      fi
+    fi
+  done
+}
+
 ( cd "$MIRROR"
   git remote add gc "$GC_PUB"
   git remote add gh "$GH_PUB"
 
   echo "==> 推送 gitcode 公开仓"
-  git push --force gc "refs/heads/main:refs/heads/main" 2>&1 | grep -vE '^(remote:|To )' || true
-  git push --force gc --tags 2>&1 | grep -vE '^(remote:|To )' || true
+  push_all gc
 
   echo "==> 推送 github 公开仓"
-  git push --force gh "refs/heads/main:refs/heads/main" 2>&1 | grep -vE '^(remote:|To )' || true
-  git push --force gh --tags 2>&1 | grep -vE '^(remote:|To )' || true
+  push_all gh
 )
 
 echo "==> 镜像完成：公开仓不含 electron/ 与 src/config/remote.cjs"
