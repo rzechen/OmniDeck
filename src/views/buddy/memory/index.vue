@@ -36,9 +36,9 @@
 
     <!-- 内容区（hero 固定；split 内部各自滚动） -->
     <div class="ob-page-body">
-      <!-- 加载中：骨架屏占位（记忆条目行列表形态） -->
+      <!-- 加载中：骨架屏占位（左右分栏形态：左文件列表 262px + 右内容区） -->
       <div v-if="loading" class="ob-sk-wrap">
-        <buddy-skeleton type="rows" :count="5" />
+        <buddy-skeleton type="split" :side-w="262" :count="6" />
       </div>
 
       <!-- 主体：左文件列表 + 右内容编辑 -->

@@ -46,6 +46,10 @@
         <i class="el-icon-document-copy"></i>
         复制
       </button>
+      <button class="tool-btn" :class="{ 'is-primary': historyVisible }" @click="historyVisible = !historyVisible">
+        <i class="el-icon-time"></i>
+        历史
+      </button>
       <button class="tool-btn is-danger" @click="clearAll">
         <i class="el-icon-delete"></i>
         清空
@@ -99,6 +103,14 @@
       </div>
     </div>
 
+    <!-- 执行历史面板（与分栏并排，右侧抽屉） -->
+    <tool-history-panel
+      :visible="historyVisible"
+      :tool="TOOL_PATH"
+      @close="historyVisible = false"
+      @restore="restoreFromHistory"
+    />
+
     <template #status>
       <span class="status-dot" :class="{ 'is-bad': !!errorMsg }"></span>
       <span v-if="errorMsg" class="status-err">{{ errorMsg }}</span>
@@ -112,10 +124,14 @@
 import CryptoJS from 'crypto-js'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
+import { record, get as getHistory } from '@/utils/tool-history'
+
+const TOOL_PATH = '/tools/encrypt/aes-des'
 
 export default {
   name: 'EncryptAesDes',
-  components: { ToolShell, CodeEditor },
+  components: { ToolShell, CodeEditor, ToolHistoryPanel },
   data() {
     return {
       algorithm: 'AES',
@@ -125,7 +141,10 @@ export default {
       iv: '',
       inputText: 'Hello OmniDeck',
       outputText: '',
-      errorMsg: ''
+      errorMsg: '',
+      historyVisible: false,
+      // 模板/实例可访问的工具 path（历史面板与 record 用）
+      TOOL_PATH: TOOL_PATH
     }
   },
   computed: {
@@ -172,19 +191,26 @@ export default {
     },
     doEncrypt() {
       if (!this.validate()) return
+      const before = this.inputText
       try {
         const key = CryptoJS.enc.Utf8.parse(this.normalizeKey(this.key))
-        const cipher = CryptoJS[this.algorithm].encrypt(this.inputText, key, this.buildCfg())
+        const cipher = CryptoJS[this.algorithm].encrypt(before, key, this.buildCfg())
         this.outputText = cipher.toString() // Base64
+        record(TOOL_PATH, {
+          input: before,
+          output: this.outputText,
+          options: { action: 'encrypt', algorithm: this.algorithm, mode: this.mode, key: this.key, iv: this.iv }
+        })
       } catch (e) {
         this.errorMsg = '加密失败：' + e.message
       }
     },
     doDecrypt() {
       if (!this.validate()) return
+      const before = this.inputText
       try {
         const key = CryptoJS.enc.Utf8.parse(this.normalizeKey(this.key))
-        const input = this.inputText.trim()
+        const input = before.trim()
         // 密文支持 Hex 或 Base64
         let ciphertextWA
         if (/^[0-9a-fA-F]+$/.test(input) && input.length % 2 === 0 && input.length > 16) {

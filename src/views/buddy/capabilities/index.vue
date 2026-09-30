@@ -15,9 +15,9 @@
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
     <div class="ob-page-body">
-      <!-- 加载中：骨架屏占位（能力分组卡片网格形态） -->
+      <!-- 加载中：骨架屏占位（分组 + 圆角面板行式清单形态） -->
       <div v-if="loading" class="ob-sk-wrap">
-        <buddy-skeleton type="cards" :count="8" />
+        <buddy-skeleton type="list" :count="8" />
       </div>
 
       <template v-else>
