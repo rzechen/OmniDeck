@@ -3,7 +3,8 @@
     <div v-if="visible" class="setup-banner" :class="{ 'is-failed': session.state === 'failed', 'is-done': session.state === 'done' }">
       <!-- 底部进度细条：installing 时实时填充 -->
       <div v-if="session.state === 'installing'" class="sb-bar" :style="{ width: pct + '%' }" />
-      <svg-icon :icon-class="session.state === 'failed' ? 'warning-outline' : (session.state === 'done' ? 'check' : 'download')" class="sb-ico" />
+      <svg-icon v-if="session.state === 'installing'" icon-class="loading" class="sb-ico sb-ico-spin" />
+      <svg-icon v-else :icon-class="session.state === 'failed' ? 'warning-outline' : 'check'" class="sb-ico" />
       <span class="sb-text">
         <template v-if="session.state === 'failed'">
           运行环境装配中断于「{{ failedItems[0] && failedItems[0].label }}」，已完成部分无需重新下载
@@ -131,31 +132,44 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+/* 悬浮胶囊：fixed 悬于页签行下方居中，不占布局空间（不挤压页面内容） */
 .setup-banner {
-  position: relative;
+  position: fixed;
+  top: 44px; /* 页签行下方 */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2100;
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 10px 14px 0;
-  padding: 7px 14px 7px 12px;
-  border-radius: 10px;
+  max-width: min(560px, 72vw);
+  padding: 7px 16px 7px 13px;
+  border-radius: 999px;
   overflow: hidden;
-  background: rgba(var(--primary-color-rgb), 0.07);
-  border: 1px solid rgba(var(--primary-color-rgb), 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow:
+    0 6px 22px rgba(15, 23, 42, 0.16),
+    0 1px 4px rgba(15, 23, 42, 0.08),
+    inset 0 0 0 1px rgba(var(--primary-color-rgb), 0.16);
   font-size: 12.5px;
   color: $text-primary;
   -webkit-app-region: no-drag;
 
   &.is-failed {
-    background: rgba(230, 162, 60, 0.1);
-    border-color: rgba(230, 162, 60, 0.3);
+    box-shadow:
+      0 6px 22px rgba(15, 23, 42, 0.16),
+      0 1px 4px rgba(15, 23, 42, 0.08),
+      inset 0 0 0 1px rgba(230, 162, 60, 0.4);
 
     .sb-ico { color: #cf8e22; }
   }
 
   &.is-done {
-    background: rgba(103, 194, 58, 0.09);
-    border-color: rgba(103, 194, 58, 0.28);
+    box-shadow:
+      0 6px 22px rgba(15, 23, 42, 0.16),
+      0 1px 4px rgba(15, 23, 42, 0.08),
+      inset 0 0 0 1px rgba(103, 194, 58, 0.4);
 
     .sb-ico { color: #529b3d; }
   }
@@ -166,6 +180,15 @@ export default {
   width: 14px;
   height: 14px;
   color: var(--primary-color);
+}
+
+/* 进行中：旋转 spinner */
+.sb-ico-spin {
+  animation: sb-spin 1s linear infinite;
+}
+
+@keyframes sb-spin {
+  to { transform: rotate(360deg); }
 }
 
 .sb-text {
@@ -196,7 +219,7 @@ export default {
   transition: width 0.35s ease;
 }
 
-/* 入场下滑 / 离场上滑收起 */
+/* 入场下滑 / 离场上滑收起（保留水平居中定位） */
 .setup-banner-enter-active,
 .setup-banner-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
@@ -205,6 +228,6 @@ export default {
 .setup-banner-enter-from,
 .setup-banner-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateX(-50%) translateY(-10px);
 }
 </style>

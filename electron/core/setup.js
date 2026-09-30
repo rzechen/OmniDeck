@@ -287,12 +287,15 @@ async function maybeAutoResume() {
 }
 
 function registerIpc(getMainWindow) {
-  // 引导完成恢复主窗：注入 main.js 的窗口引用与恢复动作（可拖拉 + 最大化）
+  // 引导完成恢复主窗：注入 main.js 的窗口引用与恢复动作（可拖拉 + 最大化）。
+  // 最大化延后一拍（setTimeout 0）：避免与渲染层切页首渲染同帧执行整窗重排，造成「先进入」卡顿
   restoreMainWindow = () => {
     const win = getMainWindow && getMainWindow()
     if (win && !win.isDestroyed()) {
       win.setResizable(true)
-      win.maximize()
+      setTimeout(() => {
+        if (!win.isDestroyed()) win.maximize()
+      }, 0)
     }
   }
   ipcMain.handle('omnibuddy:setup:status', () => check())

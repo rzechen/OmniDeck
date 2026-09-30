@@ -384,16 +384,19 @@ function markerHit(root, rel) {
   }
 }
 
-// 内置包（安装包 Resources/runtime）探测 → 依据 runtime.js 各解析函数
+// 内置包（安装包 Resources/runtime）探测。
+// 注意：runtime.builtinPython()/nodeExe()/pandocBin() 内部 locate() 会回退到
+// 在线装配根（userData），dev / 瘦身版下会把「在线装配」误标为「内置」——
+// 此处必须纯内置根探测（在线装配态由 installed/marker 覆盖）
 function builtinProbe(name) {
+  const root = runtime.rootDir()
+  if (!root) return false
   switch (name) {
-    case 'python-env': return !!runtime.builtinPython()
-    case 'node': return !!runtime.nodeExe()
-    case 'pandoc': return !!runtime.pandocBin()
-    case 'node-tools': {
-      const root = runtime.rootDir()
+    case 'python-env': return markerHit(root, isWin() ? 'python/python.exe' : 'python/bin/python3')
+    case 'node': return markerHit(root, isWin() ? 'node/node.exe' : 'node/bin/node')
+    case 'pandoc': return markerHit(root, isWin() ? 'pandoc/bin/pandoc.exe' : 'pandoc/bin/pandoc')
+    case 'node-tools':
       return markerHit(root, isWin() ? 'node/node_modules/sharp' : 'node/lib/node_modules/sharp')
-    }
     // playwright 三组件：只探内置根（在线装配根由 installed/marker 覆盖），
     // INSTALLATION_COMPLETE 为 provision 内置装配的完成标记
     case 'chrome-headless-shell':

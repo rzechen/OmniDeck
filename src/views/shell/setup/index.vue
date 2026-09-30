@@ -73,7 +73,7 @@
       <!-- ===== 第 2 步：装配进度（整页视图，后台异步执行，可随时先进入应用） ===== -->
       <div v-else-if="step === 2" key="install" class="og-page">
         <!-- 两侧梯形舞台：左 Buddy 流式问答 / 右 Deck 格式化（互联网产品 hero 感） -->
-        <theater-canvas v-if="!sessionFailed" side="buddy" class="og-stage og-stage-l" />
+        <theater-canvas v-if="!sessionFailed && !leaving" side="buddy" class="og-stage og-stage-l" />
         <div class="og-mid">
           <h2 class="og-h2">{{ h2Text }}</h2>
           <p class="og-sub-s">
@@ -105,16 +105,18 @@
           <!-- 组件清单：required 全集（已就绪跳过项也在列，呈现完整装配清单） -->
           <div class="og-list">
             <div v-for="c in sessionItems" :key="c.name" class="og-item" :class="['is-' + c.state, { 'is-skipped': c.skipped }]">
-              <span class="og-item-mark">
-                <svg-icon v-if="c.state === 'ok'" icon-class="check" />
-                <span v-else-if="c.state === 'installing'" class="og-mini-ring" />
-                <span v-else-if="c.state === 'error'" class="og-item-x">!</span>
-                <span v-else class="og-item-dot" />
-              </span>
-              <span class="og-item-label">{{ c.label }}</span>
-              <span class="og-item-desc">{{ c.desc }}</span>
-              <span v-if="c.state === 'installing'" class="og-item-pct">{{ itemPctText(c) }}</span>
-              <span v-else class="og-item-state">{{ stateText(c.state, c.skipped) }}</span>
+              <div class="og-item-top">
+                <span class="og-item-mark">
+                  <svg-icon v-if="c.state === 'ok'" icon-class="check" />
+                  <span v-else-if="c.state === 'installing'" class="og-mini-ring" />
+                  <span v-else-if="c.state === 'error'" class="og-item-x">!</span>
+                  <span v-else class="og-item-dot" />
+                </span>
+                <span class="og-item-label">{{ c.label }}</span>
+                <span v-if="c.state === 'installing'" class="og-item-pct">{{ itemPctText(c) }}</span>
+                <span v-else class="og-item-state">{{ stateText(c.state, c.skipped) }}</span>
+              </div>
+              <div class="og-item-desc">{{ c.desc }}</div>
             </div>
           </div>
 
@@ -137,7 +139,7 @@
             </template>
           </div>
         </div>
-        <theater-canvas v-if="!sessionFailed" side="deck" class="og-stage og-stage-r" />
+        <theater-canvas v-if="!sessionFailed && !leaving" side="deck" class="og-stage og-stage-r" />
       </div>
     </transition>
   </div>
@@ -157,6 +159,7 @@ export default {
   data() {
     return {
       step: 1, // 1 欢迎（含自动检查）/ 2 装配进度 / 3 完成
+      leaving: false, // 离场中：停剧场 rAF，避免切页争主线程
       checking: true,
       checkError: '', // 检查失败原因（IPC 异常等）
       items: [], // 检查所得组件清单 [{ name, label, desc, state: ok|pending }]
@@ -403,11 +406,14 @@ export default {
     retry() {
       this.begin()
     },
-    // 完成 / 跳过 → 主视图：写放行标记 + 清守卫缓存，经 '/' 交由既有 redirect（entryView）
+    // 完成 / 跳过 → 主视图：写放行标记 + 清守卫缓存，经 '/' 交由既有 redirect（entryView）。
+    // 不 await IPC：标记写入与窗口恢复放后台，导航先行，避免「先进入」卡在装配页
     async enter() {
+      if (this.leaving) return
+      this.leaving = true // 离场：停两侧剧场 rAF + og-fade/blur 不再参与首屏合成
       const api = this.api
       if (api && api.setupComplete) {
-        try { await api.setupComplete() } catch (e) { /* 标记失败不阻断 */ }
+        api.setupComplete().catch(() => {})
       }
       this.$router.setupNeeded = false
       this.$router.push('/')
@@ -861,7 +867,9 @@ export default {
     radial-gradient(1200px 500px at 18% -8%, rgba(116, 82, 232, 0.07), transparent 60%),
     radial-gradient(1100px 480px at 84% 110%, rgba(47, 98, 232, 0.08), transparent 60%),
     rgba(245, 246, 248, 0.9);
-  backdrop-filter: blur(20px) saturate(1.1);
+  /* 降 blur：整页 backdrop-filter 离场重采样是切页卡顿主因之一，
+     视觉上 hero 已压暗，12px 与 20px 差异细微 */
+  backdrop-filter: blur(12px) saturate(1.05);
   text-align: center;
 }
 
@@ -912,6 +920,8 @@ export default {
   align-items: center;
   flex: 0 1 720px;
   min-width: 0;
+  /* 清单不限高常态无滚动；极小窗口高度时仅中栏兜底滚动，整页稳定 */
+  min-height: 0;
   overflow-y: auto;
   padding: 6px 2px;
 }
@@ -1017,20 +1027,15 @@ export default {
 /* 组件清单 */
 .og-list {
   width: 100%;
-  max-height: 280px;
-  margin-top: 20px;
+  margin-top: 16px;
   border-radius: 14px;
   background: rgba(0, 0, 0, 0.025);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
-  overflow-y: auto;
+  /* 不限高不出滚动条：靠紧凑行距 + 页高容纳全部 8 项 */
 }
 
 .og-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 46px;
-  padding: 8px 16px;
+  padding: 6px 16px;
   text-align: left;
   transition: background 0.15s ease;
 
@@ -1088,22 +1093,29 @@ export default {
   animation: og-spin 0.8s linear infinite;
 }
 
+/* 行一：图标 + 组件名 + 状态（单行） */
+.og-item-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+}
+
+/* 行二：完整描述（不再截断省略，可自然折行） */
+.og-item-desc {
+  padding-left: 30px; /* 与组件名对齐（图标 20 + gap 10） */
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: $text-secondary;
+  word-break: break-all;
+}
+
 .og-item-label {
   flex-shrink: 0;
-  max-width: 150px;
+  max-width: 220px;
   font-size: 13px;
   font-weight: 600;
   color: $text-primary;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.og-item-desc {
-  flex: 1;
-  min-width: 0;
-  font-size: 11.5px;
-  color: $text-secondary;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

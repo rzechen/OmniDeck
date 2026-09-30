@@ -108,7 +108,7 @@ function createWindow() {
   const setupMode = setup.isSetupNeeded()
   mainWindow = new BrowserWindow({
     width: setupMode ? 1180 : 1280,
-    height: setupMode ? 760 : 840,
+    height: setupMode ? 840 : 840,
     minWidth: 960,
     minHeight: 640,
     backgroundColor: '#F0F0F2',
