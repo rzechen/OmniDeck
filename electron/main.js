@@ -132,8 +132,22 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      // 翻译浏览器：内嵌 <webview> 标签承载网页（DOM 参与者，z-index 生效，
+      // 弹层/下拉可自然覆盖，无需 bounds 换算与视图摘挂）
+      webviewTag: true
     }
+  })
+
+  // webview 的 preload 由主进程在此注入（官方推荐挂载点）：沙箱主 preload 里
+  // __dirname/require('path') 均不可用，渲染层无法自行计算绝对路径；
+  // 主进程无此限制，dev/build 下 __dirname 均指向产物目录（browser/ 同级）。
+  // preload 参数要求 file:// URL（纯路径会报 Only "file:" protocol is supported）
+  mainWindow.webContents.on('will-attach-webview', (_e, webPreferences, params) => {
+    params.preload = 'file://' + path.join(__dirname, 'browser/view-preload.js')
+    // webview 保持安全默认（无 node 集成，隔离上下文）
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
   })
 
   // 最大化状态变化 → 通知渲染进程切换按钮图标
@@ -453,13 +467,9 @@ app.whenReady().then(async () => {
 
   createWindow()
 
-  // 浏览器容器（Deck 一级入口）：主窗内 WebContentsView 通用网页容器；
+  // 浏览器容器（webview 架构）：策略统一在 web-contents-created 处理；
   // 业务能力以特性方式挂载——translate 为双语对照翻译，后续公众号编辑器注入等
   browser.init({ getWindow: () => mainWindow })
-  // 主窗 hash 路由校正：离开 /browser 路由时摘除内嵌网页视图
-  // （防 keep-alive 钩子丢失导致原生视图残留盖住其他页面）。
-  // 必须在 browser.init 之后调用：init 注入 getWindow，否则 win() 为 null 监听挂不上
-  browser.watchAppRoute()
   browser.registerFeature(require('./translate/controller'))
 
   // 快捷入口（P0-M1）：托盘 + 全局快捷键 + 快捷面板壳

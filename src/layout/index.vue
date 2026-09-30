@@ -22,9 +22,11 @@
            时序交叉，曾导致 insertBefore/parentNode 崩溃；且原 page 过渡的入场
            类名（.page-enter）是 Vue2 写法，Vue3 下入场动画本就未生效，故移除 -->
       <div class="layout-content">
-        <keep-alive>
-          <router-view :key="deckTabKey" />
-        </keep-alive>
+        <router-view v-slot="{ Component }">
+          <keep-alive>
+            <component :is="Component" :key="deckTabKey" />
+          </keep-alive>
+        </router-view>
       </div>
     </div>
 

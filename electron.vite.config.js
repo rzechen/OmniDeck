@@ -121,7 +121,17 @@ export default defineConfig({
   },
   renderer: {
     root: '.',
-    plugins: [vue()],
+    plugins: [
+      vue({
+        template: {
+          compilerOptions: {
+            // <webview> 是 Electron 自定义元素（翻译浏览器内嵌网页），
+            // SFC 预编译模板在编译期放行；缺失会按“未注册组件”渲染并刷警告
+            isCustomElement: tag => tag === 'webview'
+          }
+        }
+      })
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src')

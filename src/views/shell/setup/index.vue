@@ -178,10 +178,9 @@ export default {
         { icon: 'encrypt', text: '加解密' },
         { icon: 'finance', text: '财经行情' },
         { icon: 'format', text: '格式转换' },
-        { icon: 'translate-browser', text: '翻译浏览' },
+        { icon: 'browser', text: '内置浏览器' },
         { icon: 'clipboard', text: '剪贴板' },
         { icon: 'todo', text: '待办清单' },
-        { icon: 'browser', text: '内置浏览器' },
         { icon: 'more', text: '更多能力' }
       ],
       buddyChips: [

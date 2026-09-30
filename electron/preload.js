@@ -243,34 +243,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('quick:visibility', handler)
     }
   },
-  // 翻译浏览器（Deck 一级入口）：WebContentsView 容器控制 + 双语对照翻译
+  // 翻译浏览器（Deck 一级入口）：<webview> 架构——导航/缩放由页面直接驱动 webview，
+  // 这里只留翻译特性通道（引擎/开关/进度）与 webview 生命周期通知
   browser: {
-    navigate: url => ipcRenderer.invoke('browser:navigate', url),
-    back: () => ipcRenderer.invoke('browser:back'),
-    forward: () => ipcRenderer.invoke('browser:forward'),
-    reload: () => ipcRenderer.invoke('browser:reload'),
-    stop: () => ipcRenderer.invoke('browser:stop'),
-    // 容器 rect 上报：{ rect: {x,y,width,height}, innerWidth, innerHeight }（CSS px）
-    setBounds: payload => ipcRenderer.invoke('browser:set-bounds', payload),
-    // 原生下拉菜单（DOM 弹层会被原生子视图盖住）：{ x, y, items: [{value,label,checked?}] }
-    // 返回选中 value，取消返回 null
-    popupMenu: payload => ipcRenderer.invoke('browser:popup-menu', payload),
-    show: () => ipcRenderer.invoke('browser:show'),
-    hide: () => ipcRenderer.invoke('browser:hide'),
+    // webview dom-ready 时通知主进程登记 webContents（翻译注入目标）
+    attachWebview: () => ipcRenderer.invoke('browser:attach-webview'),
+    // 页面加载完成（did-finish-load）：主进程幂等注入翻译 controller
+    pageLoaded: () => ipcRenderer.invoke('browser:page-loaded'),
     // 缩放：恢复 100%（target: 'ui' 主窗界面 | 'web' 内嵌网页）
     resetZoom: target => ipcRenderer.invoke('browser:reset-zoom', { target }),
-    // 缩放变化回推 { ui, web }（百分比整数）
+    // 缩放变化回推 { ui }（网页侧缩放由页面从 webview 直接读）
     onZoom: handler => {
       const fn = (_e, payload) => handler(payload)
       ipcRenderer.on('browser:zoom', fn)
       return () => ipcRenderer.removeListener('browser:zoom', fn)
     },
-    getState: () => ipcRenderer.invoke('browser:get-state'),
     // 翻译开关：true 注入并启用双语对照，false 移除全部译文
     setTranslate: enabled => ipcRenderer.invoke('browser:translate', enabled),
     // 引擎/目标语言切换：{ engine: 'google'|'llm', target: 'zh-CN'|'en'|..., provider: { baseUrl, apiKey, model } }
     setEngine: opts => ipcRenderer.invoke('browser:set-engine', opts),
-    // 导航状态回推（url/title/loading/canGoBack/canGoForward/engine/enabled）
+    // 翻译配置回推（engine/target/enabled/detected* 等；导航状态由页面直读 webview）
     onState: cb => {
       const handler = (_e, v) => cb(v)
       ipcRenderer.on('browser:state', handler)
