@@ -25,6 +25,9 @@ app.component('svg-icon', SvgIcon)
 // 事件总线（替代 Vue2 $root.$on/$off/$emit 跨组件通信）
 app.config.globalProperties.$bus = mitt()
 
+// <webview> 为 Electron 自定义元素（翻译浏览器内嵌网页），Vue 不接管其渲染
+app.config.compilerOptions.isCustomElement = tag => tag === 'webview'
+
 // 弹窗统一交互：点击弹窗外遮罩区域一律不关闭弹窗（全局默认）
 // - Dialog / Drawer：改组件 props 默认值，模板中的 el-dialog / el-drawer 全部生效
 // - MessageBox（$confirm / $prompt / $msgbox）：注入全局默认参数

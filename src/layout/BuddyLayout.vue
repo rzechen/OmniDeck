@@ -158,9 +158,11 @@
           </span>
         </div>
         <div class="buddy-main">
-          <keep-alive :max="10">
-            <router-view :key="buddyTabKey" />
-          </keep-alive>
+          <router-view v-slot="{ Component }">
+            <keep-alive :max="10">
+              <component :is="Component" :key="buddyTabKey" />
+            </keep-alive>
+          </router-view>
         </div>
       </div>
     </div>

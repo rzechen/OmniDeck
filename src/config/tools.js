@@ -225,7 +225,7 @@ export const browserItem = {
   name: 'Browser',
   path: '/browser',
   title: '浏览器',
-  iconSvg: 'translate-browser'
+  iconSvg: 'browser'
 }
 
 // 设置菜单项

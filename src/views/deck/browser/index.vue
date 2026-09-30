@@ -45,26 +45,56 @@
         >{{ zoomBadges }}</button>
         <!-- 源语言检测 → 目标语言流向展示 -->
         <span v-if="langFlow" class="br-lang-flow" :title="langFlowTitle">{{ langFlow }}</span>
-        <!-- 原生菜单下拉（DOM 弹层会被原生子视图盖住，系统菜单浮于一切之上） -->
-        <button
-          ref="langBtn"
-          class="br-menu-btn br-lang"
-          :title="'目标语言：' + (LANGS[targetLang] || targetLang)"
-          @click="openLangMenu"
-        >
-          <svg-icon icon-class="postcard" />
-          <span class="br-menu-label">{{ LANGS[targetLang] || targetLang }}</span>
-          <svg-icon icon-class="arrow-down" class-name="br-menu-caret" />
-        </button>
-        <button
-          ref="engineBtn"
-          class="br-menu-btn br-engine"
-          :title="'翻译引擎：' + engineLabel"
-          @click="openEngineMenu"
-        >
-          <span class="br-menu-label">{{ engineLabel }}</span>
-          <svg-icon icon-class="arrow-down" class-name="br-menu-caret" />
-        </button>
+        <!-- 目标语言下拉：DOM 面板（展开时主进程临时摘视图，天然对齐、无坐标换算） -->
+        <div ref="langMenu" class="br-menu">
+          <button
+            class="br-menu-btn br-lang"
+            :title="'目标语言：' + (LANGS[targetLang] || targetLang)"
+            @click="toggleMenu('lang')"
+          >
+            <svg-icon icon-class="postcard" />
+            <span class="br-menu-label">{{ LANGS[targetLang] || targetLang }}</span>
+            <svg-icon icon-class="arrow-down" class-name="br-menu-caret" :class="{ open: menu === 'lang' }" />
+          </button>
+          <transition name="br-drop">
+            <div v-if="menu === 'lang'" class="br-drop-panel">
+              <button
+                v-for="(label, code) in LANGS"
+                :key="code"
+                class="br-drop-item"
+                :class="{ active: code === targetLang }"
+                @click="pickLang(code)"
+              >{{ label }}<svg-icon v-if="code === targetLang" icon-class="check" class-name="br-drop-check" /></button>
+            </div>
+          </transition>
+        </div>
+        <!-- 翻译引擎下拉 -->
+        <div ref="engineMenu" class="br-menu">
+          <button
+            class="br-menu-btn br-engine"
+            :title="'翻译引擎：' + engineLabel"
+            @click="toggleMenu('engine')"
+          >
+            <span class="br-menu-label">{{ engineLabel }}</span>
+            <svg-icon icon-class="arrow-down" class-name="br-menu-caret" :class="{ open: menu === 'engine' }" />
+          </button>
+          <transition name="br-drop">
+            <div v-if="menu === 'engine'" class="br-drop-panel">
+              <button class="br-drop-item" :class="{ active: engine === 'google' }" @click="pickEngine('google')">
+                Google 翻译<svg-icon v-if="engine === 'google'" icon-class="check" class-name="br-drop-check" />
+              </button>
+              <button
+                v-for="p in providers"
+                :key="p.id"
+                class="br-drop-item"
+                :class="{ active: engine === 'llm' && providerId === p.id }"
+                @click="pickEngine('llm:' + p.id)"
+              >
+                {{ (p.displayName || p.name) + ' · 模型' }}<svg-icon v-if="engine === 'llm' && providerId === p.id" icon-class="check" class-name="br-drop-check" />
+              </button>
+            </div>
+          </transition>
+        </div>
         <button class="br-btn br-translate" :class="{ on: translating }" title="双语对照翻译" @click="toggleTranslate">
           <svg-icon icon-class="connection" />
           <span>{{ translating ? '对照中' : '翻译' }}</span>
@@ -84,8 +114,26 @@
       </div>
     </transition>
 
-    <!-- WebContentsView 宿主容器：rect 经 ResizeObserver 上报主进程 setBounds -->
-    <div ref="viewBox" class="br-view">
+    <!-- 内嵌网页：<webview> 是 DOM 参与者，弹层/下拉可自然覆盖其上（z-index 生效），
+         无需 rect 上报与视图摘挂；partition 隔离站点数据 -->
+    <div ref="viewHost" class="br-view">
+      <webview
+        ref="webview"
+        class="br-webview"
+        width="100%"
+        height="100%"
+        src="about:blank"
+        partition="persist:web"
+        allowpopups
+        @did-start-loading="onStateEvent"
+        @did-stop-loading="onStateEvent"
+        @did-navigate="onStateEvent"
+        @did-navigate-in-page="onStateEvent"
+        @page-title-updated="onStateEvent"
+        @did-finish-load="onLoaded"
+        @did-fail-load="onFailLoad"
+        @dom-ready="onDomReady"
+      />
       <div v-if="!state.url" class="br-empty">
         <svg-icon icon-class="monitor" />
         <p class="br-empty-title">浏览器</p>
@@ -120,8 +168,8 @@ const LANGS = {
   it: 'Italiano'
 }
 
-// 浏览器（Deck 一级入口）：工具栏 UI + WebContentsView 容器 rect 上报；
-// 网页本体由主进程 windows/browser.js 持有，翻译经注入脚本双语对照展示
+// 浏览器（Deck 一级入口）：<webview> 内嵌网页（DOM 参与者，弹层可覆盖）；
+// 工具栏 UI + 导航/缩放/弹窗策略直接驱动 webview，翻译经主进程特性注入双语对照
 export default {
   name: 'DeckBrowser',
   data() {
@@ -133,8 +181,7 @@ export default {
         title: '',
         isLoading: false,
         canGoBack: false,
-        canGoForward: false,
-        attached: false
+        canGoForward: false
       },
       translating: false,
       engine: 'google',
@@ -146,14 +193,17 @@ export default {
       lastError: '',
       notice: { text: '', type: 'info' },
       noticeTimer: null,
+      // 当前展开的下拉：'' | 'lang' | 'engine'
+      menu: '',
       zoom: { ui: 100, web: 100 },
-      offState: null,
+      // preload browser API（mounted 时解析）
+      browser: null,
       offProgress: null,
-      ro: null
+      offZoom: null
     }
   },
   computed: {
-    // 语言表暴露给模板（模块级常量模板不可见，此前导致页面崩溃/下拉空列表）
+    // 目标语言列表（模块级常量桥接模板作用域）
     LANGS() {
       return LANGS
     },
@@ -208,8 +258,9 @@ export default {
   },
   mounted() {
     const browser = window.electronAPI && window.electronAPI.browser
-    if (!browser) return
-    this.browser = browser
+    // 点击面板外关闭下拉（DOM 方案，无需指令）
+    document.addEventListener('click', this.onDocClick)
+    if (browser) this.browser = browser
 
     // 恢复引擎配置 + 供应商列表（IndexedDB）
     this.providers = getItem('aiProviderList', []) || []
@@ -229,78 +280,39 @@ export default {
         this.providerId = ''
       }
     }
-    this.applyEngine()
 
-    // 导航状态回推
-    this.offState = browser.onState(s => {
-      if (!s) return
-      this.state = Object.assign({}, this.state, s)
-      this.translating = !!s.enabled
-      if (s.engine) this.engine = s.engine
-      // 主进程 cfg 为准（target 变更触发重译时保持同步）
-      if (s.target && LANGS[s.target]) this.targetLang = s.target
-      this.detectedName = s.detectedName || ''
-    })
     // 翻译进度回推（引擎级错误提示切换）
-    this.offProgress = browser.onProgress(p => {
-      if (!p) return
-      if (p.error) {
-        if (p.error !== this.lastError) {
-          this.lastError = p.error
-          const hint = this.engine === 'google' ? '，建议切换为模型翻译' : '，请检查模型配置或改用 Google 翻译'
-          this.notify('error', '翻译失败：' + p.error + hint)
+    if (browser) {
+      this.offProgress = browser.onProgress(p => {
+        if (!p) return
+        if (p.error) {
+          if (p.error !== this.lastError) {
+            this.lastError = p.error
+            const hint = this.engine === 'google' ? '，建议切换为模型翻译' : '，请检查模型配置或改用 Google 翻译'
+            this.notify('error', '翻译失败：' + p.error + hint)
+          }
+          this.progress = Object.assign({}, this.progress, { error: p.error })
+          return
         }
-        this.progress = Object.assign({}, this.progress, { error: p.error })
-        return
-      }
-      this.lastError = ''
-      this.progress = p
-    })
-
-    // 缩放回推（Cmd+± 界面/网页双值）；旧 preload 无此 API 时静默跳过
-    // （preload 不支持热更新，应用重启前页面 HMR 会出现版本差）
-    if (typeof browser.onZoom === 'function') {
-      this.offZoom = browser.onZoom(z => {
-        if (z && typeof z.ui === 'number') this.zoom = z
+        this.lastError = ''
+        this.progress = p
       })
+      // 缩放回推（Cmd+± 界面/网页双值）；旧 preload 无此 API 时静默跳过
+      if (typeof browser.onZoom === 'function') {
+        this.offZoom = browser.onZoom(z => {
+          if (z && typeof z.ui === 'number') this.zoom = z
+        })
+      }
     }
 
-    // 初始状态 + 容器尺寸监听
-    browser.getState().then(st => {
-      if (st) {
-        this.state = Object.assign({}, this.state, st)
-        this.input = st.url || ''
-        this.translating = !!st.enabled
-        if (st.target && LANGS[st.target]) this.targetLang = st.target
-        this.detectedName = st.detectedName || ''
-      }
-      this.show()
-    })
-
-    this.$nextTick(() => {
-      const box = this.$refs.viewBox
-      if (box && typeof ResizeObserver !== 'undefined') {
-        this.ro = new ResizeObserver(() => this.reportBounds())
-        this.ro.observe(box)
-      }
-      window.addEventListener('resize', this.reportBounds)
-    })
-  },
-  // keep-alive：切回页签重新挂载视图，切出走隐藏
-  activated() {
-    this.show()
-  },
-  deactivated() {
-    if (this.browser) this.browser.hide()
+    // webview 就绪经模板 @dom-ready 事件（onDomReady），无需 addEventListener
+    this.applyEngine()
   },
   beforeUnmount() {
-    if (this.browser) this.browser.hide()
-    if (this.offState) this.offState()
+    document.removeEventListener('click', this.onDocClick)
     if (this.offProgress) this.offProgress()
     if (this.offZoom) this.offZoom()
-    if (this.ro) this.ro.disconnect()
     if (this.noticeTimer) clearTimeout(this.noticeTimer)
-    window.removeEventListener('resize', this.reportBounds)
   },
   methods: {
     // 徽标点击：恢复全部 100%（UI + 网页）
@@ -308,7 +320,7 @@ export default {
       if (this.browser) this.browser.resetZoom('ui')
       if (this.browser) this.browser.resetZoom('web')
     },
-    // 页内提示条（8s 自动消失）：$message 挂 body 会被原生视图遮挡
+    // 页内提示条（8s 自动消失）
     notify(type, text) {
       this.notice = { type, text }
       if (this.noticeTimer) clearTimeout(this.noticeTimer)
@@ -316,33 +328,86 @@ export default {
         this.notice = { text: '', type: 'info' }
       }, 8000)
     },
-    // 原生菜单：直接用点击事件坐标（与 getBoundingClientRect 同为 CSS px，
-    // 但无需测 rect，且天然就是用户视觉锚点）；主进程换算屏幕 DIP
-    popupAt(evt, items) {
-      if (!this.browser) return Promise.resolve(null)
-      return this.browser.popupMenu({
-        x: Math.round(evt.clientX),
-        y: Math.round(evt.clientY + 12),
-        items
+    // ===== webview 生命周期 =====
+    wvReady() {
+      return this.$refs.webview || null
+    },
+    // webview 首次就绪：初始状态 + 主进程翻译注入通道（每次 dom-ready 都可能触发，
+    // 如进程恢复；attachWebview/pageLoaded 幂等）
+    onDomReady() {
+      const wv = this.wvReady()
+      if (!wv) return
+      this.syncFromWebview()
+      if (this.browser) {
+        this.browser.attachWebview()
+        // 翻译开启中：新页面重新注入
+        if (this.translating) this.browser.pageLoaded()
+      }
+    },
+    // 从 webview 同步导航状态（事件驱动）；未 dom-ready 前页面方法不可调
+    syncFromWebview() {
+      const wv = this.wvReady()
+      if (!wv) return
+      let url = ''
+      try { url = wv.getURL() } catch (err) { return }
+      this.state = Object.assign({}, this.state, {
+        url: url,
+        title: wv.getTitle(),
+        isLoading: wv.isLoading(),
+        canGoBack: wv.canGoBack(),
+        canGoForward: wv.canGoForward()
       })
+      this.detectZoom()
     },
-    async openLangMenu(evt) {
-      const val = await this.popupAt(evt, Object.keys(LANGS).map(code => ({
-        value: code,
-        label: LANGS[code],
-        checked: code === this.targetLang
-      })))
-      if (val) this.targetLang = val
+    // webview DOM 事件统一入口（loading/navigate/title 等）
+    onStateEvent() {
+      this.syncFromWebview()
     },
-    async openEngineMenu(evt) {
-      const items = [{ value: 'google', label: 'Google 翻译', checked: this.engine === 'google' }]
-        .concat(this.providers.map(p => ({
-          value: 'llm:' + p.id,
-          label: (p.displayName || p.name) + ' · 模型翻译',
-          checked: this.engine === 'llm' && this.providerId === p.id
-        })))
-      const val = await this.popupAt(evt, items)
-      if (!val) return
+    // 页面加载完成：注入翻译（经主进程，幂等）
+    onLoaded() {
+      this.syncFromWebview()
+      if (this.translating && this.browser) this.browser.pageLoaded()
+    },
+    // 主帧加载失败：页内提示
+    onFailLoad(e) {
+      const code = e && e.errorCode
+      if (code === -3) return // ERR_ABORTED：主动跳转中断，非错误
+      this.syncFromWebview()
+      this.notify('error', '页面加载失败：' + ((e && e.errorDescription) || code || '未知错误'))
+    },
+    // 网页侧缩放值探测（webview.getZoomFactor）
+    detectZoom() {
+      const wv = this.wvReady()
+      if (!wv || !wv.getZoomFactor) return
+      try {
+        const web = Math.round((wv.getZoomFactor() || 1) * 100)
+        if (web !== this.zoom.web) this.zoom = Object.assign({}, this.zoom, { web })
+      } catch (err) { /* webview 未就绪 */ }
+    },
+    // webview 是否已就绪（dom-ready 后页面方法才可安全调用）
+    wvIsReady() {
+      const wv = this.wvReady()
+      if (!wv) return false
+      try { wv.getURL(); return true } catch (err) { return false }
+    },
+    // ===== DOM 下拉面板（与按钮天然对齐，无坐标换算） =====
+    toggleMenu(which) {
+      this.menu = this.menu === which ? '' : which
+    },
+    closeMenus() {
+      this.menu = ''
+    },
+    onDocClick(e) {
+      if (!this.menu) return
+      const inLang = this.$refs.langMenu && this.$refs.langMenu.contains(e.target)
+      const inEngine = this.$refs.engineMenu && this.$refs.engineMenu.contains(e.target)
+      if (!inLang && !inEngine) this.closeMenus()
+    },
+    pickLang(code) {
+      this.targetLang = code
+      this.closeMenus()
+    },
+    pickEngine(val) {
       if (val === 'google') {
         this.engine = 'google'
         this.providerId = ''
@@ -351,21 +416,48 @@ export default {
         this.providerId = val.slice(4)
       }
       this.applyEngine()
+      this.closeMenus()
     },
-    onBack() { if (this.browser) this.browser.back() },
-    onForward() { if (this.browser) this.browser.forward() },
-    onReload() { if (this.browser) this.browser.reload() },
-    onStop() { if (this.browser) this.browser.stop() },
+    onBack() {
+      const wv = this.wvReady()
+      if (wv && wv.canGoBack()) wv.goBack()
+    },
+    onForward() {
+      const wv = this.wvReady()
+      if (wv && wv.canGoForward()) wv.goForward()
+    },
+    onReload() {
+      const wv = this.wvReady()
+      if (wv) wv.reload()
+    },
+    onStop() {
+      const wv = this.wvReady()
+      if (wv) wv.stop()
+    },
+    // 地址归一化：无协议补 https，localhost/IP 补 http
+    normalizeUrl(input) {
+      const s = String(input || '').trim()
+      if (!s) return ''
+      if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return s
+      if (/^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#]|$)/i.test(s)) return 'http://' + s
+      return 'https://' + s
+    },
     onGo() {
-      const url = String(this.input || '').trim()
-      if (!url || !this.browser) return
-      this.browser.navigate(url).then(res => {
-        if (res && res.ok === false && res.error) this.notify('warning', res.error)
-        this.$refs.addr && this.$refs.addr.blur()
-      })
+      const wv = this.wvReady()
+      if (!wv) return
+      const url = this.normalizeUrl(this.input)
+      if (!/^https?:/i.test(url)) {
+        this.notify('warning', '仅支持 http/https 网页地址')
+        return
+      }
+      wv.loadURL(url)
+      this.$refs.addr && this.$refs.addr.blur()
     },
     toggleTranslate() {
       this.translating = !this.translating
+      this.applyTranslate()
+    },
+    applyTranslate() {
       if (this.browser) this.browser.setTranslate(this.translating)
     },
     findProvider() {
@@ -385,23 +477,6 @@ export default {
         })
       }
       setItem(ENGINE_KEY, { engine: this.engine, providerId: this.providerId, target: this.targetLang })
-    },
-    show() {
-      if (!this.browser) return
-      this.browser.show()
-      this.$nextTick(() => this.reportBounds())
-    },
-    // 容器 rect 上报：主进程换算 DIP 后 setBounds 到 WebContentsView
-    reportBounds() {
-      const box = this.$refs.viewBox
-      if (!box || !this.browser) return
-      const rect = box.getBoundingClientRect()
-      if (rect.width <= 0 || rect.height <= 0) return
-      this.browser.setBounds({
-        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-        innerWidth: window.innerWidth,
-        innerHeight: window.innerHeight
-      })
     }
   }
 }
@@ -527,21 +602,21 @@ export default {
   white-space: nowrap;
 }
 
-/* 缩放徽标：非 100% 时出现，点击恢复 */
+/* 缩放徽标：非 100% 时出现，点击恢复（主题色由 --primary-color-rgb 组合） */
 .br-zoom-badge {
   height: 22px;
   padding: 0 8px;
   border: none;
   border-radius: 11px;
-  background: rgba(64, 158, 255, 0.14);
-  color: #409eff;
+  background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.14);
+  color: $primary-color;
   font-size: 11px;
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.12s ease;
 
   &:hover {
-    background: rgba(64, 158, 255, 0.24);
+    background: rgba(var(--primary-color-rgb, 51, 102, 255), 0.24);
   }
 }
 
@@ -582,6 +657,91 @@ export default {
   width: auto;
 }
 
+/* ===== DOM 下拉面板（macOS 菜单风格：毛玻璃 + 大圆角 + 选项小圆角，对齐
+   theme.scss 中 .el-select-dropdown 的既有 token） ===== */
+.br-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.br-menu-caret {
+  transition: transform 0.15s ease;
+
+  &.open {
+    transform: rotate(180deg);
+  }
+}
+
+.br-drop-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 152px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 5px;
+  /* macOS 菜单：毛玻璃半透明 + 12px 大圆角，与全局 el-select-dropdown 同款 */
+  border: 1px solid $border-color;
+  border-radius: $radius-lg;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 暗色：macOS 菜单暗色版（对齐 theme.scss 的 dark 下拉规范）。
+   scoped 下 html 属性选择器不命中，用 :global 穿透 */
+:global(html[data-theme='dark']) .br-drop-panel {
+  background: rgba(46, 46, 52, 0.92);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+.br-drop-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: $text-primary;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+
+  &:hover {
+    background: $search-bg;
+  }
+
+  &.active {
+    color: $primary-color;
+    font-weight: 500;
+  }
+
+  .br-drop-check {
+    flex-shrink: 0;
+    color: $primary-color;
+  }
+}
+
+/* 面板展开动画 */
+.br-drop-enter-active,
+.br-drop-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.br-drop-enter,
+.br-drop-enter-from,
+.br-drop-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 /* 目标语言按钮（窄） */
 .br-lang {
   width: auto;
@@ -613,12 +773,17 @@ export default {
   }
 }
 
-/* 视图宿主：WebContentsView 覆盖区域 */
+/* 视图宿主 */
 .br-view {
   flex: 1;
   position: relative;
   min-height: 0;
   background: $content-bg;
+}
+
+/* webview 外观兜底（尺寸强制见文末全局样式块，scoped 对自定义元素可能不匹配） */
+.br-webview {
+  background: #fff;
 }
 
 /* 页内提示条：文档流内自绘（$message 挂 body 会被原生视图遮挡） */
@@ -730,5 +895,20 @@ export default {
     padding: 3px 10px;
     border-radius: 10px;
   }
+}
+</style>
+
+<style lang="scss">
+/* webview 尺寸强制（全局非 scoped）：Electron 官方文档要求 webview 必须保持
+   display:flex——内部 shadow DOM 的 iframe 依赖 flex 填满容器，改为 block
+   会导致内容缩在顶部（元素本身高度正常、guest 不跟随）。配合绝对定位
+   撑满宿主（.br-view 为 relative），!important 防外部样式误覆盖 */
+.br-view > webview {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
 }
 </style>

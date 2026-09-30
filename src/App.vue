@@ -4,9 +4,11 @@
     <!-- 不用 keep-alive：顶层缓存 Layout 会让内部 router-view 的
          过渡/缓存状态在视图切换时被中断（表现为返回 deck 后内容
          停留在旧页面、与侧边栏高亮不一致），改为每次全新构建 -->
-    <transition name="view-swap" mode="out-in">
-      <router-view />
-    </transition>
+    <router-view v-slot="{ Component }">
+      <transition name="view-swap" mode="out-in">
+        <component :is="Component" />
+      </transition>
+    </router-view>
     <!-- 全局背景壁纸层（设置页可配置：图片/GIF/视频 + 轮播） -->
     <app-wallpaper />
     <!-- OmniBuddy 快速唤起浮窗（可配置快捷键，默认 ⌘O+J） -->
