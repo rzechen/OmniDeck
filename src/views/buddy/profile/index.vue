@@ -21,7 +21,11 @@
 
     <!-- 内容区 -->
     <div class="ob-page-body">
-      <div v-if="loading" class="pf-sk-wrap"><buddy-skeleton type="rows" :count="5" /></div>
+      <!-- 加载骨架：两列表单行（对齐基本信息左右分栏表单结构） -->
+      <div v-if="loading" class="pf-sk-form">
+        <buddy-skeleton type="rows" :count="3" />
+        <buddy-skeleton type="rows" :count="3" />
+      </div>
 
       <template v-else>
         <!-- 两个页签：基本信息 / 全局规则 -->
@@ -331,7 +335,11 @@ export default {
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
 
-.pf-sk-wrap {
+/* 加载骨架：两列表单（对齐 pf-form 的双列 grid） */
+.pf-sk-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 28px;
   padding: 20px 4px;
 }
 

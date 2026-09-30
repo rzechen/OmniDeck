@@ -4,7 +4,7 @@
 
 **全能桌面，智驭未来** · Your All-in-One AI-Powered Desktop Toolkit
 
-基于 **Electron + Vue 3** 的跨平台（macOS / Windows）桌面应用，将 **AI 编程助手（OmniBuddy）** 与 **开发者工具箱（OmniDeck）** 融合于一体：既能与 Agent 对话执行任务、管理工作空间与 MCP 连接器，也内置 70+ 离线开发/生活小工具。
+基于 **Electron + Vue 3** 的跨平台（macOS / Windows）桌面应用，将 **AI 编程助手（OmniBuddy）** 与 **开发者工具箱（OmniDeck）** 融合于一体：OmniBuddy 内核为 **pi Coding Agent**，对话即可执行任务、读写本地工作空间、调用工具与技能、回滚检查点、接入 MCP 连接器；工具箱则内置 70+ 离线开发/生活小工具。
 
 ![Electron](https://img.shields.io/badge/Electron-39-47848F?logo=electron&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)
@@ -30,7 +30,7 @@
 
 ### OmniBuddy · AI 编程助手
 
-与 Agent 对话即可执行任务、读写工作空间、调用工具。
+对话即执行：底层由 **pi Coding Agent** 驱动，与 Agent 对话即可执行任务、读写工作空间、调用工具。
 
 ![OmniBuddy 对话](docs/img/buddy/chat.png)
 

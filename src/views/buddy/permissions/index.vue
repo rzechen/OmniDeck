@@ -18,9 +18,9 @@
 
     <!-- 主体左右分栏：左侧预设与说明（固定窄栏）+ 右侧规则表（占满剩余，行区独立滚动） -->
     <div class="ob-page-body perm-body">
-      <!-- 加载中：骨架屏占位（权限规则行列表形态） -->
+      <!-- 加载中：骨架屏占位（左右分栏形态：左预设窄栏 212px + 右规则表行） -->
       <div v-if="loading" class="ob-sk-wrap">
-        <buddy-skeleton type="rows" :count="5" />
+        <buddy-skeleton type="split" :side-w="212" :count="6" />
       </div>
 
       <template v-else>

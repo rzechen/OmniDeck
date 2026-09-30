@@ -16,9 +16,9 @@
     </div>
 
     <div class="ob-usage-body">
-      <!-- 加载骨架：指标卡 + 行（替代 v-loading 遮罩） -->
+      <!-- 加载骨架：指标卡 + 图表块（对齐页面临三段结构） -->
       <div v-if="loading" class="ob-sk-wrap" style="padding: 18px 4px">
-        <buddy-skeleton type="stats" :count="6" />
+        <buddy-skeleton type="stats" />
       </div>
 
       <template v-else>

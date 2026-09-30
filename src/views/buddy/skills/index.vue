@@ -39,9 +39,9 @@
 
       <!-- Skill 卡片网格 -->
       <div v-else class="ob-cards-grid">
-        <!-- 加载中：卡片骨架占位 -->
+        <!-- 加载中：卡片骨架占位（列宽 340 与实际网格一致） -->
         <div v-if="skillLoading" class="ob-sk-wrap">
-          <buddy-skeleton type="cards" :count="8" />
+          <buddy-skeleton type="cards" :count="8" :min="340" />
         </div>
         <skill-card
           v-for="s in skillList"

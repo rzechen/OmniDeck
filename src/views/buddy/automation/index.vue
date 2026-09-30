@@ -19,7 +19,7 @@
     <!-- 内容区 -->
     <div class="ob-page-body">
       <div v-if="loading" class="ob-sk-wrap">
-        <buddy-skeleton type="cards" :count="4" />
+        <buddy-skeleton type="rows" :count="4" />
       </div>
 
       <template v-else>

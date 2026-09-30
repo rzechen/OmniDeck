@@ -46,7 +46,7 @@
       <div class="sp-body">
         <!-- 加载中：卡片骨架占位 -->
         <div v-if="loading" class="ob-sk-wrap">
-          <buddy-skeleton type="cards" :count="4" />
+          <buddy-skeleton type="cards" :count="12" :min="104" :gap="8" />
         </div>
 
         <!-- 空目录 -->

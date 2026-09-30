@@ -1,8 +1,8 @@
 <template>
   <!-- 任务列表：按工作空间展示名分组（无展示名按磁盘路径） -->
   <div class="buddy-tasks">
-    <!-- 加载骨架：会话首次拉取期间替代列表与空态 -->
-    <buddy-skeleton v-if="loading" type="rows" :count="5" />
+    <!-- 加载骨架：会话首次拉取期间替代列表与空态（分组标题 + 单行条目，贴任务行节奏） -->
+    <buddy-skeleton v-if="loading" type="tasks" :count="5" />
 
     <!-- 空状态：在剩余区域内垂直水平居中 -->
     <div v-else-if="!groups.length" class="buddy-chat-empty">
@@ -178,31 +178,6 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
-}
-
-/* 加载骨架微调：贴合任务行视觉（小图标 + 细行文字，替代骨架默认的 34px 大块） */
-:deep(.ob-skeleton.sk-rows){
-  .sk-row {
-    padding: 8px 10px 8px 16px;
-  }
-
-  .sk-dot {
-    width: 15px;
-    height: 15px;
-    border-radius: 5px;
-  }
-
-  .sk-lines {
-    gap: 5px;
-  }
-
-  .sk-line {
-    height: 11px;
-
-    &.sm {
-      height: 9px;
-    }
-  }
 }
 
 /* 分组容器 */
