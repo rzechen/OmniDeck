@@ -89,8 +89,24 @@ export function getItem(key, defaultVal) {
   return cache.has(key) ? cache.get(key) : defaultVal
 }
 
+// 写入前转为纯数据：Vue3 响应式对象是 Proxy，IndexedDB 结构化克隆无法序列化
+// （put 抛 DataCloneError 且事务中止）。优先 structuredClone（保留 Date 等类型），
+// 遇 Proxy 抛错时用 JSON 深拷贝兜底（JSON 读写会穿透 Proxy 得到纯数据）
+function toStorable(value) {
+  try {
+    return structuredClone(value)
+  } catch (e) {
+    try {
+      return JSON.parse(JSON.stringify(value === undefined ? null : value))
+    } catch (e2) {
+      return value
+    }
+  }
+}
+
 // 异步写入（更新缓存 + 持久化到 IndexedDB）
 export async function setItem(key, value) {
+  value = toStorable(value)
   cache.set(key, value)
   await openDB()
   if (!db) return
@@ -99,8 +115,13 @@ export async function setItem(key, value) {
       const tx = db.transaction(STORE_NAME, 'readwrite')
       tx.objectStore(STORE_NAME).put(value, key)
       tx.oncomplete = () => resolve()
-      tx.onerror = () => resolve()
+      tx.onerror = () => {
+        // 不再静默：写入失败必须留痕（此前 DataCloneError 被吞，表现为「重启后数据回退」）
+        console.warn('[omnideck:db] IndexedDB 写入失败:', key, tx.error)
+        resolve()
+      }
     } catch (e) {
+      console.warn('[omnideck:db] IndexedDB 写入异常:', key, e)
       resolve()
     }
   })
