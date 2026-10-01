@@ -420,19 +420,34 @@ export default {
     },
     onBack() {
       const wv = this.wvReady()
-      if (wv && wv.canGoBack()) wv.goBack()
+      if (wv && wv.canGoBack()) this.navCmd('goBack')
     },
     onForward() {
       const wv = this.wvReady()
-      if (wv && wv.canGoForward()) wv.goForward()
+      if (wv && wv.canGoForward()) this.navCmd('goForward')
     },
     onReload() {
       const wv = this.wvReady()
-      if (wv) wv.reload()
+      if (wv) this.navCmd('reload')
     },
     onStop() {
       const wv = this.wvReady()
-      if (wv) wv.stop()
+      if (wv) this.navCmd('stop')
+    },
+    // 导航命令统一走主进程（browser:navigate）：渲染层直调 webview.loadURL 等
+    // 走 Electron 内部 GUEST_VIEW_MANAGER_CALL，导航被重定向/新导航取代时 reject
+    // ERR_ABORTED(-3) 且主进程必打报错日志；preload 未就绪时兜底直调并 catch
+    navCmd(cmd, url) {
+      if (this.browser) {
+        this.browser.navigate(cmd, url).catch(() => {})
+        return
+      }
+      const wv = this.wvReady()
+      if (!wv) return
+      try {
+        const r = cmd === 'loadURL' ? wv.loadURL(url) : wv[cmd]()
+        if (r && typeof r.catch === 'function') r.catch(() => {})
+      } catch (err) { /* webview 未 attach：静默 */ }
     },
     // 地址归一化：无协议补 https，localhost/IP 补 http
     normalizeUrl(input) {
@@ -450,7 +465,7 @@ export default {
         this.notify('warning', '仅支持 http/https 网页地址')
         return
       }
-      wv.loadURL(url)
+      this.navCmd('loadURL', url)
       this.$refs.addr && this.$refs.addr.blur()
     },
     toggleTranslate() {

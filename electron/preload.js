@@ -246,6 +246,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 翻译浏览器（Deck 一级入口）：<webview> 架构——导航/缩放由页面直接驱动 webview，
   // 这里只留翻译特性通道（引擎/开关/进度）与 webview 生命周期通知
   browser: {
+    // 导航命令（loadURL/reload/goBack/goForward/stop）统一走主进程：渲染层直调
+    // webview 方法在导航被取代时 ERR_ABORTED reject，主进程必打 GUEST_VIEW_MANAGER_CALL
+    // 噪音日志（Electron 内置），主进程内 catch 即静默
+    navigate: (cmd, url) => ipcRenderer.invoke('browser:navigate', { cmd, url }),
     // webview dom-ready 时通知主进程登记 webContents（翻译注入目标）
     attachWebview: () => ipcRenderer.invoke('browser:attach-webview'),
     // 页面加载完成（did-finish-load）：主进程幂等注入翻译 controller

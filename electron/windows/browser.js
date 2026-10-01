@@ -1,7 +1,7 @@
 // 浏览器容器（webview 架构）：主进程不持有视图，网页由渲染层 <webview> 承载。
 // 职责收敛为两块：
-// 1) web-contents-created 统一策略：识别本容器 webview（partition=persist:web），
-//    做 UA 清洗 / 弹窗拦截 / 导航协议白名单——渲染层零感知
+// 1) web-contents-created 统一策略：识别 webview（type='webview'，全应用仅浏览器页
+//    使用 <webview>），做 UA 清洗 / 弹窗拦截 / 导航协议白名单——渲染层零感知
 // 2) 翻译特性（translate/controller.js）注入与 IPC：按 attachWebview 动态绑定目标
 const { app, ipcMain } = require('electron')
 
@@ -20,11 +20,13 @@ function activeWc() {
 
 // ===== webview webContents 统一策略 =====
 function onWebContentsCreated(_e, wc) {
-  // webview 的 webContents type 为 'webview'
+  // webview 的 webContents type 为 'webview'（全应用仅浏览器页使用 <webview>）。
+  // 注：不能用 partition 识别——E39 起 wc.getWebPreferences() 返回 undefined，
+  // 旧检查导致策略从未挂载（allowpopups 后 _blank 链接新开独立窗口即此原因）
   if (!wc.getType || wc.getType() !== 'webview') return
-  let part = ''
-  try { part = (wc.getWebPreferences && wc.getWebPreferences().partition) || '' } catch (err) { /* noop */ }
-  if (part.indexOf('persist:web') !== 0) return
+
+  // 创建即登记为翻译注入目标（web-contents-created 比页面 attachWebview 更早且可靠）
+  noteWebview(wc)
 
   // 清洗 UA：去掉 Electron/应用名 token（如 "omnideck/1.0.0 Electron/31.0.0"），避免站点
   // （如 WhatsApp）把应用名误解析为浏览器版本提示"Chrome 不受支持"。
@@ -41,7 +43,7 @@ function onWebContentsCreated(_e, wc) {
   // 链接到此；loadURL 需移出 handler 回调异步执行，同步调用会被本次 deny 吞掉）
   wc.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) setImmediate(() => {
-      if (!wc.isDestroyed()) wc.loadURL(url)
+      if (!wc.isDestroyed()) wc.loadURL(url).catch(() => { /* 后续导航取代时 ERR_ABORTED，良性竞态 */ })
     })
     return { action: 'deny' }
   })
@@ -107,7 +109,27 @@ function pushState() {
   w.webContents.send('browser:state', state)
 }
 
+// 渲染层导航命令白名单：loadURL 需带 url 参数
+const NAV_CMDS = ['loadURL', 'reload', 'goBack', 'goForward', 'stop']
+
 function registerIpc() {
+  // 导航命令统一入口（loadURL/goBack/reload 等）：主进程直接驱动 webview。
+  // 不让渲染层直调 webview 方法——那走 Electron 内部 GUEST_VIEW_MANAGER_CALL 通道，
+  // 导航被重定向/新导航取代时 reject ERR_ABORTED(-3)，主进程必打
+  // "Error occurred in handler" 噪音日志（Electron 内置，渲染层 catch 无法拦截）。
+  // 在此 catch 即静默竞态（页面实际已由后续导航正常加载）
+  ipcMain.handle('browser:navigate', (e, payload) => {
+    const w = win()
+    if (!w || e.sender !== w.webContents) return { ok: false }
+    const wc = activeWc()
+    const cmd = payload && payload.cmd
+    if (!wc || !NAV_CMDS.includes(cmd)) return { ok: false }
+    const run = cmd === 'loadURL'
+      ? wc.loadURL(String(payload.url || ''))
+      : wc[cmd]()
+    return Promise.resolve(run).then(() => ({ ok: true })).catch(() => ({ ok: false }))
+  })
+
   // 页面登记 webview（dom-ready 时）：主进程拿到 webContents 引用做翻译注入
   ipcMain.handle('browser:attach-webview', (e) => {
     // 仅接受主窗渲染层发起；webview 的 webContents 经 web-views 关联校验
@@ -138,20 +160,15 @@ function registerIpc() {
 }
 
 // 渲染层直接传 webContents 引用不可行（contextIsolation），改由主进程在
-// web-contents-created 时自动记录"最近一个 persist:web 的 webview"
+// web-contents-created 时自动记录"最近创建的 webview"
 function noteWebview(wc) {
   pageWc = wc
 }
 
 function init(opts) {
   getWin = (opts && opts.getWindow) || getWin
-  app.on('web-contents-created', (e, wc) => {
-    onWebContentsCreated(e, wc)
-    // 自动登记：本容器 webview 创建即成为翻译注入目标
-    let part = ''
-    try { part = (wc.getWebPreferences && wc.getWebPreferences().partition) || '' } catch (err) { /* noop */ }
-    if (wc.getType && wc.getType() === 'webview' && part.indexOf('persist:web') === 0) noteWebview(wc)
-  })
+  // webview 识别与策略挂载、翻译目标登记统一收敛在 onWebContentsCreated
+  app.on('web-contents-created', onWebContentsCreated)
   registerIpc()
 }
 
