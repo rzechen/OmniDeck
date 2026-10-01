@@ -8,7 +8,7 @@
           <span class="ob-hero-badge" v-if="loaded">{{ tasks.length }} 个任务</span>
         </div>
         <p class="ob-section-desc">
-          定时让助手自动执行任务：到点自动运行，结果保存为会话记录并推送通知；任务将使用你最近一次对话所选的模型自动执行，执行过程可在任务列表「定时任务」分组的会话中查看
+          定时让助手自动执行任务：到点自动运行，结果保存为会话记录并推送通知；每个任务使用指定的执行模型（模型被删除后列表会标红提示），执行过程可在任务列表「定时任务」分组的会话中查看
         </p>
       </div>
       <div class="ob-hero-actions">
@@ -35,6 +35,11 @@
               </div>
               <div class="ob-auto-meta">
                 <span class="ob-auto-schedule"><svg-icon icon-class="clock" />{{ scheduleText(t.schedule) }}</span>
+                <span
+                  class="ob-auto-model"
+                  :class="{ missing: !t.providerId || !providers.some(x => x.id === t.providerId) }"
+                  :title="modelTitle(t)"
+                >{{ modelText(t) }}</span>
                 <span class="ob-auto-next" v-if="t.enabled && !t.running">下次 {{ nextText(t.nextRunAt) }}</span>
                 <span
                   v-if="t.lastRun"
@@ -161,6 +166,21 @@
                 </el-select>
                 <div class="ob-auto-err" :class="{ show: wizard.errWorkspace }">{{ wizard.errWorkspace || '　' }}</div>
               </div>
+              <div class="ob-auto-field">
+                <label class="ob-auto-label">执行模型 <i class="ob-req">*</i></label>
+                <el-select v-model="wizard.providerId" placeholder="选择任务使用的模型" style="width: 100%">
+                  <el-option
+                    v-for="p in providers"
+                    :key="p.id"
+                    :label="p.name + '（' + p.model + '）'"
+                    :value="p.id"
+                  />
+                </el-select>
+                <div class="ob-auto-err" :class="{ show: wizard.errProvider }">{{ wizard.errProvider || '　' }}</div>
+                <div v-if="!providers.length" class="ob-auto-tip">
+                  尚未配置任何模型，请先<a class="ob-auto-link" @click="goProviders">在「模型管理」中添加模型</a>，添加后即可选择
+                </div>
+              </div>
               <div class="ob-auto-field row">
                 <label class="ob-auto-label">完成后通知</label>
                 <el-switch v-model="wizard.notify" />
@@ -243,6 +263,7 @@
 // 数据源：主进程 scheduler（tasks.json 持久化）；执行结果落系统会话（「自动化」分组），
 // 运行/结束经 omnibuddy:event（automation:run / automation:done）实时刷新
 import { buddyApi, buddyApiSection } from '@/utils/buddy-api'
+import { getItem } from '@/utils/db'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
 // 场景定义：图标 / 描述 / 默认周期 / 指令模板（topic 注入）
@@ -305,6 +326,7 @@ export default {
       loaded: false,
       tasks: [],
       workspaces: [],
+      providers: [],
       scenarios: SCENARIOS,
       // 新建 / 编辑向导
       wizard: {
@@ -318,6 +340,8 @@ export default {
         prompt: '',
         promptDirty: false,
         workspaceId: '',
+        // 执行模型：providerId（必选；providers 为空时无法保存，引导先去模型管理）
+        providerId: '',
         notify: true,
         scheduleType: 'daily',
         weekday: 1,
@@ -329,13 +353,15 @@ export default {
         errName: '',
         errTopic: '',
         errPrompt: '',
-        errWorkspace: ''
+        errWorkspace: '',
+        errProvider: ''
       }
     }
   },
   mounted() {
     this.load()
     this.loadWorkspaces()
+    this.loadProviders()
     // 任务运行/结束实时刷新（调度器触发在主进程，页面可能不在前台）
     const api = buddyApi()
     if (api && api.onEvent) {
@@ -375,6 +401,20 @@ export default {
       const list = await api.listWorkspaces()
       this.workspaces = Array.isArray(list) ? list : []
     },
+    // 模型列表（IndexedDB）+ 同步镜像到主进程：
+    // 定时任务无头执行时读不到渲染进程，按 providerId 绑定模型须依赖主进程镜像。
+    // JSON 拷贝穿透响应式 Proxy（IPC 结构化克隆无法序列化 Proxy）
+    loadProviders() {
+      const list = getItem('aiProviderList', [])
+      this.providers = Array.isArray(list) ? list : []
+      const a = this.autoApi()
+      if (a && a.syncProviders) {
+        Promise.resolve(a.syncProviders(JSON.parse(JSON.stringify(this.providers)))).catch(() => {})
+      }
+    },
+    goProviders() {
+      this.$router.push('/omnibuddy/providers').catch(() => {})
+    },
     // ===== 展示辅助 =====
     scenarioOf(t) {
       return this.scenarios.find(s => s.key === t.scenario) || this.scenarios[this.scenarios.length - 1]
@@ -389,6 +429,18 @@ export default {
         return base + (s.timeStart || '09:00') + ' ~ ' + (s.timeEnd || '10:00') + ' 随机'
       }
       return base + (s.time || '09:00')
+    },
+    // 任务所用模型：具体模型名（未绑定 / 绑定模型被删时标红提示）
+    modelText(t) {
+      // 未绑定（旧版本创建的任务）：表单已移除「跟随对话模型」选项，标红引导编辑绑定
+      if (!t.providerId) return '未设置模型'
+      const p = this.providers.find(x => x.id === t.providerId)
+      return p ? p.name : '模型已删除'
+    },
+    modelTitle(t) {
+      if (!t.providerId) return '任务未绑定执行模型（旧版本创建），请编辑任务选择执行模型'
+      const p = this.providers.find(x => x.id === t.providerId)
+      return p ? (p.name + ' · ' + p.model) : '任务绑定的模型已被删除，运行将失败，请编辑任务重新选择'
     },
     // 下次执行：今天/明天 HH:mm，更远给日期
     nextText(ts) {
@@ -480,6 +532,7 @@ export default {
         prompt: t.prompt,
         promptDirty: true,
         workspaceId: t.workspaceId,
+        providerId: t.providerId || '',
         notify: t.notify !== false,
         scheduleType: sch.type === 'weekly' ? 'weekly' : 'daily',
         weekday: Number.isInteger(sch.weekday) ? sch.weekday : 1,
@@ -496,6 +549,8 @@ export default {
       this.wizard.visible = true
     },
     resetWizard() {
+      // 执行模型默认选中默认模型（无模型时留空，校验引导去模型管理）
+      const defProvider = this.providers.find(p => p.isDefault) || this.providers[0]
       Object.assign(this.wizard, {
         editing: false,
         editId: '',
@@ -506,6 +561,7 @@ export default {
         prompt: '',
         promptDirty: false,
         workspaceId: '',
+        providerId: defProvider ? defProvider.id : '',
         notify: true,
         scheduleType: 'daily',
         weekday: 1,
@@ -516,7 +572,8 @@ export default {
         errName: '',
         errTopic: '',
         errPrompt: '',
-        errWorkspace: ''
+        errWorkspace: '',
+        errProvider: ''
       })
     },
     chooseScenario(s) {
@@ -561,7 +618,17 @@ export default {
       w.errTopic = s && s.topic && !w.topic.trim() ? '请填写关注主题' : ''
       w.errPrompt = w.prompt.trim() ? '' : '请填写任务指令'
       w.errWorkspace = w.workspaceId ? '' : '请选择工作空间'
-      return !w.errName && !w.errTopic && !w.errPrompt && !w.errWorkspace
+      // 执行模型必选：未配置任何模型引导去添加；选中项已被删除要求重选
+      if (!this.providers.length) {
+        w.errProvider = '请先在「模型管理」中添加模型'
+      } else if (!w.providerId) {
+        w.errProvider = '请选择执行模型'
+      } else {
+        w.errProvider = this.providers.some(p => p.id === w.providerId)
+          ? ''
+          : '所选模型已被删除，请重新选择'
+      }
+      return !w.errName && !w.errTopic && !w.errPrompt && !w.errWorkspace && !w.errProvider
     },
     nextStep() {
       if (this.wizard.step === 1 && !this.validateContent()) return
@@ -613,6 +680,7 @@ export default {
         scenario: w.scenario,
         prompt: w.prompt.trim(),
         workspaceId: w.workspaceId,
+        providerId: w.providerId,
         notify: w.notify,
         schedule: w.timeMode === 'random'
           ? { type: w.scheduleType, weekday: w.weekday, mode: 'random', timeStart: w.timeRange[0], timeEnd: w.timeRange[1] }
@@ -754,6 +822,29 @@ export default {
     font-size: 12.5px;
     margin-right: 3px;
     vertical-align: -1.5px;
+  }
+}
+
+// 任务所用模型（绑定模型被删时红色警示）
+.ob-auto-model {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &.missing {
+    color: #C0504D;
+    font-weight: 600;
+  }
+}
+
+// 表单内操作链接（如「在模型管理中添加模型」）
+.ob-auto-link {
+  color: var(--primary-color);
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
   }
 }
 

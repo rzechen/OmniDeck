@@ -619,10 +619,16 @@ export default {
       const keep = this.providers.find(p => p.id === (this.currentProviderId || savedId))
       if (keep) {
         this.currentProviderId = keep.id
-        return
+      } else {
+        const def = this.providers.find(p => p.isDefault) || this.providers[0]
+        this.currentProviderId = def ? def.id : ''
       }
-      const def = this.providers.find(p => p.isDefault) || this.providers[0]
-      this.currentProviderId = def ? def.id : ''
+      // 同步模型列表镜像到主进程：定时任务按 providerId 绑定执行模型（IndexedDB 主进程不可读）。
+      // 注意 JSON 拷贝穿透响应式 Proxy —— IPC 结构化克隆无法序列化 Proxy
+      const auto = (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.automation) || null
+      if (auto && auto.syncProviders) {
+        Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(this.providers)))).catch(() => {})
+      }
     },
     onSelectProvider(id) {
       this.openSelect = ''

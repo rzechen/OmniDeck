@@ -364,11 +364,23 @@ export default {
     // 主进程流式事件：按 sessionId 定向写入会话池（组件在不在场都照常累积）
     // （自 chat 组件 onAgentEvent 迁入，行为保持一致；UI 提示改走 notice）
     handleEvent({ state, commit, dispatch }, e) {
-      // 定时任务启动（P2 自动化）：会话可能从未在前端打开（池中无记录），
-      // 先建池再进入流式乐观占位 —— 否则事件在下方「会话不在池」守卫被丢，
-      // 切到该对话要等 pi 冷启动 + LLM 首 token 后才见「思考中」
-      if (e.type === 'automation:run' && e.sessionId && !state.sessions[e.sessionId]) {
+      // 定时任务无头会话（P2 自动化）：主进程先落盘用户消息（user_message）
+      // 再广播 automation:run。普通对话的 user_message 是乐观消息的落盘回执、
+      // 池必已存在；定时任务会话池尚不存在 —— 建池并把任务的问题入池，
+      // 否则会话视图中缺失任务指令（只见异常气泡不见提问）
+      if (e.type === 'user_message' && e.sessionId && e.message && e.message.id && !state.sessions[e.sessionId]) {
         commit('ENSURE', e.sessionId)
+        state.sessions[e.sessionId].messages.push(normalizeHistory([e.message])[0])
+      }
+      // 定时任务启动（P2 自动化）：会话可能从未在前端打开（如错过上面的
+      // user_message），先建池再进入流式乐观占位 —— 否则事件在下方「会话不在池」
+      // 守卫被丢，切到该对话要等 pi 冷启动 + LLM 首 token 后才见「思考中」
+      if (e.type === 'automation:run' && e.sessionId) {
+        if (!state.sessions[e.sessionId]) commit('ENSURE', e.sessionId)
+        // 乐观流式态（含上方入池的用户消息）即该会话的完整实时态，直接置
+        // loaded（与 MIGRATE 同理）：否则切到该会话时 loadHistory 被 streaming
+        // 守卫拦截，loaded 恒为 false，页面将永久停在历史加载骨架屏
+        state.sessions[e.sessionId].loaded = true
       }
       const s = state.sessions[e.sessionId]
       if (!s) return
