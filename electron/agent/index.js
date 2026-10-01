@@ -65,6 +65,9 @@ function buildFallbackSystemPrompt(workspaceDir) {
 
 // 运行中的请求：sessionId -> { abort, mode, model, anchors }
 const running = new Map()
+// 定时任务运行中的回合错误：chatId -> 错误文本（pi 不抛模型请求错误，
+// 只发 turn_error 事件；执行体在 prompt 返回后据此判失败并驱动重试）
+const automationTurnErrors = new Map()
 // 各会话上次发送的分支线路（anchors key）：切换线路时 pi 会话须丢弃重建
 // （pi 上下文与 JSONL 分支视图保持一致）
 const sessionAnchorKeys = new Map()
@@ -478,6 +481,8 @@ function handlePiEvent(getWindow, e) {
     case 'turn_error':
       // pi 吞掉的模型请求错误（如供应商 400）：原样透传前端 + 落盘（重开会话仍可见）
       console.log('[omnibuddy] turn_error <-', e.error)
+      // 定时任务执行体登记：prompt 不抛异常，须据此把空回合判为失败
+      automationTurnErrors.set(chatId, e.error || '模型请求失败')
       {
         const errAnchors = runAnchors(chatId)
         sessions.addMessage(chatId, Object.assign(
@@ -717,15 +722,83 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   // 无人应答时由整体超时兜底中断（中断记录落盘，重开会话可见）
   const AUTOMATION_RUN_TIMEOUT_MS = 15 * 60 * 1000
 
-  async function runAutomationTask(task, reason) {
-    // 模型配置：最近一次对话所用的 provider 快照（渲染进程 IndexedDB 主进程不可读）
-    const snap = scheduler.getProviderSnapshot()
-    if (!snap || !snap.baseUrl || !snap.model) {
-      return { ok: false, error: '尚未初始化模型配置：请先在任意对话中成功发送一条消息' }
+  // 定时任务模型解析：任务绑定的模型（providerId，主进程镜像查找）优先；
+  // 未绑定时依次回落「最近一次对话所用模型快照」→「模型管理中的默认模型」。
+  // 返回 { provider } 或 { error }，供执行前与「立即运行」预检共用
+  function resolveAutomationProvider(task) {
+    const providers = scheduler.getProviders()
+    if (task.providerId) {
+      const p = providers.find(x => x.id === task.providerId)
+      if (p) return { provider: p }
+      return { error: '任务关联的模型已被删除，请编辑任务重新选择执行模型' }
     }
+    const snap = scheduler.getProviderSnapshot()
+    if (snap && snap.baseUrl && snap.model) {
+      // 旧快照文件可能缺 apiFormat 等字段（Anthropic 端点会被误按 OpenAI
+      // 协议请求）：镜像中有同 id 供应商时以镜像完整配置为准（providers 页
+      // 增删改时同步，配置总是最新）
+      const mirror = providers.find(x => x.id === snap.id)
+      return { provider: mirror || snap }
+    }
+    const def = providers.find(x => x.isDefault) || providers[0]
+    if (def) return { provider: def }
+    return { error: '未配置模型：请先在「模型管理」中添加模型，或编辑任务选择执行模型' }
+  }
+
+  async function runAutomationTask(task, reason) {
+    // 结束统一处理：广播 automation:done + 系统通知 + dock 角标。
+    // 预检失败（无会话）时同样走此链路，避免定时触发静默失败无任何提示
+    const finish = (result, chatId) => {
+      emit(getWindow, chatId, {
+        type: 'automation:done',
+        taskId: task.id,
+        taskName: task.name,
+        ok: result.ok,
+        error: result.error || '',
+        sessionId: chatId || ''
+      })
+      if (task.notify !== false) {
+        try {
+          if (Notification.isSupported()) {
+            const n = new Notification({
+              title: result.ok ? '定时任务已完成' : '定时任务失败',
+              body: result.ok
+                ? '「' + task.name + '」执行完成，点击查看结果'
+                : '「' + task.name + '」执行失败：' + (result.error || '未知错误')
+            })
+            n.on('click', () => {
+              // 预检失败无会话可跳转
+              if (!chatId) return
+              // 复用 quick-panel 的 nav:goto 机制（App.vue 监听跳转）：聚焦 + 直达会话
+              const win = getWindow()
+              if (win && !win.isDestroyed()) {
+                win.show()
+                win.focus()
+                win.webContents.send('nav:goto', '/omnibuddy?s=' + chatId)
+              }
+            })
+            n.show()
+          }
+        } catch (e) { /* 通知失败不影响任务 */ }
+      }
+      if (process.platform === 'darwin' && app.dock) {
+        try {
+          const win = getWindow()
+          if (!win || win.isDestroyed() || !win.isFocused()) app.dock.setBadge('•')
+        } catch (e) { /* 忽略 */ }
+      }
+      return result
+    }
+
+    // 模型检测：任务绑定模型 / 最近对话快照 / 默认模型均不可用时明确报错
+    const resolved = resolveAutomationProvider(task)
+    if (resolved.error) {
+      return finish({ ok: false, error: resolved.error }, '')
+    }
+    const provider = resolved.provider
     const workspaceDir = workspaces.resolve(task.workspaceId)
     if (!workspaceDir) {
-      return { ok: false, error: '任务关联的工作空间已不存在，请编辑任务重新选择' }
+      return finish({ ok: false, error: '任务关联的工作空间已不存在，请编辑任务重新选择' }, '')
     }
     const pad = n => String(n).padStart(2, '0')
     const d = new Date()
@@ -754,80 +827,69 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
     emit(getWindow, chatId, { type: 'user_message', message: record })
     emit(getWindow, chatId, { type: 'automation:run', taskId: task.id, taskName: task.name })
 
-    const entry = { abort: null, mode: 'pi', model: snap.model, anchors: [] }
+    const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [] }
     running.set(chatId, entry)
     // 整体超时：无人值守时防止权限挂起 / 模型空转导致任务永久卡住
     const timeout = setTimeout(() => {
       try { piRuntime.interruptSession(chatId) } catch (e) { /* 忽略 */ }
     }, AUTOMATION_RUN_TIMEOUT_MS)
     let result
-    try {
-      const session = await piRuntime.getOrCreateSession(chatId, snap, [], e => handlePiEvent(getWindow, e), workspaceDir)
-      entry.abort = () => { piRuntime.interruptSession(chatId) }
-      await session.prompt(promptText)
-      // 回合完成释放前端流式态：定时任务不走 session:send（无 done 发射点），
-      // P3 的幽灵回合补发又被 running 表挡住，须在此显式发送（done 幂等）
-      emit(getWindow, chatId, { type: 'done' })
-      sessions.touch(chatId)
-      // 会话记忆摘要（消息数不足门槛时自动跳过）
-      writeExitSummary(chatId)
-      result = { ok: true, sessionId: chatId }
-    } catch (err) {
-      const aborted = err && (err.name === 'AbortError' || /abort/i.test(String(err.message || '')))
-      const reason2 = aborted ? '执行被中断' : ((err && err.message) || '未知错误')
-      // 失败/中断落盘（无头运行无人盯屏，重开会话可见）
+    // 失败自动重试一次：流式端点在长任务 / 工具调用多轮场景下偶发断流
+    // （如 Stream ended without finish_reason）。注意 pi 不抛模型请求错误，
+    // 只发 turn_error 事件（已透传前端并落盘）——prompt 正常返回后须查
+    // automationTurnErrors 把空回合判为失败；中断（用户/超时）不重试
+    const MAX_ATTEMPTS = 2
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      let failError = ''        // 本轮失败原因（空 = 成功）
+      let failFromEvent = false // true = turn_error 事件路径（错误已落盘并广播，勿重复）
+      automationTurnErrors.delete(chatId)
       try {
-        sessions.addMessage(chatId, { role: 'assistant', content: '（任务' + (aborted ? '执行被中断' : '执行失败：' + reason2) + '）', error: reason2 })
-      } catch (e) { /* 会话已删除等忽略 */ }
-      // 失败/中断同样须释放前端流式态（interrupted 清理运行中工具图标，error 展示原因；
-      // 两者均幂等：streaming 已结束则跳过）
-      emit(getWindow, chatId, aborted
-        ? { type: 'interrupted' }
-        : { type: 'error', error: reason2 })
-      result = { ok: false, sessionId: chatId, error: reason2 }
-    } finally {
-      clearTimeout(timeout)
-      running.delete(chatId)
+        const session = await piRuntime.getOrCreateSession(chatId, provider, [], e => handlePiEvent(getWindow, e), workspaceDir)
+        entry.abort = () => { piRuntime.interruptSession(chatId) }
+        await session.prompt(attempt > 1
+          ? promptText + '\n\n（上一次执行中断，请继续完成上述任务并输出完整结果）'
+          : promptText)
+        failError = automationTurnErrors.get(chatId) || ''
+        failFromEvent = !!failError
+      } catch (err) {
+        const aborted = err && (err.name === 'AbortError' || /abort/i.test(String(err.message || '')))
+        failError = aborted ? '执行被中断' : ((err && err.message) || '未知错误')
+      }
+      if (!failError) {
+        // 回合完成释放前端流式态：定时任务不走 session:send（无 done 发射点），
+        // P3 的幽灵回合补发又被 running 表挡住，须在此显式发送（done 幂等）
+        emit(getWindow, chatId, { type: 'done' })
+        sessions.touch(chatId)
+        // 会话记忆摘要（消息数不足门槛时自动跳过）
+        writeExitSummary(chatId)
+        result = { ok: true, sessionId: chatId }
+        break
+      }
+      const abortedFail = failError === '执行被中断'
+      if (!abortedFail && attempt < MAX_ATTEMPTS) {
+        console.warn('[omnibuddy:automation] 第 ' + attempt + ' 次执行失败，3 秒后自动重试：' + failError)
+        await new Promise(r => setTimeout(r, 3000))
+        continue
+      }
+      // 终判失败：catch 路径补落盘与广播（turn_error 路径已在事件分支完成），
+      // 无头运行无人盯屏，重开会话可见失败原因
+      if (!failFromEvent) {
+        try {
+          sessions.addMessage(chatId, { role: 'assistant', content: '（任务' + (abortedFail ? '执行被中断' : '执行失败：' + failError) + '）', error: failError })
+        } catch (e) { /* 会话已删除等忽略 */ }
+        // 释放前端流式态（interrupted 清理运行中工具图标，error 展示原因；均幂等）
+        emit(getWindow, chatId, abortedFail
+          ? { type: 'interrupted' }
+          : { type: 'error', error: failError })
+      }
+      result = { ok: false, sessionId: chatId, error: failError }
     }
+    clearTimeout(timeout)
+    running.delete(chatId)
+    automationTurnErrors.delete(chatId)
 
-    // 结束广播（自动化页/侧栏刷新）+ 原生通知 + dock 角标
-    emit(getWindow, chatId, {
-      type: 'automation:done',
-      taskId: task.id,
-      taskName: task.name,
-      ok: result.ok,
-      error: result.error || '',
-      sessionId: chatId
-    })
-    if (task.notify !== false) {
-      try {
-        if (Notification.isSupported()) {
-          const n = new Notification({
-            title: result.ok ? '定时任务已完成' : '定时任务失败',
-            body: result.ok
-              ? '「' + task.name + '」执行完成，点击查看结果'
-              : '「' + task.name + '」执行失败：' + (result.error || '未知错误')
-          })
-          n.on('click', () => {
-            // 复用 quick-panel 的 nav:goto 机制（App.vue 监听跳转）：聚焦 + 直达会话
-            const win = getWindow()
-            if (win && !win.isDestroyed()) {
-              win.show()
-              win.focus()
-              win.webContents.send('nav:goto', '/omnibuddy?s=' + chatId)
-            }
-          })
-          n.show()
-        }
-      } catch (e) { /* 通知失败不影响任务 */ }
-    }
-    if (process.platform === 'darwin' && app.dock) {
-      try {
-        const win = getWindow()
-        if (!win || win.isDestroyed() || !win.isFocused()) app.dock.setBadge('•')
-      } catch (e) { /* 忽略 */ }
-    }
-    return result
+    // 结束：广播（自动化页/侧栏刷新）+ 原生通知 + dock 角标
+    return finish(result, chatId)
   }
 
   // 定时任务管理 IPC（定时任务页）
@@ -842,11 +904,27 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
 
   ipcMain.handle('omnibuddy:automation:delete', (_e, id) => scheduler.deleteTask(id))
 
-  // 立即运行（手动触发；不等执行完成即返回，结果经 automation:done 广播）
+  // 立即运行（手动触发；不等执行完成即返回，结果经 automation:done 广播）。
+  // 返回前先做模型/工作空间预检：配置缺失立即报错给前端弹提示，避免「点了没反应」
   ipcMain.handle('omnibuddy:automation:run-now', (_e, id) => {
     if (!id) return { ok: false, error: '参数缺失' }
+    const task = scheduler.listTasks().find(t => t.id === id)
+    if (!task) return { ok: false, error: '任务不存在' }
+    if (scheduler.isTaskRunning(id)) return { ok: false, error: '任务正在运行中' }
+    const check = resolveAutomationProvider(task)
+    if (check.error) return { ok: false, error: check.error }
+    if (!workspaces.resolve(task.workspaceId)) {
+      return { ok: false, error: '任务关联的工作空间已不存在，请编辑任务重新选择' }
+    }
     scheduler.runNow(id).catch(e =>
       console.warn('[omnibuddy:automation] 手动运行异常：', (e && e.message) || e))
+    return { ok: true }
+  })
+
+  // 渲染侧同步模型列表镜像（模型增删改 / 相关页面加载时调用）：
+  // 定时任务按 providerId 从镜像取绑定模型的完整配置（IndexedDB 主进程不可读）
+  ipcMain.handle('omnibuddy:automation:sync-providers', (_e, list) => {
+    scheduler.updateProviders(list)
     return { ok: true }
   })
 

@@ -101,13 +101,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     rollbackCheckpoint: payload => ipcRenderer.invoke('omnibuddy:session:rollback', payload),
     usageSummarize: () => ipcRenderer.invoke('omnibuddy:usage:summarize'),
     usageExportCsv: () => ipcRenderer.invoke('omnibuddy:usage:export-csv'),
-    // 定时任务（P2 自动化）：任务管理 + 立即运行
+    // 定时任务（P2 自动化）：任务管理 + 立即运行 + 模型列表镜像同步
     automation: {
       list: () => ipcRenderer.invoke('omnibuddy:automation:list'),
       create: payload => ipcRenderer.invoke('omnibuddy:automation:create', payload),
       update: payload => ipcRenderer.invoke('omnibuddy:automation:update', payload),
       remove: id => ipcRenderer.invoke('omnibuddy:automation:delete', id),
-      runNow: id => ipcRenderer.invoke('omnibuddy:automation:run-now', id)
+      runNow: id => ipcRenderer.invoke('omnibuddy:automation:run-now', id),
+      syncProviders: list => ipcRenderer.invoke('omnibuddy:automation:sync-providers', list)
     },
     // 深度研究（P3）：workflow 运行状态（历史卡片回放）
     workflowStatus: payload => ipcRenderer.invoke('omnibuddy:workflow:status', payload),

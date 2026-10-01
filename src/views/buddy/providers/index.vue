@@ -96,6 +96,12 @@ export default {
     },
     persist() {
       setItem('aiProviderList', this.list)
+      // 同步模型列表镜像到主进程：定时任务按 providerId 绑定执行模型（IndexedDB 主进程不可读）。
+      // JSON 拷贝穿透响应式 Proxy（IPC 结构化克隆无法序列化 Proxy）
+      const auto = (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.automation) || null
+      if (auto && auto.syncProviders) {
+        Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(this.list)))).catch(() => {})
+      }
     },
     // 新建：清空编辑状态后打开弹窗
     openCreate() {

@@ -134,8 +134,9 @@
         :changes="fileChanges"
       />
 
-      <!-- 助手 meta 行（回答完成后呈现：复制 / 点赞 / 点踩 / 分支 / 导出 / token 用量 / 时间，定高不抖动；压缩摘要消息不显示） -->
-      <div v-if="message.role === 'assistant' && !message.streaming && !message.compaction" class="ob-msg-meta">
+      <!-- 助手 meta 行（回答完成后呈现：复制 / 点赞 / 点踩 / 分支 / 导出 / token 用量 / 时间，定高不抖动；
+           压缩摘要消息不显示；错误消息仅展示错误本身，meta 操作无意义同样不显示） -->
+      <div v-if="message.role === 'assistant' && !message.streaming && !message.compaction && !message.error" class="ob-msg-meta">
         <span class="ob-meta-copy" title="复制全文" @click="copyContent">
           <svg-icon icon-class="copy" />
         </span>

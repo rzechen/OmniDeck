@@ -10,6 +10,7 @@ const crypto = require('crypto')
 let dataDir = ''
 let tasksFile = ''
 let snapshotFile = ''
+let providersFile = ''
 // index.js 注入的执行器：async (task, reason) => ({ ok, error, sessionId })
 let runner = null
 let tickTimer = null
@@ -110,6 +111,7 @@ function init(baseDir) {
   fs.mkdirSync(dataDir, { recursive: true })
   tasksFile = path.join(dataDir, 'tasks.json')
   snapshotFile = path.join(dataDir, 'provider-snapshot.json')
+  providersFile = path.join(dataDir, 'providers.json')
 
   // 启动补跑判定：错过窗口外的直接顺延到下个周期
   const list = readTasks()
@@ -137,13 +139,14 @@ function stop() {
 }
 
 // ===== 任务 CRUD =====
-// payload: { name, scenario, prompt, schedule, workspaceId, notify }
-// 校验必填：name / prompt / schedule / workspaceId
+// payload: { name, scenario, prompt, schedule, workspaceId, providerId, notify }
+// 校验必填：name / prompt / schedule / workspaceId / providerId
 function validatePayload(p) {
   if (!p) return '参数缺失'
   if (!String(p.name || '').trim()) return '请填写任务名称'
   if (!String(p.prompt || '').trim()) return '请填写任务指令'
   if (!p.workspaceId) return '请选择工作空间'
+  if (!p.providerId) return '请选择执行模型'
   const sch = p.schedule || {}
   const timeOk = sch.mode === 'random'
     ? !!(sch.timeStart && sch.timeEnd)
@@ -163,6 +166,8 @@ function createTask(payload) {
     prompt: String(payload.prompt).trim(),
     schedule,
     workspaceId: String(payload.workspaceId),
+    // 执行模型：空 = 跟随最近对话使用的模型（快照/默认模型回落）
+    providerId: payload.providerId ? String(payload.providerId) : '',
     notify: payload.notify !== false,
     enabled: true,
     createdAt: Date.now(),
@@ -193,6 +198,11 @@ function updateTask(id, patch) {
   if (patch.workspaceId !== undefined) {
     if (!patch.workspaceId) return { ok: false, error: '请选择工作空间' }
     t.workspaceId = String(patch.workspaceId)
+  }
+  // 执行模型可改绑（不允许清空 —— 表单已移除「跟随最近对话」选项）
+  if (patch.providerId !== undefined) {
+    if (!patch.providerId) return { ok: false, error: '请选择执行模型' }
+    t.providerId = String(patch.providerId)
   }
   if (patch.notify !== undefined) t.notify = !!patch.notify
   if (patch.schedule !== undefined && patch.schedule &&
@@ -289,18 +299,14 @@ function tick() {
 // ===== 模型配置快照 =====
 // 定时任务无头运行时无法读取渲染进程 IndexedDB 的供应商列表，
 // 每次普通对话发送成功时把当前 provider 完整配置落到主进程快照文件，
-// 任务运行时使用「最近一次对话所用模型」
+// 任务运行时使用「最近一次对话所用模型」。
+// 注意保留 provider 完整字段（apiFormat / 高级配置等）：早期版本只存
+// baseUrl/apiKey/model，Anthropic 格式端点会被误按 OpenAI 协议请求而报错
 function updateProviderSnapshot(provider) {
   if (!provider || !provider.baseUrl || !provider.model) return
   try {
-    fs.writeFileSync(snapshotFile, JSON.stringify({
-      id: provider.id || '',
-      name: provider.name || '',
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey || '',
-      model: provider.model,
-      savedAt: Date.now()
-    }, null, 2))
+    fs.writeFileSync(snapshotFile, JSON.stringify(
+      Object.assign({}, provider, { savedAt: Date.now() }), null, 2))
   } catch (e) {
     console.warn('[omnibuddy:scheduler] 模型快照写入失败：', e.message)
   }
@@ -311,6 +317,32 @@ function getProviderSnapshot() {
     return JSON.parse(fs.readFileSync(snapshotFile, 'utf-8'))
   } catch (e) {
     return null
+  }
+}
+
+// ===== 模型列表镜像 =====
+// 渲染进程的供应商列表存于 IndexedDB（主进程不可读），渲染侧在列表变化 /
+// 相关页面加载时把全量列表同步到主进程镜像文件，供任务按 providerId 绑定执行模型。
+// 保留 provider 完整字段（apiFormat / 高级配置 / tiers 等），确保定时任务
+// 与普通对话使用同一模型时行为一致
+function updateProviders(list) {
+  try {
+    const providers = (Array.isArray(list) ? list : [])
+      .filter(p => p && p.baseUrl && p.model)
+    fs.writeFileSync(providersFile, JSON.stringify({ savedAt: Date.now(), providers }, null, 2))
+    // 含明文 apiKey，收紧文件权限（与 pi.js models.json 同策略）
+    try { fs.chmodSync(providersFile, 0o600) } catch (e) { /* chmod 失败不影响功能 */ }
+  } catch (e) {
+    console.warn('[omnibuddy:scheduler] 模型列表镜像写入失败：', e.message)
+  }
+}
+
+function getProviders() {
+  try {
+    const data = JSON.parse(fs.readFileSync(providersFile, 'utf-8'))
+    return Array.isArray(data.providers) ? data.providers : []
+  } catch (e) {
+    return []
   }
 }
 
@@ -329,5 +361,7 @@ module.exports = {
   runNow,
   isTaskRunning,
   updateProviderSnapshot,
-  getProviderSnapshot
+  getProviderSnapshot,
+  updateProviders,
+  getProviders
 }
