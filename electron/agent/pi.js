@@ -795,8 +795,15 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     // （<工作空间>/wechat/templates 与 wechat/renders，随任务隔离）
     wechatImport.createImportExtension(cwd),
     // 公众号模板渲染 / 发布草稿 / 复制富文本：
-    // {{变量}} + {{#each}} 渲染，图片转存素材库，草稿发布（perm 'ask'）
-    wechatRender.createRenderExtension(cwd),
+    // {{变量}} + {{#each}} 渲染，图片转存素材库，草稿发布（perm 'ask'）。
+    // 发布凭据注入：激活技能绑定凭证 + 全库按键名匹配兜底（进程 env 优先在 render.js 内判定），
+    // 不依赖会话是否读过绑定技能的 SKILL.md（无头定时任务常只读写作子技能）
+    wechatRender.createRenderExtension(cwd, () => {
+      const env = {}
+      try { Object.assign(env, credentials.resolveEnvByKeys(['WECHAT_APP_ID', 'WECHAT_APP_SECRET'])) } catch (e) { /* 凭据未初始化时忽略 */ }
+      try { Object.assign(env, getSkillEnv()) } catch (e) { /* 同上 */ }
+      return env
+    }),
     // 公众号编辑器注入：渲染成品直接写入已打开的图文编辑页（网页登录态，免 API 凭据）
     wechatEditor.createEditorExtension(cwd),
     // 凭据按需取用（B 方案后续）：AI 对话中经 credential_get 取「AI 取用类」凭据；

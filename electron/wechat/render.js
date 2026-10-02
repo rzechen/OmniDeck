@@ -123,12 +123,24 @@ function renderFromTemplate(meta, fieldValues, loopFieldValues) {
 }
 
 // ---------- 微信 API ----------
-// 凭据：环境变量注入（SKILL 工作流 env-keys：WECHAT_APP_ID / WECHAT_APP_SECRET）
+// 凭据三通道（优先级从高到低）：进程环境变量 → 激活技能绑定凭证 → 全库按键名匹配。
+// envProvider 由 pi.js 注入（会话闭包取数）；凭据经「我的凭据」录入，env 键名即契约
+let envProvider = null // createRenderExtension 注册时注入：() => ({ WECHAT_APP_ID, WECHAT_APP_SECRET })
+
 function wxCreds() {
-  const appId = process.env.WECHAT_APP_ID || ''
-  const secret = process.env.WECHAT_APP_SECRET || ''
+  let appId = process.env.WECHAT_APP_ID || ''
+  let secret = process.env.WECHAT_APP_SECRET || ''
+  if ((!appId || !secret) && envProvider) {
+    try {
+      const extra = envProvider() || {}
+      appId = appId || extra.WECHAT_APP_ID || ''
+      secret = secret || extra.WECHAT_APP_SECRET || ''
+    } catch (e) { /* 取数失败按缺凭据报错 */ }
+  }
   if (!appId || !secret) {
-    throw new Error('缺少公众号凭据：请设置环境变量 WECHAT_APP_ID 与 WECHAT_APP_SECRET')
+    throw new Error('缺少公众号凭据 WECHAT_APP_ID / WECHAT_APP_SECRET：'
+      + '请设置进程环境变量，或在「我的资料 → 我的凭据」录入含这两个键名的凭据'
+      + '（绑定 wechat-article-publish 技能或任意凭据均可，工具按键名自动取用）')
   }
   return { appId, secret }
 }
@@ -240,7 +252,9 @@ function errText(text) {
 }
 
 // workspaceDir：会话工作空间（pi.js 注册时注入），渲染产物落 <工作空间>/wechat/renders/
-function createRenderExtension(workspaceDir) {
+// getEnv：凭据取数（pi.js 注入，技能绑定 + 键名匹配兜底），进程环境变量优先
+function createRenderExtension(workspaceDir, getEnv) {
+  envProvider = getEnv || null
   return function wechatRenderExtension(piApi) {
     // 1. 渲染预览：落盘 renders/{id}-{ts}.html
     piApi.registerTool({
@@ -382,6 +396,8 @@ function createRenderExtension(workspaceDir) {
           if (tr.dataUri) warn.push(tr.dataUri + ' 张 data URI 图片无法转存（公众号不支持）')
           const text = '草稿已创建：' + j.media_id
             + '\n标题：' + String(p.title).trim()
+            + '\n模板：' + meta.title + '（' + meta.id + '）'
+            + (meta.originUrl ? '\n模板来源：' + meta.originUrl : '')
             + '\n正文：' + tr.html.length + ' 字符，图片转存 ' + tr.ok + ' 张，封面已转存素材库'
             + '\n后续：公众号后台「草稿箱」查看并群发（media_id：' + j.media_id + '）'
             + (warn.length ? '\n警告：' + warn.join('；') : '')

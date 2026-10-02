@@ -719,8 +719,21 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   // 每次运行创建一个系统会话（meta.automation 标记，侧栏归「定时任务」分组），
   // 复用 pi 会话工厂与 handlePiEvent 事件链——前端打开该会话即可看到完整执行过程；
   // 权限确认沿现有 permission_ask 链路（前端确认卡 + 布局层通知），
-  // 无人应答时由整体超时兜底中断（中断记录落盘，重开会话可见）
-  const AUTOMATION_RUN_TIMEOUT_MS = 15 * 60 * 1000
+  // 无人应答挂起时由无进展看门狗兜底中断（中断记录落盘，重开会话可见）
+  //
+  // 无进展看门狗（替代早期固定 15 分钟总时长限制）：不限总时长——长程任务
+  // （抓取 → 写作 → 渲染 → 发布）合法运行小时级；仅当连续 STALL_TIMEOUT_MS
+  // 无「模型侧进展」时判定卡死中断。进展 = 流式输出 / 思考 / 工具开始与结束 /
+  // 回合边界 / 上下文压缩；刻意排除 permission_ask / ask_user——无应答挂起
+  // 正是看门狗要兜底的场景，若计入进展则挂起永远不会被判卡死。
+  // 已知边界：后台 workflow 等待期间无模型侧事件，但自动化指令已按
+  // 「优先只读工具、不要主动 workflow」引导，组合场景风险可控
+  const STALL_TIMEOUT_MS = 15 * 60 * 1000
+  const STALL_PROGRESS_KINDS = new Set([
+    'assistant_start', 'assistant_end', 'thinking', 'delta',
+    'tool_start', 'tool_update', 'tool_end',
+    'compaction_start', 'compaction_end'
+  ])
 
   // 定时任务模型解析：任务绑定的模型（providerId，主进程镜像查找）优先；
   // 未绑定时依次回落「最近一次对话所用模型快照」→「模型管理中的默认模型」。
@@ -829,31 +842,65 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
 
     const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [] }
     running.set(chatId, entry)
-    // 整体超时：无人值守时防止权限挂起 / 模型空转导致任务永久卡住
-    const timeout = setTimeout(() => {
-      try { piRuntime.interruptSession(chatId) } catch (e) { /* 忽略 */ }
-    }, AUTOMATION_RUN_TIMEOUT_MS)
+    // 无进展看门狗：模型侧进展事件即重置；到点未重置则中断并记因。
+    // interruptedBy 同时覆盖外部 abort（session:interrupt / 前端停止）——
+    // pi 的 abort 让 prompt() 正常 resolve 而非抛错，此前固定超时中断
+    // 被误判为「成功」并发完成通知，就是漏检了这条路径
+    let interruptedBy = '' // '' 无 / 'stall' 看门狗卡死 / 'manual' 外部中断
+    let stallTimer = null
+    const disarmStallWatchdog = () => {
+      if (stallTimer) { clearTimeout(stallTimer); stallTimer = null }
+    }
+    const armStallWatchdog = () => {
+      disarmStallWatchdog()
+      stallTimer = setTimeout(() => {
+        interruptedBy = 'stall'
+        try { piRuntime.interruptSession(chatId) } catch (e) { /* 忽略 */ }
+      }, STALL_TIMEOUT_MS)
+    }
+    // 进展事件重置看门狗（permission_ask / ask_user 不算进展，见常量注释）
+    const watchProgress = (e) => {
+      if (e && e.kind && STALL_PROGRESS_KINDS.has(e.kind)) armStallWatchdog()
+    }
+    entry.abort = () => { interruptedBy = 'manual'; piRuntime.interruptSession(chatId) }
     let result
     // 失败自动重试一次：流式端点在长任务 / 工具调用多轮场景下偶发断流
     // （如 Stream ended without finish_reason）。注意 pi 不抛模型请求错误，
     // 只发 turn_error 事件（已透传前端并落盘）——prompt 正常返回后须查
-    // automationTurnErrors 把空回合判为失败；中断（用户/超时）不重试
+    // automationTurnErrors 把空回合判为失败；中断（用户/看门狗）不重试
     const MAX_ATTEMPTS = 2
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       let failError = ''        // 本轮失败原因（空 = 成功）
       let failFromEvent = false // true = turn_error 事件路径（错误已落盘并广播，勿重复）
       automationTurnErrors.delete(chatId)
+      interruptedBy = ''
       try {
-        const session = await piRuntime.getOrCreateSession(chatId, provider, [], e => handlePiEvent(getWindow, e), workspaceDir)
-        entry.abort = () => { piRuntime.interruptSession(chatId) }
+        const session = await piRuntime.getOrCreateSession(chatId, provider, [], e => {
+          watchProgress(e)
+          handlePiEvent(getWindow, e)
+        }, workspaceDir)
+        armStallWatchdog()
         await session.prompt(attempt > 1
           ? promptText + '\n\n（上一次执行中断，请继续完成上述任务并输出完整结果）'
           : promptText)
-        failError = automationTurnErrors.get(chatId) || ''
-        failFromEvent = !!failError
+        disarmStallWatchdog()
+        // 中断判定先于错误判定：abort 让 prompt() 正常 resolve，须显式查出
+        if (interruptedBy) {
+          failError = interruptedBy === 'stall'
+            ? '长时间无进展（15 分钟无模型响应，疑似权限挂起或断流），任务已中断'
+            : '执行被中断'
+        } else {
+          failError = automationTurnErrors.get(chatId) || ''
+          failFromEvent = !!failError
+        }
       } catch (err) {
+        disarmStallWatchdog()
         const aborted = err && (err.name === 'AbortError' || /abort/i.test(String(err.message || '')))
-        failError = aborted ? '执行被中断' : ((err && err.message) || '未知错误')
+        failError = interruptedBy
+          ? (interruptedBy === 'stall'
+            ? '长时间无进展（15 分钟无模型响应，疑似权限挂起或断流），任务已中断'
+            : '执行被中断')
+          : (aborted ? '执行被中断' : ((err && err.message) || '未知错误'))
       }
       if (!failError) {
         // 回合完成释放前端流式态：定时任务不走 session:send（无 done 发射点），
@@ -865,7 +912,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
         result = { ok: true, sessionId: chatId }
         break
       }
-      const abortedFail = failError === '执行被中断'
+      const abortedFail = interruptedBy !== '' || failError === '执行被中断'
       if (!abortedFail && attempt < MAX_ATTEMPTS) {
         console.warn('[omnibuddy:automation] 第 ' + attempt + ' 次执行失败，3 秒后自动重试：' + failError)
         await new Promise(r => setTimeout(r, 3000))
@@ -875,7 +922,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
       // 无头运行无人盯屏，重开会话可见失败原因
       if (!failFromEvent) {
         try {
-          sessions.addMessage(chatId, { role: 'assistant', content: '（任务' + (abortedFail ? '执行被中断' : '执行失败：' + failError) + '）', error: failError })
+          sessions.addMessage(chatId, { role: 'assistant', content: '（任务' + (abortedFail ? '中断：' : '执行失败：') + failError + '）', error: failError })
         } catch (e) { /* 会话已删除等忽略 */ }
         // 释放前端流式态（interrupted 清理运行中工具图标，error 展示原因；均幂等）
         emit(getWindow, chatId, abortedFail
@@ -884,7 +931,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
       }
       result = { ok: false, sessionId: chatId, error: failError }
     }
-    clearTimeout(timeout)
+    disarmStallWatchdog()
     running.delete(chatId)
     automationTurnErrors.delete(chatId)
 
