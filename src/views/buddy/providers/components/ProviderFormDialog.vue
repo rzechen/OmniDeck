@@ -264,6 +264,36 @@
                     </el-select>
                   </div>
                 </div>
+
+                <!-- 图像生成模型（pi 1.0.0）：配置后对话内可经 generate_image 工具生成图片 -->
+                <div class="pf-adv-row">
+                  <div class="pf-adv-info">
+                    <span class="pf-adv-name">
+                      图像模型
+                      <el-tooltip placement="top" :show-after="200">
+                        <template #content>
+                          <div>
+                            配置后对话中可用 generate_image 工具按文字描述生成图片，<br />
+                            产物自动保存到工作空间 exports/ 目录。<br />
+                            当前仅支持 OpenRouter 图像端点（如 google/gemini-2.5-flash-image），<br />
+                            填写 OpenRouter 图像模型 ID；不填则不启用该能力。
+                          </div>
+                        </template>
+                        <svg-icon icon-class="warning-outline" class="ob-tier-help" />
+                      </el-tooltip>
+                    </span>
+                    <span class="pf-adv-desc">对话内生成图片（仅 OpenRouter 图像端点）</span>
+                  </div>
+                  <div class="pf-adv-ctrl">
+                    <el-input
+                      v-model="form.imageModel"
+                      size="small"
+                      class="pf-adv-select"
+                      placeholder="不启用"
+                      clearable
+                    />
+                  </div>
+                </div>
             </div>
           </div>
         </div>
@@ -391,7 +421,8 @@ export default {
         contextWindowOutput: '',
         toolTurns: 500,
         imageInput: true,
-        thinkingMode: 'follow'
+        thinkingMode: 'follow',
+        imageModel: ''
       }
     },
     // 表单初始化：新建全部为空（失焦校验）；编辑回填
@@ -411,7 +442,8 @@ export default {
           contextWindowOutput: p.contextWindowOutput != null ? String(p.contextWindowOutput) : '',
           toolTurns: p.toolTurns != null ? p.toolTurns : 500,
           imageInput: p.imageInput !== false,
-          thinkingMode: p.thinkingMode || 'follow'
+          thinkingMode: p.thinkingMode || 'follow',
+          imageModel: p.imageModel || ''
         }
         : this.emptyForm()
       this.resetErrors()
@@ -567,6 +599,7 @@ export default {
       const toolTurns = this.toNumOrNull(this.form.toolTurns) || 500
       const imageInput = !!this.form.imageInput
       const thinkingMode = this.form.thinkingMode || 'follow'
+      const imageModel = (this.form.imageModel || '').trim()
       // 列表名：展示名优先，未填默认显示模型 ID
       const name = displayName || model
 
@@ -585,7 +618,7 @@ export default {
           editingId: this.editingId,
           values: {
             name, apiFormat, baseUrl, model, displayName, apiKey, tier,
-            modelSeries, contextWindowInput, contextWindowOutput, toolTurns, imageInput, thinkingMode
+            modelSeries, contextWindowInput, contextWindowOutput, toolTurns, imageInput, thinkingMode, imageModel
           }
         })
       } else {
@@ -609,6 +642,7 @@ export default {
             toolTurns,
             imageInput,
             thinkingMode,
+            imageModel,
             isDefault: isFirst
           }
         })

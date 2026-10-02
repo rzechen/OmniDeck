@@ -133,6 +133,7 @@ export default {
           target.toolTurns = values.toolTurns || 500
           target.imageInput = values.imageInput !== false
           target.thinkingMode = values.thinkingMode || 'follow'
+          target.imageModel = values.imageModel || ''
         }
       } else if (item) {
         this.list.push(item)

@@ -34,6 +34,13 @@ export const CAPABILITY_CATEGORIES = [
     logo: 'logo-skill'
   },
   {
+    key: 'image',
+    label: '图像生成',
+    desc: '对话中按文字描述生成图片，产物自动保存（需在模型管理配置 OpenRouter 图像模型）',
+    icon: 'picture-outline',
+    logo: 'logo-skill'
+  },
+  {
     key: 'wechat',
     label: '公众号',
     desc: '公众号模板资产管线：秀米模板抓取导入、变量化渲染与草稿发布',
