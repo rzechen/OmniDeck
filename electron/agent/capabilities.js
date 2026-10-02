@@ -145,7 +145,7 @@ function workflowTools() {
 
 // 公众号工具：模板资产管线（wechat/import.js + render.js + editor.js 注册）
 const WECHAT_TOOLS = [
-  { name: 'import_wechat_template', label: '导入秀米模板', description: '从秀米模板市场批量导入公众号排版模板：抓取作品页正文（内联样式），图片本地化，落盘为本地模板资产（userData/wechat/templates/），供变量化渲染与发布。', perm: 'allow' },
+  { name: 'import_wechat_template', label: '导入秀米模板', description: '从秀米模板市场批量导入公众号排版模板：抓取作品页正文（内联样式），图片本地化，落盘为工作空间内模板资产（wechat/templates/），供变量化渲染与发布。', perm: 'allow' },
   { name: 'render_wechat_template', label: '渲染公众号模板', description: '按变量值渲染公众号模板（{{变量}} 替换 + {{#each}} 循环展开），落盘为可预览 HTML，返回残留变量清单。', perm: 'allow' },
   { name: 'publish_wechat_draft', label: '发布公众号草稿', description: '渲染成品发布到公众号草稿箱（不群发）：正文图片与封面自动转存素材库，返回 media_id。需环境变量 WECHAT_APP_ID / WECHAT_APP_SECRET 与 IP 白名单。', perm: 'ask' },
   { name: 'copy_wechat_html', label: '复制公众号排版', description: '渲染成品以富文本写入剪贴板，粘贴公众号编辑器保留排版（不走开放接口的兜底发文通道）。', perm: 'allow' },

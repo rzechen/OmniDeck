@@ -698,13 +698,14 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     builtinTools.createTodoReadExtension(() => builtinTools.getTodos(chatId)),
     // 文档导出（P1）：markdown → Word / PDF / HTML，产物落 <cwd>/exports/
     docExport.createDocExportExtension(cwdState),
-    // 公众号模板导入：秀米抓取 + 图片本地化 + 落盘模板资产
-    wechatImport.createImportExtension(),
+    // 公众号工具链：模板 / 渲染产物统一锚定会话工作空间
+    // （<工作空间>/wechat/templates 与 wechat/renders，随任务隔离）
+    wechatImport.createImportExtension(cwd),
     // 公众号模板渲染 / 发布草稿 / 复制富文本：
     // {{变量}} + {{#each}} 渲染，图片转存素材库，草稿发布（perm 'ask'）
-    wechatRender.createRenderExtension(),
+    wechatRender.createRenderExtension(cwd),
     // 公众号编辑器注入：渲染成品直接写入已打开的图文编辑页（网页登录态，免 API 凭据）
-    wechatEditor.createEditorExtension(),
+    wechatEditor.createEditorExtension(cwd),
     // 凭据按需取用（B 方案后续）：AI 对话中经 credential_get 取「AI 取用类」凭据；
     // 默认 ask 权限（capabilities 登记），开关关闭时工具返回引导文案
     createCredentialGetExtension()

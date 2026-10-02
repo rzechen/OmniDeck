@@ -42,7 +42,8 @@ function inlineLocalImages(html, tplDir) {
   return { html, inlined, missing }
 }
 
-function createEditorExtension() {
+// workspaceDir：会话工作空间（pi.js 注册时注入），与 render.js 同口径
+function createEditorExtension(workspaceDir) {
   return function wechatEditorExtension(piApi) {
     piApi.registerTool({
       name: 'inject_wechat_editor',
@@ -67,12 +68,12 @@ function createEditorExtension() {
         const p = params || {}
         let meta
         try {
-          meta = render.loadTemplate(p.id)
+          meta = render.loadTemplate(workspaceDir, p.id)
         } catch (e) {
           return errText(e.message)
         }
         const { html, residual } = render.renderFromTemplate(meta, p.fieldValues, p.loopFieldValues)
-        const tplDir = path.join(render.templatesRoot(), meta.id)
+        const tplDir = path.join(render.templatesRoot(workspaceDir), meta.id)
         const inl = inlineLocalImages(html, tplDir)
 
         // 宿主桥：主进程定位公众号页面并在页面内执行注入

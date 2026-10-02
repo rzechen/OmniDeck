@@ -139,6 +139,12 @@ export default {
   created() {
     this.loadSkills()
   },
+  // keep-alive 页签重入：凭据可能在「我的资料 → 我的凭据」已补录/变更，
+  // 重新拉取凭据刷新卡片「待录入」状态（首次进入由 created→loadSkills 已加载，
+  // 此时 skillLoading 仍为 true，天然跳过，避免重复请求）
+  activated() {
+    if (!this.skillLoading && this.skillList.length) this.loadSkillCreds()
+  },
   methods: {
     // ===== 技能管理 =====
     async loadSkills() {

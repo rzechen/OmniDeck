@@ -1,15 +1,16 @@
 // 公众号模板渲染 / 发布 / 复制：三工具
 // - render_wechat_template：模板四元组（htmlTemplate + fields / loopFields + 值）渲染
-//   为成品 HTML，落盘 renders/ 预览文件（浏览器可直接打开核对排版）
+//   为成品 HTML，落盘 <工作空间>/wechat/renders/ 预览文件（浏览器可直接打开核对排版）
 // - publish_wechat_draft：渲染 → 正文图片 / 封面转存公众号素材库 → 新建草稿
 //   （凭据走环境变量 WECHAT_APP_ID / WECHAT_APP_SECRET，perm 'ask' 每次执行需确认）
 // - copy_wechat_html：渲染后富文本写入剪贴板（经宿主桥 clipboard.write，
 //   直接粘贴公众号编辑器可保留内联排版；粘贴目标不支持富文本时回退纯文本）
+// 模板 / 渲染产物均锚定会话工作空间（pi.js 注册扩展时注入），与 import.js 同口径。
 // 渲染引擎移植自 weflow templateRender.ts：{{变量}} 标量替换 + {{#each 列表}} 循环块展开。
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
-const { app, clipboard } = require('electron') // clipboard 为 shim 桥接版（写入转发主进程）
+const { clipboard } = require('electron') // clipboard 为 shim 桥接版（写入转发主进程）
 
 const API_BASE = 'https://api.weixin.qq.com'
 const IMG_TIMEOUT = 15000 // 单图下载超时
@@ -88,12 +89,12 @@ function wrapPreviewHtml(html, title) {
 }
 
 // ---------- 模板资产读取 ----------
-function templatesRoot() {
-  return path.join(app.getPath('userData'), 'wechat', 'templates')
+function templatesRoot(workspaceDir) {
+  return path.join(workspaceDir, 'wechat', 'templates')
 }
 
-function rendersRoot() {
-  return path.join(app.getPath('userData'), 'wechat', 'renders')
+function rendersRoot(workspaceDir) {
+  return path.join(workspaceDir, 'wechat', 'renders')
 }
 
 function md5(s) {
@@ -101,13 +102,13 @@ function md5(s) {
 }
 
 // 读模板：id 白名单校验（防路径穿越），template.json 必须存在
-function loadTemplate(id) {
+function loadTemplate(workspaceDir, id) {
   if (!/^[a-z0-9][a-z0-9-]*$/i.test(String(id || ''))) {
     throw new Error('模板 id 非法：' + id)
   }
-  const file = path.join(templatesRoot(), id, 'template.json')
+  const file = path.join(templatesRoot(workspaceDir), id, 'template.json')
   if (!fs.existsSync(file)) {
-    throw new Error('模板不存在：' + id + '（先 import_wechat_template 导入，目录 ' + templatesRoot() + '）')
+    throw new Error('模板不存在：' + id + '（先 import_wechat_template 导入，目录 ' + templatesRoot(workspaceDir) + '）')
   }
   return JSON.parse(fs.readFileSync(file, 'utf-8'))
 }
@@ -238,14 +239,15 @@ function errText(text) {
   return { content: [{ type: 'text', text }], details: { isError: true } }
 }
 
-function createRenderExtension() {
+// workspaceDir：会话工作空间（pi.js 注册时注入），渲染产物落 <工作空间>/wechat/renders/
+function createRenderExtension(workspaceDir) {
   return function wechatRenderExtension(piApi) {
     // 1. 渲染预览：落盘 renders/{id}-{ts}.html
     piApi.registerTool({
       name: 'render_wechat_template',
       label: '渲染公众号模板',
       description: '按变量值渲染公众号模板：{{变量}} 替换 + {{#each 列表}} 循环展开（值内换行自动转 <br>），'
-        + '渲染结果落盘为可预览 HTML 文件（userData/wechat/renders/，浏览器打开即近似公众号排版）。'
+        + '渲染结果落盘为可预览 HTML 文件（工作空间 wechat/renders/，浏览器打开即近似公众号排版）。'
         + '渲染后返回残留变量清单（未提供值的 {{xxx}} 会原样保留），据此补值重渲染。'
         + '模板四元组（htmlTemplate + fields / loopFields）由 template.json 承载，'
         + '未变量化时回退 rawHtml 原样渲染。',
@@ -268,15 +270,15 @@ function createRenderExtension() {
         const p = params || {}
         let meta
         try {
-          meta = loadTemplate(p.id)
+          meta = loadTemplate(workspaceDir, p.id)
         } catch (e) {
           return errText(e.message)
         }
         const { html, residual } = renderFromTemplate(meta, p.fieldValues, p.loopFieldValues)
 
         const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-        const file = path.join(rendersRoot(), meta.id + '-' + ts + '.html')
-        fs.mkdirSync(rendersRoot(), { recursive: true })
+        const file = path.join(rendersRoot(workspaceDir), meta.id + '-' + ts + '.html')
+        fs.mkdirSync(rendersRoot(workspaceDir), { recursive: true })
         fs.writeFileSync(file, wrapPreviewHtml(html, meta.title))
 
         const lines = [
@@ -320,7 +322,7 @@ function createRenderExtension() {
         const p = params || {}
         let meta
         try {
-          meta = loadTemplate(p.id)
+          meta = loadTemplate(workspaceDir, p.id)
         } catch (e) {
           return errText(e.message)
         }
@@ -339,7 +341,7 @@ function createRenderExtension() {
           const token = await getAccessToken()
 
           // 正文图片转存（公众号仅认 mmbiz.qpic.cn 域名图片）
-          const tplDir = path.join(templatesRoot(), meta.id)
+          const tplDir = path.join(templatesRoot(workspaceDir), meta.id)
           const tr = await transferImages(html, tplDir, token)
 
           // 封面转存 → thumb_media_id（draft/add 必需）
@@ -411,7 +413,7 @@ function createRenderExtension() {
         const p = params || {}
         let meta
         try {
-          meta = loadTemplate(p.id)
+          meta = loadTemplate(workspaceDir, p.id)
         } catch (e) {
           return errText(e.message)
         }

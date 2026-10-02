@@ -4,13 +4,13 @@
 //     agent 子进程无 Chromium，抓取一律转发主进程执行）
 //   → article.innerHTML 即公众号排版模板（内联 style）→ 图片下载本地化并改写 src
 //   → 落盘模板资产，供后续变量化（Agent 处理 template.json）与渲染发布
-// 资产目录：userData/wechat/templates/{id}/（template.json + assets/），index.json 汇总；
-//   与 git / 安装包解耦，天然私有。渲染引擎四元组（htmlTemplate + fields/loopFields）
+// 资产目录：<工作空间>/wechat/templates/{id}/（template.json + assets/），index.json 汇总；
+//   随任务工作空间隔离（由 pi.js 注册扩展时注入）。渲染引擎四元组（htmlTemplate + fields/loopFields）
 //   由 Agent 变量化后回填，本工具只负责抓取与本地化。
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
-const { app, __host } = require('electron')
+const { __host } = require('electron')
 
 const LIST_API = 'https://xiumi.us/api/show_goods/goodses'
 // 列表请求 UA：普通 Chrome（与旧爬虫一致，接口公开无鉴权）
@@ -22,8 +22,8 @@ const ITEM_INTERVAL = 1200         // 相邻模板抓取间隔（限速）
 const LIMIT_DEFAULT = 5
 const LIMIT_MAX = 20
 
-function templatesRoot() {
-  return path.join(app.getPath('userData'), 'wechat', 'templates')
+function templatesRoot(workspaceDir) {
+  return path.join(workspaceDir, 'wechat', 'templates')
 }
 
 function md5(s) {
@@ -107,17 +107,17 @@ async function localizeImages(html, images, assetsDir) {
 }
 
 // ---------- 模板落盘 ----------
-function readIndex() {
+function readIndex(workspaceDir) {
   try {
-    const list = JSON.parse(fs.readFileSync(path.join(templatesRoot(), 'index.json'), 'utf-8'))
+    const list = JSON.parse(fs.readFileSync(path.join(templatesRoot(workspaceDir), 'index.json'), 'utf-8'))
     return Array.isArray(list) ? list : []
   } catch (e) {
     return []
   }
 }
 
-function updateIndex(meta) {
-  const list = readIndex()
+function updateIndex(workspaceDir, meta) {
+  const list = readIndex(workspaceDir)
   list.push({
     id: meta.id,
     title: meta.title,
@@ -126,14 +126,14 @@ function updateIndex(meta) {
     originUrl: meta.originUrl,
     importedAt: meta.importedAt
   })
-  fs.mkdirSync(templatesRoot(), { recursive: true })
-  fs.writeFileSync(path.join(templatesRoot(), 'index.json'), JSON.stringify(list, null, 2))
+  fs.mkdirSync(templatesRoot(workspaceDir), { recursive: true })
+  fs.writeFileSync(path.join(templatesRoot(workspaceDir), 'index.json'), JSON.stringify(list, null, 2))
 }
 
 // 导入单个模板：已导入（template.json 存在）直接跳过；抓取失败抛错由调用方汇总
-async function importOne(item) {
+async function importOne(workspaceDir, item) {
   const id = 'xiumi-' + md5(item.url).slice(0, 10)
-  const dir = path.join(templatesRoot(), id)
+  const dir = path.join(templatesRoot(workspaceDir), id)
   const metaFile = path.join(dir, 'template.json')
   if (fs.existsSync(metaFile)) return { skipped: true, id, title: item.title, metaFile }
 
@@ -157,18 +157,19 @@ async function importOne(item) {
   }
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2))
-  updateIndex(meta)
+  updateIndex(workspaceDir, meta)
   return { skipped: false, id, title: meta.title, metaFile, meta }
 }
 
 // ---------- 工具扩展 ----------
-function createImportExtension() {
+// workspaceDir：会话工作空间（pi.js 注册时注入），模板资产落 <工作空间>/wechat/templates/
+function createImportExtension(workspaceDir) {
   return function wechatImportExtension(piApi) {
     piApi.registerTool({
       name: 'import_wechat_template',
       label: '导入秀米模板',
       description: '从秀米模板市场批量导入公众号排版模板：抓取作品页 article 正文（内联样式排版），'
-        + '图片下载本地化，落盘为本地模板资产（userData/wechat/templates/{id}/template.json，含索引 index.json）。'
+        + '图片下载本地化，落盘为本地模板资产（工作空间 wechat/templates/{id}/template.json，含索引 index.json）。'
         + '导入后可读取 template.json，把 rawHtml 中可变文案替换为 {{变量}} / {{#each}} 循环并回填 '
         + 'htmlTemplate 与 fields / loopFields，供后续渲染与发布使用。',
       parameters: {
@@ -220,7 +221,7 @@ function createImportExtension() {
         for (let i = 0; i < items.length; i++) {
           const item = items[i]
           try {
-            const r = await importOne(item)
+            const r = await importOne(workspaceDir, item)
             results.push({ ok: true, ...r })
           } catch (e) {
             results.push({ ok: false, title: item.title, error: e.message })
@@ -258,7 +259,7 @@ function createImportExtension() {
         }
         const head = imported + ' 个导入、' + skipped + ' 个跳过、'
           + (results.length - imported - skipped) + ' 个失败。'
-          + (imported ? '模板资产根目录：' + templatesRoot() : '')
+          + (imported ? '模板资产根目录：' + templatesRoot(workspaceDir) : '')
         const next = imported
           ? '\n下一步：读取 template.json，将 rawHtml 中可变文案变量化（{{变量}} / {{#each}} 列表循环），'
             + '回填 htmlTemplate 与 fields / loopFields 字段后即可用于渲染发布。'
