@@ -20,7 +20,14 @@ const CORE_TOOLS = [
   { name: 'write', label: '写入文件', description: '创建/覆写文件内容；默认需逐次确认，可在权限策略中调整。', perm: 'ask' },
   { name: 'find', label: '查找文件', description: '按名称 / 类型 / 大小等条件在工作空间内查找文件（pi 内置）。' },
   { name: 'grep', label: '搜索内容', description: '按正则表达式在文件内容中搜索匹配行（pi 内置，支持 include 过滤）。' },
-  { name: 'ls', label: '列出目录', description: '列出指定目录的内容（pi 内置）。' }
+  { name: 'ls', label: '列出目录', description: '列出指定目录的内容（pi 内置）。' },
+  // pi 1.0.0 内置编排工具：codemode 经 QuickJS 沙箱脚本编排工具调用（省约 40%
+  // prompt token）。工具本身只做编排：脚本内嵌套调用的工具（read/bash/mcp__*
+  // 等）仍各自过权限门（带 parentToolCallId），故默认放行不放大攻击面
+  { name: 'codemode', label: '脚本编排', description: '以 JavaScript 脚本批量编排工具调用（并行执行、结果过滤），显著节省 token；脚本内嵌套调用的工具仍按各自权限逐次管控。', perm: 'allow' },
+  // tool_search：按需搜索并加载未声明的工具（MCP 大服务器的 deferred 工具），
+  // 只改变工具可见性、无副作用
+  { name: 'tool_search', label: '检索工具', description: '按关键词搜索并按需加载未声明的工具（如大型 MCP 服务的延迟加载工具），仅影响工具可见性。', perm: 'allow' }
 ]
 
 // OmniBuddy 扩展工具（builtin-tools.js 注册）
@@ -94,6 +101,18 @@ function webTools() {
     description: '联网开关已关闭（对话页输入框旁可重新开启）。' + t.description
   }))
 }
+
+// 内置 MCP 通配放行（pi 1.0.0 命名适配）：内置 MCP 的工具名为
+// mcp__服务器__工具（每工具独立注册，权限 surface = 工具全名），而
+// pi-permission-system 的「mcp 面」是旧适配器形态（字面 mcp 工具 +
+// 入参派生 server:tool），对内置命名不生效——若无通配键，playwright
+// 数十个浏览器工具会逐个落 '*' 兜底询问。权限规则的 surface 键支持
+// 通配（* 编译为 .*），mcp__playwright* 一条键放行内置浏览器全部工具。
+// 自行登记的 MCP 服务器仍逐工具确认（fail-safe），用户可照此格式自建
+// mcp__服务器名* 通配规则
+const MCP_BUILTIN_TOOLS = [
+  { name: 'mcp__playwright*', label: '内置浏览器（全部工具）', description: '内置 playwright MCP 服务的全部浏览器操作工具（mcp__playwright__导航 / 截图 / 点击 / 等待等）通配放行：系统内置服务、无头运行、产物落应用自管目录。', perm: 'allow' }
+]
 
 // 文档交付工具（P1）：doc_export 自研（doc-export.js 注册）+
 // preview_export（pi-markdown-preview 社区扩展）；转换引擎 pandoc
@@ -208,7 +227,7 @@ const SPECIAL_SURFACES = [
   { name: 'external_directory', label: '外部目录', description: '访问当前工作空间之外的目录（方向不明时读写一并管控）。' },
   { name: 'external_directory_read', label: '外部目录（只读）', description: '仅控制读取工作空间之外的目录；写入走「外部目录（只写）」面。' },
   { name: 'external_directory_write', label: '外部目录（只写）', description: '仅控制写入工作空间之外的目录；读取走「外部目录（只读）」面。' },
-  { name: 'mcp', label: '连接器（MCP）', description: '按连接器工具匹配，如 mcp__服务器名__工具名。' },
+  { name: 'mcp', label: '连接器（旧 MCP 面）', description: '仅匹配旧版 MCP 代理工具形态；pi 1.0.0 内置 MCP 的工具名为 mcp__服务器__工具（按工具全名单独设规则，或用 mcp__服务器名* 通配，见「内置 MCP」分组）。' },
   { name: 'skill', label: '技能', description: '技能激活与输入工具。' },
   { name: '*', label: '所有操作（兜底）', description: '未命中其他规则的操作按此规则处理。' }
 ]
@@ -249,6 +268,7 @@ function listCapabilities() {
     web: webTools(),
     docs: docTools(),
     image: imageTools(),
+    mcpBuiltin: MCP_BUILTIN_TOOLS,
     wechat: WECHAT_TOOLS,
     workflow: workflowTools(),
     ui: UI_TOOLS,
@@ -267,6 +287,7 @@ const TOOL_GROUPS = [
   ['web', WEB_TOOLS],
   ['docs', DOC_TOOLS],
   ['image', IMAGE_TOOLS],
+  ['mcpBuiltin', MCP_BUILTIN_TOOLS],
   ['wechat', WECHAT_TOOLS],
   ['workflow', WORKFLOW_TOOLS],
   ['ui', UI_TOOLS],
