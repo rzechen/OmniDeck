@@ -50,6 +50,7 @@
           :skill="s"
           :env-keys="envKeysOf(s)"
           @detail="openSkillDetail"
+          @open-member="openPackageMember"
           @export="exportSkill"
           @edit="openSkillEdit"
           @remove="removeSkill"
@@ -125,6 +126,8 @@ export default {
     return {
       // ===== 技能管理 =====
       skillList: [],
+      // 全量技能（含包成员：packageOf 非空，折叠在主卡片下，点 chip 查详情用）
+      allSkills: [],
       skillLoading: false,
       skillDialogVisible: false,
       // 编辑中的 Skill（null 表示新建 / ZIP 导入）
@@ -152,9 +155,14 @@ export default {
       try {
         const api = buddyApi()
         const res = api ? await api.listSkills() : []
-        this.skillList = Array.isArray(res) ? res : []
+        const all = Array.isArray(res) ? res : []
+        // 多 skill 包折叠：包成员（packageOf 非空）不单独成卡，
+        // 由主卡片（packageMembers）下方子行展示
+        this.skillList = all.filter(s => !s.packageOf)
+        this.allSkills = all
       } catch (e) {
         this.skillList = []
+        this.allSkills = []
       }
       this.skillLoading = false
       // 与技能列表一起加载技能凭据（卡片状态行展示用）
@@ -176,6 +184,11 @@ export default {
       this.loadSkills()
     },
     // ===== 技能详情弹窗（复用市场页共享组件） =====
+    // 点包成员 chip 打开其详情（成员折叠在主卡片下，不单独成卡）
+    openPackageMember(dir) {
+      const member = this.allSkills.find(s => s.dir === dir)
+      if (member) this.openSkillDetail(member)
+    },
     // listSkills 返回的 content 为完整 SKILL.md 文本；描述部分（frontmatter 之后）作为 details 长文
     openSkillDetail(s) {
       const content = s.content || ''
@@ -218,7 +231,12 @@ export default {
       }
     },
     removeSkill(s) {
-      this.$confirm('确定删除 Skill「' + s.name + '」吗？', '删除 Skill', {
+      // 包主技能：级联提示（删除将连带移除包内平铺安装的子技能）
+      const members = (s.packageMembers && s.packageMembers.length) ? s.packageMembers : null
+      const tip = members
+        ? '确定删除技能包「' + s.name + '」吗？随包安装的子技能（' + members.join('、') + '）将一并删除。'
+        : '确定删除 Skill「' + s.name + '」吗？'
+      this.$confirm(tip, '删除 Skill', {
         confirmButtonText: '删除',
         cancelButtonText: '取消',
         type: 'warning'
@@ -226,7 +244,10 @@ export default {
         const api = buddyApi()
         const res = await api.deleteSkill(s.dir)
         if (res && res.ok) {
-          this.$message.success('已删除')
+          const removed = (res.removedMembers && res.removedMembers.length)
+            ? '（连带删除子技能：' + res.removedMembers.join('、') + '）'
+            : ''
+          this.$message.success('已删除' + removed)
           this.loadSkills()
         } else {
           this.$message.error((res && res.error) || '删除失败')

@@ -600,9 +600,11 @@ export default {
           // 面板空间有限：不渲染 todo 卡片（主窗口完整呈现）
           break
         case 'permission_ask':
-          // 面板空间有限：确认条在主窗口对话页呈现，此处安全拒绝并提示
-          this.api().replyPermission({ sessionId: e.sessionId, askId: e.askId, action: 'deny' })
-          this.$message.info('权限确认请在主窗口对话页处理，本次已拒绝')
+          // 面板空间有限不承载确认条；同一事件已广播至主窗口（确认条 + 布局层
+          // 通知引导），此处仅提示。绝不代答 deny：自动拒绝会与主窗口确认条
+          // 竞争应答，造成「弹窗还在等待、日志已被拒」的错乱（权限语义为
+          // 一直等待用户决策，无人应答的挂起由主进程看门狗兜底）
+          this.$message.info('有操作等待授权，请在主窗口对话页确认')
           break
         case 'sandbox_status':
           if (e.status && e.status.enabled) {

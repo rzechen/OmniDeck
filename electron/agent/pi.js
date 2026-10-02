@@ -472,6 +472,9 @@ function systemPrompt() {
     lines.push('用户需要生成图片、插画、配图时，调用 generate_image 工具（产物自动保存并展示），不要用文字描摹替代。')
   }
   lines.push('深度研究（P3）：当用户明确要求深度研究、多源交叉验证、并行审查、代码库巡检等多代理编排任务时，调用 workflow 工具（内置模式：deep-research 深度研究 / code-review 代码审查 / adversarial-review 对抗审查 / multi-perspective 多视角 / codebase-audit 代码库审计；也可传 script 自定义编排）。默认后台运行：工具立即返回，结果完成后自动回注对话继续处理，期间可告知用户任务已在后台进行。未获用户明确要求时不要主动调用 workflow。运行中的任务可用 workflow_control 工具查询进度、暂停或停止。')
+  // codemode 脚本约束：脚本被包装为 (async (tools, console) => {...}) 执行，
+  // 声明同名变量会直接语法报错（invalid redefinition of parameter name）
+  lines.push('编写 codemode 脚本时：脚本以 (tools, console) 参数形式注入环境，不得用 const/let/function 再声明 tools、console 同名变量（会报 invalid redefinition of parameter name）；调用工具写作 await tools.<工具名>({ ...参数 })，查找未列出的工具用 searchTools(关键词)。')
   lines.push('文件写入与编辑工具（write / edit）默认需经用户逐次确认，确认通过后方可执行。')
   lines.push('若用户拒绝确认或处于只读模式，则不写文件，将结果直接输出给用户。')
   // 用户资料（B 方案）：结构化个人背景确定性注入，填工时等场景无需再手写 work-assistant 技能
@@ -694,6 +697,31 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     }
   }
 
+  // pi-web-access 1.x 懒激活校正：该扩展默认只激活 web_enable 加载器工具，模型须
+  // 先调它、下一轮请求才能用 web_search 等联网工具——与 OmniDeck 的联网开关设计
+  // 冲突（多一轮往返、触发兜底权限确认并把 web_enable 键写进权限配置、开关关闭时
+  // 还可经它绕过 excludeTools 屏蔽）。本扩展在 pi-web-access 的事件处理器之后
+  // （packages 路径扩展先派发、inline factories 后派发，emit 按注册顺序串行 await）
+  // 校正 active 集：开关联网时联网工具直接可用并移除 web_enable；关闭时两者一并
+  // 移除。开关状态在会话创建时锁定（与会话内 excludeTools 初始集一致）
+  const webEnabledAtSession = webSearch.enabled()
+  const createWebToolsDirectExtension = (pi) => {
+    const enforce = () => {
+      try {
+        const active = pi.getActiveTools()
+        const webSet = new Set(capabilities.webToolNames())
+        const next = active.filter(n => n !== 'web_enable' && (webEnabledAtSession || !webSet.has(n)))
+        if (webEnabledAtSession) {
+          capabilities.webToolNames().forEach(n => { if (next.indexOf(n) < 0) next.push(n) })
+        }
+        if (JSON.stringify(next) !== JSON.stringify(active)) pi.setActiveTools(next)
+      } catch (e) { /* get/setActiveTools 异常时维持现状 */ }
+    }
+    pi.on('session_start', enforce)
+    pi.on('session_tree', enforce)
+    pi.on('before_agent_start', enforce)
+  }
+
   // 沙箱开启时注入沙箱扩展（bash 工具覆盖），并预加载 ESM 依赖
   const factories = [
     // 内置 MCP（pi 1.0.0）：读 <agentDir>/mcp.json 装载 stdio/HTTP 连接，
@@ -705,6 +733,8 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     // tool_search 供模型按需加载 deferred 工具
     pi.createCodemodeExtension(),
     pi.createToolSearchExtension(),
+    // pi-web-access 懒激活校正（见上方 createWebToolsDirectExtension 注释）
+    createWebToolsDirectExtension,
     // 权限确认桥接：ask 转 IPC 前端卡片（扩展未装时监听器空转，无害）；
     // onUiPrompt 缓存结构化广播供 ui.select 兜底路径使用
     permissions.createBridgeExtension(
@@ -801,8 +831,12 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     thinkingLevel: thinkingLevelOf(provider),
     // 联网开关关闭时屏蔽 pi-web-access 的 web 工具（excludeTools 黑名单机制，
     // 不能用白名单以免过滤掉 MCP / skills / ask_user 等扩展工具）；
-    // 名单从 capabilities.js 统一目录派生（含 get_search_content）
-    ...(webSearch.enabled() ? {} : { excludeTools: capabilities.webToolNames() })
+    // 名单从 capabilities.js 统一目录派生（含 get_search_content）。
+    // web_enable（懒激活加载器）无论开关状态一律排除：active 集由
+    // createWebToolsDirectExtension 校正扩展兜底维护
+    ...(webSearch.enabled()
+      ? { excludeTools: ['web_enable'] }
+      : { excludeTools: capabilities.webToolNames().concat(['web_enable']) })
   })
   const session = result.session
   // 绑定扩展生命周期：SDK createAgentSession 不发 session_start（print/rpc 等

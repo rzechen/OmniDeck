@@ -304,7 +304,14 @@ export default {
           this.$message.error((res && res.error) || '导入失败')
           return
         }
-        this.$message.success('Skill「' + res.skill.name + '」导入成功（' + res.skill.files + ' 个文件）')
+        // 多 skill 包：包内子技能已随包平铺安装（pi 只扫一级目录，嵌套不生效）
+        const extra = (res.extraSkills && res.extraSkills.length)
+          ? '，附带安装子技能：' + res.extraSkills.join('、')
+          : ''
+        const skipped = (res.skippedSkills && res.skippedSkills.length)
+          ? '；已存在跳过：' + res.skippedSkills.join('、') + '（覆盖导入可更新）'
+          : ''
+        this.$message.success('Skill「' + res.skill.name + '」导入成功（' + res.skill.files + ' 个文件）' + extra + skipped)
         this.dialogVisible = false
         this.$emit('saved')
       } catch (e) {

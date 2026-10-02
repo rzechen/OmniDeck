@@ -37,7 +37,7 @@
           v-for="c in sec.chats"
           :key="c.id"
           class="buddy-chat"
-          :class="{ active: c.id === activeChatId }"
+          :class="{ active: c.id === activeChatId, running: !!stateOf(c) }"
           @click="$emit('select-chat', c.id)"
           @mouseenter="onChatEnter"
           @mouseleave="onChatLeave"
@@ -66,7 +66,7 @@
               :title="c.pinned ? '取消置顶' : '置顶'"
               @click.stop="$emit('pin-chat', c)"
             />
-            <svg-icon icon-class="edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
+            <svg-icon icon-class="edit" class="ob-edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
             <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="$emit('delete-chat', c)" />
           </span>
         </div>
@@ -398,6 +398,13 @@ export default {
 /* 行 hover：操作图标全部浮现 */
 .buddy-chat:hover .buddy-chat-actions .svg-icon {
   opacity: 1;
+}
+
+/* 任务运行中（流式输出/待权限确认）：hover 不浮现重命名与删除，且不可点击，防误操作 */
+.buddy-chat.running:hover .buddy-chat-actions .ob-edit,
+.buddy-chat.running:hover .buddy-chat-actions .ob-del {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* 已置顶：置顶钮常亮（hover 区外也可见），颜色与普通图标一致不高亮 */

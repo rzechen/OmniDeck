@@ -140,8 +140,12 @@ export default {
       handler() { this.followBottom() }
     },
     'messages.length'() { this.followBottom() },
-    // 权限确认：浮窗无人值守场景一律自动拒绝，避免任务卡住
-    permLen() { this.denyPendingPerm() },
+    // 权限确认：浮窗不承载确认条，仅提示引导；应答由主窗口确认条完成。
+    // 不自动拒绝：deny 会与主窗口确认条竞争应答，造成「弹窗还在等待、
+    // 日志已被拒」的错乱（权限语义为一直等待用户决策）
+    permLen(newLen, oldLen) {
+      if (newLen > oldLen) this.$message.info('有操作等待授权，请在主窗口对话页确认')
+    },
     // store 转发的 UI 事件（claim 认领保证多实例只消费一次）
     '$store.state.buddyChat.notice': {
       immediate: true,
@@ -164,7 +168,6 @@ export default {
         sendMessage: async () => ({ ok: false, error: '对话能力需要 OmniDeck 桌面端' }),
         interrupt: () => {},
         replyAskUser: async () => ({ ok: false }),
-        replyPermission: async () => ({ ok: false }),
         setFeedback: async () => ({ ok: false }),
         listWorkspaces: async () => []
       }
@@ -316,15 +319,6 @@ export default {
     // 编辑重发涉及消息截断 / 分支，浮窗不承载：引导到完整对话
     onEditResend() {
       this.$message.info('编辑重发请到完整对话中进行')
-    },
-    // 权限确认自动拒绝：出队并回传 deny（主进程按拒绝继续任务）
-    denyPendingPerm() {
-      const q = this.sess && this.sess.permQueue
-      if (!q || !q.length || this.sessionId === '') return
-      const head = q[0]
-      this.$store.commit('buddyChat/PERM_REMOVE', { id: this.sessionId, index: 0 })
-      this.api().replyPermission({ sessionId: this.sessionId, askId: head.askId, action: 'deny' })
-      this.$message.info('浮窗已自动拒绝：' + (head.toolName || head.command || head.path || '权限请求'))
     },
     // ===== store notice 消费（照 chat 页语义精简）=====
     async consumeNotices(list) {

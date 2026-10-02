@@ -64,13 +64,25 @@ function configPath(agentDir) {
 // path 面的敏感文件 deny（*.env / .ssh）仍独立生效，不受此处放行影响
 // 空格转义变体：模型常写 `App\ Support` 转义形式的命令，权限扩展的路径解析
 // 不去除转义（token 字面保留 `\`），须为两种形态各放行一条 pattern
+// 多层补齐：pattern 的 `*` 不跨目录分隔符，而自管目录存在三层及以上路径
+// （skills/<name>/SKILL.md 等）——单层 glob 盖不住会落到 '*' 兜底 ask，
+// 无头定时任务无人应答即被拒，故逐层显式放行（敏感 deny 面独立生效）
 function agentDirAllowRules(agentDir) {
   if (!agentDir) return {}
-  const rules = { [agentDir]: 'allow', [path.join(agentDir, '*')]: 'allow' }
+  const rules = {
+    [agentDir]: 'allow',
+    [path.join(agentDir, '*')]: 'allow',
+    [path.join(agentDir, '*', '*')]: 'allow',
+    [path.join(agentDir, '*', '*', '*')]: 'allow',
+    [path.join(agentDir, '*', '*', '*', '*')]: 'allow'
+  }
   const escaped = agentDir.replace(/ /g, '\\ ')
   if (escaped !== agentDir) {
     rules[escaped] = 'allow'
     rules[escaped + '/*'] = 'allow'
+    rules[escaped + '/*/*'] = 'allow'
+    rules[escaped + '/*/*/*'] = 'allow'
+    rules[escaped + '/*/*/*/*'] = 'allow'
   }
   return rules
 }
@@ -78,15 +90,23 @@ function agentDirAllowRules(agentDir) {
 // 应用数据根目录（agentDir 的上级，如 .../omnibuddy）只读放行规则：
 // agent 检视自家数据目录（凭据存储 / 工作区清单等）属正常行为，逐次确认会
 // 频繁打断。只放开读（写仍限 pi-agent 白名单）；敏感面 deny（*.env / .ssh）
-// 独立生效不受影响；credentials.json 为 safeStorage 密文，读不到明文
+// 独立生效不受影响；credentials.json 为 safeStorage 密文，读不到明文。
+// 多层补齐同 agentDirAllowRules（sessions/<id>/messages.jsonl 等三层路径）
 function baseDirReadAllowRules(agentDir) {
   if (!agentDir) return {}
   const baseDir = path.dirname(agentDir)
-  const rules = { [baseDir]: 'allow', [path.join(baseDir, '*')]: 'allow' }
+  const rules = {
+    [baseDir]: 'allow',
+    [path.join(baseDir, '*')]: 'allow',
+    [path.join(baseDir, '*', '*')]: 'allow',
+    [path.join(baseDir, '*', '*', '*')]: 'allow'
+  }
   const escaped = baseDir.replace(/ /g, '\\ ')
   if (escaped !== baseDir) {
     rules[escaped] = 'allow'
     rules[escaped + '/*'] = 'allow'
+    rules[escaped + '/*/*'] = 'allow'
+    rules[escaped + '/*/*/*'] = 'allow'
   }
   return rules
 }
@@ -107,10 +127,12 @@ function defaultConfig(agentDir) {
         // 深度研究（P3）：workflow 启动多代理编排（有 token 成本）走 '*' 兜底逐次确认；
         // workflow_control 为控制面（查进度/暂停/停止/恢复），放行避免频繁打断
         workflow_control: 'allow',
-        // 其余（MCP / skills / subagents / 未登记工具）兜底确认
+        // 其余（MCP / subagents / 未登记工具）兜底确认；
+        // skill 技能面默认放行：技能为应用内置/用户自装，激活读取 SKILL.md
+        // 属正常低风险操作，逐次确认会频繁打断（发布等敏感工具仍按各自键管控）
         '*': 'ask',
         mcp: { '*': 'ask' },
-        skill: { '*': 'ask' },
+        skill: { '*': 'allow' },
         // agentDir 放行须排在 '*' 之后（last-match-wins，后写的具体 pattern 生效）
         // 外部目录三面（族 / _read / _write）默认均逐次确认（fail-safe）：
         // pi 权限系统按效果证明方向（ADR 0013）——write 工具写工作区外走
@@ -295,12 +317,30 @@ function backfillToolDefaults(agentDir) {
   return changed
 }
 
+// 清理 web_enable 孤儿键：pi-web-access 1.x 的懒激活加载器工具曾落 '*' 兜底确认，
+// 用户选「始终允许」后被 persistAlwaysAllow 写入 config。该工具现已由宿主从
+// active 集永久移除（pi.js 校正扩展 + excludeTools），规则键无任何匹配对象，
+// 启动幂等摘除（backfillToolDefaults 目录中无此键，不会回填）
+function stripOrphanWebEnable(agentDir) {
+  const config = readConfig(agentDir)
+  if (!config || !config.permission || config.permission.web_enable === undefined) return false
+  delete config.permission.web_enable
+  try {
+    writeConfig(agentDir, config)
+    console.log('[permissions] 已清理 web_enable 孤儿规则键（懒激活加载器已由宿主接管）')
+  } catch (e) {
+    return false // 写盘失败下次启动重试
+  }
+  return true
+}
+
 // 无 config 时写入默认策略；已有 config 补齐缺失工具键 + agentDir 放行幂等校正
 function ensureConfig(agentDir) {
   const file = configPath(agentDir)
   if (fs.existsSync(file)) {
     const backfilled = backfillToolDefaults(agentDir)
-    return patchAgentDirAllow(agentDir) || backfilled
+    const stripped = stripOrphanWebEnable(agentDir)
+    return patchAgentDirAllow(agentDir) || backfilled || stripped
   }
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, JSON.stringify(defaultConfig(agentDir), null, 2))

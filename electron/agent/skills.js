@@ -135,6 +135,16 @@ function listSkills() {
   } catch (e) {
     return []
   }
+  // 包归属判定：技能目录同时作为某个主技能目录的嵌套子目录存在（多 skill 包
+  // 导入形态：主目录解压保留嵌套副本 + 平铺安装），据此 UI 可把包成员折叠到主卡片下
+  const dirNames = entries.filter(e => e.isDirectory()).map(e => e.name)
+  const packageOf = name => {
+    for (const other of dirNames) {
+      if (other === name) continue
+      if (fs.existsSync(path.join(dir, other, name, 'SKILL.md'))) return other
+    }
+    return ''
+  }
   const skills = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
@@ -148,10 +158,18 @@ function listSkills() {
         dir: entry.name,
         description: meta.description || '',
         envKeys: collectEnvKeys(path.join(dir, entry.name), meta['env-keys']),
-        content: text
+        content: text,
+        // 属于哪个多 skill 包（空 = 独立技能）；包主条目另带 packageMembers
+        packageOf: packageOf(entry.name)
       })
     } catch (e) {
       /* 跳过无法解析的 skill */
+    }
+  }
+  // 主条目挂包成员清单（同包的成员名，UI 折叠展示）
+  for (const s of skills) {
+    if (!s.packageOf) {
+      s.packageMembers = skills.filter(x => x.packageOf === s.dir).map(x => x.dir)
     }
   }
   return skills
@@ -177,8 +195,23 @@ function deleteSkill(dir) {
   }
   const skillDir = path.join(skillsDir(), dir)
   if (!fs.existsSync(skillDir)) return { ok: false, error: 'Skill 不存在' }
+  // 包级联删除：主技能目录内的嵌套子 skill（多 skill 包形态）对应的顶层平铺目录
+  // 一并删除——否则主目录删除后成员「孤儿化」，UI 变独立卡片须逐个再删
+  const removedMembers = []
+  try {
+    for (const e of fs.readdirSync(skillDir, { withFileTypes: true })) {
+      if (!e.isDirectory() || !validName(e.name)) continue
+      if (!fs.existsSync(path.join(skillDir, e.name, 'SKILL.md'))) continue
+      const memberDir = path.join(skillsDir(), e.name)
+      if (fs.existsSync(memberDir)) {
+        fs.rmSync(memberDir, { recursive: true, force: true })
+        removedMembers.push(e.name)
+      }
+    }
+  } catch (e) { /* 收集失败不影响主目录删除 */
+  }
   fs.rmSync(skillDir, { recursive: true, force: true })
-  return { ok: true }
+  return { ok: true, removedMembers }
 }
 
 // 读取单个 skill：解析 frontmatter（name / description）+ 正文
@@ -284,7 +317,22 @@ function validateZip(data) {
   }
 }
 
+// 递归复制目录（多 skill 包平铺安装用）
+function copyDirSync(src, dst) {
+  fs.mkdirSync(dst, { recursive: true })
+  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, e.name)
+    const d = path.join(dst, e.name)
+    if (e.isDirectory()) copyDirSync(s, d)
+    else fs.copyFileSync(s, d)
+  }
+}
+
 // 导入 ZIP：解压到 <skillsDir>/<name>/（zip-slip 防护：条目路径必须落在目标目录内）
+// 多 skill 包支持：包内二层目录含 SKILL.md 的子技能（如 wechat-article-publish 包内的
+// model-digest-writer / ai-case-writer）自动复制到 skills 顶层平铺安装——
+// pi 的 skill 装载只扫描一级目录，嵌套子 skill 不平铺则永不生效。
+// overwrite 时覆盖同名子技能；否则跳过并在返回中注明（不阻断主技能安装）
 function importZip(data, overwrite) {
   const parsed = parseSkillZip(data)
   if (parsed.error) return { ok: false, error: parsed.error }
@@ -330,7 +378,29 @@ function importZip(data, overwrite) {
     fs.rmSync(targetDir, { recursive: true, force: true })
     return { ok: false, error: '解压后未找到 SKILL.md，已回滚' }
   }
-  return { ok: true, skill: { name, description: meta.description, files: count } }
+  // 多 skill 包平铺：扫描包内二层目录的 SKILL.md，逐个复制到 skills 顶层
+  const extraSkills = []
+  const skippedSkills = []
+  for (const e of fs.readdirSync(targetDir, { withFileTypes: true })) {
+    if (!e.isDirectory() || !validName(e.name)) continue
+    if (!fs.existsSync(path.join(targetDir, e.name, 'SKILL.md'))) continue
+    const subDst = path.join(skillsDir(), e.name)
+    if (fs.existsSync(subDst)) {
+      if (!overwrite) {
+        skippedSkills.push(e.name)
+        continue
+      }
+      fs.rmSync(subDst, { recursive: true, force: true })
+    }
+    copyDirSync(path.join(targetDir, e.name), subDst)
+    extraSkills.push(e.name)
+  }
+  return {
+    ok: true,
+    skill: { name, description: meta.description, files: count },
+    extraSkills,
+    skippedSkills
+  }
 }
 
 // 导出 ZIP：将 <skillsDir>/<dir>/ 打包为 <name>.zip（递归收集，排除临时文件）

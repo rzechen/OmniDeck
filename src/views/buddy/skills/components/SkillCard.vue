@@ -47,6 +47,29 @@
         </template>
       </el-popover>
       <span v-else class="ob-card-keybtn none">未声明所需变量</span>
+      <!-- 技能包折叠开关：与凭据按钮同行；点击展开下方成员区 -->
+      <span
+        v-if="skill.packageMembers && skill.packageMembers.length"
+        class="ob-card-keybtn pkg"
+        @click.stop="pkgExpanded = !pkgExpanded"
+      >
+        <svg-icon icon-class="skill" />
+        技能包 {{ skill.packageMembers.length }}
+        <svg-icon :icon-class="pkgExpanded ? 'arrow-up' : 'arrow-down'" class="ob-pkg-toggle" />
+      </span>
+    </div>
+
+    <!-- 包成员展开区（默认收起，开关在上方凭据行内） -->
+    <div v-if="pkgExpanded && skill.packageMembers && skill.packageMembers.length" class="ob-card-package">
+      <div class="ob-pkg-members">
+        <span
+          v-for="m in skill.packageMembers"
+          :key="m"
+          class="ob-pkg-chip"
+          @click.stop="$emit('open-member', m)"
+        >{{ m }}</span>
+      </div>
+      <div class="ob-pkg-tip">随包一并安装（覆盖导入整包 zip 可全部更新）</div>
     </div>
 
     <div class="ob-card-foot">
@@ -75,6 +98,12 @@ export default {
     skill: { type: Object, required: true },
     // 已录入的环境变量键名列表（该技能绑定的全部凭据聚合，脱敏视图）
     envKeys: { type: Array, default: () => [] }
+  },
+  data() {
+    return {
+      // 包成员折叠区展开状态（默认收起）
+      pkgExpanded: false
+    }
   },
   computed: {
     // 技能声明的所需变量名（SKILL.md env-keys）
@@ -120,6 +149,43 @@ export default {
 }
 
 /* 凭据变量标识行：单个醒目按钮（key 图标 + 数量 + 状态），点击弹面板 */
+
+/* 技能包折叠区：展开后的成员 chips 容器（开关在上方凭据行内，默认收起） */
+.ob-card-package {
+  margin: -4px 0 12px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: rgba(var(--primary-color-rgb), 0.05);
+  border: 1px dashed rgba(var(--primary-color-rgb), 0.35);
+}
+
+.ob-pkg-members {
+  margin-top: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ob-pkg-chip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(var(--primary-color-rgb), 0.1);
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb), 0.2);
+  }
+}
+
+.ob-pkg-tip {
+  margin-top: 7px;
+  font-size: 10.5px;
+  color: $text-secondary;
+}
 .ob-card-tags {
   display: flex;
   flex-wrap: wrap;
@@ -183,6 +249,22 @@ export default {
     background: transparent;
     border: 1px dashed var(--border-color, rgba(0, 0, 0, 0.15));
     cursor: default;
+  }
+
+  /* 技能包开关：主色（与凭据按钮同行，点击展开/收起成员区） */
+  &.pkg {
+    color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.08);
+    border: 1px solid rgba(var(--primary-color-rgb), 0.3);
+
+    &:hover {
+      background: rgba(var(--primary-color-rgb), 0.15);
+    }
+
+    .ob-pkg-toggle {
+      font-size: 11px;
+      opacity: 0.75;
+    }
   }
 }
 
