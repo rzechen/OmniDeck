@@ -51,10 +51,14 @@ async function fetchList(page) {
     .filter(x => /^https?:\/\//i.test(x.url))
 }
 
-// 单模板详情抓取：经宿主桥在主进程隐藏视图渲染提取（主进程侧串行队列复用单视图）
+// 单模板详情抓取：经宿主桥在主进程隐藏视图渲染提取（主进程侧串行队列复用单视图）。
+// 空壳防护：纯文本 < 50 字符视为抓取失败（SPA 未渲染完 / 提取落空），不落盘空资产
 async function fetchArticle(url) {
   const r = await __host.fetchArticle(url)
-  if (!r || !r.html) throw new Error('article 正文提取为空')
+  const textLen = r && r.html ? r.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length : 0
+  if (!r || !r.html || textLen < 50) {
+    throw new Error('article 正文提取为空（疑似 SPA 未渲染，换下一个作品重试）')
+  }
   return r
 }
 

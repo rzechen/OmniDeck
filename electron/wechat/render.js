@@ -326,7 +326,7 @@ function createRenderExtension(workspaceDir, getEnv) {
           title: { type: 'string', description: '文章标题（草稿必需）' },
           author: { type: 'string', description: '作者名（可选）' },
           digest: { type: 'string', description: '摘要（可选，默认正文前 120 字）' },
-          cover: { type: 'string', description: '封面图 URL（可选，默认模板封面 cover 字段）' },
+          cover: { type: 'string', description: '封面图：https 外链 URL，或工作空间内本地文件路径（如 generate_image 产物 exports/xxx.png）；可选，默认模板 cover 字段' },
           fieldValues: { type: 'object', description: '标量变量值映射（同 render 工具）' },
           loopFieldValues: { type: 'object', description: '循环变量值映射（同 render 工具）' }
         },
@@ -358,13 +358,31 @@ function createRenderExtension(workspaceDir, getEnv) {
           const tplDir = path.join(templatesRoot(workspaceDir), meta.id)
           const tr = await transferImages(html, tplDir, token)
 
-          // 封面转存 → thumb_media_id（draft/add 必需）
-          const coverUrl = p.cover || meta.cover
-          if (!coverUrl || !/^https?:\/\//i.test(String(coverUrl))) {
-            return errText('错误：缺少有效封面图 URL（params.cover 或模板 cover 字段），草稿必需封面')
+          // 封面转存 → thumb_media_id（draft/add 必需）。
+          // cover 支持两种形态：https 外链 / 工作空间内本地文件路径（generate_image 产物）
+          const coverSrc = p.cover || meta.cover
+          if (!coverSrc || !String(coverSrc).trim()) {
+            return errText('错误：缺少封面（params.cover 或模板 cover 字段），草稿必需封面')
           }
-          const coverBuf = await downloadImage(String(coverUrl))
-          const up = await uploadMaterial(token, coverBuf, 'cover-' + md5(String(coverUrl)) + '.jpg')
+          let coverBuf
+          let coverName
+          if (/^https?:\/\//i.test(String(coverSrc))) {
+            coverBuf = await downloadImage(String(coverSrc))
+            coverName = 'cover-' + md5(String(coverSrc)) + '.jpg'
+          } else {
+            // 本地图：解析后必须仍在工作空间内（防任意文件读取）
+            const abs = path.resolve(workspaceDir, String(coverSrc))
+            if (abs !== workspaceDir && !abs.startsWith(workspaceDir + path.sep)) {
+              return errText('错误：封面文件路径越界（须位于工作空间内）：' + coverSrc)
+            }
+            if (!fs.existsSync(abs)) {
+              return errText('错误：封面文件不存在：' + coverSrc)
+            }
+            coverBuf = fs.readFileSync(abs)
+            const ext = (path.extname(abs) || '.jpg').toLowerCase()
+            coverName = 'cover-' + md5(abs) + ext
+          }
+          const up = await uploadMaterial(token, coverBuf, coverName)
           if (!up || !up.media_id) {
             return errText('封面转存素材库失败（未取得 thumb_media_id）')
           }

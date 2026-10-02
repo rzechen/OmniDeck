@@ -262,8 +262,8 @@ export default {
     document.addEventListener('click', this.onDocClick)
     if (browser) this.browser = browser
 
-    // 恢复引擎配置 + 供应商列表（IndexedDB）
-    this.providers = getItem('aiProviderList', []) || []
+    // 恢复引擎配置 + 供应商列表（IndexedDB）；仅文本生成模型（图像模型不参与对话）
+    this.providers = (getItem('aiProviderList', []) || []).filter(p => p && p.type !== 'image')
     const saved = getItem(ENGINE_KEY, null)
     if (saved && saved.engine) {
       this.engine = saved.engine

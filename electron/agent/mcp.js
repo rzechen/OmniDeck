@@ -32,7 +32,11 @@ function builtinServers() {
   // 产物目录指向应用内部：不指定时 MCP 会把截图等自动命名产物写入
   // <工作空间>/.playwright-mcp（stdio server 以会话 cwd 启动），污染用户目录
   // --headless：无头模式静默运行，浏览器窗口不弹出（截图/自动化能力不受影响）
-  args = args.concat(['--headless', '--output-dir', path.join(agentDir, 'playwright-output')])
+  // --user-data-dir：持久浏览器 profile（cookie / 登录态跨会话保持），
+  //   支撑「首次登录一次、后续免登录」的站点自动化（如秀米模板市场搜索）
+  args = args.concat(['--headless',
+    '--output-dir', path.join(agentDir, 'playwright-output'),
+    '--user-data-dir', path.join(agentDir, 'playwright-profile')])
   const env = {}
   const nodeBin = runtime.nodeBinDir()
   if (nodeBin) env.PATH = nodeBin + path.delimiter + (process.env.PATH || '')

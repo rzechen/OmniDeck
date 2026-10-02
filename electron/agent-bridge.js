@@ -59,25 +59,37 @@ function destroyWxFetchView() {
 app.on('will-quit', destroyWxFetchView)
 
 // article 轮询提取：部分展示页 JS 渲染慢，did-finish 后正文未必就绪；
-// 返回 { html, text, images }（images 取原始 src 属性值，供子进程精确替换本地化）
+// 返回 { html, text, images }（images 取原始 src 属性值，供子进程精确替换本地化）。
+// 空壳防护：正文纯文本 < 50 字符视为未就绪（SPA 的 article 标签可能先于内容渲染出现），
+// 继续轮询直至超时；秀米等展示页正文未必在 <article> 内，容器命中失败时
+// 以「全文本最大容器」兜底（div/section/mmr 取 innerText 最长者）
 function wxExtractArticle(wc) {
   const started = Date.now()
   return new Promise((resolve, reject) => {
     const poll = async () => {
       try {
         const r = await wc.executeJavaScript(`(() => {
-          const a = document.querySelector('article')
-          if (!a) return null
-          const imgs = []
-          a.querySelectorAll('img').forEach(img => {
-            const src = img.getAttribute('src')
-            if (src) imgs.push(src)
-          })
-          return {
-            html: a.innerHTML,
-            text: (a.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 200),
-            images: imgs
+          const norm = s => (s || '').replace(/\\s+/g, ' ').trim()
+          const collect = el => {
+            if (!el) return null
+            const imgs = []
+            el.querySelectorAll('img').forEach(img => {
+              const src = img.getAttribute('src')
+              if (src) imgs.push(src)
+            })
+            const html = el.innerHTML
+            if (!html || norm(el.innerText).length < 50) return null
+            return { html, text: norm(el.innerText).slice(0, 200), images: imgs }
           }
+          const direct = collect(document.querySelector('article'))
+            || collect(document.querySelector('.show_content'))
+            || collect(document.querySelector('mmr'))
+          if (direct) return direct
+          let best = null
+          document.querySelectorAll('div, section, mmr').forEach(el => {
+            if (!best || norm(el.innerText).length > norm(best.innerText).length) best = el
+          })
+          return collect(best)
         })()`)
         if (r && r.html) return resolve(r)
       } catch (e) { /* 执行异常（页面跳转中）继续轮询 */ }

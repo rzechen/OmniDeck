@@ -125,19 +125,19 @@ const DOC_TOOLS = [
 // 图像生成（pi 1.0.0）：generate_image 工具仅在 provider 配置了图像模型时注册；
 // 未配置时按禁用态呈现（文案引导去模型管理页），与联网开关同模式
 const IMAGE_TOOLS = [
-  { name: 'generate_image', label: '生成图片', description: '根据文字描述生成图片，产物自动保存到 exports/ 并展示卡片（需 OpenRouter 图像端点）。', perm: 'allow' }
+  { name: 'generate_image', label: '生成图片', description: '根据文字描述生成图片（OpenAI 图像接口兼容格式，支持智谱 / OpenRouter / 硅基流动等端点），产物自动保存到 exports/ 并展示卡片。', perm: 'allow' }
 ]
 
 function imageTools() {
   // 惰性 require：pi.js 顶层引用本模块（webToolNames），加载期反向 require 会循环
   let configured = false
   try {
-    configured = !!(require('./pi').getProviderInfo() || {}).imageModel
+    configured = !!(require('./pi').getProviderInfo() || {}).imageConfigured
   } catch (e) { /* pi 运行时未初始化按未配置处理 */ }
   if (configured) return IMAGE_TOOLS
   return IMAGE_TOOLS.map(t => Object.assign({}, t, {
     disabled: true,
-    description: '未配置图像模型（模型管理 → 高级设置 → 图像模型，当前仅支持 OpenRouter 图像端点）。'
+    description: '未配置图像生成模型（模型管理 → 新建图像生成模型，OpenAI 图像接口兼容端点）。'
   }))
 }
 

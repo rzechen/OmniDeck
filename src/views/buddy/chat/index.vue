@@ -612,7 +612,9 @@ export default {
     },
     loadProviders() {
       const list = getItem('aiProviderList', [])
-      this.providers = Array.isArray(list) ? list : []
+      const all = Array.isArray(list) ? list : []
+      // 对话模型仅列文本生成模型（图像模型专用生图，不参与对话）
+      this.providers = all.filter(p => p && p.type !== 'image')
       // 优先保留当前选中（切回页签刷新列表时不打断已选模型）；
       // 否则恢复上次持久化的选择；都无效则回落默认模型
       const savedId = getItem('omnibuddy:providerId', '')
@@ -624,10 +626,11 @@ export default {
         this.currentProviderId = def ? def.id : ''
       }
       // 同步模型列表镜像到主进程：定时任务按 providerId 绑定执行模型（IndexedDB 主进程不可读）。
-      // 注意 JSON 拷贝穿透响应式 Proxy —— IPC 结构化克隆无法序列化 Proxy
+      // 注意 JSON 拷贝穿透响应式 Proxy —— IPC 结构化克隆无法序列化 Proxy；
+      // 镜像须全量（含 type:'image' 图像条目，pi 侧 generate_image 注册依赖镜像）
       const auto = (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.automation) || null
       if (auto && auto.syncProviders) {
-        Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(this.providers)))).catch(() => {})
+        Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(all)))).catch(() => {})
       }
     },
     onSelectProvider(id) {

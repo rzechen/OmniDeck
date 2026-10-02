@@ -15,7 +15,7 @@ const agentNames = [
   'index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime',
   'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'pkg-registry',
   'web-search', 'rules', 'profile', 'memory', 'file-changes', 'attachments', 'market',
-  'connectors', 'usage', 'export', 'doc-export', 'checkpoints', 'branchView', 'scheduler', 'workflows'
+  'connectors', 'usage', 'export', 'doc-export', 'image-gen', 'checkpoints', 'branchView', 'scheduler', 'workflows'
 ]
 
 // 运行时 require / 定位的裸包并集（均在 dependencies，electron-builder 默认收集）：

@@ -19,6 +19,8 @@ const credentials = require('./credentials')
 const webSearch = require('./web-search')
 const profile = require('./profile')
 const docExport = require('./doc-export')
+// 图像生成：generate_image（OpenAI images 兼容格式，智谱/OpenRouter/硅基流动等通用）
+const imageGen = require('./image-gen')
 const wechatImport = require('../wechat/import')
 const wechatRender = require('../wechat/render')
 const wechatEditor = require('../wechat/editor')
@@ -170,22 +172,8 @@ function modelConfig(p) {
   }
 }
 
-// 图像生成模型条目（pi 1.0.0）：与 chat 模型同 provider（baseUrl/apiKey 复用），
-// type: 'image' 走 ModelRuntime.generateImages；pi-ai 1.0.0 图像 API 仅内置
-// openrouter-images，故本能力面向 OpenRouter（或兼容其图像端点的网关）用户
-function imageModelOf(p) {
-  return p && p.imageModel ? {
-    id: p.imageModel,
-    name: p.imageModel,
-    type: 'image',
-    api: 'openrouter-images',
-    input: ['text'],
-    output: ['image'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-  } : null
-}
-
-// 写 models.json：subagents 子进程无法接收运行时参数，从 agentDir 读取 provider 配置
+// 写 models.json：subagents 子进程无法接收运行时参数，从 agentDir 读取 provider 配置。
+// （图像生成不在此注册：generate_image 由 image-gen.js 提供，OpenAI images 兼容格式）
 function writeModelsJson(p) {
   const file = path.join(state.agentDir, 'models.json')
   let existing = {}
@@ -201,9 +189,10 @@ function writeModelsJson(p) {
     baseUrl: p.baseUrl,
     apiKey: p.apiKey || '',
     api: apiOf(p),
-    // chat + image（imageModel 配置时）混合条目；子代理场景同样可经 images API 生成
-    models: imageModelOf(p) ? [modelConfig(p), imageModelOf(p)] : [modelConfig(p)]
+    models: [modelConfig(p)]
   }
+  // 注：图像生成不再注册进 models.json（SDK 内置通道仅认 openrouter-images）——
+  // generate_image 由 image-gen.js 提供（OpenAI images 兼容格式，读镜像图像条目）
   // 深度研究（P3）：档位专属 provider 同步落盘（子进程场景可读）
   const tiers = tiersOf(p)
   for (const tier of WORKFLOW_TIERS) {
@@ -246,7 +235,9 @@ async function ensureRuntime(provider) {
     apiKey: provider.apiKey || '',
     model: provider.model,
     apiFormat: provider.apiFormat || 'openai',
-    imageModel: provider.imageModel || ''
+    imageModel: provider.imageModel || '',
+    imageBaseUrl: provider.imageBaseUrl || '',
+    imageApiKey: provider.imageApiKey || ''
   }
   if (state.modelRuntime && state.providerKey === key) return
   console.log('[omnibuddy:pi] runtime provider ->', provider.baseUrl, 'model=' + provider.model)
@@ -260,7 +251,8 @@ async function ensureRuntime(provider) {
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey || '',
     api: apiOf(provider),
-    models: imageModelOf(provider) ? [modelConfig(provider), imageModelOf(provider)] : [modelConfig(provider)]
+    // 仅注册 chat 模型：图像生成由 image-gen.js 的 generate_image 工具提供
+    models: [modelConfig(provider)]
   })
   if (provider.apiKey) {
     await runtime.setRuntimeApiKey(PROVIDER_ID, provider.apiKey)
@@ -304,66 +296,8 @@ async function ensureRuntime(provider) {
 }
 
 // ===== UI 耦合扩展 =====
-// 图像生成（pi 1.0.0）：generate_image 工具 → ModelRuntime.generateImages，
-// 复用会话 provider 凭证（pi-ai 图像 API 为 openrouter-images，需用户配置
-// OpenRouter 兼容端点 + 图像模型）；产物落 <workspace>/exports/，artifacts
-// 结构化清单走前端产物卡片管线（与 doc_export 同构）。未配置时不注册工具
-function createGenerateImageExtension(cwd) {
-  return function generateImageExtension(piApi) {
-    piApi.registerTool({
-      name: 'generate_image',
-      label: '生成图片',
-      description: '根据文字描述生成图片。prompt 用一句连贯的话描述画面（主体、动作、环境、风格、构图视角、光线氛围）。生成成功后图片保存到 exports/ 目录并在界面展示产物卡片。',
-      parameters: {
-        type: 'object',
-        properties: {
-          prompt: { type: 'string', description: '图像内容的详细描述' }
-        },
-        required: ['prompt']
-      },
-      execute: async (_id, params) => {
-        const err = (text) => ({ content: [{ type: 'text', text }], details: { isError: true } })
-        try {
-          const p = state.provider
-          if (!p || !p.imageModel) {
-            return err('未配置图像模型：请在「模型管理 → 高级设置 → 图像模型」填写（当前仅支持 OpenRouter 图像端点）')
-          }
-          const imgModel = state.modelRuntime.getAvailableSnapshot()
-            .find(m => m.id === p.imageModel && m.type === 'image')
-          if (!imgModel) return err('图像模型未注册成功，请检查模型配置后重试')
-          const res = await state.modelRuntime.generateImages(imgModel, {
-            input: [{ type: 'text', text: String(params.prompt || '') }]
-          })
-          const images = (res.output || []).filter(c => c && c.type === 'image' && c.data)
-          if (!images.length) {
-            const why = res.stopReason && res.stopReason !== 'stop' ? ('（' + (res.errorMessage || res.error || res.stopReason) + '）') : ''
-            return err('生成失败：模型未返回图片' + why)
-          }
-          const dir = path.join(cwd, 'exports')
-          fs.mkdirSync(dir, { recursive: true })
-          const artifacts = []
-          const stamp = Date.now()
-          for (let i = 0; i < images.length; i++) {
-            const mime = images[i].mimeType || 'image/png'
-            const ext = mime.split('/')[1] || 'png'
-            const file = path.join(dir, 'gen-' + stamp + '-' + (i + 1) + '.' + ext)
-            fs.writeFileSync(file, Buffer.from(images[i].data, 'base64'))
-            let size = 0
-            try { size = fs.statSync(file).size } catch (e) { /* 忽略 */ }
-            const kb = size >= 1048576 ? (size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(size / 1024)) + ' KB'
-            artifacts.push({ path: file, name: path.basename(file), format: ext, size, sizeText: kb })
-          }
-          return {
-            content: [{ type: 'text', text: '已生成 ' + artifacts.length + ' 张图片：\n' + artifacts.map(a => '- ' + a.path).join('\n') }],
-            details: { artifacts }
-          }
-        } catch (e) {
-          return err('生成失败：' + ((e && e.message) || e))
-        }
-      }
-    })
-  }
-}
+// （原 SDK 通道 generate_image 已移除：openrouter-images 仅认 OpenRouter，
+//  现由 image-gen.js 提供 OpenAI images 兼容格式的通用实现）
 
 // ask-user：模型向用户提问，前端渲染表单，经 IPC 回传答案
 function createAskUserExtension(onAskUser) {
@@ -791,6 +725,9 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     builtinTools.createTodoReadExtension(() => builtinTools.getTodos(chatId)),
     // 文档导出（P1）：markdown → Word / PDF / HTML，产物落 <cwd>/exports/
     docExport.createDocExportExtension(cwdState),
+    // 图像生成：OpenAI images 兼容格式（独立图像条目 / 附着式配置），
+    // 产物落 <cwd>/exports/；SDK 内置 openrouter-images 通道不再注册（通用替代）
+    imageGen.createImageGenExtension(cwdState, state.agentDir, () => state.provider),
     // 公众号工具链：模板 / 渲染产物统一锚定会话工作空间
     // （<工作空间>/wechat/templates 与 wechat/renders，随任务隔离）
     wechatImport.createImportExtension(cwd),
@@ -808,9 +745,7 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     wechatEditor.createEditorExtension(cwd),
     // 凭据按需取用（B 方案后续）：AI 对话中经 credential_get 取「AI 取用类」凭据；
     // 默认 ask 权限（capabilities 登记），开关关闭时工具返回引导文案
-    createCredentialGetExtension(),
-    // 图像生成（pi 1.0.0）：配置了 imageModel 才注册 generate_image 工具
-    ...(imageModelOf(provider) ? [createGenerateImageExtension(cwd)] : [])
+    createCredentialGetExtension()
   ]
   if (sandbox.getSandboxConfig().enabled) {
     try {
@@ -1117,9 +1052,20 @@ function listSessionIds() {
   return Array.from(state.sessions.keys())
 }
 
-// 当前 provider 配置快照（OpenAI 兼容端点直调用，如自动生成会话标题）
+// 当前 provider 配置快照（OpenAI 兼容端点直调用，如自动生成会话标题）。
+// imageConfigured：generate_image 能力可用判定——附着式 imageModel 或镜像中
+// 存在独立图像条目（type: 'image'）任一命中即 true（capabilities 消费）
 function getProviderInfo() {
-  return state.provider
+  const info = Object.assign({}, state.provider)
+  let hasImageEntry = false
+  try {
+    const mirror = JSON.parse(fs.readFileSync(
+      path.join(state.agentDir, '..', 'automation', 'providers.json'), 'utf-8'))
+    hasImageEntry = ((mirror && mirror.providers) || [])
+      .some(x => x && x.type === 'image' && x.baseUrl && x.model)
+  } catch (e) { /* 镜像不可读：仅附着式判定 */ }
+  info.imageConfigured = !!(info.imageModel || hasImageEntry)
+  return info
 }
 
 // 全量销毁运行中的 pi 会话（安装 MCP 适配器等扩展后调用，新会话重建时装载新扩展）

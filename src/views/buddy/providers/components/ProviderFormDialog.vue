@@ -4,14 +4,21 @@
     <div v-if="dialogVisible" class="ob-drawer" @click.self="closeDialog">
       <div class="ob-drawer-panel pf-panel">
         <header class="ob-drawer-header">
-          <h3 class="ob-dialog-title">{{ editingId ? '编辑模型' : '新建模型' }}</h3>
+          <h3 class="ob-dialog-title">{{ dialogTitle }}</h3>
           <svg-icon icon-class="close" class="ob-dialog-close" @click="closeDialog" />
         </header>
 
         <div class="ob-drawer-body">
+          <!-- 图像模式说明条 -->
+          <p v-if="isImage" class="ob-field-tip pf-image-tip">
+            图像生成模型独立于对话模型：兼容 OpenAI 图像接口格式（/images/generations），
+            智谱、OpenRouter、硅基流动等端点均可接入；配置后对话内可用 generate_image
+            工具生图（产物落 exports/），对话模型仍走文本模型。
+          </p>
+
           <!-- ===== 基础必填项 ===== -->
-          <!-- API 格式 -->
-          <div class="ob-field" :class="{ error: !!errors.apiFormat }">
+          <!-- API 格式（仅文本模型） -->
+          <div v-if="!isImage" class="ob-field" :class="{ error: !!errors.apiFormat }">
             <label class="ob-field-label">API 格式 <span class="ob-field-required">*</span></label>
             <el-select
               v-model="form.apiFormat"
@@ -29,30 +36,30 @@
 
           <!-- 自定义请求地址 / 接口地址 -->
           <div class="ob-field" :class="{ error: !!errors.baseUrl }">
-            <label class="ob-field-label">{{ form.apiFormat === 'openai' ? '自定义请求地址' : '请求地址' }} <span class="ob-field-required">*</span></label>
+            <label class="ob-field-label">{{ baseUrlLabel }} <span class="ob-field-required">*</span></label>
             <el-input
               v-model="form.baseUrl"
               size="small"
               clearable
-              :placeholder="baseUrlPlaceholder"
+              :placeholder="isImage ? '如 https://open.bigmodel.cn/api/paas/v4' : baseUrlPlaceholder"
               @blur="validateField('baseUrl')"
               @input="clearFieldError('baseUrl')"
             />
-            <!-- OpenAI 格式：说明路径自动追加规则 -->
-            <p v-if="form.apiFormat === 'openai'" class="ob-field-tip pf-url-tip">
+            <!-- OpenAI 格式：说明路径自动追加规则（仅文本模型） -->
+            <p v-if="!isImage && form.apiFormat === 'openai'" class="ob-field-tip pf-url-tip">
               填写兼容 OpenAI API 的服务端点地址，不要以斜杠结尾，<code>/chat/completions</code> 会自动追加到填写地址末尾；示例：<code>https://api.openai.com/v1</code>
             </p>
             <p class="ob-field-error" :class="{ visible: !!errors.baseUrl }">{{ errors.baseUrl }}</p>
           </div>
 
-          <!-- 模型 ID -->
+          <!-- 模型 ID / 图像模型 ID -->
           <div class="ob-field" :class="{ error: !!errors.model }">
-            <label class="ob-field-label">模型 ID <span class="ob-field-required">*</span></label>
+            <label class="ob-field-label">{{ isImage ? '图像模型 ID' : '模型 ID' }} <span class="ob-field-required">*</span></label>
             <el-input
               v-model="form.model"
               size="small"
               clearable
-              placeholder="填写模型标识 ID，如 gpt-4o-mini"
+              :placeholder="isImage ? '如 glm-image、inclusionai/ming-image-0.1-design-layer' : '填写模型标识 ID，如 gpt-4o-mini'"
               @blur="validateField('model')"
               @input="clearFieldError('model')"
             />
@@ -66,28 +73,28 @@
               v-model="form.displayName"
               size="small"
               clearable
-              placeholder="在模型列表展示的名字，不填则默认显示模型 ID"
+              :placeholder="isImage ? '在图像模型列表展示的名字，不填则默认显示模型 ID' : '在模型列表展示的名字，不填则默认显示模型 ID'"
               maxlength="64"
             />
           </div>
 
           <!-- API 密钥（必填，带隐藏/显示） -->
           <div class="ob-field" :class="{ error: !!errors.apiKey }">
-            <label class="ob-field-label">API 密钥 <span class="ob-field-required">*</span></label>
+            <label class="ob-field-label">{{ isImage ? '图像 API 密钥' : 'API 密钥' }} <span class="ob-field-required">*</span></label>
             <el-input
               v-model="form.apiKey"
               size="small"
               show-password
               clearable
-              placeholder="填写 API Key，如 sk-…"
+              :placeholder="isImage ? '图像端点的 API Key，如 sk-or-v1-…' : '填写 API Key，如 sk-…'"
               @blur="validateField('apiKey')"
               @input="clearFieldError('apiKey')"
             />
             <p class="ob-field-error" :class="{ visible: !!errors.apiKey }">{{ errors.apiKey }}</p>
           </div>
 
-          <!-- ===== 高级配置（平铺展示：macOS 设置组风格） ===== -->
-          <div class="pf-advanced">
+          <!-- ===== 高级配置（仅文本模型：macOS 设置组风格） ===== -->
+          <div v-if="!isImage" class="pf-advanced">
             <!-- 分组标题 -->
             <div class="pf-adv-title">
               <span class="pf-adv-title-text">高级配置</span>
@@ -264,43 +271,15 @@
                     </el-select>
                   </div>
                 </div>
-
-                <!-- 图像生成模型（pi 1.0.0）：配置后对话内可经 generate_image 工具生成图片 -->
-                <div class="pf-adv-row">
-                  <div class="pf-adv-info">
-                    <span class="pf-adv-name">
-                      图像模型
-                      <el-tooltip placement="top" :show-after="200">
-                        <template #content>
-                          <div>
-                            配置后对话中可用 generate_image 工具按文字描述生成图片，<br />
-                            产物自动保存到工作空间 exports/ 目录。<br />
-                            当前仅支持 OpenRouter 图像端点（如 google/gemini-2.5-flash-image），<br />
-                            填写 OpenRouter 图像模型 ID；不填则不启用该能力。
-                          </div>
-                        </template>
-                        <svg-icon icon-class="warning-outline" class="ob-tier-help" />
-                      </el-tooltip>
-                    </span>
-                    <span class="pf-adv-desc">对话内生成图片（仅 OpenRouter 图像端点）</span>
-                  </div>
-                  <div class="pf-adv-ctrl">
-                    <el-input
-                      v-model="form.imageModel"
-                      size="small"
-                      class="pf-adv-select"
-                      placeholder="不启用"
-                      clearable
-                    />
-                  </div>
-                </div>
+                <!-- 图像生成模型已独立：高级设置不再承载图像配置，
+                     请使用「新建图像生成模型」入口（OpenAI 图像接口兼容端点） -->
             </div>
           </div>
         </div>
 
         <footer class="ob-drawer-footer pf-foot">
           <p class="ob-dialog-tip">
-            <svg-icon icon-class="warning-outline" class="ob-tip-svg" />连通性测试会发起一次真实请求，会消耗少量模型 Token
+            <svg-icon icon-class="warning-outline" class="ob-tip-svg" />{{ isImage ? '图像生成按张计费，保存时不发起测试请求，请确认端点与密钥无误' : '连通性测试会发起一次真实请求，会消耗少量模型 Token' }}
           </p>
           <div class="ob-dialog-btns">
             <el-button size="small" round :disabled="testing" @click="resetForm">重置</el-button>
@@ -310,7 +289,7 @@
               type="primary"
               :loading="testing"
               @click="saveProvider"
-            >{{ testing ? '测试连接中…' : (editingId ? '保存修改' : '添加模型') }}</el-button>
+            >{{ testing ? '测试连接中…' : (editingId ? '保存修改' : (isImage ? '添加图像模型' : '添加模型')) }}</el-button>
           </div>
         </footer>
       </div>
@@ -359,6 +338,11 @@ export default {
     list: {
       type: Array,
       default: () => []
+    },
+    // 新建模式：'chat' 文本生成模型 / 'image' 图像生成模型（编辑时按条目 type 覆盖）
+    mode: {
+      type: String,
+      default: 'chat'
     }
   },
   data() {
@@ -372,6 +356,8 @@ export default {
         model: '',
         apiKey: ''
       },
+      // 表单模式：'chat' 文本 / 'image' 图像（initForm 按 prop 与编辑条目 type 判定）
+      formMode: 'chat',
       // 保存前的连接测试状态
       testing: false
     }
@@ -385,6 +371,18 @@ export default {
       set(v) {
         this.$emit('update:visible', v)
       }
+    },
+    // 图像生成模型模式（新建由 prop mode 决定，编辑按条目 type 判定）
+    isImage() {
+      return this.formMode === 'image'
+    },
+    dialogTitle() {
+      if (this.isImage) return this.editingId ? '编辑图像生成模型' : '新建图像生成模型'
+      return this.editingId ? '编辑模型' : '新建模型'
+    },
+    baseUrlLabel() {
+      if (this.isImage) return '图像接口地址'
+      return this.form.apiFormat === 'openai' ? '自定义请求地址' : '请求地址'
     },
     // 请求地址占位文案（按 API 格式）
     baseUrlPlaceholder() {
@@ -421,13 +419,16 @@ export default {
         contextWindowOutput: '',
         toolTurns: 500,
         imageInput: true,
-        thinkingMode: 'follow',
-        imageModel: ''
+        thinkingMode: 'follow'
       }
     },
     // 表单初始化：新建全部为空（失焦校验）；编辑回填
     initForm() {
       const p = this.editingProvider
+      // 模式：编辑按条目 type 判定（图像条目进图像表单）；新建按父级传入的 mode
+      this.formMode = p
+        ? (p.type === 'image' ? 'image' : 'chat')
+        : (this.mode === 'image' ? 'image' : 'chat')
       this.form = p
         ? {
           type: p.type || 'custom',
@@ -442,8 +443,7 @@ export default {
           contextWindowOutput: p.contextWindowOutput != null ? String(p.contextWindowOutput) : '',
           toolTurns: p.toolTurns != null ? p.toolTurns : 500,
           imageInput: p.imageInput !== false,
-          thinkingMode: p.thinkingMode || 'follow',
-          imageModel: p.imageModel || ''
+          thinkingMode: p.thinkingMode || 'follow'
         }
         : this.emptyForm()
       this.resetErrors()
@@ -581,6 +581,58 @@ export default {
     },
     // 保存（新建或更新；先校验必填，再测试连接，组装数据交父级持久化）
     async saveProvider() {
+      // ===== 图像生成模型分支：字段精简、不走 chat 连通性测试（图像按张计费不自动消耗） =====
+      if (this.isImage) {
+        const baseUrl = this.form.baseUrl.trim().replace(/\/+$/, '')
+        const model = this.form.model.trim()
+        const displayName = this.form.displayName.trim()
+        const apiKey = this.form.apiKey.trim()
+        this.errors.baseUrl = baseUrl ? '' : '请输入图像接口地址'
+        this.errors.model = model ? '' : '请输入图像模型 ID'
+        this.errors.apiKey = apiKey ? '' : '请输入图像 API 密钥'
+        if (!baseUrl || !model || !apiKey) return
+        const name = displayName || model
+        if (this.editingId) {
+          this.$emit('saved', {
+            editingId: this.editingId,
+            values: {
+              type: 'image', name, apiFormat: 'openai', baseUrl, model, displayName, apiKey,
+              tier: '', modelSeries: 'default', contextWindowInput: null, contextWindowOutput: null,
+              toolTurns: 500, imageInput: false, thinkingMode: 'follow',
+              imageModel: model, imageBaseUrl: baseUrl, imageApiKey: apiKey
+            }
+          })
+        } else {
+          this.$emit('saved', {
+            editingId: null,
+            item: {
+              id: 'p' + (uid++),
+              type: 'image',
+              name,
+              apiFormat: 'openai',
+              baseUrl,
+              model,
+              displayName,
+              apiKey,
+              tier: '',
+              modelSeries: 'default',
+              contextWindowInput: null,
+              contextWindowOutput: null,
+              toolTurns: 500,
+              imageInput: false,
+              thinkingMode: 'follow',
+              imageModel: model,
+              imageBaseUrl: baseUrl,
+              imageApiKey: apiKey,
+              isDefault: false
+            }
+          })
+        }
+        this.closeDialog()
+        this.$message.success(this.editingId ? '已更新' : '图像模型已添加')
+        return
+      }
+
       const fields = ['apiFormat', 'baseUrl', 'model', 'apiKey']
       for (const f of fields) {
         if (!this.validateField(f)) return
@@ -599,7 +651,6 @@ export default {
       const toolTurns = this.toNumOrNull(this.form.toolTurns) || 500
       const imageInput = !!this.form.imageInput
       const thinkingMode = this.form.thinkingMode || 'follow'
-      const imageModel = (this.form.imageModel || '').trim()
       // 列表名：展示名优先，未填默认显示模型 ID
       const name = displayName || model
 
@@ -618,7 +669,7 @@ export default {
           editingId: this.editingId,
           values: {
             name, apiFormat, baseUrl, model, displayName, apiKey, tier,
-            modelSeries, contextWindowInput, contextWindowOutput, toolTurns, imageInput, thinkingMode, imageModel
+            modelSeries, contextWindowInput, contextWindowOutput, toolTurns, imageInput, thinkingMode
           }
         })
       } else {
@@ -642,7 +693,6 @@ export default {
             toolTurns,
             imageInput,
             thinkingMode,
-            imageModel,
             isDefault: isFirst
           }
         })
