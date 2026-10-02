@@ -9,14 +9,23 @@
         </div>
         <p class="ob-section-desc">配置 OmniBuddy 的模型接入，全部本地保存不上云</p>
       </div>
-      <el-button
-        size="small"
-        round
-        type="primary"
-        class="ob-hero-btn"
-        title="新建模型"
-        @click="openCreate"
-      ><svg-icon icon-class="plus" class="ob-btn-svg" /><span class="ob-btn-text">新建模型</span></el-button>
+      <div class="ob-hero-actions">
+        <el-button
+          size="small"
+          round
+          type="primary"
+          class="ob-hero-btn"
+          title="新建文本生成模型（对话 / 定时任务执行用）"
+          @click="openCreate('chat')"
+        ><svg-icon icon-class="llm" class="ob-btn-svg" /><span class="ob-btn-text">新建文本生成模型</span></el-button>
+        <el-button
+          size="small"
+          round
+          class="ob-hero-btn"
+          title="新建图像生成模型（generate_image 生图用，OpenAI 图像接口兼容端点）"
+          @click="openCreate('image')"
+        ><svg-icon icon-class="picture-outline" class="ob-btn-svg" /><span class="ob-btn-text">新建图像生成模型</span></el-button>
+      </div>
     </header>
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
@@ -32,21 +41,40 @@
           size="small"
           round
           type="primary"
-          @click="openCreate"
-        ><svg-icon icon-class="plus" class="ob-btn-svg" />新建模型</el-button>
+          @click="openCreate('chat')"
+        ><svg-icon icon-class="plus" class="ob-btn-svg" />新建文本生成模型</el-button>
       </div>
 
-      <!-- 供应商卡片网格 -->
-      <div v-else class="ob-cards-grid">
-        <provider-card
-          v-for="p in list"
-          :key="p.id"
-          :provider="p"
-          @set-default="setDefault"
-          @edit="openEdit"
-          @remove="removeProvider"
-        />
-      </div>
+      <template v-else>
+        <!-- 文本生成模型 -->
+        <div v-if="chatProviders.length" class="ob-cards-group">
+          <div class="ob-cards-group-title"><svg-icon icon-class="llm" />文本生成模型<span>对话与定时任务的执行模型</span></div>
+          <div class="ob-cards-grid">
+            <provider-card
+              v-for="p in chatProviders"
+              :key="p.id"
+              :provider="p"
+              @set-default="setDefault"
+              @edit="openEdit"
+              @remove="removeProvider"
+            />
+          </div>
+        </div>
+
+        <!-- 图像生成模型 -->
+        <div v-if="imageProviders.length" class="ob-cards-group">
+          <div class="ob-cards-group-title"><svg-icon icon-class="picture-outline" />图像生成模型<span>generate_image 生成图片（封面等），不参与对话</span></div>
+          <div class="ob-cards-grid">
+            <provider-card
+              v-for="p in imageProviders"
+              :key="p.id"
+              :provider="p"
+              @edit="openEdit"
+              @remove="removeProvider"
+            />
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- 新建/编辑供应商弹窗 -->
@@ -55,6 +83,7 @@
       :editing-id="editingId"
       :editing-provider="editingProvider"
       :list="list"
+      :mode="createMode"
       @saved="applySaved"
     />
   </div>
@@ -77,7 +106,19 @@ export default {
       // 弹窗显隐与编辑对象（null 表示新建）
       dialogVisible: false,
       editingId: null,
-      editingProvider: null
+      editingProvider: null,
+      // 新建模式（'chat' 文本 / 'image' 图像），传给表单弹窗
+      createMode: 'chat'
+    }
+  },
+  computed: {
+    // 文本生成模型（对话 / 任务执行模型）
+    chatProviders() {
+      return this.list.filter(p => p.type !== 'image')
+    },
+    // 图像生成模型（generate_image 专用，不参与对话）
+    imageProviders() {
+      return this.list.filter(p => p.type === 'image')
     }
   },
   created() {
@@ -103,8 +144,9 @@ export default {
         Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(this.list)))).catch(() => {})
       }
     },
-    // 新建：清空编辑状态后打开弹窗
-    openCreate() {
+    // 新建：记录模式（文本 / 图像）后清空编辑状态打开弹窗
+    openCreate(mode) {
+      this.createMode = mode === 'image' ? 'image' : 'chat'
       this.editingId = null
       this.editingProvider = null
       this.dialogVisible = true
@@ -133,7 +175,7 @@ export default {
           target.toolTurns = values.toolTurns || 500
           target.imageInput = values.imageInput !== false
           target.thinkingMode = values.thinkingMode || 'follow'
-          target.imageModel = values.imageModel || ''
+          target.type = values.type || 'custom'
         }
       } else if (item) {
         this.list.push(item)
@@ -175,4 +217,41 @@ export default {
 
 <style lang="scss" scoped>
 @import '@/styles/buddy-settings.scss';
+
+/* hero 双按钮区（文本 / 图像新建入口） */
+.ob-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 分组容器 + 分组标题（文本生成模型 / 图像生成模型） */
+.ob-cards-group {
+  & + & {
+    margin-top: 18px;
+  }
+}
+
+.ob-cards-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: $text-primary;
+
+  .svg-icon {
+    font-size: 14px;
+    color: var(--primary-color);
+  }
+
+  span {
+    margin-left: 4px;
+    font-size: 11.5px;
+    font-weight: 400;
+    color: $text-secondary;
+  }
+}
 </style>

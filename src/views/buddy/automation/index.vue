@@ -406,10 +406,13 @@ export default {
     // JSON 拷贝穿透响应式 Proxy（IPC 结构化克隆无法序列化 Proxy）
     loadProviders() {
       const list = getItem('aiProviderList', [])
-      this.providers = Array.isArray(list) ? list : []
+      const all = Array.isArray(list) ? list : []
+      // 执行模型仅列文本生成模型（图像模型专用生图，不能作为任务执行模型）
+      this.providers = all.filter(p => p && p.type !== 'image')
       const a = this.autoApi()
       if (a && a.syncProviders) {
-        Promise.resolve(a.syncProviders(JSON.parse(JSON.stringify(this.providers)))).catch(() => {})
+        // 镜像同步全量（含 type:'image' 图像条目，pi 侧 generate_image 注册依赖镜像）
+        Promise.resolve(a.syncProviders(JSON.parse(JSON.stringify(all)))).catch(() => {})
       }
     },
     goProviders() {

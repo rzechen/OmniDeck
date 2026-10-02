@@ -241,7 +241,8 @@ export default {
     // ===== 模型 / 工作空间 =====
     loadProviders() {
       const list = getItem('aiProviderList', [])
-      this.providers = Array.isArray(list) ? list : []
+      // 仅列文本生成模型（图像模型专用生图，不参与对话）
+      this.providers = (Array.isArray(list) ? list : []).filter(p => p && p.type !== 'image')
       const saved = getItem('quick:providerId', '')
       const def = this.providers.find(p => p.id === saved) ||
         this.providers.find(p => p.isDefault) ||
