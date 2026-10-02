@@ -171,6 +171,9 @@ const TOOL_LABELS = {
   grep: '搜索内容',
   ls: '列出目录',
   cd: '切换目录',
+  // pi 1.0.0 内置编排 / 检索工具
+  codemode: '脚本编排',
+  tool_search: '检索工具',
   todo_write: '更新任务清单',
   todo_read: '查看任务清单',
   ask_user: '询问用户',
