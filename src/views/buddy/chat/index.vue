@@ -761,7 +761,35 @@ export default {
       const files = this.fileAttachments.slice()
       // 仍以「有无输入/附件」判定可发送（纯引用不发）；引用随消息拼发，
       // 气泡显示 / 主进程落盘 / 发送文本三者一致
-      if ((!draft && !files.length) || this.streaming) return
+      if (!draft && !files.length) return
+      // 流式态分流：纯文本走运行中插话（pi steer，不打断当前回答，
+      // 当前工具轮结束后送达）；带附件时保持原忽略行为（steer 暂不支持附件）
+      if (this.streaming) {
+        if (!draft || files.length || !this.sid) return
+        const quote = this.quote
+        const text = quote ? ('引用：\n' + quote + '\n\n' + draft) : draft
+        const api = this.api()
+        if (!api || !api.steer) {
+          this.$message.info('当前版本不支持运行中插话，请等待回答完成')
+          return
+        }
+        this.commitPatch({ draft: '', quote: '' })
+        // 乐观展示（steered 标记插话身份）；主进程 user_message 回执回填 id
+        this.$store.commit('buddyChat/PUSH_MSG', {
+          id: this.sid,
+          msg: {
+            role: 'user',
+            content: text,
+            steered: true,
+            anchors: this.branchView.anchors.length ? this.branchView.anchors.slice() : undefined,
+            createdAt: Date.now()
+          }
+        })
+        this.scrollToBottom()
+        const res = await api.steer({ id: this.sid, text })
+        if (!res.ok) this.$message.warning(res.error || '插话失败')
+        return
+      }
       const quote = this.quote
       const text = quote ? ('引用：\n' + quote + '\n\n' + draft) : draft
       if (!window.electronAPI || !window.electronAPI.omnibuddy) {

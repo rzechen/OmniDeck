@@ -1213,6 +1213,25 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
     }
   })
 
+  // 运行中插话（pi steer）：排队转向消息，当前工具轮结束后、下次 LLM 调用前送达，
+  // 不打断进行中的回答（区别于 interrupt）；消息照常落盘并归属当前分支线路
+  ipcMain.handle('omnibuddy:session:steer', async (_e, { id, text }) => {
+    const r = running.get(id)
+    if (!r) return { ok: false, error: '当前会话未在回复中' }
+    if (r.mode !== 'pi') return { ok: false, error: '当前会话不支持插话' }
+    const content = String(text || '').trim()
+    if (!content) return { ok: false, error: '插话内容为空' }
+    const extras = (Array.isArray(r.anchors) && r.anchors.length) ? { anchors: r.anchors.slice() } : {}
+    const { record } = sessions.addMessage(id, Object.assign({
+      role: 'user',
+      content,
+      steered: true
+    }, extras))
+    emit(getWindow, id, { type: 'user_message', message: record })
+    const ok = await piRuntime.steerSession(id, content)
+    return ok ? { ok: true } : { ok: false, error: '插话失败（会话可能已结束，请稍后重发）' }
+  })
+
   // 中断当前回复
   ipcMain.handle('omnibuddy:session:interrupt', async (_e, id) => {
     const r = running.get(id)
@@ -1430,15 +1449,10 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
     return { ok: true, message: record }
   })
 
-  // ===== MCP 服务管理（pi-mcp-adapter 读取 <agentDir>/mcp.json 装载） =====
+  // ===== MCP 服务管理（pi 内置 createMcpExtension 读取 <agentDir>/mcp.json 装载） =====
   ipcMain.handle('omnibuddy:mcp:list', () => mcp.list())
 
   ipcMain.handle('omnibuddy:mcp:save', (_e, servers) => mcp.save(servers))
-
-  ipcMain.handle('omnibuddy:mcp:adapter-installed', () => mcp.adapterInstalled())
-
-  // 确保 pi-mcp-adapter 已安装（未安装则装，并销毁全部会话使新会话装载扩展）
-  ipcMain.handle('omnibuddy:mcp:ensure-adapter', async () => mcp.ensureAdapter())
 
   // ===== 生态连接器（官方 MCP Server 目录，一键接入） =====
   // 目录合并 mcp.list() 实时连接状态

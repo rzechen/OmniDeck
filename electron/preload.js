@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pinSession: payload => ipcRenderer.invoke('omnibuddy:session:pin', payload),
     deleteSession: id => ipcRenderer.invoke('omnibuddy:session:delete', id),
     sendMessage: payload => ipcRenderer.invoke('omnibuddy:session:send', payload),
+    steer: payload => ipcRenderer.invoke('omnibuddy:session:steer', payload),
     interrupt: id => ipcRenderer.invoke('omnibuddy:session:interrupt', id),
     replyAskUser: payload => ipcRenderer.invoke('omnibuddy:ask-user:reply', payload),
     // 权限确认（允许 / 本会话内允许 / 拒绝）；pending 恢复渲染层重载丢失的待确认项
@@ -112,12 +113,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     // 深度研究（P3）：workflow 运行状态（历史卡片回放）
     workflowStatus: payload => ipcRenderer.invoke('omnibuddy:workflow:status', payload),
-    // MCP 服务管理（pi-mcp-adapter）
+    // MCP 服务管理（pi 内置 MCP，配置落 <agentDir>/mcp.json）
     mcp: {
       list: () => ipcRenderer.invoke('omnibuddy:mcp:list'),
-      save: servers => ipcRenderer.invoke('omnibuddy:mcp:save', servers),
-      adapterInstalled: () => ipcRenderer.invoke('omnibuddy:mcp:adapter-installed'),
-      ensureAdapter: () => ipcRenderer.invoke('omnibuddy:mcp:ensure-adapter')
+      save: servers => ipcRenderer.invoke('omnibuddy:mcp:save', servers)
     },
     // 联网搜索（pi-web-access：web_search / fetch_content，免配置即用）
     webSearch: {

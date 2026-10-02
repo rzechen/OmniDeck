@@ -11,7 +11,7 @@
 // - todo_read：回读当前会话任务清单（todo_write 的镜像，模型多轮后可自查进度）
 // - subagent 委派（对应 LangGraph 版 delegate_agent / delegate_agents）：
 //   不重复造轮子，内置注册社区扩展 pi-subagents（本地依赖闭包，
-//   与 pi-mcp-adapter 的 registerBuiltinAdapter 同模式）
+//   经 settings.json packages 本地路径源注册的同模式）
 const path = require('path')
 const fs = require('fs')
 const { spawn } = require('child_process')

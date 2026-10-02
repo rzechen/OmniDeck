@@ -1,9 +1,8 @@
 // OmniBuddy MCP 服务配置管理
-// pi 社区扩展 pi-mcp-adapter 读取 <agentDir>/mcp.json（标准 MCP 格式：
-// { mcpServers: { name: { command, args, env, disabled?, description? }
-//               或 { url, headers, disabled?, description? } } }），
-// 注册后由 pi 的 DefaultResourceLoader 自动装载。
-// 本模块职责：预置配置初始化 / UI 视图列表 / 校验保存（支持凭证注入）/ 内置适配器注册。
+// pi 1.0.0 内置 MCP 支持：会话经 pi.createMcpExtension() 读取 <agentDir>/mcp.json
+// （标准 MCP 格式：{ mcpServers: { name: { command, args, env, disabled?, description? }
+//                或 { url, headers, disabled?, description? } } }）装载连接。
+// 本模块职责：预置配置初始化 / UI 视图列表 / 校验保存（支持凭证注入）/ 旧适配器清理。
 const path = require('path')
 const fs = require('fs')
 const credentials = require('./credentials')
@@ -59,60 +58,34 @@ function settingsFile() {
   return path.join(agentDir, 'settings.json')
 }
 
-// ===== 内置适配器注册（pi-mcp-adapter 随应用打包，无需用户安装） =====
-// 包已加入项目 dependencies：dev 环境位于 <root>/node_modules，打包后位于 app.asar 内
-// （原生依赖由 electron-builder smartUnpack 自动解包）。
-// pi 的 packages 支持本地绝对路径源（不复制、直接加载，jiti 解析依赖时沿
-// node_modules 向上查找，天然命中应用内的依赖闭包）。
-function builtinAdapterPath() {
+// ===== 旧版 pi-mcp-adapter 清理 =====
+// pi 1.0.0 已内置 MCP 支持，且安装了注册 /mcp 命令的扩展（如 pi-mcp-adapter）
+// 反而会「替代」内置支持（pi 不再读取 mcp.json）。升级后须清掉旧注册记录：
+// 1. settings.json packages 中的本地路径记录与 npm: 记录
+// 2. pi install 装到 agentDir/npm 的残留目录
+// 返回 true 表示发生了清理（调用方在无会话的启动阶段调用，无需销毁重建）
+function cleanupLegacyAdapter() {
+  let changed = false
   try {
-    // 主入口解析为 <pkg>/index.ts，其上级目录即包根；
-    // 沿 dist-electron/agent → dist-electron → 应用根 查找 node_modules，dev 与打包（asar）环境同构
-    // （注意：包的 exports 未导出 ./package.json 子路径，不能 resolve 子路径）
-    return path.dirname(require.resolve('pi-mcp-adapter'))
-  } catch (e) {
-    return ''
+    const settings = JSON.parse(fs.readFileSync(settingsFile(), 'utf-8'))
+    const packages = Array.isArray(settings.packages) ? settings.packages : []
+    const next = packages.filter(p => typeof p === 'string' && p.indexOf('pi-mcp-adapter') < 0)
+    if (next.length !== packages.length) {
+      settings.packages = next
+      fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2))
+      changed = true
+      console.log('[omnibuddy:mcp] 已清理旧版 pi-mcp-adapter 注册记录')
+    }
+  } catch (e) { /* settings.json 不存在或损坏：无需清理 */ }
+  const legacyDir = path.join(agentDir, 'npm', 'pi-mcp-adapter')
+  if (fs.existsSync(legacyDir)) {
+    try {
+      fs.rmSync(legacyDir, { recursive: true, force: true })
+      changed = true
+      console.log('[omnibuddy:mcp] 已删除旧版 pi-mcp-adapter 安装目录')
+    } catch (e) { /* 删除失败不影响内置装载 */ }
   }
-}
-
-// 确保内置适配器已注册到 settings.json 的 packages：
-// 1. 已有旧版手动安装记录（npm:pi-mcp-adapter 且实际已装）→ 保留不动
-// 2. 已注册本地路径与当前环境一致 → 幂等跳过
-// 3. 注册的是其它环境的本地路径（dev ⇄ 打包切换）→ 替换为当前路径
-// 4. 无任何记录 → 追加当前路径
-// 返回 true 表示 settings.json 发生了变更（调用方需销毁旧会话以重新装载）
-function registerBuiltinAdapter() {
-  const pkgPath = builtinAdapterPath()
-  if (!pkgPath) {
-    console.warn('[omnibuddy:mcp] 内置适配器包缺失：node_modules/pi-mcp-adapter 不可解析')
-    return false
-  }
-  let settings = {}
-  try {
-    settings = JSON.parse(fs.readFileSync(settingsFile(), 'utf-8'))
-  } catch (e) { /* 首次不存在 */ }
-  const packages = Array.isArray(settings.packages) ? settings.packages : []
-  // 旧版经 pi install 装到 agentDir/npm 的记录：目录存在即可用，尊重现状
-  if (packages.includes('npm:pi-mcp-adapter') &&
-      fs.existsSync(path.join(agentDir, 'npm', 'pi-mcp-adapter'))) {
-    return false
-  }
-  if (packages.includes(pkgPath)) return false
-  // 清理其它环境的本地路径记录（字符串源且指向 pi-mcp-adapter 但非当前路径）
-  const next = packages.filter(p => {
-    if (typeof p !== 'string') return true
-    return !(p.indexOf('pi-mcp-adapter') >= 0 && p.indexOf('npm:') !== 0 && p !== pkgPath)
-  })
-  next.push(pkgPath)
-  settings.packages = next
-  try {
-    fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2))
-    console.log('[omnibuddy:mcp] 内置适配器已注册：', pkgPath)
-    return true
-  } catch (e) {
-    console.warn('[omnibuddy:mcp] 注册内置适配器失败：', e.message)
-    return false
-  }
+  return changed
 }
 
 function init(dir) {
@@ -146,8 +119,8 @@ function init(dir) {
       // 损坏文件交给 list() 回退空列表，不做硬性修复
     }
   }
-  // 注册内置适配器（应用启动时尚无会话，无需销毁重建）
-  registerBuiltinAdapter()
+  // 清理旧版 pi-mcp-adapter 注册（升级到内置 MCP 后的幂等迁移）
+  cleanupLegacyAdapter()
 }
 
 // mcp.json → UI 结构数组：
@@ -271,29 +244,4 @@ function save(servers) {
   }
 }
 
-// 适配器是否可用：内置包可解析（随应用打包），或旧版 pi install 记录仍有效
-function adapterInstalled() {
-  if (builtinAdapterPath()) return true
-  try {
-    const settings = JSON.parse(fs.readFileSync(settingsFile(), 'utf-8'))
-    return Array.isArray(settings.packages) && settings.packages.includes('npm:pi-mcp-adapter') &&
-      fs.existsSync(path.join(agentDir, 'npm', 'pi-mcp-adapter'))
-  } catch (e) {
-    return false
-  }
-}
-
-// 确保适配器可用：内置注册（幂等写 settings.json）；注册发生变化时销毁运行中会话（新会话重建时装载扩展）
-// 正常情况启动时 init 已完成注册，此接口仅作兜底修复（UI「修复注册」按钮）
-async function ensureAdapter() {
-  if (!adapterInstalled()) return { ok: false, error: '适配器包缺失（应用文件不完整，请重新安装应用）' }
-  const changed = registerBuiltinAdapter()
-  if (changed) {
-    // 惰性 require：pi.js 运行时与本模块相互引用，加载期 require 会形成循环依赖
-    const piRuntime = require('./pi')
-    await piRuntime.disposeAllSessions()
-  }
-  return { ok: true, installed: true, builtin: true }
-}
-
-module.exports = { init, list, builtinList, save, adapterInstalled, ensureAdapter }
+module.exports = { init, list, builtinList, save }

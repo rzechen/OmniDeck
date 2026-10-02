@@ -16,7 +16,7 @@ const CONNECTORS = [
     icon: 'promotion',
     category: 'IM 协作',
     description: '消息、日历、云文档、审批等飞书 OpenAPI 全集（官方 lark-mcp）',
-    // stdio：npx 拉起官方包（pi-mcp-adapter 装载，新会话生效）
+    // stdio：npx 拉起官方包（pi 内置 MCP 装载，新会话生效）
     transport: 'stdio',
     command: 'npx',
     args: ['-y', '@larksuiteoapi/lark-mcp', 'mcp'],

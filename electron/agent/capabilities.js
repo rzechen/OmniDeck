@@ -103,6 +103,25 @@ const DOC_TOOLS = [
   { name: 'preview_export', label: '生成预览', description: '把 Markdown / LaTeX / 本地文件 / 最新回复渲染为 PDF / HTML / PNG 预览文件。', perm: 'allow' }
 ]
 
+// 图像生成（pi 1.0.0）：generate_image 工具仅在 provider 配置了图像模型时注册；
+// 未配置时按禁用态呈现（文案引导去模型管理页），与联网开关同模式
+const IMAGE_TOOLS = [
+  { name: 'generate_image', label: '生成图片', description: '根据文字描述生成图片，产物自动保存到 exports/ 并展示卡片（需 OpenRouter 图像端点）。', perm: 'allow' }
+]
+
+function imageTools() {
+  // 惰性 require：pi.js 顶层引用本模块（webToolNames），加载期反向 require 会循环
+  let configured = false
+  try {
+    configured = !!(require('./pi').getProviderInfo() || {}).imageModel
+  } catch (e) { /* pi 运行时未初始化按未配置处理 */ }
+  if (configured) return IMAGE_TOOLS
+  return IMAGE_TOOLS.map(t => Object.assign({}, t, {
+    disabled: true,
+    description: '未配置图像模型（模型管理 → 高级设置 → 图像模型，当前仅支持 OpenRouter 图像端点）。'
+  }))
+}
+
 // 按 pandoc 落位状态动态标注（python / node 工具同模式）；
 // 对用户文案不暴露底层引擎术语（pandoc / 扩展包名），仅呈现可用状态
 function docTools() {
@@ -229,6 +248,7 @@ function listCapabilities() {
     builtin: extToolsWithRuntimeStatus(),
     web: webTools(),
     docs: docTools(),
+    image: imageTools(),
     wechat: WECHAT_TOOLS,
     workflow: workflowTools(),
     ui: UI_TOOLS,
@@ -246,6 +266,7 @@ const TOOL_GROUPS = [
   ['builtin', EXT_TOOLS],
   ['web', WEB_TOOLS],
   ['docs', DOC_TOOLS],
+  ['image', IMAGE_TOOLS],
   ['wechat', WECHAT_TOOLS],
   ['workflow', WORKFLOW_TOOLS],
   ['ui', UI_TOOLS],

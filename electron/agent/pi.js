@@ -1,7 +1,10 @@
 // OmniBuddy pi Agent 运行时
 // pi-coding-agent 为纯 ESM 包（Node>=22.19），Electron 主进程为 CJS，
 // 因此通过 dynamic import() 加载（rollup dynamicImportInCjs 保留原生 import）。
-// 社区扩展（pi-mcp-adapter / pi-web-access / pi-memory 等）经 pi CLI 安装到
+// pi 1.0.0 起 MCP / codemode 为内置扩展（SDK 宿主须显式加入 extensionFactories）：
+// createMcpExtension 读取 <agentDir>/mcp.json 装载连接，替代旧社区包 pi-mcp-adapter
+// （mcp.js 启动时清理旧注册记录，残留会屏蔽内置支持）。
+// 社区扩展（pi-web-access / pi-memory 等）经 pi CLI 安装到
 // agentDir，由 DefaultResourceLoader 自动装载；pi-subagents 由 builtin-tools 内置注册。
 // ask-user / todo 为 UI 耦合扩展，以内联工厂注入；multi_edit / append / mkdir /
 // todo_read 等同等工具见 builtin-tools.js。
@@ -142,7 +145,7 @@ function providerKeyOf(p) {
     p.imageInput === false ? '0' : '1',
     p.thinkingMode || 'follow'
   ].join('~')
-  return [p.baseUrl, p.model, p.apiKey || '', tierSig, advSig].join('|')
+  return [p.baseUrl, p.model, p.apiKey || '', tierSig, advSig, p.imageModel || ''].join('|')
 }
 
 function modelConfig(p) {
@@ -167,6 +170,21 @@ function modelConfig(p) {
   }
 }
 
+// 图像生成模型条目（pi 1.0.0）：与 chat 模型同 provider（baseUrl/apiKey 复用），
+// type: 'image' 走 ModelRuntime.generateImages；pi-ai 1.0.0 图像 API 仅内置
+// openrouter-images，故本能力面向 OpenRouter（或兼容其图像端点的网关）用户
+function imageModelOf(p) {
+  return p && p.imageModel ? {
+    id: p.imageModel,
+    name: p.imageModel,
+    type: 'image',
+    api: 'openrouter-images',
+    input: ['text'],
+    output: ['image'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  } : null
+}
+
 // 写 models.json：subagents 子进程无法接收运行时参数，从 agentDir 读取 provider 配置
 function writeModelsJson(p) {
   const file = path.join(state.agentDir, 'models.json')
@@ -183,7 +201,8 @@ function writeModelsJson(p) {
     baseUrl: p.baseUrl,
     apiKey: p.apiKey || '',
     api: apiOf(p),
-    models: [modelConfig(p)]
+    // chat + image（imageModel 配置时）混合条目；子代理场景同样可经 images API 生成
+    models: imageModelOf(p) ? [modelConfig(p), imageModelOf(p)] : [modelConfig(p)]
   }
   // 深度研究（P3）：档位专属 provider 同步落盘（子进程场景可读）
   const tiers = tiersOf(p)
@@ -226,7 +245,8 @@ async function ensureRuntime(provider) {
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey || '',
     model: provider.model,
-    apiFormat: provider.apiFormat || 'openai'
+    apiFormat: provider.apiFormat || 'openai',
+    imageModel: provider.imageModel || ''
   }
   if (state.modelRuntime && state.providerKey === key) return
   console.log('[omnibuddy:pi] runtime provider ->', provider.baseUrl, 'model=' + provider.model)
@@ -240,7 +260,7 @@ async function ensureRuntime(provider) {
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey || '',
     api: apiOf(provider),
-    models: [modelConfig(provider)]
+    models: imageModelOf(provider) ? [modelConfig(provider), imageModelOf(provider)] : [modelConfig(provider)]
   })
   if (provider.apiKey) {
     await runtime.setRuntimeApiKey(PROVIDER_ID, provider.apiKey)
@@ -284,6 +304,67 @@ async function ensureRuntime(provider) {
 }
 
 // ===== UI 耦合扩展 =====
+// 图像生成（pi 1.0.0）：generate_image 工具 → ModelRuntime.generateImages，
+// 复用会话 provider 凭证（pi-ai 图像 API 为 openrouter-images，需用户配置
+// OpenRouter 兼容端点 + 图像模型）；产物落 <workspace>/exports/，artifacts
+// 结构化清单走前端产物卡片管线（与 doc_export 同构）。未配置时不注册工具
+function createGenerateImageExtension(cwd) {
+  return function generateImageExtension(piApi) {
+    piApi.registerTool({
+      name: 'generate_image',
+      label: '生成图片',
+      description: '根据文字描述生成图片。prompt 用一句连贯的话描述画面（主体、动作、环境、风格、构图视角、光线氛围）。生成成功后图片保存到 exports/ 目录并在界面展示产物卡片。',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: '图像内容的详细描述' }
+        },
+        required: ['prompt']
+      },
+      execute: async (_id, params) => {
+        const err = (text) => ({ content: [{ type: 'text', text }], details: { isError: true } })
+        try {
+          const p = state.provider
+          if (!p || !p.imageModel) {
+            return err('未配置图像模型：请在「模型管理 → 高级设置 → 图像模型」填写（当前仅支持 OpenRouter 图像端点）')
+          }
+          const imgModel = state.modelRuntime.getAvailableSnapshot()
+            .find(m => m.id === p.imageModel && m.type === 'image')
+          if (!imgModel) return err('图像模型未注册成功，请检查模型配置后重试')
+          const res = await state.modelRuntime.generateImages(imgModel, {
+            input: [{ type: 'text', text: String(params.prompt || '') }]
+          })
+          const images = (res.output || []).filter(c => c && c.type === 'image' && c.data)
+          if (!images.length) {
+            const why = res.stopReason && res.stopReason !== 'stop' ? ('（' + (res.errorMessage || res.error || res.stopReason) + '）') : ''
+            return err('生成失败：模型未返回图片' + why)
+          }
+          const dir = path.join(cwd, 'exports')
+          fs.mkdirSync(dir, { recursive: true })
+          const artifacts = []
+          const stamp = Date.now()
+          for (let i = 0; i < images.length; i++) {
+            const mime = images[i].mimeType || 'image/png'
+            const ext = mime.split('/')[1] || 'png'
+            const file = path.join(dir, 'gen-' + stamp + '-' + (i + 1) + '.' + ext)
+            fs.writeFileSync(file, Buffer.from(images[i].data, 'base64'))
+            let size = 0
+            try { size = fs.statSync(file).size } catch (e) { /* 忽略 */ }
+            const kb = size >= 1048576 ? (size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(size / 1024)) + ' KB'
+            artifacts.push({ path: file, name: path.basename(file), format: ext, size, sizeText: kb })
+          }
+          return {
+            content: [{ type: 'text', text: '已生成 ' + artifacts.length + ' 张图片：\n' + artifacts.map(a => '- ' + a.path).join('\n') }],
+            details: { artifacts }
+          }
+        } catch (e) {
+          return err('生成失败：' + ((e && e.message) || e))
+        }
+      }
+    })
+  }
+}
+
 // ask-user：模型向用户提问，前端渲染表单，经 IPC 回传答案
 function createAskUserExtension(onAskUser) {
   return function (piApi) {
@@ -412,14 +493,16 @@ function createTodoExtension(onTodo) {
 }
 
 // ===== 系统提示词（办公助手） =====
-// 当前启用的 MCP 服务清单（含内置，名称+描述）：联网引导按实际配置生成
-function enabledMcpLines() {
-  const servers = []
+// 是否存在已启用的 MCP 服务（含内置）：联网引导分支用。
+// 服务清单本身不再手工列举——pi 1.0.0 内置 MCP 扩展会自动在系统提示词
+// 注入 mcp_servers 段（名称+一行描述，每轮 prompt 更新），宿主只保留使用引导
+function hasEnabledMcp() {
   try {
-    for (const s of mcp.list()) if (s.enabled) servers.push(s)
-    for (const s of mcp.builtinList()) servers.push(s)
-  } catch (e) { /* 读取失败按无服务处理 */ }
-  return servers.map(s => '- ' + s.name + (s.description ? '：' + s.description : ''))
+    for (const s of mcp.list()) if (s.enabled) return true
+    return mcp.builtinList().length > 0
+  } catch (e) {
+    return false
+  }
 }
 
 function systemPrompt() {
@@ -434,18 +517,15 @@ function systemPrompt() {
   // 联网能力引导按当前实际配置动态生成：
   // - web_search / fetch_content（pi-web-access 内置扩展）为联网首选；
   //   联网开关关闭时明确告知不可用，避免空跑
-  // - 已配置 MCP：列出服务清单，模型据此直接选用（不会盲找不存在的搜索服务）；
-  //   以上均不适用时回落 curl
+  // - 已配置 MCP：SDK 自动注入 mcp_servers 段（服务清单+描述），此处只保留
+  //   「优先 MCP、回落 curl」的决策引导；以上均不适用时回落 curl
   if (webSearch.enabled()) {
     lines.push('联网搜索优先使用 web_search 工具（多引擎自动降级），网页、代码仓库与 PDF 的抓取优先使用 fetch_content 工具。')
   } else {
     lines.push('当前已关闭联网搜索（web_search / fetch_content 不可用）；如需实时信息，提示用户在输入框上方开启联网开关。')
   }
-  const mcpLines = enabledMcpLines()
-  if (mcpLines.length) {
-    lines.push('联网等外部能力优先经以下已配置的 MCP 服务提供：')
-    lines.push(...mcpLines)
-    lines.push('以上服务均不适用时，可用 curl 工具发起 HTTP 请求获取公开数据。')
+  if (hasEnabledMcp()) {
+    lines.push('联网等外部能力优先使用已配置的 MCP 服务（清单与用途见系统提示词的 mcp_servers 段，工具经 codemode 脚本调用）；均不适用时可用 curl 工具发起 HTTP 请求获取公开数据。')
   } else {
     lines.push('当前未配置 MCP 服务；联网需求直接用 curl 工具发起 HTTP 请求获取公开数据，不要尝试搜索 MCP 工具。')
   }
@@ -453,6 +533,10 @@ function systemPrompt() {
   // 避免模型按通用习惯写系统 /tmp 触发 external_directory 逐次询问
   lines.push('临时文件（脚本、中间产物等）一律写入当前工作空间根目录的 .tmp/ 目录（已自动创建，环境变量 TMPDIR 已指向该处），不要写入系统 /tmp 等工作空间外的路径。')
   lines.push('交付正式文档（Word / PDF / HTML 报告、方案、纪要、信函等）时，先组织好完整的 Markdown 内容，再调用 doc_export 工具导出文件（输出到当前目录 exports/ 下，Word 可用 reference_doc 参数或工作目录下的 template.docx 沿用模板样式），不要把长文档直接贴在回复正文里。')
+  // 图像生成引导（pi 1.0.0）：仅配置了图像模型时注入，未配置不提及（工具未注册）
+  if (state.provider && state.provider.imageModel) {
+    lines.push('用户需要生成图片、插画、配图时，调用 generate_image 工具（产物自动保存并展示），不要用文字描摹替代。')
+  }
   lines.push('深度研究（P3）：当用户明确要求深度研究、多源交叉验证、并行审查、代码库巡检等多代理编排任务时，调用 workflow 工具（内置模式：deep-research 深度研究 / code-review 代码审查 / adversarial-review 对抗审查 / multi-perspective 多视角 / codebase-audit 代码库审计；也可传 script 自定义编排）。默认后台运行：工具立即返回，结果完成后自动回注对话继续处理，期间可告知用户任务已在后台进行。未获用户明确要求时不要主动调用 workflow。运行中的任务可用 workflow_control 工具查询进度、暂停或停止。')
   lines.push('文件写入与编辑工具（write / edit）默认需经用户逐次确认，确认通过后方可执行。')
   lines.push('若用户拒绝确认或处于只读模式，则不写文件，将结果直接输出给用户。')
@@ -678,6 +762,15 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
 
   // 沙箱开启时注入沙箱扩展（bash 工具覆盖），并预加载 ESM 依赖
   const factories = [
+    // 内置 MCP（pi 1.0.0）：读 <agentDir>/mcp.json 装载 stdio/HTTP 连接，
+    // OAuth / 重连 / 工具列表热更新由 SDK 管理；服务清单自动注入 mcp_servers 系统提示词段
+    pi.createMcpExtension(),
+    // codemode / tool_search（pi 1.0.0 内置，SDK 宿主须显式注册）：
+    // 注册为 inactive，经 settings 的 defaultTools ["+codemode"] 激活；
+    // MCP 服务器默认 codemode exposure 的工具经 codemode 脚本调用（不占工具声明），
+    // tool_search 供模型按需加载 deferred 工具
+    pi.createCodemodeExtension(),
+    pi.createToolSearchExtension(),
     // 权限确认桥接：ask 转 IPC 前端卡片（扩展未装时监听器空转，无害）；
     // onUiPrompt 缓存结构化广播供 ui.select 兜底路径使用
     permissions.createBridgeExtension(
@@ -708,7 +801,9 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     wechatEditor.createEditorExtension(cwd),
     // 凭据按需取用（B 方案后续）：AI 对话中经 credential_get 取「AI 取用类」凭据；
     // 默认 ask 权限（capabilities 登记），开关关闭时工具返回引导文案
-    createCredentialGetExtension()
+    createCredentialGetExtension(),
+    // 图像生成（pi 1.0.0）：配置了 imageModel 才注册 generate_image 工具
+    ...(imageModelOf(provider) ? [createGenerateImageExtension(cwd)] : [])
   ]
   if (sandbox.getSandboxConfig().enabled) {
     try {
@@ -735,10 +830,16 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
   await resourceLoader.reload()
 
   // 关闭 SDK 自动重试（默认最多 3 次静默重试，期间前端一直停留在"思考中"）；
-  // 开启上下文自动压缩（长会话接近窗口上限时自动总结早期记录，P1-9）
+  // 开启上下文自动压缩（长会话接近窗口上限时自动总结早期记录，P1-9）；
+  // 启用 codemode（pi 1.0.0 内置）：模型经 QuickJS 沙箱脚本编排工具调用，
+  // 约 40% prompt token 节省；MCP 服务器默认 codemode exposure 的工具亦经此调用
   const settingsManager = pi.SettingsManager.inMemory({
     retry: { enabled: false },
-    compaction: { enabled: true }
+    compaction: { enabled: true },
+    defaultTools: ['+codemode'],
+    // prompt cache warming（0.86.0）：长工具循环期间保温 prompt 缓存，
+    // 避免工具执行超过缓存有效期后整段前缀重算（第三方兼容端点按 token 计费直接省钱）
+    cacheWarming: 'streaming'
   })
   // 写入工具（edit/write）不再排除：统一纳入权限策略管控（默认逐次确认）。
   // bash / powershell 为 shell 能力，按平台自动选择其一，沙箱开关开启时
@@ -1028,6 +1129,20 @@ async function interruptSession(chatId) {
   if (entry) await entry.session.abort()
 }
 
+// 运行中插话（pi 1.0.0 AgentSession.steer）：排队转向消息，当前工具轮执行完、
+// 下次 LLM 调用前送达——不打断进行中的回答（区别于 abort），模型可据此调整后续动作
+async function steerSession(chatId, text) {
+  const entry = state.sessions.get(chatId)
+  if (!entry) return false
+  try {
+    await entry.session.steer(String(text || ''))
+    return true
+  } catch (e) {
+    console.warn('[omnibuddy:pi] steer 失败:', (e && e.message) || e)
+    return false
+  }
+}
+
 // ===== 社区扩展包管理（pi CLI） =====
 // pi CLI 为 ESM 脚本，用 Electron 二进制以 node 模式运行
 function piCliPath() {
@@ -1044,7 +1159,7 @@ function listPackages() {
   }
 }
 
-// 安装社区扩展（如 pi-web-access / pi-mcp-adapter / pi-subagents）
+// 安装社区扩展（如 pi-web-access / pi-subagents）
 function installPackage(pkgName) {
   return new Promise((resolve) => {
     const child = spawn(
@@ -1284,6 +1399,7 @@ module.exports = {
   listSessionIds,
   getProviderInfo,
   interruptSession,
+  steerSession,
   // select 兜底权限确认：前端四档应答路由 / 会话中断批量拒绝 / 未决清单（重载恢复）
   replyUiAsk,
   rejectUiAsks,
