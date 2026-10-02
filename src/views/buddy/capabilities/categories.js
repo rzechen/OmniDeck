@@ -8,7 +8,7 @@ export const CAPABILITY_CATEGORIES = [
   {
     key: 'core',
     label: '核心工具',
-    desc: 'Agent 运行时内置的文件读写与命令执行工具',
+    desc: 'Agent 运行时内置的文件读写、命令执行与工具编排（codemode / tool_search）',
     icon: 'code',
     logo: 'logo-skill'
   },
@@ -39,6 +39,13 @@ export const CAPABILITY_CATEGORIES = [
     desc: '对话中按文字描述生成图片，产物自动保存（需在模型管理配置 OpenRouter 图像模型）',
     icon: 'picture-outline',
     logo: 'logo-skill'
+  },
+  {
+    key: 'mcpBuiltin',
+    label: '内置 MCP',
+    desc: '内置 playwright 浏览器服务的全部工具通配放行；自行登记的 MCP 服务器仍逐工具确认（可按 mcp__服务器名* 格式自建通配规则）',
+    icon: 'browser',
+    logo: 'logo-connector'
   },
   {
     key: 'wechat',
