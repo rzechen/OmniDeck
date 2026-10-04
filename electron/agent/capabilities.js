@@ -20,7 +20,8 @@ const CORE_TOOLS = [
   { name: 'write', label: '写入文件', description: '创建/覆写文件内容；默认需逐次确认，可在权限策略中调整。', perm: 'ask' },
   { name: 'find', label: '查找文件', description: '按名称 / 类型 / 大小等条件在工作空间内查找文件（pi 内置）。' },
   { name: 'grep', label: '搜索内容', description: '按正则表达式在文件内容中搜索匹配行（pi 内置，支持 include 过滤）。' },
-  { name: 'ls', label: '列出目录', description: '列出指定目录的内容（pi 内置）。' },
+  // ls 为纯只读列目录（无副作用），默认放行；find / grep 仍落 '*' 兜底
+  { name: 'ls', label: '列出目录', description: '列出指定目录的内容（pi 内置）。', perm: 'allow' },
   // pi 1.0.0 内置编排工具：codemode 经 QuickJS 沙箱脚本编排工具调用（省约 40%
   // prompt token）。工具本身只做编排：脚本内嵌套调用的工具（read/bash/mcp__*
   // 等）仍各自过权限门（带 parentToolCallId），故默认放行不放大攻击面

@@ -183,7 +183,7 @@ export default {
   font-size: 16px;
 }
 
-/* 浮条浮现过渡（Vue2 过渡类名） */
+/* 浮条浮现过渡（旧版过渡类名） */
 .ob-selbar-enter-active {
   transition: opacity 0.14s ease, transform 0.14s ease;
 }

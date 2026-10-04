@@ -1303,7 +1303,7 @@ export default {
   border: 2px solid var(--card-bg, #fff);
 }
 
-/* 悬浮按钮显隐过渡（Vue2 过渡类名） */
+/* 悬浮按钮显隐过渡（旧版过渡类名） */
 .ob-scroll-btn-enter-active,
 .ob-scroll-btn-leave-active {
   transition: opacity 0.18s ease, transform 0.18s ease;
@@ -1546,7 +1546,7 @@ export default {
   }
 }
 
-/* 底部滑出：面板自输入框方向整块滑入弹出（Vue2 过渡类名） */
+/* 底部滑出：面板自输入框方向整块滑入弹出（旧版过渡类名） */
 .ob-perm-bar-enter-active {
   transition: opacity 0.25s ease, transform 0.28s cubic-bezier(0.34, 1.3, 0.64, 1);
 }
