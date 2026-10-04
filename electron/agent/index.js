@@ -1548,7 +1548,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
     }
   })
 
-  // 重置为系统默认策略（平衡）：整份重写 defaultConfig + 清空规则说明 sidecar，
+  // 重置为系统默认策略：整份重写 defaultConfig + 清空规则说明 sidecar，
   // 不走三方合并（重置语义就是丢弃自建/旁路修改）；快照同步刷新避免下次保存误判
   ipcMain.handle('omnibuddy:permission:reset', () => {
     try {

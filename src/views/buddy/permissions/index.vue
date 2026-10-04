@@ -25,21 +25,14 @@
       </div>
 
       <template v-else>
-        <!-- 分组规则视图：工具组 + 特殊面组 + 自定义组 -->
-        <div class="ob-groups-panel">
-          <div class="ob-groups-head">
-            <span>规则明细</span>
-            <span class="ob-groups-tip">特殊面（路径 / 外部目录 / 兜底）与自定义规则为额外管理面；保存后新对话生效</span>
-          </div>
-          <!-- 动作裁决说明（固定于面板顶部，不随行区滚动） -->
-          <div class="ob-mode-note">
-            <svg-icon icon-class="info" />
-            <p><b>允许 / 拒绝</b>的规则直接执行；<b>每次确认</b>的由对话输入框下方的权限模式裁决（弹卡询问 / 自动放行 / 只读拒绝）。同一工具的多条匹配细则按「精确 &gt; 通配」生效。</p>
-          </div>
+        <!-- 动作裁决说明（内容区顶部，随页面滚动） -->
+        <div class="ob-mode-note">
+          <svg-icon icon-class="info" />
+          <p><b>允许 / 拒绝</b>的规则直接执行；<b>每次确认</b>的由对话输入框下方的权限模式裁决（弹卡询问 / 自动放行 / 只读拒绝）。同一工具的多条匹配细则按「精确 &gt; 通配」生效；特殊面（路径 / 外部目录 / 兜底）与自定义规则为额外管理面，保存后新对话生效。</p>
+        </div>
 
-          <div class="ob-groups-scroll">
-            <!-- 工具组（同构分组） -->
-            <section v-for="g in viewGroups" :key="g.key" class="ob-perm-section">
+        <!-- 分组规则视图：工具组 + 特殊面组 + 自定义组（各组自带圆角列表） -->
+        <section v-for="g in viewGroups" :key="g.key" class="ob-perm-section">
               <div class="ob-perm-head">
                 <span class="ob-perm-ico"><svg-icon :icon-class="g.icon" /></span>
                 <span class="ob-perm-title">{{ g.label }}</span>
@@ -179,8 +172,6 @@
                 <el-button size="small" round class="ob-custom-add" @click="addCustomRow"><svg-icon icon-class="plus" /> 添加规则</el-button>
               </div>
             </section>
-          </div>
-        </div>
       </template>
     </div>
 
@@ -565,14 +556,14 @@ export default {
         this.saving = false
       }
     },
-    // 重置为系统默认（平衡）策略：清空全部自建规则与说明，二次确认防误触
+    // 重置为系统默认策略：清空全部自建规则与说明，二次确认防误触
     async resetDefault() {
       const api = this.api()
       if (!api || !api.permissionReset) return
       let confirmed = false
       try {
         await this.$confirm(
-          '将清空全部自定义规则与说明，恢复为系统默认（平衡）策略。此操作不可撤销，确定继续？',
+          '将清空全部自定义规则与说明，恢复为系统默认策略。此操作不可撤销，确定继续？',
           '重置权限策略',
           { confirmButtonText: '重置', cancelButtonText: '取消', type: 'warning' }
         )
@@ -682,13 +673,13 @@ export default {
   padding: 8px 4px;
 }
 
-/* 动作裁决说明：固定于面板顶部（head 之下、滚动区之上，不随行区滚动） */
+/* 动作裁决说明：内容区顶部（随页面滚动），与首个分组保持间距 */
 .ob-mode-note {
   flex-shrink: 0;
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  margin: 8px 14px 0;
+  margin: 0 0 14px;
   padding: 8px 10px;
   border-radius: 10px;
   background: $search-bg;
@@ -713,48 +704,7 @@ export default {
   }
 }
 
-/* ============ 右侧分组规则面板（与能力清单同构，行区独立滚动） ============ */
-.ob-groups-panel {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: $card-bg;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-lg;
-  overflow: hidden;
-}
-
-.ob-groups-head {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: $text-primary;
-  border-bottom: 1px solid var(--border-color);
-  background: $search-bg;
-
-  .ob-groups-tip {
-    flex: 1;
-    font-size: 11px;
-    font-weight: 400;
-    color: $text-secondary;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-}
-
-.ob-groups-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px 14px 14px;
-}
+/* ============ 分组规则视图（无外层卡片，各组自带圆角列表；滚动由共享 .ob-page-body 承担） ============ */
 
 /* ===== 分组（与能力清单 ob-cap-* 同构形态） ===== */
 .ob-perm-section {
