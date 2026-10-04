@@ -54,12 +54,8 @@ const routes = [
         component: () => import('@/views/buddy/memory/index.vue'),
         meta: { title: '记忆管理' }
       },
-      {
-        path: 'capabilities',
-        name: 'OmniBuddyCapabilities',
-        component: () => import('@/views/buddy/capabilities/index.vue'),
-        meta: { title: '能力清单' }
-      },
+      // 能力清单已并入权限策略（工具目录 + 权限管控合并呈现），独立路由移除；
+      // capabilities/categories.js 分组定义仍由权限策略页消费
       // 运行时组件管理已收编至设置页（shared/settings「运行时」分区，
       // 由 RuntimeManager 组件承载），不再提供独立路由
       {

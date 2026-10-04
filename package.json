@@ -37,7 +37,7 @@
     "mitt": "^3.0.1",
     "node-forge": "^1.4.0",
     "pdf-parse": "^1.1.1",
-    "pi-subagents": "^0.70.0",
+    "pi-subagents": "^0.75.0",
     "pi-web-access": "^0.31.0",
     "qrcode": "^1.5.4",
     "relationship.js": "^1.2.9",

@@ -1,7 +1,7 @@
 // OmniBuddy 能力分组元数据（共享定义）
-// 能力中心（views/buddy/capabilities）与权限策略对象下拉（views/buddy/permissions）
-// 共用同一份分组定义，保证两处清单一致；主进程 capabilities.js 新增分组时
-// 在此同步登记即可（未登记的分组在下拉中按 key 名兜底展示）。
+// 能力清单页已并入权限策略（工具目录 + 权限管控合并呈现）：本分组定义现由
+// 权限策略页（views/buddy/permissions）消费，主进程 capabilities.js 新增
+// 分组时在此同步登记即可（未登记的分组在视图中按 key 名兜底展示）。
 // asSurface：该分组条目是否可直接作为权限策略的操作面（surface）——
 // 连接器组的权限统一走特殊面 mcp（pattern 匹配 mcp__服务器__工具），不直接纳入
 export const CAPABILITY_CATEGORIES = [
@@ -42,17 +42,10 @@ export const CAPABILITY_CATEGORIES = [
   },
   {
     key: 'mcpBuiltin',
-    label: '内置 MCP',
-    desc: '内置 playwright 浏览器服务的全部工具通配放行；自行登记的 MCP 服务器仍逐工具确认（可按 mcp__服务器名* 格式自建通配规则）',
+    label: 'MCP 通配规则',
+    desc: 'MCP 工具的通配规则条目：内置 playwright 全部工具放行，自建服务器默认逐次确认（可调整为允许，或按 mcp__服务器名__工具名 细分）',
     icon: 'browser',
     logo: 'logo-connector'
-  },
-  {
-    key: 'wechat',
-    label: '公众号',
-    desc: '公众号模板资产管线：秀米模板抓取导入、变量化渲染与草稿发布',
-    icon: 'doc',
-    logo: 'logo-skill'
   },
   {
     key: 'workflow',

@@ -24,6 +24,7 @@ function blankSession() {
     turnAnchors: [],       // 当前流式轮次的分支线路（ask_user 等实时消息归属标记）
     atBottom: true,        // 滚动位置标记（在底部时新消息自动跟滚）
     loaded: false,         // 历史已拉取标记（防止重复 IPC）
+    doneTimer: null,       // done 收尾防抖定时器（续跑回合毫秒级跟进时避免 meta 行闪现）
     lastFinishedMsg: null  // 刚被中断的本轮消息（供中断后迟到的 assistant_end 回填 id/用量）
   }
 }
@@ -186,6 +187,8 @@ function ensureTurnMessage(s) {
 
 // 结束本轮：清理流式/思考态，释放引用
 function finishTurn(s) {
+  // 收尾即取消未决的 done 防抖（interrupted/error 等先行收尾时清掉残留定时器）
+  if (s.doneTimer) { clearTimeout(s.doneTimer); s.doneTimer = null }
   const msg = s.turnMsg
   if (msg) {
     delete msg.streaming
@@ -413,10 +416,27 @@ export default {
       // 任务触发的回合没有用户发送动作（streaming=false），assistant_start
       // 即开启「幽灵回合」，让后续 delta / tool / assistant_end 正常渲染。
       // 中断后（lastFinishedMsg 残留）仍维持丢弃，避免被中止回合的迟到事件误触发
+      //
+      // 聚合（pi-subagents async 注入）：后台子代理的结果/监控事件会持续注入
+      // 驱动多个自发回合（主 prompt 可能已提前返回并发 done），若每段都新建
+      // 消息会出现「多个深度思考、仅首段有 meta 行」的碎片观感 —— 自发续跑
+      // 本质是同一任务的延续，复用末条助手消息聚合展示（一个思考区、一个 meta）
       if (e.type === 'assistant_start' && !s.streaming && !s.lastFinishedMsg) {
         console.log('[buddy-diag] 幽灵回合兜底触发（streaming=false→true）sessionId=', e.sessionId) // 临时诊断
         s.streaming = true
         s.lastFinishedMsg = null
+        // 尾部一路找本任务的助手消息（越过 todo/permission 等展示行；遇 user
+        // 或压缩分界停止 —— 压缩意味着上下文重置，续跑拼接旧正文会错位；
+        // 其后的续跑不属于任何已有回合，走 ensureTurnMessage 新建）
+        for (let i = s.messages.length - 1; i >= 0; i--) {
+          const m = s.messages[i]
+          if (m.role === 'user' || m.compaction) break
+          if (m.role === 'assistant') {
+            s.turnMsg = m
+            m.streaming = true
+            break
+          }
+        }
       }
       if (!s.streaming && TURN_EVENTS.indexOf(e.type) >= 0) {
         console.log('[buddy-diag] 丢弃迟到事件 type=', e.type, 'sessionId=', e.sessionId) // 临时诊断
@@ -559,6 +579,11 @@ export default {
             t.isError = !!e.isError
             t.fileChange = e.fileChange || null
             t.artifacts = e.artifacts || null
+            // 后台子代理（pi-subagents async）：记录 runId 供 subagent_progress
+            // 轮询推送反向定位本工具条目（run 跨回合运行，条目可能早已结束流式态）
+            if (e.subagent && e.subagent.runId) {
+              t.subagent = { runId: e.subagent.runId }
+            }
             // 深度研究（P3）：workflow 工具返回 runId（后台）或最终快照（前台）
             if (e.workflow) {
               t.workflow = e.workflow
@@ -581,6 +606,28 @@ export default {
               const it = m.items[j]
               if (it.type === 'tool' && it.workflow && it.workflow.runId === wf.runId) {
                 it.workflow.progress = wf
+                i = -1 // 双重跳出
+                break
+              }
+            }
+            if (i === -1) break
+          }
+          break
+        }
+        case 'subagent_progress': {
+          // 后台子代理活性推送（主进程轮询 pi-subagents run 的 status.json）：
+          // 后台 child 无流式回传，页面静默期以此呈现「运行中 · N 秒前活跃」。
+          // 目标工具条目可能在已结束的回合里（run 跨回合），全消息扫描
+          //（与 workflow_progress 同模式；非 TURN_EVENTS，流式态结束后不丢弃）
+          const sa = e.subagent || {}
+          if (!sa.runId) break
+          for (let i = s.messages.length - 1; i >= 0; i--) {
+            const m = s.messages[i]
+            if (!m.items) continue
+            for (let j = m.items.length - 1; j >= 0; j--) {
+              const it = m.items[j]
+              if (it.type === 'tool' && it.subagent && it.subagent.runId === sa.runId) {
+                it.subagent.progress = Object.assign({ ts: Date.now() }, sa)
                 i = -1 // 双重跳出
                 break
               }
@@ -687,10 +734,19 @@ export default {
         case 'done':
           console.log('[buddy-diag] done 到达 finishTurn sessionId=', e.sessionId, 'turnMsg=', s.turnMsg ? '有' : '无') // 临时诊断
           s.streaming = false
-          // 正常完成：上一轮残留的中断回填标记失效（若有）
-          s.lastFinishedMsg = null
-          finishTurn(s)
-          commit('NOTICE', { sessionId: e.sessionId, kind: 'sessions-changed' })
+          // 收尾防抖（600ms）：后台子代理唤醒 / followUp 排队的续跑回合可能在
+          // 毫秒级后开启（assistant_start 到达即置回 streaming）——立即 finishTurn
+          // 会让 meta 操作行闪现又消失（"卡一下出现一列 icon"）。延迟收尾，
+          // 期间无新回合才真正结束本轮；done 连发幂等（重复 done 重置定时器）
+          if (s.doneTimer) clearTimeout(s.doneTimer)
+          s.doneTimer = setTimeout(() => {
+            s.doneTimer = null
+            if (s.streaming) return // 防抖窗口内续跑已开启，本轮延续
+            // 正常完成：上一轮残留的中断回填标记失效（若有）
+            s.lastFinishedMsg = null
+            finishTurn(s)
+            commit('NOTICE', { sessionId: e.sessionId, kind: 'sessions-changed' })
+          }, 600)
           break
         case 'interrupted': {
           const msg = s.turnMsg

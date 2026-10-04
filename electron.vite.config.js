@@ -15,7 +15,8 @@ const agentNames = [
   'index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime',
   'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'pkg-registry',
   'web-search', 'rules', 'profile', 'memory', 'file-changes', 'attachments', 'market',
-  'connectors', 'usage', 'export', 'doc-export', 'image-gen', 'checkpoints', 'branchView', 'scheduler', 'workflows'
+  'connectors', 'usage', 'export', 'doc-export', 'image-gen', 'checkpoints', 'branchView', 'scheduler', 'workflows',
+  'subagent-watch'
 ]
 
 // 运行时 require / 定位的裸包并集（均在 dependencies，electron-builder 默认收集）：
@@ -73,10 +74,6 @@ const mainInput = hasCore
       'translate/controller': abs('electron/translate/controller.js'),
       'translate/engines': abs('electron/translate/engines.js'),
       'translate/inject': abs('electron/translate/inject.js'),
-      // 公众号模板管线：秀米导入 / 渲染发布复制 / 编辑器注入（agent/pi.js 相对引用，产物镜像源码结构）
-      'wechat/import': abs('electron/wechat/import.js'),
-      'wechat/render': abs('electron/wechat/render.js'),
-      'wechat/editor': abs('electron/wechat/editor.js'),
       'core/updater': abs('electron/core/updater.js'),
       'core/deps': abs('electron/core/deps.js'),
       // 运行时组件在线装配（main.js require；产物镜像源码结构，运行时解析）
