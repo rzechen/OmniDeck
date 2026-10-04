@@ -169,7 +169,7 @@ export default {
     }
   },
   mounted() {
-    // 非 data 实例属性（Vue 2 不代理 _ 前缀 data key，勿放入 data）
+    // 非 data 实例属性（Vue 3 不代理 _ 前缀 data key，勿放入 data）
     this.tickTimer = null
     this.flashTimers = {}
     this.startRefresh()

@@ -22,7 +22,7 @@ app.use(router)
 app.use(store)
 app.component('svg-icon', SvgIcon)
 
-// 事件总线（替代 Vue2 $root.$on/$off/$emit 跨组件通信）
+// 事件总线（Vue 3 移除了 $root.$on/$off/$emit，以此实现跨组件通信）
 app.config.globalProperties.$bus = mitt()
 
 // <webview> 为 Electron 自定义元素（翻译浏览器内嵌网页），Vue 不接管其渲染

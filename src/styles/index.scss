@@ -70,7 +70,7 @@ html, body, #app {
 // 不在上面的 drag 容器内）。Electron 合成拖动区域时，未显式声明 no-drag 的
 // 弹层会被下层 drag 区域"透视"吞掉鼠标事件，导致按钮点击 / 点击遮罩关闭失效，
 // 因此必须全局显式恢复为 no-drag。.el-overlay / .el-popper 为 EP 2.x 的
-// 遮罩与 popper 容器（对应 Vue2 时代的 .v-modal / .el-dialog__wrapper 等）。
+// 遮罩与 popper 容器（对应旧版 Element UI 的 .v-modal / .el-dialog__wrapper 等）。
 .el-overlay,
 .el-popper,
 .el-message-box__wrapper,

@@ -301,7 +301,7 @@ export default {
         opacity: 1
       }
     },
-    // 按给定顺序原地重排（splice 保证 Vue 2 响应式）
+    // 按给定顺序原地重排（splice 原地移动，保持数组引用稳定）
     sortByNames(list, keyField, names) {
       if (!names || !names.length) return
       names.forEach((name, idx) => {
