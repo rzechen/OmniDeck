@@ -31,6 +31,7 @@ const fileChanges = require('./file-changes')
 const branchView = require('./branchView')
 const scheduler = require('./scheduler')
 const workflows = require('./workflows')
+const subagentWatch = require('./subagent-watch')
 
 // 兜底路径的系统提示词（结构参考 pi 的 buildAutonomousSystemPrompt：
 // 角色定位 + 回答原则 + 输出格式 + 动态运行环境；每次请求实时生成）
@@ -68,6 +69,58 @@ const running = new Map()
 // 定时任务运行中的回合错误：chatId -> 错误文本（pi 不抛模型请求错误，
 // 只发 turn_error 事件；执行体在 prompt 返回后据此判失败并驱动重试）
 const automationTurnErrors = new Map()
+// ===== 无头任务监护：任务状态机（派生）+ 事件心跳看门狗 =====
+// 背景：无头回合的全部生命周期判定（中断/失败/重试）都依赖 session.prompt()
+// 的 resolve；LLM 流悬挂（连接建立后不返回数据也不报错）时错误永不返回——
+// pi 的 turn_error、pi-ai 的 retryAssistantCall（仅覆盖"错误返回"形态）与
+// 执行体的 MAX_ATTEMPTS 重试全部失效，任务在 scheduler 眼中永远 running
+// （10-03 20:00 任务卡死形态：20:10:55 最后一个 toolResult 后永久静默）。
+//
+// 任务状态机（状态为事件流的派生值，不单独存储避免双份状态失同步）：
+//   RUNNING        事件持续到达（流式输出 / 工具执行）
+//   AWAITING_USER  存在未决 permission_ask / ask_user / ui.select —— 确认
+//                  语义即"一直等用户决策"，看门狗豁免（区别于旧版 15 分钟
+//                  墙钟看门狗不区分语义、误杀等待用户任务的问题）
+//   AWAITING_MODEL 无事件且非等用户 —— 等待下一次模型响应或工具内部长阻塞；
+//                  心跳超时即停滞 → 主动 abort → prompt() resolve → 落入
+//                  既有 MAX_ATTEMPTS 重试链路（不依赖"错误返回"）
+// 无头会话心跳表：chatId -> { lastActivityAt, lastEventKind, toolOpen, lastToolName }
+// （handlePiEvent 全事件入口刷新；普通对话不在表中，O(1) 查询直接返回）
+const automationHeartbeats = new Map()
+// 无事件判停滞阈值：普通回合 15 分钟（> bash 默认 120s 超时与常见显式
+// timeout、上下文压缩时长；< auto-drain 30 分钟上限）
+const AUTOMATION_STALL_TIMEOUT_MS = 15 * 60 * 1000
+// 长阻塞工具执行中放宽到 35 分钟兜底（防真卡死）：
+// bg_wait 等后台 run 收拢（auto-drain 上限 30 分钟）、subagent 前台同步委派、
+// workflow 前台深度研究 —— 执行期间无事件属正常行为，误用 15 分钟会截杀
+const AUTOMATION_TOOL_STALL_TIMEOUT_MS = 35 * 60 * 1000
+const AUTOMATION_LONG_TOOLS = new Set(['bg_wait', 'subagent', 'workflow'])
+// 心跳刷新：任何 pi 事件都算活跃信号；tool_start/tool_end 维护"当前是否有
+// 未终结工具调用"（看门狗据此选择普通/长阻塞阈值）
+function touchAutomationHeartbeat(e) {
+  const hb = automationHeartbeats.get(e.chatId)
+  if (!hb) return
+  hb.lastActivityAt = Date.now()
+  hb.lastEventKind = e.kind
+  if (e.kind === 'tool_start' && e.toolName) {
+    hb.toolOpen = true
+    hb.lastToolName = e.toolName
+  } else if (e.kind === 'tool_end') {
+    hb.toolOpen = false
+  }
+}
+// AWAITING_USER 判定：三处挂起点任一存在未决询问即等用户——
+// pendingPermissions（权限确认链路）/ pendingAsks（ask_user 工具）/
+// pi.select 兜底（piRuntime.getPendingUiAsks）。用户应答后挂起点自动移除，
+// 状态自然迁回 AWAITING_MODEL / RUNNING，无需手动同步
+function isAwaitingUser(chatId) {
+  for (const p of pendingPermissions.values()) if (p.chatId === chatId) return true
+  for (const p of pendingAsks.values()) if (p.chatId === chatId) return true
+  try {
+    if (piRuntime.getPendingUiAsks().some(p => p && p.sessionId === chatId)) return true
+  } catch (err) { /* 列表不可读时按非等用户处理（宁超时勿永久挂起） */ }
+  return false
+}
 // 各会话上次发送的分支线路（anchors key）：切换线路时 pi 会话须丢弃重建
 // （pi 上下文与 JSONL 分支视图保持一致）
 const sessionAnchorKeys = new Map()
@@ -392,6 +445,8 @@ async function deleteSessionFast(id) {
   }
   // 深度研究（P3）：清理该会话的 workflow 轮询
   workflows.unwatchChat(id)
+  // 后台子代理状态轮询随会话一并清理
+  subagentWatch.unwatchChat(id)
   // 先快照消息：下方删除后 JSONL 即清除，后台摘要需自持数据
   const msgs = sessions.getMessages(id)
   await piRuntime.disposeSession(id)
@@ -433,6 +488,9 @@ function sanitizeCompactionSummary(text) {
 // pi 运行事件：转发渲染进程 + 持久化到 JSONL
 function handlePiEvent(getWindow, e) {
   const { kind, chatId } = e
+  // 无头任务心跳：全部事件视为活跃信号（看门狗数据源；等待用户的豁免
+  // 由 isAwaitingUser 在检查时判定，permission_ask 本身也刷新心跳）
+  touchAutomationHeartbeat(e)
   switch (kind) {
     case 'assistant_start':
       emit(getWindow, chatId, { type: 'assistant_start' })
@@ -524,6 +582,16 @@ function handlePiEvent(getWindow, e) {
       // 结果规整为字符串：pi 的部分工具返回结构化对象（如 { content: [...] }），
       // 原样透传会被前端渲染成 [object Object]
       const result = normalizeToolResult(e.result)
+      // pi-subagents 后台子代理（async: true）：工具立即返回 runId，child 在独立
+      // 进程执行且无流式回传 —— 提取 details.asyncDir/asyncId 启动状态轮询，
+      // 把「后台运行中 · N 秒前活跃」活性信号推给前端（跨回合可见）
+      const subDet = (e.result && typeof e.result === 'object' && e.result.details) || {}
+      const subRunId = (e.toolName === 'subagent' && (subDet.asyncId || subDet.runId)) || ''
+      if (subRunId && subDet.asyncDir) {
+        subagentWatch.watchRun(chatId, subRunId, subDet.asyncDir, snap => {
+          emit(getWindow, chatId, { type: 'subagent_progress', subagent: snap })
+        })
+      }
       const toolAnchors = runAnchors(chatId)
       sessions.addMessage(chatId, Object.assign({
         role: 'tool',
@@ -543,7 +611,8 @@ function handlePiEvent(getWindow, e) {
         isError: e.isError,
         fileChange: fileChange || undefined,
         artifacts: e.artifacts || undefined,
-        workflow: e.workflow || undefined
+        workflow: e.workflow || undefined,
+        subagent: subRunId ? { runId: subRunId } : undefined
       })
       // 深度研究（P3）：后台 workflow 启动即返回 runId → 轮询落盘状态驱动前端进度卡片
       if (e.workflow && e.workflow.runId && e.workflow.background) {
@@ -719,21 +788,9 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   // 每次运行创建一个系统会话（meta.automation 标记，侧栏归「定时任务」分组），
   // 复用 pi 会话工厂与 handlePiEvent 事件链——前端打开该会话即可看到完整执行过程；
   // 权限确认沿现有 permission_ask 链路（前端确认卡 + 布局层通知），
-  // 无人应答挂起时由无进展看门狗兜底中断（中断记录落盘，重开会话可见）
-  //
-  // 无进展看门狗（替代早期固定 15 分钟总时长限制）：不限总时长——长程任务
-  // （抓取 → 写作 → 渲染 → 发布）合法运行小时级；仅当连续 STALL_TIMEOUT_MS
-  // 无「模型侧进展」时判定卡死中断。进展 = 流式输出 / 思考 / 工具开始与结束 /
-  // 回合边界 / 上下文压缩；刻意排除 permission_ask / ask_user——无应答挂起
-  // 正是看门狗要兜底的场景，若计入进展则挂起永远不会被判卡死。
-  // 已知边界：后台 workflow 等待期间无模型侧事件，但自动化指令已按
-  // 「优先只读工具、不要主动 workflow」引导，组合场景风险可控
-  const STALL_TIMEOUT_MS = 15 * 60 * 1000
-  const STALL_PROGRESS_KINDS = new Set([
-    'assistant_start', 'assistant_end', 'thinking', 'delta',
-    'tool_start', 'tool_update', 'tool_end',
-    'compaction_start', 'compaction_end'
-  ])
+  // 等待用户决策永不超时（与普通对话的权限确认同语义：确认即"一直等"；
+  // 此前的 15 分钟无进展看门狗已按需求移除——不中断等待用户的任务）
+  // 外部中断（前端停止 / session:interrupt）不受影响：entry.abort 即中断
 
   // 定时任务模型解析：任务绑定的模型（providerId，主进程镜像查找）优先；
   // 未绑定时依次回落「最近一次对话所用模型快照」→「模型管理中的默认模型」。
@@ -842,65 +899,86 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
 
     const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [] }
     running.set(chatId, entry)
-    // 无进展看门狗：模型侧进展事件即重置；到点未重置则中断并记因。
-    // interruptedBy 同时覆盖外部 abort（session:interrupt / 前端停止）——
-    // pi 的 abort 让 prompt() 正常 resolve 而非抛错，此前固定超时中断
-    // 被误判为「成功」并发完成通知，就是漏检了这条路径
-    let interruptedBy = '' // '' 无 / 'stall' 看门狗卡死 / 'manual' 外部中断
-    let stallTimer = null
-    const disarmStallWatchdog = () => {
-      if (stallTimer) { clearTimeout(stallTimer); stallTimer = null }
-    }
-    const armStallWatchdog = () => {
-      disarmStallWatchdog()
-      stallTimer = setTimeout(() => {
-        interruptedBy = 'stall'
-        try { piRuntime.interruptSession(chatId) } catch (e) { /* 忽略 */ }
-      }, STALL_TIMEOUT_MS)
-    }
-    // 进展事件重置看门狗（permission_ask / ask_user 不算进展，见常量注释）
-    const watchProgress = (e) => {
-      if (e && e.kind && STALL_PROGRESS_KINDS.has(e.kind)) armStallWatchdog()
-    }
+    // interruptedBy 覆盖外部 abort（session:interrupt / 前端停止）与看门狗中断——
+    // pi 的 abort 让 prompt() 正常 resolve 而非抛错，须显式查出防止
+    // 中断被误判为「成功」并发完成通知
+    let interruptedBy = '' // '' 无 / 'manual' 外部中断（不重试）/ 'watchdog' 停滞看门狗中断（可重试）
     entry.abort = () => { interruptedBy = 'manual'; piRuntime.interruptSession(chatId) }
     let result
+    // 熔断计数：整个任务生命周期内看门狗触发次数。MAX_ATTEMPTS=2 天然限制
+    // 重试次数，连续 2 次流悬挂 → 终判失败并标注模型服务不稳定（熔断器模式）
+    let stallCount = 0
+    let stallMessage = ''
     // 失败自动重试一次：流式端点在长任务 / 工具调用多轮场景下偶发断流
     // （如 Stream ended without finish_reason）。注意 pi 不抛模型请求错误，
     // 只发 turn_error 事件（已透传前端并落盘）——prompt 正常返回后须查
-    // automationTurnErrors 把空回合判为失败；中断（用户/看门狗）不重试
+    // automationTurnErrors 把空回合判为失败；用户中断不重试、看门狗停滞中断重试
     const MAX_ATTEMPTS = 2
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       let failError = ''        // 本轮失败原因（空 = 成功）
       let failFromEvent = false // true = turn_error 事件路径（错误已落盘并广播，勿重复）
       automationTurnErrors.delete(chatId)
       interruptedBy = ''
+      // 注册本轮心跳并启动看门狗：LLM 流悬挂（连接建立后不返回数据也不报错）
+      // 时 pi 不产生任何事件、prompt() 永不 resolve，错误驱动的重试全部失效
+      // ——看门狗以事件心跳判定停滞，主动 abort 让 prompt() resolve，落入
+      // 下方既有重试判定（不依赖「错误返回」形态，这是 10-03 20:00 卡死的根治点）
+      automationHeartbeats.set(chatId, { lastActivityAt: Date.now(), lastEventKind: '', toolOpen: false, lastToolName: '' })
+      const watchdog = setInterval(() => {
+        const hb = automationHeartbeats.get(chatId)
+        if (!hb) return
+        if (isAwaitingUser(chatId)) return // AWAITING_USER：等用户决策，永不超时
+        if (interruptedBy === 'manual') return // 用户中断路径自会 resolve，勿抢判
+        const longTool = hb.toolOpen && AUTOMATION_LONG_TOOLS.has(hb.lastToolName)
+        const timeoutMs = longTool ? AUTOMATION_TOOL_STALL_TIMEOUT_MS : AUTOMATION_STALL_TIMEOUT_MS
+        if (Date.now() - hb.lastActivityAt < timeoutMs) return
+        // 首次停滞：置标记并记数；此后每周期重试 abort（幂等）直至 prompt()
+        // resolve 进入 finally 清除本定时器——防止单次 abort 失效导致看门狗
+        // 空转、任务回到永久悬挂（这正是要根治的形态）
+        if (!interruptedBy) {
+          interruptedBy = 'watchdog'
+          stallCount++
+          stallMessage = '模型响应停滞（' + Math.round(timeoutMs / 60000) + ' 分钟无任何事件' +
+            (hb.toolOpen ? '，卡在工具 ' + hb.lastToolName : '') + '），已自动中断'
+          console.warn('[omnibuddy:automation] 心跳看门狗触发：' + stallMessage +
+            '，最后事件 ' + hb.lastEventKind + ' @ ' + new Date(hb.lastActivityAt).toISOString())
+        }
+        piRuntime.interruptSession(chatId).catch(() => { /* abort 异常由下周期重试兜底 */ })
+      }, 30 * 1000)
+      watchdog.unref && watchdog.unref() // 不阻塞进程退出
       try {
+        // 必须返回 handlePiEvent 的返回值：permission_ask 分支返回的
+        // verdictPromise 是权限 authorizer 等待用户点击的挂起点，花括号体
+        // 吞掉返回值会让 onAsk 得到 undefined → 全部 ask 立即被判
+        // 「用户拒绝」（确认条刚弹出即失效，用户永远来不及点）
         const session = await piRuntime.getOrCreateSession(chatId, provider, [], e => {
-          watchProgress(e)
-          handlePiEvent(getWindow, e)
+          return handlePiEvent(getWindow, e)
         }, workspaceDir)
-        armStallWatchdog()
+        // streamingBehavior=followUp：上一回合可能仍有 pi-subagents 注入驱动的
+        // 续跑回合在执行（前台委派完成后后台 run 唤醒等场景），此时重发 prompt
+        // 会抛 "Agent is already processing" 被误判为失败——followUp 让消息排队，
+        // 当前 run 结束后作为跟进回合执行
         await session.prompt(attempt > 1
           ? promptText + '\n\n（上一次执行中断，请继续完成上述任务并输出完整结果）'
-          : promptText)
-        disarmStallWatchdog()
-        // 中断判定先于错误判定：abort 让 prompt() 正常 resolve，须显式查出
-        if (interruptedBy) {
-          failError = interruptedBy === 'stall'
-            ? '长时间无进展（15 分钟无模型响应，疑似权限挂起或断流），任务已中断'
-            : '执行被中断'
+          : promptText, { streamingBehavior: 'followUp' })
+        // 中断判定先于错误判定：abort 让 prompt() 正常 resolve，须显式查出；
+        // watchdog 携带具体停滞信息（阈值、卡点工具），manual 统一为执行被中断
+        if (interruptedBy === 'watchdog') {
+          failError = stallMessage
+        } else if (interruptedBy === 'manual') {
+          failError = '执行被中断'
         } else {
           failError = automationTurnErrors.get(chatId) || ''
           failFromEvent = !!failError
         }
       } catch (err) {
-        disarmStallWatchdog()
         const aborted = err && (err.name === 'AbortError' || /abort/i.test(String(err.message || '')))
-        failError = interruptedBy
-          ? (interruptedBy === 'stall'
-            ? '长时间无进展（15 分钟无模型响应，疑似权限挂起或断流），任务已中断'
-            : '执行被中断')
-          : (aborted ? '执行被中断' : ((err && err.message) || '未知错误'))
+        failError = interruptedBy === 'watchdog'
+          ? stallMessage
+          : (interruptedBy || aborted ? '执行被中断' : ((err && err.message) || '未知错误'))
+      } finally {
+        // 本回合结束（含 abort 后 resolve）即停看门狗，防泄漏与跨回合误触发
+        clearInterval(watchdog)
       }
       if (!failError) {
         // 回合完成释放前端流式态：定时任务不走 session:send（无 done 发射点），
@@ -912,11 +990,17 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
         result = { ok: true, sessionId: chatId }
         break
       }
-      const abortedFail = interruptedBy !== '' || failError === '执行被中断'
+      // 只有用户手动中断不可重试；看门狗停滞中断走重试（下一次 attempt 重注册心跳）
+      const abortedFail = interruptedBy === 'manual' || failError === '执行被中断'
       if (!abortedFail && attempt < MAX_ATTEMPTS) {
         console.warn('[omnibuddy:automation] 第 ' + attempt + ' 次执行失败，3 秒后自动重试：' + failError)
         await new Promise(r => setTimeout(r, 3000))
         continue
+      }
+      // 熔断标注：连续看门狗停滞到终判（MAX_ATTEMPTS 内未恢复）→ 模型服务
+      // 可能不稳定，明确提示而非笼统「执行失败」
+      if (stallCount >= 2 && interruptedBy === 'watchdog') {
+        failError += '（已自动重试仍停滞，模型服务可能不稳定）'
       }
       // 终判失败：catch 路径补落盘与广播（turn_error 路径已在事件分支完成），
       // 无头运行无人盯屏，重开会话可见失败原因
@@ -931,9 +1015,9 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
       }
       result = { ok: false, sessionId: chatId, error: failError }
     }
-    disarmStallWatchdog()
     running.delete(chatId)
     automationTurnErrors.delete(chatId)
+    automationHeartbeats.delete(chatId)
 
     // 结束：广播（自动化页/侧栏刷新）+ 原生通知 + dock 角标
     return finish(result, chatId)
@@ -1215,7 +1299,12 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
 
       if (session) {
         entry.abort = () => { piRuntime.interruptSession(id) }
-        await session.prompt(promptText, imageBlocks.length ? { images: imageBlocks } : undefined)
+        // streamingBehavior=followUp：后台子代理唤醒等注入驱动的续跑回合可能
+        // 仍在执行，直接 prompt 会抛 "Agent is already processing"——followUp
+        // 排队等待，当前 run 结束后作为跟进回合送达（不打断进行中的输出）
+        await session.prompt(promptText, Object.assign(
+          { streamingBehavior: 'followUp' },
+          imageBlocks.length ? { images: imageBlocks } : {}))
         const meta = sessions.touch(id)
         console.log('[omnibuddy][diag] done session:send 完成 id=', id) // 临时诊断
         emit(getWindow, id, { type: 'done', title: meta && meta.title })
@@ -1287,10 +1376,12 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
       emit(getWindow, id, { type: 'interrupted' })
     }
     // 中断时拒绝该会话未决的权限确认（authorizer 的 Promise 须终结，否则工具门悬挂）
+    // 用专用值 deny_interrupt 与「用户点击拒绝」区分：authorizer 据此给出
+    // 准确文案，避免中断后被日志/模型误读为用户主动拒绝
     for (const [askId, p] of Array.from(pendingPermissions.entries())) {
       if (p.chatId === id) {
         pendingPermissions.delete(askId)
-        p.resolve('deny')
+        p.resolve('deny_interrupt')
       }
     }
     // 同样拒绝 ui.select 兜底路径的未决确认
@@ -1408,8 +1499,13 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   })
 
   // ===== 能力中心（可用工具分类清单 + 权限策略可选对象） =====
+  // 能力清单页已并入权限策略：本接口由权限页消费（分组目录 + 特殊面元数据）
   ipcMain.handle('omnibuddy:capability:list', () => {
-    return { ok: true, groups: capabilities.listCapabilities(), specialSurfaces: capabilities.SPECIAL_SURFACES }
+    return {
+      ok: true,
+      groups: capabilities.listCapabilities(),
+      specialSurfaces: capabilities.SPECIAL_SURFACES
+    }
   })
 
   // ===== 权限模式（输入框常驻选择器，即时生效） =====
@@ -1420,9 +1516,8 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   })
 
   // ===== 权限策略编辑（设置页读写 config.json） =====
-  // 附带默认策略快照：前端「平衡」预设直接取用，与主进程共用同一份默认定义。
   // 下发前剥离应用托管 pattern（agentDir / baseDir 系统放行）：配置页只呈现
-  // 用户自建规则，避免误删/误改系统路径与预设整组覆盖造成的丢失。
+  // 用户自建规则，避免误删/误改系统路径造成的丢失。
   // 下发的剥离快照留存一份（permissionPageSnapshot）：保存时作为三方合并
   // 基线，识别「下发后由『始终允许』等旁路追加的键」不被页面旧数据冲掉
   let permissionPageSnapshot = null
@@ -1432,15 +1527,34 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
     return {
       ok: true,
       config: stripped,
-      defaultPermission: permissions.stripManagedRules(piRuntime.agentDir, permissions.defaultConfig(piRuntime.agentDir)).permission
+      // 规则说明 sidecar（'surface|pattern' → 描述），与配置分开发放下发
+      notes: permissions.readNotes(piRuntime.agentDir)
     }
   })
-  ipcMain.handle('omnibuddy:permission:save-config', (_e, config) => {
+  // payload 形态：{ config: { yoloMode, authorizerChain, permission }, notes: {...} }
+  // notes 单独走 sidecar 落盘（config.json 的 schema 不认描述类 key）
+  ipcMain.handle('omnibuddy:permission:save-config', (_e, payload) => {
     try {
+      const config = (payload && payload.config) || payload
+      const notes = (payload && payload.notes) || null
       // 服务端三方合并：回传值 ≠ 快照值 → 用户编辑，以回传为准；否则盘上值
       // ≠ 快照值 → 「始终允许」等旁路修改，以盘上为准；托管 pattern 以运行时
       // 计算为准回填（预设覆盖 / 误删 / 绕过前端直调 IPC 均无法破坏系统放行）
       permissions.writeConfig(piRuntime.agentDir, permissions.mergeManagedRules(piRuntime.agentDir, config, permissionPageSnapshot))
+      if (notes) permissions.writeNotes(piRuntime.agentDir, notes)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  // 重置为系统默认策略（平衡）：整份重写 defaultConfig + 清空规则说明 sidecar，
+  // 不走三方合并（重置语义就是丢弃自建/旁路修改）；快照同步刷新避免下次保存误判
+  ipcMain.handle('omnibuddy:permission:reset', () => {
+    try {
+      permissions.writeConfig(piRuntime.agentDir, permissions.defaultConfig(piRuntime.agentDir))
+      permissions.writeNotes(piRuntime.agentDir, {})
+      permissionPageSnapshot = permissions.stripManagedRules(piRuntime.agentDir, permissions.readConfig(piRuntime.agentDir))
       return { ok: true }
     } catch (err) {
       return { ok: false, error: err.message }

@@ -111,7 +111,7 @@ function createImageGenExtension(cwdState, agentDir, getProvider) {
           fs.writeFileSync(file, buf)
           const text = '图片已生成：' + file
             + '\n模型：' + cfg.model + (body.size ? '（size=' + body.size + '）' : '')
-            + '\n可直接在 publish_wechat_draft 的 cover 参数传入该路径'
+            + '\n需要封面的发布类工具可直接以该文件路径作为 cover 参数传入'
           return {
             content: [{ type: 'text', text }],
             details: { artifacts: [{ path: file, name: path.basename(file) }] }

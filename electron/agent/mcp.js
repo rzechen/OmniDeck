@@ -14,6 +14,18 @@ let agentDir = ''
 // 联动：npx-cache 预热须同 spec 才能离线命中；@latest 会绕过缓存重新联网下载）
 const PLAYWRIGHT_MCP_VERSION = '0.0.81'
 
+// playwright 有头开关：<agentDir>/playwright.json 的 { "headed": true }
+// 用途：需人工交互登录（扫码 / 验证码）的站点首次登录时切有头（浏览器窗口
+// 弹出供用户操作），登录态落 profile 后删文件恢复无头。
+// 内置运行时仅装配 chrome-headless-shell（无头专用），有头模式改走系统
+// Chrome（--browser chrome channel），无需下载完整 Chromium
+function playwrightHeaded() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(agentDir, 'playwright.json'), 'utf-8'))
+    return !!cfg.headed
+  } catch (e) { /* 文件不存在或损坏：默认无头 */ return false }
+}
+
 // 系统内置服务：配置始终保留且强制启用（不带 disabled 字段），不在 UI 列表呈现。
 // 运行时动态生成：npx / 浏览器 / npx 缓存优先取内置运行时（provision 装配 +
 // afterPack 打进 Resources），未装配时回退系统环境（npx 走宿主 PATH，
@@ -29,14 +41,17 @@ function builtinServers() {
     command = exe
     args = [cli, '-y', '@playwright/mcp@' + PLAYWRIGHT_MCP_VERSION]
   }
-  // 产物目录指向应用内部：不指定时 MCP 会把截图等自动命名产物写入
+  // 产物目录指向应用内部：不指定时 MCP 会把截图等自动产物写入
   // <工作空间>/.playwright-mcp（stdio server 以会话 cwd 启动），污染用户目录
-  // --headless：无头模式静默运行，浏览器窗口不弹出（截图/自动化能力不受影响）
+  // 浏览器模式（见 playwrightHeaded）：
+  //   无头（默认）：--headless 静默运行，窗口不弹出（截图/自动化能力不受影响）
+  //   有头：--browser chrome 走系统 Chrome 弹窗，供扫码/验证码等人工交互登录
   // --user-data-dir：持久浏览器 profile（cookie / 登录态跨会话保持），
-  //   支撑「首次登录一次、后续免登录」的站点自动化（如秀米模板市场搜索）
-  args = args.concat(['--headless',
-    '--output-dir', path.join(agentDir, 'playwright-output'),
-    '--user-data-dir', path.join(agentDir, 'playwright-profile')])
+  //   支撑「首次登录一次、后续免登录」的站点自动化（如需登录态的站点搜索）；
+  //   有头首登的登录态同样落此 profile，切回无头后直接复用
+  args = args.concat(playwrightHeaded() ? ['--browser', 'chrome'] : ['--headless'],
+    ['--output-dir', path.join(agentDir, 'playwright-output'),
+      '--user-data-dir', path.join(agentDir, 'playwright-profile')])
   const env = {}
   const nodeBin = runtime.nodeBinDir()
   if (nodeBin) env.PATH = nodeBin + path.delimiter + (process.env.PATH || '')

@@ -21,9 +21,6 @@ const profile = require('./profile')
 const docExport = require('./doc-export')
 // 图像生成：generate_image（OpenAI images 兼容格式，智谱/OpenRouter/硅基流动等通用）
 const imageGen = require('./image-gen')
-const wechatImport = require('../wechat/import')
-const wechatRender = require('../wechat/render')
-const wechatEditor = require('../wechat/editor')
 const runtime = require('./runtime')
 const capabilities = require('./capabilities')
 
@@ -107,6 +104,11 @@ function init(agentDir) {
   process.env.PI_CODING_AGENT_DIR = agentDir
   // 权限模式持久化加载（输入框选择器状态，authorize 即时读取）
   permissions.loadMode()
+  // 前台子代理 MCP 加载扩展部署（幂等）：pi-subagents 前台 child 不加载宿主
+  // ambient 扩展，MCP 工具（playwright 等）在其内不可见；此扩展由 agent 定义经
+  // subagentOnlyExtensions 显式引用，child 内部经 pi 内置 createMcpExtension
+  // 读取同一 agentDir/mcp.json —— 使前台同步委派（业界主流模式）可用
+  deployChildMcpExtension(agentDir)
   // pi-memory 语义记忆（P1-8）：异步安装 + 旧记忆迁移，失败下次启动重试
   setupMemoryExtension()
   // 权限系统（@gotgenes/pi-permission-system）：异步安装 + 默认策略 config
@@ -115,6 +117,48 @@ function init(agentDir) {
   setupPreviewExtension()
   // pi-dynamic-workflows（P3 深度研究）：workflow / workflow_control 工具，异步安装
   setupWorkflowsExtension()
+}
+
+// ===== 前台子代理 MCP 加载扩展（部署到 agentDir，agent 定义经 subagentOnlyExtensions 引用）=====
+// pi-subagents 前台 child 与宿主同进程但不加载 ambient 扩展（宿主 inline 的
+// createMcpExtension 不在其内）→ MCP 工具不可见。本扩展在 child 内部以 pi 内置
+// createMcpExtension 读取同一 agentDir/mcp.json（连接配置/工具形态与主会话完全
+// 一致），配合 tools 白名单让前台同步委派（阻塞执行 + onUpdate 进度透传）可用。
+// 关键：import 须用绝对路径直连 SDK——前台 child 经 jiti 加载本文件时，模块
+// 解析从本文件目录（agentDir/extensions/）向上找不到裸包（该包 exports 封闭、
+// 不在解析链上，且前台无 JITI_ALIAS）；后台 runner 反而不缺（有别名表）
+function childMcpExtensionSource(piPkgEntry) {
+  return [
+    '// OmniBuddy 自动部署：前台子代理专用 MCP 加载扩展（勿手改，启动时幂等覆写）',
+    '// import 绝对路径直连 SDK：前台 child 的 jiti 从本文件目录解析不到裸包 peer',
+    "import { createMcpExtension } from '" + piPkgEntry + "'",
+    'export default createMcpExtension()',
+    ''
+  ].join('\n')
+}
+
+function deployChildMcpExtension(agentDir) {
+  // dev: electron/agent → 上两级为项目根；打包: dist-electron/agent 同构
+  const root = path.resolve(__dirname, '..', '..')
+  const piPkgEntry = path.join(root, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'index.js')
+  if (!fs.existsSync(piPkgEntry)) {
+    console.warn('[omnibuddy:pi] SDK 入口缺失，跳过子代理 MCP 扩展部署：', piPkgEntry)
+    return
+  }
+  const dir = path.join(agentDir, 'extensions')
+  const file = path.join(dir, 'omnideck-child-mcp.mjs')
+  const src = childMcpExtensionSource(piPkgEntry)
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    // 内容一致则跳过写盘（避免每次启动无谓触发文件监听）
+    try {
+      if (fs.readFileSync(file, 'utf-8') === src) return
+    } catch (e) { /* 首次部署无文件 */ }
+    fs.writeFileSync(file, src)
+    console.log('[omnibuddy:pi] 已部署前台子代理 MCP 扩展：', file)
+  } catch (e) {
+    console.warn('[omnibuddy:pi] 子代理 MCP 扩展部署失败：', e.message)
+  }
 }
 
 // ===== 模型 / Provider（OpenAI 兼容 / OpenAI Responses / Anthropic） =====
@@ -466,6 +510,7 @@ function systemPrompt() {
   // 临时文件按工作空间划分：统一落 <workspace>/.tmp（会话创建时自动建目录并注入 TMPDIR），
   // 避免模型按通用习惯写系统 /tmp 触发 external_directory 逐次询问
   lines.push('临时文件（脚本、中间产物等）一律写入当前工作空间根目录的 .tmp/ 目录（已自动创建，环境变量 TMPDIR 已指向该处），不要写入系统 /tmp 等工作空间外的路径。')
+  lines.push('每次任务完成后，删除本次任务产生的临时文件（.tmp/ 中不再需要的脚本、中间产物等），不要遗留；exports/ 下的交付产物与用户既有文件不属于临时文件，不得删除。')
   lines.push('交付正式文档（Word / PDF / HTML 报告、方案、纪要、信函等）时，先组织好完整的 Markdown 内容，再调用 doc_export 工具导出文件（输出到当前目录 exports/ 下，Word 可用 reference_doc 参数或工作目录下的 template.docx 沿用模板样式），不要把长文档直接贴在回复正文里。')
   // 图像生成引导（pi 1.0.0）：仅配置了图像模型时注入，未配置不提及（工具未注册）
   if (state.provider && state.provider.imageModel) {
@@ -758,21 +803,6 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     // 图像生成：OpenAI images 兼容格式（独立图像条目 / 附着式配置），
     // 产物落 <cwd>/exports/；SDK 内置 openrouter-images 通道不再注册（通用替代）
     imageGen.createImageGenExtension(cwdState, state.agentDir, () => state.provider),
-    // 公众号工具链：模板 / 渲染产物统一锚定会话工作空间
-    // （<工作空间>/wechat/templates 与 wechat/renders，随任务隔离）
-    wechatImport.createImportExtension(cwd),
-    // 公众号模板渲染 / 发布草稿 / 复制富文本：
-    // {{变量}} + {{#each}} 渲染，图片转存素材库，草稿发布（perm 'ask'）。
-    // 发布凭据注入：激活技能绑定凭证 + 全库按键名匹配兜底（进程 env 优先在 render.js 内判定），
-    // 不依赖会话是否读过绑定技能的 SKILL.md（无头定时任务常只读写作子技能）
-    wechatRender.createRenderExtension(cwd, () => {
-      const env = {}
-      try { Object.assign(env, credentials.resolveEnvByKeys(['WECHAT_APP_ID', 'WECHAT_APP_SECRET'])) } catch (e) { /* 凭据未初始化时忽略 */ }
-      try { Object.assign(env, getSkillEnv()) } catch (e) { /* 同上 */ }
-      return env
-    }),
-    // 公众号编辑器注入：渲染成品直接写入已打开的图文编辑页（网页登录态，免 API 凭据）
-    wechatEditor.createEditorExtension(cwd),
     // 凭据按需取用（B 方案后续）：AI 对话中经 credential_get 取「AI 取用类」凭据；
     // 默认 ask 权限（capabilities 登记），开关关闭时工具返回引导文案
     createCredentialGetExtension()

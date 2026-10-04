@@ -329,8 +329,8 @@ function copyDirSync(src, dst) {
 }
 
 // 导入 ZIP：解压到 <skillsDir>/<name>/（zip-slip 防护：条目路径必须落在目标目录内）
-// 多 skill 包支持：包内二层目录含 SKILL.md 的子技能（如 wechat-article-publish 包内的
-// model-digest-writer / ai-case-writer）自动复制到 skills 顶层平铺安装——
+// 多 skill 包支持：包内二层目录含 SKILL.md 的子技能（如主技能包
+// <name>/sub-writer/SKILL.md 形态）自动复制到 skills 顶层平铺安装——
 // pi 的 skill 装载只扫描一级目录，嵌套子 skill 不平铺则永不生效。
 // overwrite 时覆盖同名子技能；否则跳过并在返回中注明（不阻断主技能安装）
 function importZip(data, overwrite) {

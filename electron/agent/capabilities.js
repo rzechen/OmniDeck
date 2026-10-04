@@ -114,6 +114,28 @@ const MCP_BUILTIN_TOOLS = [
   { name: 'mcp__playwright*', label: '内置浏览器（全部工具）', description: '内置 playwright MCP 服务的全部浏览器操作工具（mcp__playwright__导航 / 截图 / 点击 / 等待等）通配放行：系统内置服务、无头运行、产物落应用自管目录。', perm: 'allow' }
 ]
 
+// MCP 通配条目（能力清单呈现）：静态内置条目 + 自建连接器动态条目。
+// 动态条目与 toolPermissionDefaults 的自建服务器默认键（mcp__服务器名* → ask）
+// 同源同键：backfillToolDefaults 会把该键写进 config，权限页出现对应规则行；
+// 此前清单侧无同名条目，出现「权限策略有的、能力清单没有」的偏差，现并入展示
+// （权限页对象下拉遍历本分组，选项随之同步出现）
+function mcpBuiltinTools() {
+  const dynamic = []
+  try {
+    mcp.list().forEach(srv => {
+      if (!srv || !srv.name) return
+      dynamic.push({
+        name: 'mcp__' + srv.name + '*',
+        label: srv.name + '（全部工具）',
+        description: '自建 MCP 服务器「' + srv.name + '」全部工具（mcp__' + srv.name + '__工具名）的通配规则：默认逐次确认（fail-safe），可在权限策略中调整为允许，或按 mcp__' + srv.name + '__工具名 细分到具体工具。',
+        perm: 'ask',
+        disabled: !srv.enabled
+      })
+    })
+  } catch (e) { /* mcp 未初始化时无自建条目 */ }
+  return MCP_BUILTIN_TOOLS.concat(dynamic)
+}
+
 // 文档交付工具（P1）：doc_export 自研（doc-export.js 注册）+
 // preview_export（pi-markdown-preview 社区扩展）；转换引擎 pandoc
 // 运行时探测动态标注（内置运行时 → 系统 PATH → 未检测到）
@@ -152,6 +174,12 @@ function docTools() {
       description: t.description + '文档转换引擎已随应用内置，开箱即用。'
     }))
   }
+  if (probe.source === 'downloaded') {
+    return DOC_TOOLS.map(t => Object.assign({}, t, {
+      runtime: detail,
+      description: t.description + '文档转换引擎来自在线装配的运行时组件（设置 → 运行时可管理）。'
+    }))
+  }
   if (probe.source === 'system') {
     return DOC_TOOLS.map(t => Object.assign({}, t, {
       runtime: detail,
@@ -181,21 +209,25 @@ function workflowTools() {
   }))
 }
 
-// 公众号工具：模板资产管线（wechat/import.js + render.js + editor.js 注册）
-const WECHAT_TOOLS = [
-  { name: 'import_wechat_template', label: '导入秀米模板', description: '从秀米模板市场批量导入公众号排版模板：抓取作品页正文（内联样式），图片本地化，落盘为工作空间内模板资产（wechat/templates/），供变量化渲染与发布。', perm: 'allow' },
-  { name: 'render_wechat_template', label: '渲染公众号模板', description: '按变量值渲染公众号模板（{{变量}} 替换 + {{#each}} 循环展开），落盘为可预览 HTML，返回残留变量清单。', perm: 'allow' },
-  { name: 'publish_wechat_draft', label: '发布公众号草稿', description: '渲染成品发布到公众号草稿箱（不群发）：正文图片与封面自动转存素材库，返回 media_id。需环境变量 WECHAT_APP_ID / WECHAT_APP_SECRET 与 IP 白名单。', perm: 'ask' },
-  { name: 'copy_wechat_html', label: '复制公众号排版', description: '渲染成品以富文本写入剪贴板，粘贴公众号编辑器保留排版（不走开放接口的兜底发文通道）。', perm: 'allow' },
-  { name: 'inject_wechat_editor', label: '注入公众号编辑器', description: '渲染成品直接写入已打开的公众号图文编辑页（内置浏览器登录 mp.weixin.qq.com）：正文追加进编辑器、本地图片内联转存、回填标题摘要作者。走网页登录态，免 API 凭据与 IP 白名单。', perm: 'ask' }
-]
-
 // 交互与任务工具（UI 耦合扩展，pi.js 内联注册）
 const UI_TOOLS = [
   { name: 'ask_user', label: '向用户提问', description: '信息不足或存在歧义时向用户提问，前端渲染表单收集回答。', perm: 'allow' },
   { name: 'todo_write', label: '更新任务清单', description: '维护当前任务清单（pending / in_progress / completed），前端看板呈现。', perm: 'allow' },
   { name: 'todo_read', label: '查看任务清单', description: '读取当前会话的任务清单与进度。', perm: 'allow' },
-  { name: 'task', label: '子任务委派', description: '将独立子任务委派给子 Agent 并行执行。' }
+  // pi-subagents 注册的委派工具（实际工具名 subagent；有 token 成本且产生
+  // 子代理行为，默认逐次确认）。早期目录误记为 'task' 且无 perm，导致该键
+  // 从未进入默认策略与启动补齐，落 '*' 兜底
+  { name: 'subagent', label: '子任务委派', description: '将独立子任务委派给子代理执行（pi-subagents：前台同步阻塞到完成，或后台异步运行）。', perm: 'ask' },
+  // pi-subagents 运行时配套工具（主会话与 child 内均可能经权限门；缺省落
+  // '*' 兜底会在无头流水线中弹确认打断）：bg_wait 等待/收拢后台 run，
+  // contact_supervisor / structured_output 为 child 内通信与交付面，均无副作用
+  { name: 'bg_wait', label: '等待后台任务', description: '等待无原生完成通知的后台子代理 / 供给者任务完成并返回结果（控制面，无副作用）。', perm: 'allow' },
+  { name: 'contact_supervisor', label: '联系父会话', description: '子代理内向父 / 监督会话发起决策请求、结构化访谈或进度汇报。', perm: 'allow' },
+  { name: 'structured_output', label: '提交结构化输出', description: '子代理内提交该步骤要求的最终结构化结果并结束步骤。', perm: 'allow' },
+  // subagent_supervisor：pi-subagents 的监督控制面（与子代理会话交互 / 下发
+  // 监督指令）。此前目录漏登记，用户经确认条「始终允许」写入的键在能力
+  // 清单无对应条目（权限有、清单无的漂移源之一），补齐
+  { name: 'subagent_supervisor', label: '监督子代理', description: '以监督者身份与子代理会话交互（下发指令 / 汇报与管控），pi-subagents 运行时配套控制面，无文件副作用。', perm: 'allow' }
 ]
 
 // 语义记忆工具（pi-memory 社区扩展注册，pi.js 启动时自动安装；
@@ -268,8 +300,7 @@ function listCapabilities() {
     web: webTools(),
     docs: docTools(),
     image: imageTools(),
-    mcpBuiltin: MCP_BUILTIN_TOOLS,
-    wechat: WECHAT_TOOLS,
+    mcpBuiltin: mcpBuiltinTools(),
     workflow: workflowTools(),
     ui: UI_TOOLS,
     memory: memoryTools(),
@@ -288,7 +319,6 @@ const TOOL_GROUPS = [
   ['docs', DOC_TOOLS],
   ['image', IMAGE_TOOLS],
   ['mcpBuiltin', MCP_BUILTIN_TOOLS],
-  ['wechat', WECHAT_TOOLS],
   ['workflow', WORKFLOW_TOOLS],
   ['ui', UI_TOOLS],
   ['memory', MEMORY_TOOLS],
@@ -297,7 +327,10 @@ const TOOL_GROUPS = [
 
 // 工具名 → 默认权限规则（标量或 pattern 映射对象），供 permissions.js
 // 派生默认策略与启动补齐；无 perm 的工具不产生键。
-// 对象值深拷贝：防止消费方就地在返回值上改写目录常量
+// 对象值深拷贝：防止消费方就地在返回值上改写目录常量。
+// 另并入自建连接器的通配默认键（mcp__服务器名* → ask）：自建 MCP 服务
+// 不逐工具登记目录，无通配键时其工具全部落 '*' 兜底——权限页呈现不出
+// 该服务的默认行；fail-safe 语义用 ask 呈现（发布类动作逐次确认合理）
 function toolPermissionDefaults() {
   const out = {}
   TOOL_GROUPS.forEach(([, tools]) => {
@@ -308,6 +341,11 @@ function toolPermissionDefaults() {
         : t.perm
     })
   })
+  try {
+    mcp.list().forEach(srv => {
+      if (srv && srv.name) out['mcp__' + srv.name + '*'] = 'ask'
+    })
+  } catch (e) { /* mcp 未初始化时跳过（无自建连接器键） */ }
   return out
 }
 

@@ -366,6 +366,29 @@ function writeConfig(agentDir, config) {
   fs.writeFileSync(configPath(agentDir), JSON.stringify(config, null, 2))
 }
 
+// ===== 规则说明 sidecar（permission-notes.json）：'surface|pattern' → 描述 =====
+// 描述不进 config.json——扩展 schema 严格校验，未知顶层 key 会令整份配置被判
+// invalid 丢弃；独立落盘于 agentDir，读写均为整份对象，key 与前端序列化同构
+function notesFile(agentDir) {
+  return path.join(agentDir, 'permission-notes.json')
+}
+
+function readNotes(agentDir) {
+  try {
+    const o = JSON.parse(fs.readFileSync(notesFile(agentDir), 'utf-8')).notes
+    return (o && typeof o === 'object') ? o : {}
+  } catch (e) {
+    return {}
+  }
+}
+
+function writeNotes(agentDir, notes) {
+  try {
+    fs.mkdirSync(agentDir, { recursive: true })
+    fs.writeFileSync(notesFile(agentDir), JSON.stringify({ notes: notes || {} }, null, 2))
+  } catch (e) { /* 写盘失败不阻断权限保存 */ }
+}
+
 // 始终允许：把该 surface 的 ask 规则升级为 allow 并写盘（跨会话生效）
 // 对象型规则（如 bash: { '*': 'ask' }）仅升级值为 ask 的 pattern，其余保留；
 // 显式 deny 的规则不放宽；无规则（兜底 * 命中）时新建 allow 规则
@@ -467,6 +490,12 @@ function createBridgeExtension(onAsk, onDecision, onUiPrompt) {
       console.log('[permissions] decision → surface=' + surface + ' action=allow')
       return { kind: 'allow' }
     }
+    // 中断路径的自动拒绝（非用户点击）：与会话中断事件对应，文案如实描述，
+    // 避免模型/日志把「会话被停止」误读为「用户明确拒绝此操作」
+    if (action === 'deny_interrupt') {
+      console.log('[permissions] decision → surface=' + surface + ' action=deny_interrupt')
+      return { kind: 'deny', reason: '会话已被用户中断，此操作自动取消' }
+    }
     console.log('[permissions] decision → surface=' + surface + ' action=deny')
     return { kind: 'deny', reason: '用户在 OmniBuddy 中拒绝了此操作' }
   }
@@ -511,6 +540,8 @@ module.exports = {
   // 应用托管 pattern：展示过滤 / 保存合并（配置页只见可改的用户自建规则）
   stripManagedRules,
   mergeManagedRules,
+  readNotes,
+  writeNotes,
   loadMode,
   getMode,
   setMode

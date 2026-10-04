@@ -305,21 +305,5 @@ function resolveEnvForSkills(skillNames) {
   return env
 }
 
-// 按 env 键名跨凭证取数（键名即契约）：任一凭证 env 含请求键即取值（后写覆盖），
-// 返回仅含请求键的子集。供工具侧兜底取数（如公众号发布的 WECHAT_APP_ID/SECRET）——
-// 不依赖「会话是否读过绑定技能的 SKILL.md」，只认用户录入的键名
-function resolveEnvByKeys(keys) {
-  const want = (Array.isArray(keys) ? keys : []).filter(Boolean)
-  if (!want.length) return {}
-  const env = {}
-  for (const c of readAll()) {
-    const e = decryptSecretSync(c.secretEnc).env || {}
-    for (const k of want) {
-      if (e[k] !== undefined && e[k] !== null && String(e[k]) !== '') env[k] = e[k]
-    }
-  }
-  return env
-}
-
-module.exports = { init, list, create, update, remove, resolve, resolveEnvForSkills, resolveEnvByKeys,
+module.exports = { init, list, create, update, remove, resolve, resolveEnvForSkills,
   aiList, aiPromptBlock, aiResolve, prewarm }

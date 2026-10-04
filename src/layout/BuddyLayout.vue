@@ -215,8 +215,7 @@ export default {
         {
           title: '',
           items: [
-            { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' },
-            { label: '能力清单', name: 'OmniBuddyCapabilities', path: '/omnibuddy/capabilities', icon: 'tool' }
+            { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' }
           ]
         }
       ],

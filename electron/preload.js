@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 权限策略（config.json 读写）
     permissionConfig: () => ipcRenderer.invoke('omnibuddy:permission:config'),
     savePermissionConfig: config => ipcRenderer.invoke('omnibuddy:permission:save-config', config),
+    permissionReset: () => ipcRenderer.invoke('omnibuddy:permission:reset'),
     // 回退与分支（M4）
     truncateSession: payload => ipcRenderer.invoke('omnibuddy:session:truncate', payload),
     branchSession: payload => ipcRenderer.invoke('omnibuddy:session:branch', payload),
