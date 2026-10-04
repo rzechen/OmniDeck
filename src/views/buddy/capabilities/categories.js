@@ -51,7 +51,7 @@ export const CAPABILITY_CATEGORIES = [
     key: 'workflow',
     label: '深度研究',
     desc: 'pi-dynamic-workflows 提供的多代理工作流编排（并行搜集与交叉验证）',
-    icon: 'guide',
+    icon: 'fork',
     logo: 'logo-skill'
   },
   {
