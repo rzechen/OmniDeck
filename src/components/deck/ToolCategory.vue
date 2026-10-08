@@ -73,7 +73,7 @@
 </template>
 
 <script>
-import { setItem } from '@/utils/db'
+import { setItem } from '@/utils/storage/db'
 
 export default {
   name: 'ToolCategory',

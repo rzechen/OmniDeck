@@ -13,7 +13,8 @@ const owner = 'm0_59492087'
 const repos = {
   app: { name: 'OmniDeck', ref: 'main' }, // 应用主仓库：更新源 / 文档
   market: { name: 'omnibuddy-market', ref: 'master' }, // 技能市场索引源
-  resources: { name: 'omni-resources', ref: 'main' } // 壁纸等静态资源
+  resources: { name: 'omni-resources', ref: 'main' }, // 壁纸等静态资源
+  plugins: { name: 'OmniBuddy-Plugins', ref: 'main' } // 运行时组件清单（runtime-manifest.json / Release 资产）
 }
 
 // raw 文件直链（file 为仓库内路径；ref 缺省用仓库默认分支）

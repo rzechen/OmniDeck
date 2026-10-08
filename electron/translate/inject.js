@@ -21,6 +21,7 @@ const INJECT_SCRIPT = String.raw`(function () {
     stats: { total: 0, done: 0, failed: 0 }
   }
 
+  // ===== 样式注入与段落收集 =====
   function styleOnce() {
     if (document.getElementById('od-tr-style')) return
     var st = document.createElement('style')
@@ -66,6 +67,7 @@ const INJECT_SCRIPT = String.raw`(function () {
     }
   }
 
+  // ===== 译文执行与清理 =====
   // 清理孤儿译文：原段落被 SPA 重渲染移除后，残留的 .od-tr 一并移除
   function pruneOrphans() {
     var trs = document.querySelectorAll('.od-tr')
@@ -140,6 +142,7 @@ const INJECT_SCRIPT = String.raw`(function () {
     }, 400)
   }
 
+  // ===== 开关切换（enable / disable） =====
   function enable() {
     S.enabled = true
     styleOnce()
@@ -204,4 +207,5 @@ const INJECT_SCRIPT = String.raw`(function () {
   report({ ready: true })
 })()`
 
+// 注入脚本源码字符串（经 executeJavaScript 注入页面主世界）
 module.exports = { INJECT_SCRIPT }

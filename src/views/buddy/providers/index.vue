@@ -93,7 +93,7 @@
 // OmniBuddy 模型管理页：列表管理（新建/编辑/删除/设默认）
 // 所有模型统一走 OpenAI / Anthropic 接口规范，保存前经真实请求测试连接
 // 卡片与新建/编辑弹窗已拆分至 ./components/（ProviderCard / ProviderFormDialog）
-import { getItem, setItem } from '@/utils/db'
+import { getItem, setItem } from '@/utils/storage/db'
 import ProviderCard from './components/ProviderCard.vue'
 import ProviderFormDialog from './components/ProviderFormDialog.vue'
 
@@ -128,7 +128,7 @@ export default {
     load() {
       const saved = getItem('aiProviderList', [])
       let list = Array.isArray(saved) ? saved : []
-      // 兼容旧数据：Ollama 类型已改为自定义
+      // 兼容旧数据：Ollama 类型映射为自定义
       if (list.some(p => p.type === 'ollama')) {
         list = list.map(p => (p.type === 'ollama' ? { ...p, type: 'custom' } : p))
         setItem('aiProviderList', list)
@@ -175,6 +175,8 @@ export default {
           target.toolTurns = values.toolTurns || 500
           target.imageInput = values.imageInput !== false
           target.thinkingMode = values.thinkingMode || 'follow'
+          // 采样参数（pi 1.0.2+ samplingParamsByThinkingLevel）：null 表示未配置（清除既有值）
+          target.sampling = values.sampling || null
           target.type = values.type || 'custom'
         }
       } else if (item) {

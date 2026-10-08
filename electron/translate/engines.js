@@ -2,7 +2,7 @@
 // 双引擎：google（免费 gtx 接口）/ llm（复用 agent/llm.streamChat，OpenAI 兼容）
 // 设计：纯函数无状态，引擎选择与 provider 配置由调用方（browser.js）注入
 
-const { streamChat } = require('../agent/llm')
+const { streamChat } = require('../agent/core/llm')
 
 // ===== Google 免费翻译（translate_a/single gtx 端点，非官方） =====
 
@@ -155,4 +155,9 @@ async function translateBatch(texts, opts = {}) {
   return translateWithGoogle(list, opts)
 }
 
-module.exports = { translateBatch, TARGET_LANGS }
+module.exports = {
+  // 批量翻译统一入口（按 opts.engine 分发 google / llm）
+  translateBatch,
+  // 支持的目标语言表（代码 → 名称，页面下拉用）
+  TARGET_LANGS
+}

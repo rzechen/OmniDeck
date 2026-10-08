@@ -1,4 +1,4 @@
-// OmniDeck 快捷入口（P0-M1）：托盘常驻 + 全局快捷键 + Spotlight 式快捷面板壳
+// OmniDeck 快捷入口：托盘常驻 + 全局快捷键 + Spotlight 式快捷面板壳
 // - 托盘：应用 logo 彩色图标；菜单按 Deck / Buddy 分组直达 + 快捷截图 / 快捷面板，
 //   全局项（检查更新 / 退出应用）独立呈现——托盘常驻后真正退出的唯一入口
 // - 全局快捷键：CmdOrCtrl+Shift+O 唤起/隐藏面板（系统级，应用未聚焦也生效）；
@@ -18,6 +18,7 @@ let panel = null
 let getWindow = null // 主窗口 getter（main.js 注入）
 const trayItemAccels = new Map() // 菜单项自定义快捷键 → 已注册标记
 
+// ---------- 设置读写（quick-settings.json） ----------
 // 快捷键等主进程可读配置（渲染端 localStorage 主进程读不到，故独立存此文件）
 // 默认键含 O（OmniDeck 品牌首字母），降低与其他产品常见快捷键的冲突
 // trayMenuVer：托盘菜单默认配置版本——旧配置文件缺此标记时自动升级到新默认
@@ -50,7 +51,7 @@ function loadSettings() {
   } catch (e) { /* 首次不存在：走默认值 */ }
 }
 
-// ---------- 托盘图标（M5）：
+// ---------- 托盘图标：
 // - mac：Template 模板图（trayTemplate.png + @2x/@4x 多分辨率），声明 setTemplateImage
 //   后由系统接管渲染——浅色菜单栏黑色 / 深色菜单栏白色，自动适配外观
 // - Windows / Linux：彩色 tray-win.png（16/32px 惯例彩色图标）
@@ -106,6 +107,7 @@ function createTray() {
   rebuildTrayMenu()
 }
 
+// ---------- 托盘菜单 ----------
 // 主窗口聚焦并跳转指定路由（渲染侧 App.vue 监听 nav:goto 跳转）
 function gotoRoute(p) {
   const win = getWindow && getWindow()
@@ -241,7 +243,7 @@ function createPanel() {
   const isMac = process.platform === 'darwin'
   panel = new BrowserWindow({
     width: 760,
-    height: 520, // M2：消息区 + 输入区（壳阶段 320 → 对话需要更高）
+    height: 520, // 消息区 + 输入区需要较高窗口
     useContentSize: true,
     show: false,
     frame: false,
@@ -305,7 +307,7 @@ function showPanel() {
   panel.setAlwaysOnTop(true, 'floating')
   panel.show()
   panel.focus()
-  // 通知面板页：唤起（M4 剪贴板图片感知等场景）
+  // 通知面板页：唤起（剪贴板图片感知等场景）
   sendToPanel('quick:visibility', true)
 }
 
@@ -365,7 +367,7 @@ function saveSettings() {
 function registerIpc() {
   ipcMain.handle('quick:show', () => showPanel())
   ipcMain.handle('quick:hide', () => hidePanel())
-  // 快捷键设置（M4）：读取 / 修改面板唤起快捷键
+  // 快捷键设置：读取 / 修改面板唤起快捷键
   ipcMain.handle('quick:get-shortcut', () => ({ accelerator: settings.panelShortcut }))
   ipcMain.handle('quick:set-shortcut', (_e, accelerator) => setPanelShortcut(accelerator))
   // 托盘快捷菜单：读取 / 保存（保存即重建菜单并重注册快捷键）
@@ -428,4 +430,11 @@ function init(opts) {
   app.on('will-quit', () => globalShortcut.unregisterAll())
 }
 
-module.exports = { init, rebuildTrayMenu, getPanelWindow: () => panel }
+module.exports = {
+  // 初始化（托盘 + 全局快捷键 + IPC + 锁屏转发）
+  init,
+  // 重建托盘菜单（配置或快捷键变更后刷新）
+  rebuildTrayMenu,
+  // 取快捷面板窗口引用（未创建时为 null）
+  getPanelWindow: () => panel
+}

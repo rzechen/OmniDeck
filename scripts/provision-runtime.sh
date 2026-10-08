@@ -724,8 +724,99 @@ do_npx_cache() {
   echo "==> 完成"
 }
 
+# ---- git：全平台便携组件（统一装配，不依赖宿主）----
+# Windows：MinGit 官方 zip（lib 离线档，zip 根即 cmd/git.exe）；
+# POSIX：conda 便携包（micromamba create git，与 python-env 同构——rpath
+#   相对可迁移，解压到 userData 不同路径仍可执行）。lib 的 git-env zip
+#   命中即离线解压；缺档在线生成后打包回存（此后零网络复用）。
+# 落位 runtime/<plat>/git（Windows zip 根即 env 内容；POSIX zip 内顶层
+#   git/ 为 conda env 根，marker = git/bin/git）
+# 版本不锁死：anaconda main 的 git 版本滞后于 git 官方（精确 pin 常无解），
+# 影子仓库只用 plumbing 命令（write-tree/read-tree/checkout-index），任意现代 git 均可
+GIT_CONDA_SPEC="git"
+MINGIT_VERSION=2.55.0
+
+git_env_zip() {  # <plat> → lib 存档名（与 runtime-publish.sh SPEC 对齐）
+  case "$1" in
+    darwin-arm64)  echo "git-env-osx-arm64.zip" ;;
+    darwin-x86_64) echo "git-env-osx-64.zip" ;;
+    linux-x86_64)  echo "git-env-linux-64.zip" ;;
+    linux-aarch64) echo "git-env-linux-aarch64.zip" ;;
+  esac
+}
+
+do_git() {
+  local plat="$1"
+  check_platform "$plat"
+  local dir="$RUNTIME_ROOT/$plat/git"
+  # ---- Windows：MinGit 离线档（zip 根即 cmd/ 等，解压型可跨宿主落位）----
+  if [ "$plat" = windows-x86_64 ]; then
+    local mingit_zip
+    mingit_zip="$(require_lib_pkg "$plat" "MinGit-${MINGIT_VERSION}-64-bit.zip")"
+    wipe_dir "$dir"
+    echo "==> lib 缓存命中: MinGit-${MINGIT_VERSION}-64-bit.zip，解压至 ${dir}"
+    safe_unzip "$mingit_zip" -d "$dir"
+    fix_perms "$dir"
+    [ -f "$dir/cmd/git.exe" ] || { echo "错误: 未找到 cmd/git.exe（zip 布局异常）" >&2; exit 1; }
+    echo "==> 完成: ${dir}（MinGit 布局）"
+    return
+  fi
+  # ---- POSIX：conda 便携 git（在线生成须目标平台本机；离线档解压可跨宿主）----
+  local env_zip="$LIB_ROOT/$plat/$(git_env_zip "$plat")"
+  wipe_dir "$dir"
+  if [ -f "$env_zip" ]; then
+    echo "==> lib 缓存命中: $(basename "$env_zip")，解压至 ${dir}（离线档）"
+    safe_unzip "$env_zip" -d "$RUNTIME_ROOT/$plat"
+    fix_perms "$dir"
+  else
+    local this_plat mm_subdir mm_tbz2 mm tmp
+    this_plat="$(current_platform)"
+    [ "$plat" = "$this_plat" ] || {
+      echo "错误: lib 缺 $(basename "$env_zip")，且在线生成须在目标平台本机执行（当前 ${this_plat}，目标 ${plat}）" >&2
+      exit 1
+    }
+    mm_subdir="$(plat_asset_mm "$plat")"
+    mm_tbz2="$(require_lib_pkg "$plat" "micromamba-$mm_subdir.tar.bz2")"
+    echo "==> micromamba ← lib 解压（单文件 conda，免安装）"
+    tmp="$(mktemp -d)"
+    # 不用 trap EXIT 清理：函数内 local tmp 在进程退出时已出栈，trap 引用
+    # 会触发 set -u 的 unbound variable 误报；失败路径显式清理
+    mkdir -p "$tmp/mm"
+    tar -xjf "$mm_tbz2" -C "$tmp/mm"
+    mm="$tmp/mm/bin/micromamba"
+    [ -x "$mm" ] || { rm -rf "$tmp"; echo "错误: 未找到 micromamba（解压布局异常）" >&2; exit 1; }
+    # root/HOME 全重定向 tmp：不污染宿主用户目录；TUNA 镜像
+    export MAMBA_ROOT_PREFIX="$tmp/mamba-root"
+    export HOME="$tmp/home"
+    mkdir -p "$MAMBA_ROOT_PREFIX" "$HOME"
+    printf 'channel_alias: https://mirrors.tuna.tsinghua.edu.cn/anaconda\n' > "$tmp/rc.yaml"
+    export MAMBA_RC_FILE="$tmp/rc.yaml"
+    echo "==> micromamba create -p $dir git（TUNA 镜像，取 main 最新可用版）"
+    "$mm" create -y -q -p "$dir" -c main --override-channels \
+      "$GIT_CONDA_SPEC" >/dev/null || {
+        rm -rf "$tmp"
+        echo "错误: micromamba create git 失败（网络/镜像问题，可重试）" >&2
+        exit 1
+      }
+    rm -rf "$tmp"
+    # 装配产物打包存档回 lib（顶层 git/ 目录；幂等复用）
+    echo "==> 打包存档至 lib: $(basename "$env_zip")"
+    mkdir -p "$LIB_ROOT/$plat"
+    ( cd "$RUNTIME_ROOT/$plat" && zip -qr "$env_zip" git )
+  fi
+  [ -x "$dir/bin/git" ] || { echo "错误: 未找到 bin/git（装配布局异常）" >&2; exit 1; }
+  # 冒烟：--version（校验 conda 依赖库完整；跨平台备料时跳过执行）
+  if [ "$(current_platform)" = "$plat" ]; then
+    "$dir/bin/git" --version
+  fi
+  if [ "$(uname -s)" = Darwin ]; then
+    xattr -rd com.apple.quarantine "$dir" 2>/dev/null || true
+  fi
+  echo "==> 完成: ${dir}（conda 便携包）"
+}
+
 # ============================================================
-#  install：全量装配（覆盖式幂等可重跑；六组件依次落位）
+#  install：全量装配（覆盖式幂等可重跑；七组件依次落位）
 # ============================================================
 do_install() {
   local plat="$1"
@@ -745,6 +836,7 @@ do_install() {
   do_playwright "$plat"
   do_pandoc "$plat"
   do_npx_cache "$plat"
+  do_git "$plat"
   echo "==> $plat 装配完成，核对: $0 verify $plat"
 }
 
@@ -806,6 +898,10 @@ do_verify() {
   local pd_bin="$RUNTIME_ROOT/$plat/pandoc/bin/pandoc"
   [ "$plat" = windows-x86_64 ] && pd_bin="${pd_bin}.exe"
   check_bin "pandoc" "$pd_bin"
+  # git 便携组件（全平台）
+  local git_bin="$RUNTIME_ROOT/$plat/git/bin/git"
+  [ "$plat" = windows-x86_64 ] && git_bin="$RUNTIME_ROOT/$plat/git/cmd/git.exe"
+  check_bin "git" "$git_bin"
   if [ "$cur" = "$plat" ] && [ -e "$py_bin" ]; then
     # python 移动路径冒烟（装配目录与运行目录不同也应可用——conda 前缀推导检查）
     local probe probe_py

@@ -1,24 +1,23 @@
-// 运行时组件在线装配（主进程）：瘦身版安装包按需下载 python-env / node / node-tools / pandoc
-// 清单来源：OmniBuddy-Plugins 双仓库（GitCode 主源国内快 / GitHub 备源）的 runtime-manifest.json
+// 运行时组件在线装配（主进程）：瘦身版安装包按需下载 python-env / node / node-tools / pandoc / git
+// 清单来源：OmniBuddy-Plugins 仓库（GitCode）的 runtime-manifest.json
 // 流程：拉 manifest → components[name].targets[plat] → 依次尝试 urls → 流式下载（停滞 90s 超时）
 //       → sha256 校验 → 解压装配到 <userData>/omnibuddy/runtime/<plat>/ → 写 installed.json 台账
 // 进度经 'omnibuddy:runtime:progress' 推送 { component, phase, received, total, percent, error }
 // 放主进程而非 agent 子进程的原因：子进程联网仅 fetchBuffer（50MB 上限 + base64 内存回传），
-// 主进程 net 具系统代理语义（GitHub 备源需要）且可流式写盘、直接 event.sender.send 推进度。
+// 主进程 net 具系统代理语义（官方源组件跨域下载需要）且可流式写盘、直接 event.sender.send 推进度。
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { spawn } = require('child_process')
 const { ipcMain, net } = require('electron')
 const AdmZip = require('adm-zip')
-const runtime = require('../agent/runtime')
+const runtime = require('../agent/platform/runtime')
 
-// manifest 双源（与 scripts/runtime-publish.sh 推送地址一致）
-const MANIFEST_URLS = [
-  'https://raw.gitcode.com/m0_59492087/OmniBuddy-Plugins/raw/main/runtime-manifest.json',
-  'https://raw.githubusercontent.com/rzechen/OmniBuddy-Plugins/main/runtime-manifest.json'
-]
-// GitCode 反爬：无 UA 的 raw / release 请求 403 / 401，须带浏览器 UA 且仅 GET
+// ---------- 常量与组件规则表 ----------
+// manifest 源：GitCode OpenAPI raw 端点（单源，仓库配置见 src/config/remote.cjs；
+// 注意 raw.gitcode.com 域名对个人仓库返回「暂不支持预览」，须走 api.gitcode.com）
+const remoteCfg = require('../../src/config/remote.cjs')
+const MANIFEST_URLS = [remoteCfg.rawUrl('plugins', 'runtime-manifest.json')]
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 const MANIFEST_TTL = 10 * 60 * 1000
 // 下载停滞超时（非总超时：发布侧 228MB 经代理传 50 分钟仍成功，慢链路只罚停滞）
@@ -135,17 +134,23 @@ const COMPONENT_RULES = {
     completeFile: true,
     winOnly: true
   },
-  // MinGit：Windows 无系统 git 时的兜底（插件市场 / 仓库同步依赖）；原「安装包内置
-  // 解压」已取消，统一改为在线装配（与全套组件口径一致），zip 根即 cmd/git.exe 布局
-  'mingit': {
+  // Git 工具：全平台便携组件（统一装配，不依赖宿主环境）。
+  // - Windows：MinGit 官方包（zip 根即 cmd/git.exe），老组件名 mingit 的已装配
+  //   目录与本布局相同（runtime/<plat>/git），升级用户免重装
+  // - POSIX：conda 便携包（provision-runtime.sh micromamba 生成，zip 内顶层
+  //   git/ 为 env 根，含 bin/git 与全部依赖库，rpath 相对可迁移）
+  // 用途：影子仓库检查点（checkpoints）与工作空间内 git 命令
+  'git': {
     label: 'Git 工具',
-    description: 'MinGit 便携版 Git（插件市场与仓库同步的基础依赖，仅 Windows 发行）。',
+    description: '便携版 Git（会话检查点快照与仓库操作的基础依赖）。',
     group: '解释器与依赖库',
-    installDir: () => 'git',
+    // Windows 包根级即 cmd/git.exe，需解入 git/；POSIX conda 包自带
+    // 顶层 git/ 目录（provision-runtime.sh 打包口径），须解到 runtime 根，
+    // 否则会双层嵌套成 git/git/bin/git，marker 永远探测不到
+    installDir: () => (isWin() ? 'git' : ''),
     ownDir: 'git',
-    marker: () => 'git/cmd/git.exe',
-    freshExtract: true,
-    winOnly: true
+    marker: () => (isWin() ? 'git/cmd/git.exe' : 'git/bin/git'),
+    freshExtract: true
   }
 }
 
@@ -405,9 +410,9 @@ function builtinProbe(name) {
       return markerHit(runtime.rootDir(), 'playwright-browsers/' + PW_REV.ffmpeg + '/INSTALLATION_COMPLETE')
     case 'winldd':
       return isWin() && markerHit(runtime.rootDir(), 'playwright-browsers/' + PW_REV.winldd + '/INSTALLATION_COMPLETE')
-    // mingit：老版本曾把内置 zip 解压到 <userData>/omnibuddy/git（非 runtime 根），
-    // 升级用户按老目录兼容探测，避免引导页 / 设置页要求重复下载
-    case 'mingit':
+    // git：老版本曾把内置 zip 解压到 <userData>/omnibuddy/git（非 runtime 根，
+    // 仅 Windows），升级用户按老目录兼容探测，避免引导页 / 设置页要求重复下载
+    case 'git':
       return isWin() && markerHit(path.join(baseDir, 'git'), 'cmd/git.exe')
     default: return false
   }
@@ -449,9 +454,14 @@ function localStatus() {
 async function status() {
   const mf = await fetchManifest(true)
   const manifestComps = (mf.ok && mf.data && mf.data.components) || {}
+  // 过渡期归一化：旧 manifest 键名 mingit → git（targets 布局一致，免重复下载）
+  if (manifestComps.mingit) {
+    if (!manifestComps.git) manifestComps.git = manifestComps.mingit
+    delete manifestComps.mingit
+  }
   const names = Array.from(new Set(Object.keys(COMPONENT_RULES).concat(Object.keys(manifestComps))))
-    // winldd / mingit 仅 Windows 发行（Windows 落地依赖 / Windows 兜底），其余平台不展示
-    .filter(n => (n !== 'winldd' && n !== 'mingit') || isWin())
+    // winldd 仅 Windows 发行（Windows 落地依赖），其余平台不展示
+    .filter(n => n !== 'winldd' || isWin())
   const mPlat = manifestPlat()
   const dRoot = downloadedRoot()
   const ledger = readLedger()
@@ -514,8 +524,10 @@ async function doInstall(name, event) {
   const mPlat = manifestPlat()
   const mf = await fetchManifest(true)
   if (!mf.ok) return { ok: false, error: '清单拉取失败：' + mf.error }
-  const comp = (mf.data.components || {})[name]
-  const target = comp && comp.targets ? comp.targets[mPlat] : null
+  const allComps = (mf.data.components || {})
+  // 过渡期归一化：旧 manifest 键名 mingit → git（与 status() 同口径）
+  const comp = allComps[name] || (name === 'git' && allComps.mingit) || null
+  const target = comp && comp.targets ? (comp.targets[mPlat] || null) : null
   if (!target || !Array.isArray(target.urls) || !target.urls.length) {
     return { ok: false, error: '清单中无当前平台（' + mPlat + '）的发行包' }
   }
@@ -526,7 +538,7 @@ async function doInstall(name, event) {
   fs.mkdirSync(dRoot, { recursive: true })
   const tmp = path.join(cacheDir, target.file + '.download')
 
-  // 多源依次尝试（GitCode 主源国内快 → GitHub 备源走系统代理）。
+  // 多源依次尝试（私有包 GitCode Release 直链；公共组件官方源 / 国内镜像）。
   // 缓存复用：上次中断的 tmp 完整（大小命中 manifest）则免重下，会话重启后断点续装
   let lastError = ''
   let downloaded = false
@@ -672,4 +684,17 @@ function registerIpc() {
   ipcMain.handle('omnibuddy:runtime:uninstall', (_e, name) => uninstall(name))
 }
 
-module.exports = { init, registerIpc, status, localStatus, installComponent, setProgressSink }
+module.exports = {
+  // 注入装配根目录（<userData>/omnibuddy）
+  init,
+  // 注册运行时组件 IPC（status / install / uninstall）
+  registerIpc,
+  // 组件总览（拉 manifest 与本地探测合并）
+  status,
+  // 本地探测版总览（不拉云端清单，同步秒回）
+  localStatus,
+  // 安装单个组件（inFlight 防重复安装）
+  installComponent,
+  // 注入后台装配进度汇聚器（setup.js 用）
+  setProgressSink
+}

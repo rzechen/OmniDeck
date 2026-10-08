@@ -59,7 +59,7 @@
           draggable="false"
         />
       </div>
-      <!-- 用户：文件附件卡片（文本/PDF 与文件导入图片，P1-7；编辑态隐藏） -->
+      <!-- 用户：文件附件卡片（文本/PDF 与文件导入图片；编辑态隐藏） -->
       <div v-if="!editing && fileAttachmentList.length" class="ob-msg-files">
         <div v-for="f in fileAttachmentList" :key="f.id" class="ob-msg-file">
           <img v-if="f.kind === 'image' && f.thumb" class="ob-msg-file-thumb" :src="f.thumb" alt="" draggable="false" />
@@ -113,7 +113,7 @@
       </div>
       <span v-if="showCursor" class="ob-cursor"></span>
 
-      <!-- 助手：深度研究任务进度卡片（P3）：workflow 工具启动的多代理运行实时状态；
+      <!-- 助手：深度研究任务进度卡片：workflow 工具启动的多代理运行实时状态；
            后台运行跨回合，进度由 store 直接写入 item.workflow.progress，卡片天然响应 -->
       <workflow-panel
         v-if="message.role === 'assistant' && workflows.length"
@@ -214,12 +214,12 @@
 
 <script>
 // OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标 + meta 行）
-import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
 import ThinkingSection from './ThinkingSection.vue'
 import FileChangesPanel from './FileChangesPanel.vue'
 import ArtifactPanel from './ArtifactPanel.vue'
 import WorkflowPanel from './WorkflowPanel.vue'
-import { buddyApi } from '@/utils/buddy-api'
+import { buddyApi } from '@/utils/buddy/buddy-api'
 
 export default {
   name: 'MessageBubble',
@@ -313,7 +313,7 @@ export default {
       if (!u || (!u.input && !u.output)) return ''
       return '输入 ' + this.formatTokens(u.input) + ' tokens · 输出 ' + this.formatTokens(u.output) + ' tokens'
     },
-    // 上下文占用文字（tokens / 窗口，P1-9）
+    // 上下文占用文字（tokens / 窗口）
     contextText() {
       const u = this.message.usage
       if (!u || !u.contextTokens || !u.contextWindow) return ''
@@ -342,7 +342,7 @@ export default {
     timeText() {
       return this.formatTime(this.message.createdAt)
     },
-    // 文件附件列表（仅用户消息有，P1-7）
+    // 文件附件列表（仅用户消息有）
     fileAttachmentList() {
       if (this.message.role !== 'user' || !Array.isArray(this.message.fileAttachments)) return []
       return this.message.fileAttachments
@@ -497,7 +497,7 @@ export default {
       URL.revokeObjectURL(url)
       this.$message.success('已导出')
     },
-    // 按格式导出本条回答（P1 文档交付）：
+    // 按格式导出本条回答（文档交付）：
     // Markdown 前端 Blob 直下；Word / PDF / HTML 走主进程 pandoc 管线（弹保存对话框）
     async exportAs(format) {
       this.exportMenu = false
@@ -710,7 +710,7 @@ export default {
   display: block;
 }
 
-/* 用户消息文件附件卡片（P1-7）：图标/缩略图 + 文件名 + 类型/大小 */
+/* 用户消息文件附件卡片：图标/缩略图 + 文件名 + 类型/大小 */
 .ob-msg-files {
   display: flex;
   flex-wrap: wrap;
@@ -916,7 +916,7 @@ export default {
   color: var(--primary-color);
 }
 
-/* ===== 导出格式菜单（P1 文档交付）：锚定导出按钮下方，macOS 毛玻璃小菜单 ===== */
+/* ===== 导出格式菜单（文档交付）：锚定导出按钮下方，macOS 毛玻璃小菜单 ===== */
 .ob-meta-export {
   position: relative;
   display: inline-flex;
@@ -1049,7 +1049,7 @@ export default {
   transform: rotate(180deg);
 }
 
-/* ===== 上下文用量迷你条（meta 行内，P1-9）===== */
+/* ===== 上下文用量迷你条（meta 行内）===== */
 .ob-meta-ctx {
   display: inline-flex;
   align-items: center;

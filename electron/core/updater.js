@@ -1,11 +1,11 @@
-// 自动更新（N1 阶段一 + N5 阶段二）：
-// - 阶段一（保留）：GitCode Releases API 检测 + 引导下载（mac 未签名唯一可行形态）
-// - 阶段二（新增）：electron-updater generic provider 全自动（win 全自动价值最大）
+// 自动更新（双通道）：GitCode Releases 检测更新，引导下载或 electron-updater 全自动安装
+// - 引导通道：GitCode Releases API 检测 + 引导下载（mac 未签名唯一可行形态）
+// - 全自动通道：electron-updater generic provider 全自动（win 全自动价值最大）
 //   GitCode 不在官方 provider 名单 → 动态 setFeedURL：
 //   检查时先调 Releases latest API 拿最新 tag，feed 指向
 //   https://gitcode.com/{owner}/{repo}/releases/download/v{tag}/ 前缀
-//   （附件经 upload_url API 预签名 PUT 上传，匿名 GET 可达，已实测验证）
-// - mac 未签名：quitAndInstall 会被 Gatekeeper 拦截，保持阶段一引导形态；
+//   （附件经 upload_url API 预签名 PUT 上传，匿名 GET 可达）
+// - mac 未签名：quitAndInstall 会被 Gatekeeper 拦截，保持引导下载形态；
 //   签名后可放开 ALLOW_FULL_AUTO_ON_MAC
 const { app, ipcMain, net, shell } = require('electron')
 const { autoUpdater } = require('electron-updater')
@@ -27,7 +27,7 @@ let lastResult = null
 let getWindow = null
 // electron-updater 是否已初始化（拿到 feed tag 后置 true）
 let feedReady = false
-// 阶段二下载状态（idle / downloading / ready / error，推送给渲染侧）
+// 全自动通道下载状态（idle / downloading / ready / error，推送给渲染侧）
 let downloadState = { status: 'idle', percent: 0, version: '', error: '' }
 
 // ---------- semver 字符串比对（零依赖）：a > b 返回 1，小于 -1，相等 0 ----------
@@ -50,7 +50,7 @@ function compareVersions(a, b) {
   return 0
 }
 
-// ---------- 阶段二：electron-updater 事件 → 渲染进程推送 ----------
+// ---------- 全自动通道：electron-updater 事件 → 渲染进程推送 ----------
 function pushState(extra) {
   downloadState = Object.assign({}, downloadState, extra)
   const win = getWindow && getWindow()
@@ -157,7 +157,7 @@ function fetchLatestRelease() {
   })
 }
 
-// ---------- 阶段二：初始化 electron-updater（feed 指向最新 tag 下载前缀） ----------
+// ---------- 全自动通道：初始化 electron-updater（feed 指向最新 tag 下载前缀） ----------
 async function setupFeedFromLatestRelease(fetchRes) {
   if (!fetchRes || !fetchRes.ok || !fetchRes.release || !fetchRes.release.tag) return false
   const tag = fetchRes.release.tag.replace(/^v/i, '')
@@ -179,7 +179,7 @@ async function setupFeedFromLatestRelease(fetchRes) {
 // ---------- 检查更新（手动/静默共用） ----------
 async function checkUpdate({ silent = false } = {}) {
   const fetchRes = await fetchLatestRelease()
-  // 阶段二 feed 初始化（失败自动降级纯阶段一）
+  // 全自动通道 feed 初始化（失败自动降级纯引导下载）
   const feedOk = await setupFeedFromLatestRelease(fetchRes)
   if (!fetchRes.ok) {
     // 静默检查失败不打扰用户
@@ -189,7 +189,7 @@ async function checkUpdate({ silent = false } = {}) {
   const current = app.getVersion()
   const remote = fetchRes.release.tag
   const hasUpdate = compareVersions(remote, current) > 0
-  // 阶段二全自动通道：win（NSIS）价值最大；mac 未签名保持引导
+  // 全自动通道：win（NSIS）价值最大；mac 未签名保持引导
   const canFullAuto = feedOk && (process.platform === 'win32' || ALLOW_FULL_AUTO_ON_MAC)
   const result = {
     ok: true,
@@ -198,7 +198,7 @@ async function checkUpdate({ silent = false } = {}) {
     release: fetchRes.release,
     // 用户点过「下次再说」的版本不再视为待更新（手动检查仍如实展示）
     skipped: !hasUpdate ? false : remote === skippedVersion,
-    // 阶段二通道可用：有更新且平台允许全自动
+    // 全自动通道可用：有更新且平台允许全自动
     fullAuto: hasUpdate && canFullAuto,
     feedReady: feedOk
   }
@@ -211,7 +211,7 @@ function registerIpc() {
   // 手动检查（version 页「检查更新」按钮 / 托盘菜单）
   ipcMain.handle('updater:check', () => checkUpdate({ silent: false }))
 
-  // 阶段二：开始下载（发现新版本后由用户触发）
+  // 全自动通道：开始下载（发现新版本后由用户触发）
   ipcMain.handle('updater:download', async () => {
     if (!feedReady) return { ok: false, error: '更新通道未就绪' }
     if (downloadState.status === 'downloading') return { ok: true }
@@ -225,14 +225,14 @@ function registerIpc() {
     }
   })
 
-  // 阶段二：重启并安装（下载完成后）
+  // 全自动通道：重启并安装（下载完成后）
   ipcMain.handle('updater:install', () => {
     if (downloadState.status !== 'ready') return { ok: false, error: '安装包尚未下载完成' }
     setImmediate(() => autoUpdater.quitAndInstall())
     return { ok: true }
   })
 
-  // 阶段二：查询当前下载状态（version 页进入时恢复进度条）
+  // 查询当前下载状态（version 页进入时恢复进度条）
   ipcMain.handle('updater:download-state', () => downloadState)
 
   // 最近一次结果缓存（页面进入时秒显，再自行触发刷新）
@@ -278,4 +278,5 @@ function init(getWindowFn) {
   startSilentCheck()
 }
 
+// 初始化更新模块（记录窗口引用 + 注册 IPC + 启动静默检查）
 module.exports = { init }

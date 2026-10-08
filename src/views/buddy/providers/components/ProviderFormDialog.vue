@@ -235,7 +235,34 @@
                   </div>
                 </div>
 
-                <!-- 深度研究档位（P3）：将该模型映射为深度研究子代理的轻量/标准/强力档；同档位全局唯一 -->
+                <!-- 采样参数（pi 1.0.2+ 原生 samplingParamsByThinkingLevel）：按思考档位下发 temperature / top_p -->
+                <div class="pf-adv-row pf-adv-row-block">
+                  <div class="pf-adv-info">
+                    <span class="pf-adv-name">
+                      采样参数
+                      <el-tooltip placement="top" :show-after="200">
+                        <template #content>
+                          <div>按「思考模式」档位下发采样参数（temperature / top_p），<br />留空不下发、使用端点默认值；OpenAI 兼容接口生效。<br />部分兼容端点需按思考开/关显式设置 temperature 才能稳定输出。</div>
+                        </template>
+                        <svg-icon icon-class="warning-outline" class="ob-tier-help" />
+                      </el-tooltip>
+                    </span>
+                    <span class="pf-adv-desc">按思考档位（关闭 / 跟随 / 开启）下发 temperature 与 top_p，留空用端点默认</span>
+                  </div>
+                  <div class="pf-sampling-grid">
+                    <div v-for="lv in samplingLevels" :key="lv.key" class="pf-win-col">
+                      <div class="pf-win-field">
+                        <span class="pf-win-tag">{{ lv.label }}</span>
+                      </div>
+                      <div class="pf-samp-pair">
+                        <el-input v-model="form[lv.tempKey]" size="small" placeholder="temperature" class="pf-samp-input" />
+                        <el-input v-model="form[lv.topPKey]" size="small" placeholder="top_p" class="pf-samp-input" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 深度研究档位：将该模型映射为深度研究子代理的轻量/标准/强力档；同档位全局唯一 -->
                 <div class="pf-adv-row">
                   <div class="pf-adv-info">
                     <span class="pf-adv-name">
@@ -316,6 +343,13 @@ const OUTPUT_CHIPS = [
   { label: '128k', value: 131072 }
 ]
 
+// 采样参数档位（与思考模式三档对应：off / follow→medium / on→high）
+const SAMPLING_LEVELS = [
+  { key: 'off', label: '关闭档', tempKey: 'samplingOffTemp', topPKey: 'samplingOffTopP' },
+  { key: 'medium', label: '跟随档', tempKey: 'samplingMedTemp', topPKey: 'samplingMedTopP' },
+  { key: 'high', label: '开启档', tempKey: 'samplingHighTemp', topPKey: 'samplingHighTopP' }
+]
+
 export default {
   name: 'ProviderFormDialog',
   props: {
@@ -350,6 +384,7 @@ export default {
       form: this.emptyForm(),
       inputChips: INPUT_CHIPS,
       outputChips: OUTPUT_CHIPS,
+      samplingLevels: SAMPLING_LEVELS,
       // 必填字段失焦校验的错误提示
       errors: {
         baseUrl: '',
@@ -419,7 +454,13 @@ export default {
         contextWindowOutput: '',
         toolTurns: 500,
         imageInput: true,
-        thinkingMode: 'follow'
+        thinkingMode: 'follow',
+        samplingOffTemp: '',
+        samplingOffTopP: '',
+        samplingMedTemp: '',
+        samplingMedTopP: '',
+        samplingHighTemp: '',
+        samplingHighTopP: ''
       }
     },
     // 表单初始化：新建全部为空（失焦校验）；编辑回填
@@ -443,7 +484,14 @@ export default {
           contextWindowOutput: p.contextWindowOutput != null ? String(p.contextWindowOutput) : '',
           toolTurns: p.toolTurns != null ? p.toolTurns : 500,
           imageInput: p.imageInput !== false,
-          thinkingMode: p.thinkingMode || 'follow'
+          thinkingMode: p.thinkingMode || 'follow',
+          // 采样参数回填（sampling: { off/medium/high: {temperature, top_p} } → 扁平表单键）
+          samplingOffTemp: this.sampVal(p.sampling, 'off', 'temperature'),
+          samplingOffTopP: this.sampVal(p.sampling, 'off', 'top_p'),
+          samplingMedTemp: this.sampVal(p.sampling, 'medium', 'temperature'),
+          samplingMedTopP: this.sampVal(p.sampling, 'medium', 'top_p'),
+          samplingHighTemp: this.sampVal(p.sampling, 'high', 'temperature'),
+          samplingHighTopP: this.sampVal(p.sampling, 'high', 'top_p')
         }
         : this.emptyForm()
       this.resetErrors()
@@ -579,6 +627,35 @@ export default {
       const n = parseInt(v, 10)
       return Number.isFinite(n) && n > 0 ? n : null
     },
+    // 采样参数读取：持久化对象 → 表单字符串（数值合法才回显，否则置空）
+    sampVal(sampling, level, key) {
+      const v = sampling && sampling[level] && sampling[level][key]
+      const n = parseFloat(v)
+      return Number.isFinite(n) ? String(n) : ''
+    },
+    // 采样参数写入：表单字符串 → 数值（temperature 0~2 / top_p 0~1，空或越界→null 不下发）
+    toSampNum(v, min, max) {
+      if (v === '' || v == null) return null
+      const n = parseFloat(v)
+      return Number.isFinite(n) && n >= min && n <= max ? n : null
+    },
+    // 组装采样参数（null 表示整组未配置）：{ off/medium/high: {temperature?, top_p?} }
+    buildSampling() {
+      const lv = (tempKey, topPKey) => {
+        const o = {}
+        const t = this.toSampNum(this.form[tempKey], 0, 2)
+        const p = this.toSampNum(this.form[topPKey], 0, 1)
+        if (t != null) o.temperature = t
+        if (p != null) o.top_p = p
+        return Object.keys(o).length ? o : null
+      }
+      const s = {
+        off: lv('samplingOffTemp', 'samplingOffTopP'),
+        medium: lv('samplingMedTemp', 'samplingMedTopP'),
+        high: lv('samplingHighTemp', 'samplingHighTopP')
+      }
+      return (s.off || s.medium || s.high) ? s : null
+    },
     // 保存（新建或更新；先校验必填，再测试连接，组装数据交父级持久化）
     async saveProvider() {
       // ===== 图像生成模型分支：字段精简、不走 chat 连通性测试（图像按张计费不自动消耗） =====
@@ -598,7 +675,7 @@ export default {
             values: {
               type: 'image', name, apiFormat: 'openai', baseUrl, model, displayName, apiKey,
               tier: '', modelSeries: 'default', contextWindowInput: null, contextWindowOutput: null,
-              toolTurns: 500, imageInput: false, thinkingMode: 'follow',
+              toolTurns: 500, imageInput: false, thinkingMode: 'follow', sampling: null,
               imageModel: model, imageBaseUrl: baseUrl, imageApiKey: apiKey
             }
           })
@@ -621,6 +698,7 @@ export default {
               toolTurns: 500,
               imageInput: false,
               thinkingMode: 'follow',
+              sampling: null,
               imageModel: model,
               imageBaseUrl: baseUrl,
               imageApiKey: apiKey,
@@ -651,6 +729,7 @@ export default {
       const toolTurns = this.toNumOrNull(this.form.toolTurns) || 500
       const imageInput = !!this.form.imageInput
       const thinkingMode = this.form.thinkingMode || 'follow'
+      const sampling = this.buildSampling()
       // 列表名：展示名优先，未填默认显示模型 ID
       const name = displayName || model
 
@@ -669,7 +748,7 @@ export default {
           editingId: this.editingId,
           values: {
             name, apiFormat, baseUrl, model, displayName, apiKey, tier,
-            modelSeries, contextWindowInput, contextWindowOutput, toolTurns, imageInput, thinkingMode
+            modelSeries, contextWindowInput, contextWindowOutput, toolTurns, imageInput, thinkingMode, sampling
           }
         })
       } else {
@@ -693,6 +772,7 @@ export default {
             toolTurns,
             imageInput,
             thinkingMode,
+            sampling,
             isDefault: isFirst
           }
         })
@@ -886,6 +966,24 @@ export default {
 /* 工具调用轮数：窄输入 */
 .pf-turns-input {
   width: 200px;
+}
+
+/* ===== 采样参数：三档（关闭/跟随/开启）双输入 ===== */
+.pf-sampling-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+  width: 100%;
+}
+
+.pf-samp-pair {
+  display: flex;
+  gap: 8px;
+}
+
+.pf-samp-input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 帮助图标：随标签行内展示 */

@@ -1,4 +1,4 @@
-// OmniBuddy agent 桥（主进程侧）
+// OmniBuddy agent 桥（主进程侧）：fork utilityProcess 子进程承载 agent 全量 IPC 并提供宿主服务
 // fork utilityProcess（agent-host.js）承载 agent 全量 IPC（pi 运行时 / 会话 / 技能等重活），
 // 本模块只做三件事：
 // - invoke 转发：ipcMain.handle(channel) → 子进程 shim 的注册表（通道清单由 ready 宣告）
@@ -34,6 +34,7 @@ function startAgentBridge(getWindow, baseDir) {
   let quitFinalized = false
   let quitResolve = null
 
+  // ===== 桥内基础工具 =====
   function post(msg) {
     if (!child) return
     try { child.postMessage(msg) } catch (e) { /* 端口关闭竞态忽略 */ }
@@ -351,4 +352,5 @@ function startAgentBridge(getWindow, baseDir) {
   forkChild()
 }
 
+// 启动 agent 桥：fork 子进程并接管 IPC 转发 / 宿主服务 / 生命周期管理
 module.exports = { startAgentBridge }

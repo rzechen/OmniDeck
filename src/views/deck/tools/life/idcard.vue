@@ -74,7 +74,7 @@
 
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
-import areaCodes from '@/utils/idcard-area'
+import areaCodes from '@/utils/data/idcard-area'
 
 // 加权因子与校验码映射（GB 11643-1999）
 const WEIGHTS = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]

@@ -138,7 +138,7 @@
 
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
-import { getItem, setItem } from '@/utils/db'
+import { getItem, setItem } from '@/utils/storage/db'
 
 const DEFAULT_PRIZES = [
   { level: '一等奖', count: 1, gift: '' },

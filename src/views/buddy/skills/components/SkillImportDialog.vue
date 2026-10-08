@@ -138,7 +138,7 @@
 <script>
 // 编辑 / 导入 Skill：编辑模式（抽屉）读取 SKILL.md 回填表单；
 // 导入模式（小弹窗）为 ZIP 上传 → 自动验证 → 导入（同名二次确认覆盖）；凭据统一在「我的凭据」管理
-import { buddyApi } from '@/utils/buddy-api'
+import { buddyApi } from '@/utils/buddy/buddy-api'
 
 export default {
   name: 'SkillImportDialog',

@@ -27,7 +27,7 @@
 
 <script>
 // 空间页右键菜单（定位/显隐由父组件控制，动作以事件上抛）
-import { isTextEntry } from '@/utils/file-meta'
+import { isTextEntry } from '@/utils/ui/file-meta'
 
 export default {
   name: 'SpaceContextMenu',

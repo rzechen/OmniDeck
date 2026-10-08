@@ -68,7 +68,7 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
-import { downloadText } from '@/utils/download'
+import { downloadText } from '@/utils/ui/download'
 
 const EXAMPLE = `# OmniDeck Markdown
 

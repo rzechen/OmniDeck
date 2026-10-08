@@ -1,5 +1,5 @@
 <template>
-  <!-- 深度研究任务进度面板（P3）：workflow 工具启动的多代理运行实时状态
+  <!-- 深度研究任务进度面板：workflow 工具启动的多代理运行实时状态
        数据源为 tool item 的 workflow 字段（后台 runId + 轮询 progress / 前台 snapshot），
        实时更新由 store 的 workflow_progress 事件直接写入（面板天然响应）；
        历史会话回放时无 progress → 经 IPC 拉取最终状态补全卡片 -->
@@ -58,7 +58,7 @@
 //   { runId, background, snapshot?, progress? }
 // - 实时：主进程 1s 轮询 run 落盘状态 → workflow_progress 事件 → store 写 progress
 // - 历史：无 progress 的条目（后台运行的历史记录）mounted 时经 IPC 拉取最终状态回填
-import { buddyApi } from '@/utils/buddy-api'
+import { buddyApi } from '@/utils/buddy/buddy-api'
 
 // 内置任务名 → 中文名（净化文案，不向用户暴露英文模式名）
 const NAME_MAP = {

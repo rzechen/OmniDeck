@@ -1,4 +1,4 @@
-// OmniBuddy agent 子进程入口（utilityProcess）
+// OmniBuddy agent 子进程入口（utilityProcess）：初始化仿真 shim 并加载 agent 全量 IPC
 // 职责：
 // - argv 解析初始化数据：agent 模块顶层同步 require('electron')，而 parentPort 消息是
 //   异步到达的，init（路径 / safeStorage 可用性等）必须经 argv 同步可读
@@ -133,7 +133,7 @@ process.parentPort.on('message', (e) => {
     const agent = require('./agent')
     agent.registerOmnibuddyIpc(() => shim.__window(), init.userDataPath)
     try {
-      await require('./agent/credentials').prewarm()
+      await require('./agent/integrations/credentials').prewarm()
     } catch (e) {
       console.warn('[agent-host] 凭证解密缓存预热失败（不影响启动）：', errText(e))
     }

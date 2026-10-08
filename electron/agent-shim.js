@@ -1,4 +1,4 @@
-// OmniBuddy agent 子进程 electron 仿真层（agent-shim）
+// OmniBuddy agent 子进程 electron 仿真层（agent-shim）：让 agent 子树零改动运行在 utilityProcess
 // 由 agent-host.js 通过 Module._resolveFilename 将 require('electron') 重定向到本文件，
 // 使 electron/agent/ 全部模块零改动运行在 utilityProcess（Node 子进程）中。
 // 仅仿真 agent 子树实际用到的 API 面（已 grep 全量核对）：
@@ -10,6 +10,7 @@
 
 'use strict'
 
+// ===== 内部状态与工具 =====
 const state = {
   wired: false,            // __wire 是否完成
   post: null,              // (msg) => void  子 → 主 消息
@@ -215,11 +216,28 @@ const __host = {
 }
 
 module.exports = {
-  ipcMain, app, dialog, shell, BrowserWindow, Notification,
-  safeStorage, nativeImage, __host
+  // ipcMain 仿真：handle / handleOnce / removeHandler 注册表
+  ipcMain,
+  // app 仿真：getPath / on / exit（dock 经 getter 提供）
+  app,
+  // dialog 仿真：保存 / 打开对话框经宿主执行
+  dialog,
+  // shell 仿真：外链与文件操作经宿主执行
+  shell,
+  // BrowserWindow 仿真：仅 getAllWindows 返回伪窗口
+  BrowserWindow,
+  // Notification 伪类：真实通知由宿主弹并回掷点击事件
+  Notification,
+  // safeStorage 异步桥接版（__bridged 标记）
+  safeStorage,
+  // nativeImage 桥接版：仅提供缩略图 dataURL
+  nativeImage,
+  // market 专用网络下载桥（fetchBuffer）
+  __host
 }
 
 // ===== 宿主接线（仅 agent-host.js 调用） =====
+// 注入 post / hostCall / init，置 wired 就绪标记
 module.exports.__wire = function __wire({ post, hostCall, init }) {
   state.post = post
   state.hostCall = hostCall
@@ -257,5 +275,7 @@ module.exports.__shutdown = function __shutdown() {
   })
 }
 
+// 取伪窗口（子进程中 agent getWindow() 的返回值）
 module.exports.__window = () => pseudoWindow
+// 已注册 IPC 通道清单（ready 宣告用）
 module.exports.__channels = () => Array.from(state.ipcHandlers.keys())

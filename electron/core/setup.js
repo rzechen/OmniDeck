@@ -6,12 +6,16 @@ const path = require('path')
 const fs = require('fs')
 const downloader = require('./runtime-downloader')
 
+// ---------- 引导检查与完成标记 ----------
 // 引导完成时恢复主窗正常形态（可拖拉 + 最大化）——由 main.js 注册注入
 let restoreMainWindow = null
 
 // 必需组件（全平台）：Python 环境 + Node 运行时与工具链 + 浏览器内核 + 多媒体与文档转换
-const REQUIRED_COMMON = ['python-env', 'node', 'node-tools', 'chrome-headless-shell', 'ffmpeg', 'pandoc']
-// Windows 追加 winldd（运行库落地依赖）；mingit 特判：仅 Windows 且系统无可用 git 时必需
+// + Git 工具（影子仓库检查点与 git 命令的统一依赖，全平台便携装配不依赖宿主）
+// 注意：新增必需组件需先发布 manifest（runtime-publish.sh），旧 manifest 无该组件
+// target 会导致首启装配失败——发布顺序：先推 manifest 再发新版本应用
+const REQUIRED_COMMON = ['python-env', 'node', 'node-tools', 'chrome-headless-shell', 'ffmpeg', 'pandoc', 'git']
+// Windows 追加 winldd（运行库落地依赖）
 
 function isWin() {
   return process.platform === 'win32'
@@ -19,20 +23,6 @@ function isWin() {
 
 function markerFile() {
   return path.join(app.getPath('userData'), 'omnibuddy', '.setup-complete')
-}
-
-// 系统 git 探测（与 deps.js probeGit 同口径；deps 未导出该函数，此处自持一份）
-function probeSystemGit() {
-  return new Promise((resolve) => {
-    try {
-      const { execFile } = require('child_process')
-      execFile('git', ['--version'], { timeout: 5000, windowsHide: true }, (err, stdout) => {
-        resolve(!err && /git version/i.test(String(stdout || '')))
-      })
-    } catch (e) {
-      resolve(false)
-    }
-  })
 }
 
 // 检查结果：needed（是否需要进引导页）+ required（必需组件名全集）+ missing（缺失清单）。
@@ -52,9 +42,6 @@ async function check(skipMarker = false) {
   const required = REQUIRED_COMMON.slice()
   if (isWin()) {
     required.push('winldd')
-    const mingit = byName['mingit']
-    const gitOk = (await probeSystemGit()) || !!(mingit && (mingit.builtin || mingit.installed))
-    if (!gitOk) required.push('mingit')
   }
 
   // builtin（内置根命中，dev 环境）或 installed（在线装配根 marker）均视为就绪
@@ -66,14 +53,14 @@ async function check(skipMarker = false) {
 }
 
 // 同步版检查：createWindow 时决定窗口尺寸用（引导期设计尺寸不最大化）。
-// 与 check() 同口径，唯 Windows mingit 的系统 git 探测为异步无法同步等——
-// 保守视为必需（误差仅影响窗口尺寸，不影响守卫的最终判定）
+// 与 check() 同口径（REQUIRED_COMMON 已含 git，winldd 仅 Windows），
+// 误差仅影响窗口尺寸，不影响守卫的最终判定
 function isSetupNeeded() {
   if (fs.existsSync(markerFile()) && !process.env.OMNIDECK_FORCE_SETUP) return false
   const st = downloader.localStatus()
   const byName = {}
   for (const c of (st.components || [])) byName[c.name] = c
-  const required = REQUIRED_COMMON.concat(isWin() ? ['winldd', 'mingit'] : [])
+  const required = REQUIRED_COMMON.concat(isWin() ? ['winldd'] : [])
   return required.some(n => {
     const c = byName[n]
     return !c || (!c.builtin && !c.installed)
@@ -286,6 +273,7 @@ async function maybeAutoResume() {
   } catch (e) { /* 续装探测失败不阻断启动 */ }
 }
 
+// ---------- IPC 注册 ----------
 function registerIpc(getMainWindow) {
   // 引导完成恢复主窗：注入 main.js 的窗口引用与恢复动作（可拖拉 + 最大化）。
   // 最大化延后一拍（setTimeout 0）：避免与渲染层切页首渲染同帧执行整窗重排，造成「先进入」卡顿
@@ -306,4 +294,13 @@ function registerIpc(getMainWindow) {
   })
 }
 
-module.exports = { registerIpc, check, isSetupNeeded, maybeAutoResume }
+module.exports = {
+  // 注册引导 IPC 并注入主窗恢复动作
+  registerIpc,
+  // 异步就绪检查（needed / required / missing）
+  check,
+  // 同步版检查（createWindow 定窗口尺寸用）
+  isSetupNeeded,
+  // 启动自动续装（标记在但组件缺失时后台补装）
+  maybeAutoResume
+}

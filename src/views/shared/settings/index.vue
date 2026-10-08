@@ -319,7 +319,7 @@
           </div>
         </template>
 
-        <!-- 快捷键（P0-M4）：全部快捷键可改键 + 恢复默认（全局 / Deck / Buddy 分组） -->
+        <!-- 快捷键：全部快捷键可改键 + 恢复默认（全局 / Deck / Buddy 分组） -->
         <template v-else-if="activeTab === 'quick'">
           <header class="settings-section-header">
             <h2 class="section-title">快捷键</h2>
@@ -822,9 +822,9 @@
 </template>
 
 <script>
-import { presetColors, themeModes, applyTheme } from '@/utils/theme'
-import { setItem, getItem } from '@/utils/db'
-import { clearMenuOrder } from '@/utils/menu-order'
+import { presetColors, themeModes, applyTheme } from '@/utils/ui/theme'
+import { setItem, getItem } from '@/utils/storage/db'
+import { clearMenuOrder } from '@/utils/ui/menu-order'
 import {
   DEFAULT_SHORTCUTS,
   getShortcuts,
@@ -833,14 +833,14 @@ import {
   formatAccelerator,
   parseAccelerator,
   resetAllShortcuts as resetAllAppShortcuts
-} from '@/utils/shortcuts'
+} from '@/utils/ui/shortcuts'
 import {
   addWallpaperFile,
   removeWallpaper,
   saveWallpaperConfig,
   applyWallpaperDom,
   isVideoItem
-} from '@/utils/wallpaper'
+} from '@/utils/wallpaper/wallpaper'
 import {
   wpMarketApi,
   pickWallpaperDirectory,
@@ -850,8 +850,8 @@ import {
   captureVideoPoster,
   getSavedWallpaperDir,
   saveWallpaperDir
-} from '@/utils/wallpaper-market'
-import * as toolHistory from '@/utils/tool-history'
+} from '@/utils/wallpaper/wallpaper-market'
+import * as toolHistory from '@/utils/storage/tool-history'
 import { toolCategories } from '@/config/tools'
 import RuntimeManager from '@/components/buddy/RuntimeManager.vue'
 
@@ -995,7 +995,7 @@ export default {
       // 密码弹窗
       pwdDialogVisible: false,
       pwdForm: { oldPwd: '', newPwd: '', confirmPwd: '' },
-      // ===== 快捷键：全部可改键（M4 升级） =====
+      // ===== 快捷键：全部可改键（升级） =====
       // 当前快捷键（accelerator 格式；panel / 截图三项为系统级，其余为应用内）
       shortcuts: { panel: '', search: '', lock: '', buddy: '', area: '', screen: '', scroll: '' },
       // 全部默认键（含 O = OmniDeck / OmniBuddy 首字母，防与其他产品冲突）
@@ -1368,7 +1368,7 @@ export default {
       }
     },
 
-    // ===== 快捷键：全部可改键（M4 升级） =====
+    // ===== 快捷键：全部可改键（升级） =====
     // 加载全部快捷键：panel 走主进程 IPC，截图三项走 capture IPC，应用内走 shortcuts.js
     async loadShortcuts() {
       const quick = window.electronAPI && window.electronAPI.quick

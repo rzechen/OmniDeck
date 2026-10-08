@@ -353,7 +353,7 @@
 <script>
 import draggable from 'vuedraggable'
 import { toolCategories } from '@/config/tools'
-import { getItem, setItem } from '@/utils/db'
+import { getItem, setItem } from '@/utils/storage/db'
 
 // 全量工具扁平列表（带分类色），用于按 path 反查收藏的完整信息
 const allTools = []

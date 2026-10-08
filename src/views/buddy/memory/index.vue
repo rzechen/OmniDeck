@@ -166,7 +166,7 @@
 </template>
 
 <script>
-// 记忆管理（P1-8 增强）：pi-memory 记忆文件的查看 / 编辑页
+// 记忆管理（增强）：pi-memory 记忆文件的查看 / 编辑页
 // 数据源：主进程 omnibuddy:memory:*（memory.js 读写 agentDir/memory 下的 markdown；
 // recovery 恢复记录只读展示；status 提供 pi-memory / qmd / collection 就绪状态）
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'

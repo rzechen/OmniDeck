@@ -149,7 +149,7 @@
 </template>
 
 <script>
-import { getItem, setItem } from '@/utils/db'
+import { getItem, setItem } from '@/utils/storage/db'
 
 const ENGINE_KEY = 'browser:engineConfig'
 

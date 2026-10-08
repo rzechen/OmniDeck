@@ -14,7 +14,7 @@
 
 <script>
 import SearchPalette from '@/components/common/SearchPalette.vue'
-import { getShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/shortcuts'
+import { getShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/ui/shortcuts'
 
 // 快捷搜索页（Deck 视图专用页签）：作为搜索面板的宿主，
 // 打开/切回本页签时自动弹出 Spotlight 面板；选中结果跳转对应页面（本页签保留）

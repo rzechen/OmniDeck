@@ -74,7 +74,7 @@
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
-import { downloadText } from '@/utils/download'
+import { downloadText } from '@/utils/ui/download'
 import { jsonToCodeMixin } from './code-gen-mixin'
 
 export default {

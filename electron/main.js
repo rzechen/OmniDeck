@@ -1,3 +1,5 @@
+// OmniDeck 主进程入口：应用生命周期管理、主窗口创建与各子模块装配
+// 承载应用锁定 / 窗口控制 / HTTP 代理 / 站点元信息抓取等主进程侧 IPC
 const { app, BrowserWindow, shell, net, ipcMain, systemPreferences, safeStorage, powerMonitor } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -13,6 +15,13 @@ const setup = require('./core/setup')
 const wallpaperFetch = require('./services/wallpaper-fetch')
 
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true'
+
+// dev 与打包版共用同一 userData：未打包时 Electron 默认落 .../Electron，
+// 与正式版 .../OmniDeck 形成同机双数据集（dev 读不到正式配置、 IndexedDB 空库）。
+// 必须在 ready 前调用；productName 为 OmniDeck，appData/OmniDeck 即打包版默认路径
+if (!app.isPackaged) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'OmniDeck'))
+}
 
 let mainWindow = null
 // 托盘常驻标记：close 拦截据此放行（真正退出走托盘菜单 / Cmd+Q）
@@ -102,6 +111,7 @@ ipcMain.handle('app:relaunch', () => {
   app.exit(0)
 })
 
+// ===== 主窗口创建 =====
 function createWindow() {
   const isMac = process.platform === 'darwin'
   // 首启引导期用设计尺寸居中展示（不最大化）；正常启动保持最大化
@@ -219,6 +229,7 @@ function createWindow() {
   })
 }
 
+// ===== HTTP 代理与站点元信息抓取 =====
 // HTML 常见实体解码（title 抓取用，避免引入完整实体表）
 function decodeEntities(str) {
   return str
@@ -418,6 +429,7 @@ ipcMain.handle('site-meta:fetch', async (_event, rawUrl) => {
   })
 })
 
+// ===== 应用启动装配 =====
 app.whenReady().then(async () => {
   // 启动依赖预检：qmd 等必需外部 CLI 缺失时弹窗引导安装，不满足不放行
   if (!await deps.ensureDeps()) return
@@ -472,10 +484,10 @@ app.whenReady().then(async () => {
   browser.init({ getWindow: () => mainWindow })
   browser.registerFeature(require('./translate/controller'))
 
-  // 快捷入口（P0-M1）：托盘 + 全局快捷键 + 快捷面板壳
+  // 快捷入口：托盘 + 全局快捷键 + 快捷面板壳
   quickPanel.init({ getWindow: () => mainWindow })
 
-  // 自动更新（N1 阶段一）：GitCode Releases 检测 + 引导下载（启动 30s 后静默检查）
+  // 自动更新：GitCode Releases 检测 + 引导下载（启动 30s 后静默检查）
   updater.init(() => mainWindow)
 
   app.on('activate', () => {

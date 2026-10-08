@@ -55,7 +55,7 @@
 <script>
 // 工具执行历史面板：嵌入工具页右侧的抽屉列表
 // 交互：点击记录 → restore 事件（父组件恢复输入）；单删 / 清空本工具
-import * as history from '@/utils/tool-history'
+import * as history from '@/utils/storage/tool-history'
 
 export default {
   name: 'ToolHistoryPanel',

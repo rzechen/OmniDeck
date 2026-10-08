@@ -25,7 +25,7 @@
 
 <script>
 // 空间页网格视图
-import { iconOf, formatSize, formatTime } from '@/utils/file-meta'
+import { iconOf, formatSize, formatTime } from '@/utils/ui/file-meta'
 
 export default {
   name: 'SpaceGrid',

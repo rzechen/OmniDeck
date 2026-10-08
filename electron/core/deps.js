@@ -9,6 +9,7 @@ const { app, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
+// ===== qmd 预检与 PATH 注入 =====
 // 内置 qmd 包根目录：dev 与打包两种布局
 function bundledQmdDir() {
   const isPackaged = app.isPackaged
@@ -137,13 +138,14 @@ async function ensureDeps() {
   return false
 }
 
-// ===== git 预检（P2）=====
-// Windows：MinGit 已改为在线装配组件（首启引导页 / 设置 → 运行时，落位
-//   userData/omnibuddy/runtime/win-x86_64/git），cmd 目录前置 PATH（bash 等
-//   工具即可用 git）；老版本曾解压到 userData/omnibuddy/git，双目录兼容探测。
-// mac/linux：实测系统 git——用 --version 实测而非 which 判定（mac 的
-//   /usr/bin/git 是 xcrun shim，未装 CLT 时执行会触发 GUI 安装弹窗）；
-//   缺失仅一次性提示，不阻断启动（git 非核心链路，只影响工作空间 git 命令）。
+// ===== git 预检 =====
+// 统一装配口径：git 为全平台在线装配组件（Windows MinGit / POSIX conda 便携包，
+//   落位 userData/omnibuddy/runtime/<plat>/git），装配存在即把可执行目录前置
+//   PATH（bash 等工具与影子仓库检查点统一版本）；装配缺失时回退系统 git。
+// mac/linux 系统 git 用 --version 实测而非 which 判定（mac 的 /usr/bin/git
+//   是 xcrun shim，未装 CLT 时执行会触发 GUI 安装弹窗）；
+//   两者皆缺仅一次性提示，不阻断启动（git 非核心链路，只影响检查点快照
+//   降级为 zip 与工作空间 git 命令）。
 
 // 实测 git 可执行（返回 Promise<boolean>）
 function probeGit(bin) {
@@ -159,37 +161,45 @@ function probeGit(bin) {
   })
 }
 
-// MinGit 候选目录：在线装配根（runtime-downloader 'mingit' 组件落位）+ 老版本解压目录
-// （win32 下 runtime.platKey 恒为 win-x86_64，无需引 runtime 模块）
-function mingitDirs() {
+// 装配的 git 可执行目录（按平台布局探测；命中返回目录，未装配返回 ''）
+function assembledGitDir() {
   const base = path.join(app.getPath('userData'), 'omnibuddy')
-  return [
-    path.join(base, 'runtime', 'win-x86_64', 'git'),
-    path.join(base, 'git')
-  ]
+  const plat = process.platform === 'win32' ? 'win-x86_64'
+    : (process.platform === 'darwin'
+      ? (process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x86_64')
+      : (process.arch === 'arm64' ? 'linux-aarch64' : 'linux-x86_64'))
+  const candidates = process.platform === 'win32'
+    ? [
+        // 在线装配根（cmd/git.exe）+ 老版本解压目录（升级兼容）
+        path.join(base, 'runtime', plat, 'git', 'cmd'),
+        path.join(base, 'git', 'cmd')
+      ]
+    : [path.join(base, 'runtime', plat, 'git', 'bin')]
+  for (const dir of candidates) {
+    const exe = path.join(dir, process.platform === 'win32' ? 'git.exe' : 'git')
+    if (fs.existsSync(exe)) return dir
+  }
+  return ''
 }
 
 async function ensureGit() {
-  // 1) 系统 git 实测（PATH 可能已含此前注入的装配目录）
+  // 1) 装配的便携 git：可执行目录前置 PATH → 复测（统一版本，优先于系统）
+  const asmDir = assembledGitDir()
+  if (asmDir) {
+    const gitExe = path.join(asmDir, process.platform === 'win32' ? 'git.exe' : 'git')
+    if (await probeGit(gitExe)) {
+      process.env.PATH = asmDir + path.delimiter + process.env.PATH
+      console.log('[deps] 便携 git 已就绪（前置 PATH）：', asmDir)
+      return true
+    }
+  }
+  // 2) 系统 git 实测回退（PATH 可能已含此前注入的装配目录）
   if (await probeGit()) {
     console.log('[deps] git 可用（系统 PATH）')
     return true
   }
-  // 2) Windows：探测装配目录 → cmd 前置 PATH → 复测（不再内置解压，未装走引导页/设置装配）
-  if (process.platform === 'win32') {
-    for (const dir of mingitDirs()) {
-      const gitExe = path.join(dir, 'cmd', 'git.exe')
-      if (!fs.existsSync(gitExe)) continue
-      process.env.PATH = path.dirname(gitExe) + path.delimiter + process.env.PATH
-      if (await probeGit(gitExe)) {
-        console.log('[deps] MinGit 已就绪：', dir)
-        return true
-      }
-    }
-    console.warn('[deps] MinGit 未装配：可在首启引导页或「设置 → 运行时」在线装配')
-  }
-  // 3) 缺失：打包环境下一次性提示安装（不阻断启动）
-  console.warn('[deps] 未检测到 git：工作空间内的 git 命令将不可用')
+  // 3) 缺失：一次性提示安装（不阻断启动；首启引导 / 设置页会装配 git 组件）
+  console.warn('[deps] 未检测到 git：检查点将降级 zip 快照，工作空间 git 命令不可用')
   if (app.isPackaged) {
     const flag = path.join(app.getPath('userData'), 'omnibuddy', '.git-missing-notified')
     let notified = false
@@ -198,10 +208,8 @@ async function ensureGit() {
       dialog.showMessageBox({
         type: 'info',
         title: '未检测到 git',
-        message: 'Agent 工作空间中的 git 命令将不可用。',
-        detail: process.platform === 'darwin'
-          ? '可执行「xcode-select --install」安装命令行工具（含 git）后重启应用。'
-          : '可在「设置 → 运行时」在线装配 Git 工具，或从 https://git-scm.com/downloads 安装后重启应用。',
+        message: '会话检查点将使用 zip 快照，工作空间中的 git 命令不可用。',
+        detail: '可在「设置 → 运行时」在线装配 Git 工具，或从 https://git-scm.com/downloads 安装后重启应用。',
         buttons: ['知道了']
       })
       try {
@@ -213,4 +221,13 @@ async function ensureGit() {
   return false
 }
 
-module.exports = { ensureDeps, ensureGit, bundledQmdDir, shimDir }
+module.exports = {
+  // qmd 依赖预检主流程（全局优先，缺失写 shim 注入 PATH）
+  ensureDeps,
+  // git 预检（系统实测 + Windows MinGit 探测）
+  ensureGit,
+  // 内置 qmd 包根目录探测
+  bundledQmdDir,
+  // qmd shim 输出目录
+  shimDir
+}

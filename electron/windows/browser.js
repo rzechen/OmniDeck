@@ -56,6 +56,7 @@ function onWebContentsCreated(_e, wc) {
   })
 }
 
+// ===== 特性挂载 =====
 // 特性挂载：feature = { name, init?(ctx), handlers, onLoaded?, onFailLoad?, extendState? }
 //   handlers: [channel, fn, type?]，type='on' 时用 ipcMain.on（纯上报通道）
 //   ctx: { getWindow, ensureView, isPageSender, sendToPage, executeInPage, pushState }
@@ -109,6 +110,7 @@ function pushState() {
   w.webContents.send('browser:state', state)
 }
 
+// ===== 容器 IPC =====
 // 渲染层导航命令白名单：loadURL 需带 url 参数
 const NAV_CMDS = ['loadURL', 'reload', 'goBack', 'goForward', 'stop']
 
@@ -165,6 +167,7 @@ function noteWebview(wc) {
   pageWc = wc
 }
 
+// ===== 初始化与销毁 =====
 function init(opts) {
   getWin = (opts && opts.getWindow) || getWin
   // webview 识别与策略挂载、翻译目标登记统一收敛在 onWebContentsCreated
@@ -176,4 +179,11 @@ function destroy() {
   pageWc = null
 }
 
-module.exports = { init, destroy, registerFeature }
+module.exports = {
+  // 初始化容器（挂 webview 统一策略 + 注册 IPC）
+  init,
+  // 销毁清理（解绑 webview webContents 引用）
+  destroy,
+  // 挂载容器特性（翻译 controller 等）
+  registerFeature
+}

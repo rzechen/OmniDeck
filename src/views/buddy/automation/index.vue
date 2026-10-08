@@ -260,11 +260,11 @@
 </template>
 
 <script>
-// OmniBuddy 自动化（P2 定时任务）：任务列表 + 三步新建向导（场景 → 内容 → 时间）
+// OmniBuddy 自动化（定时任务）：任务列表 + 三步新建向导（场景 → 内容 → 时间）
 // 数据源：主进程 scheduler（tasks.json 持久化）；执行结果落系统会话（「自动化」分组），
 // 运行/结束经 omnibuddy:event（automation:run / automation:done）实时刷新
-import { buddyApi, buddyApiSection } from '@/utils/buddy-api'
-import { getItem } from '@/utils/db'
+import { buddyApi, buddyApiSection } from '@/utils/buddy/buddy-api'
+import { getItem } from '@/utils/storage/db'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
 // 场景定义：图标 / 描述 / 默认周期 / 指令模板（topic 注入）

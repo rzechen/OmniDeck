@@ -1,7 +1,7 @@
 // JSON → 代码（Java/Go/JS/TS）四页共享逻辑：
 // 输入防抖、类名校验、generate() 钩子、复制/下载/清空
-import { downloadText } from '@/utils/download'
-import { record, get as getHistory } from '@/utils/tool-history'
+import { downloadText } from '@/utils/ui/download'
+import { record, get as getHistory } from '@/utils/storage/tool-history'
 
 export const jsonToCodeMixin = {
   data() {

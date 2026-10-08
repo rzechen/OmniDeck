@@ -22,8 +22,8 @@
 import BuddySpotlight from '@/components/buddy/BuddySpotlight.vue'
 import AppLock from '@/components/common/AppLock.vue'
 import AppWallpaper from '@/components/common/AppWallpaper.vue'
-import { getItem, setItem } from '@/utils/db'
-import { initCaptureStore } from '@/utils/capture-store'
+import { getItem, setItem } from '@/utils/storage/db'
+import { initCaptureStore } from '@/utils/storage/capture-store'
 
 export default {
   name: 'App',

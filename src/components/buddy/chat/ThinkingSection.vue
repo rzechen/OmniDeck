@@ -157,7 +157,7 @@
 
 <script>
 // OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) / ask_user 提问 的聚合渲染
-import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
 import AskUserCard from './AskUserCard.vue'
 
 // 内置工具的中文短名（与 builtin-tools.js / pi.js registerTool 的 label 对齐；
@@ -189,7 +189,7 @@ const TOOL_LABELS = {
   web_search: '联网搜索',
   fetch_content: '抓取网页',
   source_check: '核实来源',
-  // 文档交付（P1：doc_export 自研 + pi-markdown-preview）
+  // 文档交付（doc_export 自研 + pi-markdown-preview）
   doc_export: '导出文档',
   preview_export: '生成预览'
 }
@@ -472,7 +472,7 @@ export default {
     toggleTool(item) {
       this.toolOpenOverrides[this.toolKey(item)] = !this.isToolOpen(item)
     },
-    // ===== 文件变更记录（P2）=====
+    // ===== 文件变更记录 =====
     // 变更类型中文标签
     fcTypeLabel(t) {
       return { created: '新建', modified: '修改', deleted: '删除', mkdir: '新建目录' }[t] || '变更'

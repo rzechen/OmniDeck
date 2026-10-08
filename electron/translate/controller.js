@@ -15,6 +15,7 @@ let lastEngineError = ''
 // 容器上下文（init 注入）：{ getWindow, ensureView, isPageSender, sendToPage, executeInPage, pushState }
 let ctx = null
 
+// ===== 内部辅助 =====
 function sendCmd(msg) {
   ctx.sendToPage('od-tr:command', msg)
 }
@@ -40,8 +41,10 @@ function stateFields(consume) {
 }
 
 module.exports = {
+  // 特性名（registerFeature 注册去重标识）
   name: 'translate',
 
+  // 容器上下文注入（sendToPage / executeInPage 等）
   init(context) { ctx = context },
 
   // handlers: [channel, fn, type?]，type='on' 时用 ipcMain.on（纯上报通道）
@@ -119,6 +122,7 @@ module.exports = {
     sendCmd({ type: 'disable' })
   },
 
+  // 翻译状态字段并入容器 browser:state 回推
   extendState(consume) {
     return stateFields(consume)
   }

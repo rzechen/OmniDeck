@@ -17,7 +17,7 @@
 </template>
 
 <script>
-import { dimLevels, carouselIntervals, isVideoItem } from '@/utils/wallpaper'
+import { dimLevels, carouselIntervals, isVideoItem } from '@/utils/wallpaper/wallpaper'
 
 // Blob → ObjectURL 缓存（按壁纸 id，切换时释放旧 URL）
 const urlCache = {}

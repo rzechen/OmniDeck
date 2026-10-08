@@ -37,7 +37,7 @@
 <script>
 // 规则编辑器复用组件：受控输入 + 自主保存（getRule/saveRule IPC），
 // 父层负责标题展示与保存后的状态刷新（@saved 回调）
-import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
 
 export default {
   name: 'RuleEditor',

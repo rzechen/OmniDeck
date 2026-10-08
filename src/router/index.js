@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import Layout from '@/layout/index.vue'
 import BuddyLayout from '@/layout/BuddyLayout.vue'
 import store from '@/store'
-import { getItem } from '@/utils/db'
+import { getItem } from '@/utils/storage/db'
 
 const routes = [
   // OmniBuddy 独立视图：侧边栏为「任务列表（按展示名分组）」，主区顶部为多页签（TagsBar）
@@ -76,7 +76,7 @@ const routes = [
         component: () => import('@/views/buddy/usage/index.vue'),
         meta: { title: '用量统计' }
       },
-      // 定时任务（P2）：任务列表 + 新建向导；执行结果落系统会话（侧栏「定时任务」分组）
+      // 定时任务：任务列表 + 新建向导；执行结果落系统会话（侧栏「定时任务」分组）
       {
         path: 'automation',
         name: 'OmniBuddyAutomation',
@@ -92,7 +92,7 @@ const routes = [
       },
       // 版本 / 问题反馈：应用级公共页（与 Deck /version、/feedback 复用同一组件）。
       // 挂到 BuddyLayout 下实现「就近打开」：从 Buddy 设置-关于进入时留在 Buddy 视图页签内，
-      // 不再整页跳去 Deck 视图（旧流向导致上下文丢失）
+      // 避免整页跳去 Deck 视图丢失上下文
       {
         path: 'version',
         name: 'OmniBuddyVersion',
@@ -115,7 +115,7 @@ const routes = [
     component: () => import('@/views/shell/setup/index.vue'),
     meta: { title: '环境装配' }
   },
-  // 快捷面板（P0-M1）：Spotlight 式独立壳页（不挂任何 Layout；
+  // 快捷面板：Spotlight 式独立壳页（不挂任何 Layout；
   // 锁定遮罩由 App.vue 全局 AppLock 组件覆盖，无需本页处理）
   {
     path: '/quick',
@@ -123,7 +123,7 @@ const routes = [
     component: () => import('@/views/shell/quick/index.vue'),
     meta: { title: '快捷面板' }
   },
-  // 选区截屏覆盖窗（P0-M4）：铺满单屏的透明框选层（主进程 capture.js
+  // 选区截屏覆盖窗：铺满单屏的透明框选层（主进程 capture.js
   // 按每显示器开窗加载本页），独立壳页不挂 Layout
   {
     path: '/capture-overlay',
@@ -131,7 +131,7 @@ const routes = [
     component: () => import('@/views/shell/capture-overlay/index.vue'),
     meta: { title: '区域截屏' }
   },
-  // 长截图控制条小窗（P2）：选区完成后由主进程 capture.js openScrollCtrl
+  // 长截图控制条小窗：选区完成后由主进程 capture.js openScrollCtrl
   // 加载本页（208×44 无边框置顶小窗），提供拍一帧/完成/取消操作
   {
     path: '/capture-scroll-ctrl',

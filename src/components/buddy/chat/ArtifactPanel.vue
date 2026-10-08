@@ -1,5 +1,5 @@
 <template>
-  <!-- 本轮回答的导出产物面板（P1 文档交付）：位于正文末尾、文件变更面板上方
+  <!-- 本轮回答的导出产物面板（文档交付）：位于正文末尾、文件变更面板上方
        Agent 经 doc_export / preview_export 生成的交付文件（Word / PDF / HTML 等）
        平铺为产物卡片：类型图标（工作空间同款）+ 文件名 + 类型·大小 +「打开 / 所在文件夹」操作；
        数据随消息 items 的 artifacts 字段落盘，重开会话仍可见 -->
@@ -29,11 +29,11 @@
 </template>
 
 <script>
-// 导出产物卡片面板（P1）：消费 tool item 的 artifacts 清单
+// 导出产物卡片面板：消费 tool item 的 artifacts 清单
 // （doc_export / preview_export 等交付工具在 details.artifacts 返回：
 //   { path, name, format, size, sizeText }）
-import { buddyApiSection } from '@/utils/buddy-api'
-import { fileIcon } from '@/utils/file-meta'
+import { buddyApiSection } from '@/utils/buddy/buddy-api'
+import { fileIcon } from '@/utils/ui/file-meta'
 
 export default {
   name: 'ArtifactPanel',

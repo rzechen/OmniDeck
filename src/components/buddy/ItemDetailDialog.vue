@@ -108,7 +108,7 @@
 // 市场页与技能页共享的资源详情弹窗：
 // 徽标头 + 信息卡 + 描述（Markdown 渲染）+ 标签；操作按钮经 actions slot 注入
 // v4 索引新增：内联图标 / 官方认证 / 运营统计 / AI 五维评分
-import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/markdown'
+import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
 
 export default {
   name: 'ItemDetailDialog',

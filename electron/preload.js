@@ -1,3 +1,4 @@
+// 主窗口 preload：经 contextBridge 向渲染进程暴露安全受控的 electronAPI
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 // 向渲染进程暴露安全的 API
@@ -89,7 +90,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     permissionConfig: () => ipcRenderer.invoke('omnibuddy:permission:config'),
     savePermissionConfig: config => ipcRenderer.invoke('omnibuddy:permission:save-config', config),
     permissionReset: () => ipcRenderer.invoke('omnibuddy:permission:reset'),
-    // 回退与分支（M4）
+    // 回退与分支
     truncateSession: payload => ipcRenderer.invoke('omnibuddy:session:truncate', payload),
     branchSession: payload => ipcRenderer.invoke('omnibuddy:session:branch', payload),
     // 会话内分支：编辑问题创建变体（editOf 指向组头），返回新消息记录
@@ -97,13 +98,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 会话资产化（N4）：导出 / 用量看板 / 检查点回滚
     exportSession: payload => ipcRenderer.invoke('omnibuddy:session:export', payload),
     exportReveal: filePath => ipcRenderer.invoke('omnibuddy:session:export-reveal', filePath),
-    // 单条消息导出（P1 文档导出）：markdown → PDF / Word / HTML（pandoc 管线）
+    // 单条消息导出（文档导出）：markdown → PDF / Word / HTML（pandoc 管线）
     messageExport: payload => ipcRenderer.invoke('omnibuddy:message:export', payload),
     listCheckpoints: id => ipcRenderer.invoke('omnibuddy:session:checkpoints', id),
     rollbackCheckpoint: payload => ipcRenderer.invoke('omnibuddy:session:rollback', payload),
     usageSummarize: () => ipcRenderer.invoke('omnibuddy:usage:summarize'),
     usageExportCsv: () => ipcRenderer.invoke('omnibuddy:usage:export-csv'),
-    // 定时任务（P2 自动化）：任务管理 + 立即运行 + 模型列表镜像同步
+    // 定时任务（自动化）：任务管理 + 立即运行 + 模型列表镜像同步
     automation: {
       list: () => ipcRenderer.invoke('omnibuddy:automation:list'),
       create: payload => ipcRenderer.invoke('omnibuddy:automation:create', payload),
@@ -112,7 +113,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       runNow: id => ipcRenderer.invoke('omnibuddy:automation:run-now', id),
       syncProviders: list => ipcRenderer.invoke('omnibuddy:automation:sync-providers', list)
     },
-    // 深度研究（P3）：workflow 运行状态（历史卡片回放）
+    // 深度研究：workflow 运行状态（历史卡片回放）
     workflowStatus: payload => ipcRenderer.invoke('omnibuddy:workflow:status', payload),
     // 通知中心：类型×渠道矩阵 + webhook 配置 + 测试投递
     notify: {
@@ -124,8 +125,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     mcp: {
       list: () => ipcRenderer.invoke('omnibuddy:mcp:list'),
       save: servers => ipcRenderer.invoke('omnibuddy:mcp:save', servers),
-      // 内置浏览器（playwright）有头模式：只读状态（开/关由登录闭环自动驱动）
+      // 内置浏览器（playwright）有头模式：只读状态（旧登录方案遗留，向导成功时自动清零）
       headedGet: () => ipcRenderer.invoke('omnibuddy:mcp:headed:get')
+    },
+    // 站点登录（登录向导 + storageState 登记表）
+    siteAuth: {
+      list: () => ipcRenderer.invoke('omnibuddy:siteauth:list'),
+      login: (host, url) => ipcRenderer.invoke('omnibuddy:siteauth:login', host, url)
     },
     // 联网搜索（pi-web-access：web_search / fetch_content，免配置即用）
     webSearch: {
@@ -150,10 +156,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       // 保存后销毁 pi 会话（AI 凭据清单注入发生在会话创建时）
       disposeSessions: () => ipcRenderer.invoke('omnibuddy:credentials:dispose-sessions')
     },
-    // 沙箱执行（M3）：开关读取/设置，新会话生效
+    // 沙箱执行：开关读取/设置，新会话生效
     getSandbox: () => ipcRenderer.invoke('omnibuddy:sandbox:get'),
     setSandboxEnabled: enabled => ipcRenderer.invoke('omnibuddy:sandbox:set-enabled', enabled),
-    // Skills 管理（M3）：本地 skills 目录扫描/新建/删除/查看/编辑
+    // Skills 管理：本地 skills 目录扫描/新建/删除/查看/编辑
     listSkills: () => ipcRenderer.invoke('omnibuddy:skills:list'),
     createSkill: skill => ipcRenderer.invoke('omnibuddy:skills:create', skill),
     deleteSkill: dir => ipcRenderer.invoke('omnibuddy:skills:delete', dir),
@@ -173,14 +179,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       installed: () => ipcRenderer.invoke('omnibuddy:market:installed'),
       openHome: url => ipcRenderer.invoke('omnibuddy:market:open-home', url)
     },
-    // 项目规则（P1-10）：全局 / 工作空间 AGENTS.md 管理（pi SDK 原生装载）
+    // 项目规则：全局 / 工作空间 AGENTS.md 管理（pi SDK 原生装载）
     rulesTargets: () => ipcRenderer.invoke('omnibuddy:rules:targets'),
     getRule: key => ipcRenderer.invoke('omnibuddy:rules:get', key),
     saveRule: payload => ipcRenderer.invoke('omnibuddy:rules:save', payload),
-    // 我的资料（B 方案）：结构化个人背景，systemPrompt 确定性注入
+    // 我的资料：结构化个人背景，systemPrompt 确定性注入
     profileGet: () => ipcRenderer.invoke('omnibuddy:profile:get'),
     profileSave: cfg => ipcRenderer.invoke('omnibuddy:profile:save', cfg),
-    // 记忆管理（P1-8 增强）：pi-memory 记忆文件读写 + qmd 就绪状态
+    // 记忆管理（增强）：pi-memory 记忆文件读写 + qmd 就绪状态
     memory: {
       list: () => ipcRenderer.invoke('omnibuddy:memory:list'),
       read: rel => ipcRenderer.invoke('omnibuddy:memory:read', rel),
@@ -189,7 +195,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       status: () => ipcRenderer.invoke('omnibuddy:memory:status'),
       export: () => ipcRenderer.invoke('omnibuddy:memory:export')
     },
-    // 附件导入（P1-7）：文件选择框 + 拖拽路径导入（图片/文本/PDF）
+    // 附件导入：文件选择框 + 拖拽路径导入（图片/文本/PDF）
     pickAttachments: () => ipcRenderer.invoke('omnibuddy:attachments:pick'),
     importAttachment: filePath => ipcRenderer.invoke('omnibuddy:attachments:import', filePath),
     // 工作空间管理（多工作空间，发送前必须选定）
@@ -235,7 +241,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('wallpaper-market:progress', handler)
     }
   },
-  // 快捷面板（P0）：显隐控制（Esc 隐藏等）+ 可见性事件（M4 剪贴板感知）+ 快捷键设置
+  // 快捷面板：显隐控制（Esc 隐藏等）+ 可见性事件（剪贴板感知）+ 快捷键设置
   quick: {
     show: () => ipcRenderer.invoke('quick:show'),
     hide: () => ipcRenderer.invoke('quick:hide'),
@@ -343,13 +349,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     resize: opts => ipcRenderer.invoke('capture-pin:resize', opts),
     close: () => ipcRenderer.invoke('capture-pin:close')
   },
-  // 自动更新（N1 阶段一检测引导 / N5 阶段二 electron-updater 全自动）
+  // 自动更新（引导下载 / electron-updater 全自动）
   updater: {
     check: () => ipcRenderer.invoke('updater:check'),
     lastResult: () => ipcRenderer.invoke('updater:last-result'),
     skip: version => ipcRenderer.invoke('updater:skip', version),
     openDownload: assetUrl => ipcRenderer.invoke('updater:open-download', assetUrl),
-    // 阶段二：下载 / 重启安装 / 状态查询
+    // 全自动通道：下载 / 重启安装 / 状态查询
     download: () => ipcRenderer.invoke('updater:download'),
     install: () => ipcRenderer.invoke('updater:install'),
     downloadState: () => ipcRenderer.invoke('updater:download-state'),
@@ -372,7 +378,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('nav:goto', handler)
     return () => ipcRenderer.removeListener('nav:goto', handler)
   },
-  // 选区覆盖窗（P0-M4）→ 主进程回传通道：
+  // 选区覆盖窗→ 主进程回传通道：
   // - done：picking 阶段回传选区 rect（CSS 坐标）/ null 取消；
   //   editing 阶段回传 { action: 'confirm'|'pin'|'cancel', data, rect }
   // - freeze：选区定稿时主进程抓定格帧（返回 dataURL + scaleFactor），

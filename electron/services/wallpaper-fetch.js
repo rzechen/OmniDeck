@@ -25,6 +25,7 @@ let manifestCache = null // { data, at }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
+// ---------- 下载与清单拉取 ----------
 // 单文件下载（Buffer；支持 429 退避重试）
 async function downloadBuffer(url, { timeout = 60000, maxSize = 200 * 1024 * 1024 } = {}) {
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
@@ -115,6 +116,7 @@ function writeFileIfChanged(filePath, buf) {
   return true
 }
 
+// ---------- 壁纸拉取与本地读取 ----------
 // 拉取条目集合到目录：返回 { ok, pulled, skipped }（pulled 含磁盘路径供渲染层立即使用）
 async function pull(payload, event) {
   const dir = payload && payload.dir
@@ -287,6 +289,7 @@ function scanDir(dir) {
   return { ok: true, items, missing }
 }
 
+// ---------- IPC 注册 ----------
 function registerIpc() {
   // 原生目录选择（macOS webkitdirectory 面板按钮被 Chromium 硬编码为「Upload」，故走原生 dialog）
   ipcMain.handle('wallpaper-market:pick-dir', async () => {
@@ -304,4 +307,5 @@ function registerIpc() {
   ipcMain.handle('wallpaper-market:read-file', (_e, p) => readFileAbs(p))
 }
 
+// 注册壁纸市场 IPC（选目录 / 扫描 / 清单 / 拉取 / 读文件）
 module.exports = { registerIpc }

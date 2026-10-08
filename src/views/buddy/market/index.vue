@@ -199,7 +199,7 @@ import ItemDetailDialog from '@/components/buddy/ItemDetailDialog.vue'
 import MarketCard from './components/MarketCard.vue'
 import MarketToolbar from './components/MarketToolbar.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
-import { buddyApiSection } from '@/utils/buddy-api'
+import { buddyApiSection } from '@/utils/buddy/buddy-api'
 
 export default {
   name: 'OmniBuddyMarket',

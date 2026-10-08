@@ -484,7 +484,7 @@ import { FUND_API } from '@/config/fund-api'
 import {
   loadPositions, fetchQuote, fetchHistory, fetchFundBasic, calcProfit,
   riseColor, fmtMoney, fmtPct, fmtQuoteDate, fmtQuoteTime, isTradingTime
-} from '@/utils/fund'
+} from '@/utils/finance/fund'
 
 // 图表 viewBox 常量
 const VIEW_W = 560
