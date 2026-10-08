@@ -258,10 +258,12 @@ const UI_TOOLS = [
   // 站点登录态上报（登录闭环登记）：撞登录墙时通知桌面端引导打开登录向导；
   // 默认放行——纯登记操作无副作用，无头定时任务中被 ask 拦截会丢失登录引导
   { name: 'report_site_auth', label: '上报站点登录态', description: '浏览器访问站点后上报登录状态：撞登录墙报 login_required（触发桌面通知，一键打开登录向导小窗），确认已登录报 logged_in。', perm: 'allow' },
-  // pi-subagents 注册的委派工具（实际工具名 subagent；有 token 成本且产生
-  // 子代理行为，默认逐次确认）。早期目录误记为 'task' 且无 perm，导致该键
-  // 从未进入默认策略与启动补齐，落 '*' 兜底
-  { name: 'subagent', label: '子任务委派', description: '将独立子任务委派给子代理执行（pi-subagents：前台同步阻塞到完成，或后台异步运行）。', perm: 'ask' },
+  // pi-subagents 注册的委派工具（实际工具名 subagent）。默认放行：宿主已强制
+  // 前台同步模式（setup.js deploySubagentForegroundPolicy：asyncByDefault=false
+  // + tool_call 钩子剥离显式 async:true），前台 child 阻塞执行、过程实时可见，
+  // 且无头定时流水线（公众号发文等）以委派为核心路径，逐次确认会卡死无人值守
+  // 场景。早期目录误记为 'task' 且无 perm，导致该键从未进入默认策略与启动补齐
+  { name: 'subagent', label: '子任务委派', description: '将独立子任务委派给子代理前台同步执行（阻塞到完成，过程与结果实时可见；后台异步已禁用）。', perm: 'allow' },
   // pi-subagents 运行时配套工具（主会话与 child 内均可能经权限门；缺省落
   // '*' 兜底会在无头流水线中弹确认打断）：bg_wait 等待/收拢后台 run，
   // contact_supervisor / structured_output 为 child 内通信与交付面，均无副作用

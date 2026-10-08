@@ -579,11 +579,6 @@ export default {
             t.isError = !!e.isError
             t.fileChange = e.fileChange || null
             t.artifacts = e.artifacts || null
-            // 后台子代理（pi-subagents async）：记录 runId 供 subagent_progress
-            // 轮询推送反向定位本工具条目（run 跨回合运行，条目可能早已结束流式态）
-            if (e.subagent && e.subagent.runId) {
-              t.subagent = { runId: e.subagent.runId }
-            }
             // 深度研究：workflow 工具返回 runId（后台）或最终快照（前台）
             if (e.workflow) {
               t.workflow = e.workflow
@@ -606,28 +601,6 @@ export default {
               const it = m.items[j]
               if (it.type === 'tool' && it.workflow && it.workflow.runId === wf.runId) {
                 it.workflow.progress = wf
-                i = -1 // 双重跳出
-                break
-              }
-            }
-            if (i === -1) break
-          }
-          break
-        }
-        case 'subagent_progress': {
-          // 后台子代理活性推送（主进程轮询 pi-subagents run 的 status.json）：
-          // 后台 child 无流式回传，页面静默期以此呈现「运行中 · N 秒前活跃」。
-          // 目标工具条目可能在已结束的回合里（run 跨回合），全消息扫描
-          //（与 workflow_progress 同模式；非 TURN_EVENTS，流式态结束后不丢弃）
-          const sa = e.subagent || {}
-          if (!sa.runId) break
-          for (let i = s.messages.length - 1; i >= 0; i--) {
-            const m = s.messages[i]
-            if (!m.items) continue
-            for (let j = m.items.length - 1; j >= 0; j--) {
-              const it = m.items[j]
-              if (it.type === 'tool' && it.subagent && it.subagent.runId === sa.runId) {
-                it.subagent.progress = Object.assign({ ts: Date.now() }, sa)
                 i = -1 // 双重跳出
                 break
               }

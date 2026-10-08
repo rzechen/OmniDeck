@@ -1,16 +1,14 @@
 // OmniBuddy pi 事件管线：pi 运行事件（pi/session-events.js 归一化后的模型）
 // 的主进程侧处理——转发渲染进程、持久化 JSONL、驱动用量记账 / 检查点 /
-// 文件变更 / 子代理与 workflow 轮询、挂起 ask_user 与权限确认。
+// 文件变更 / workflow 轮询、挂起 ask_user 与权限确认。
 const sessions = require('../sessions/sessions')
 const usage = require('../platform/usage')
 const checkpoints = require('../sessions/checkpoints')
 const fileChanges = require('../sessions/file-changes')
-const subagentWatch = require('../integrations/subagent-watch')
 const workflows = require('../integrations/workflows')
 const notify = require('../integrations/notify')
 const siteAuth = require('../integrations/site-auth')
 const loginWizard = require('../integrations/login-wizard')
-const mcp = require('../integrations/mcp')
 const piRuntime = require('../pi')
 const { emit, running, runAnchors, pendingAsks, pendingPermissions,
   touchAutomationHeartbeat, automationTurnErrors } = require('./chat-state')
@@ -27,8 +25,6 @@ async function deleteSessionFast(id) {
   }
   // 深度研究：清理该会话的 workflow 轮询
   workflows.unwatchChat(id)
-  // 后台子代理状态轮询随会话一并清理
-  subagentWatch.unwatchChat(id)
   // 先快照消息：下方删除后 JSONL 即清除，后台摘要需自持数据
   const msgs = sessions.getMessages(id)
   // 连带清理 pi 落盘转录（原生 resume 语义下文件存在即视为上下文有效）
@@ -188,16 +184,6 @@ function handlePiEvent(getWindow, e) {
       // 结果规整为字符串：pi 的部分工具返回结构化对象（如 { content: [...] }），
       // 原样透传会被前端渲染成 [object Object]
       const result = normalizeToolResult(e.result)
-      // pi-subagents 后台子代理（async: true）：工具立即返回 runId，child 在独立
-      // 进程执行且无流式回传 —— 提取 details.asyncDir/asyncId 启动状态轮询，
-      // 把「后台运行中 · N 秒前活跃」活性信号推给前端（跨回合可见）
-      const subDet = (e.result && typeof e.result === 'object' && e.result.details) || {}
-      const subRunId = (e.toolName === 'subagent' && (subDet.asyncId || subDet.runId)) || ''
-      if (subRunId && subDet.asyncDir) {
-        subagentWatch.watchRun(chatId, subRunId, subDet.asyncDir, snap => {
-          emit(getWindow, chatId, { type: 'subagent_progress', subagent: snap })
-        })
-      }
       const toolAnchors = runAnchors(chatId)
       sessions.addMessage(chatId, Object.assign({
         role: 'tool',
@@ -217,8 +203,7 @@ function handlePiEvent(getWindow, e) {
         isError: e.isError,
         fileChange: fileChange || undefined,
         artifacts: e.artifacts || undefined,
-        workflow: e.workflow || undefined,
-        subagent: subRunId ? { runId: subRunId } : undefined
+        workflow: e.workflow || undefined
       })
       // 深度研究：后台 workflow 启动即返回 runId → 轮询落盘状态驱动前端进度卡片
       if (e.workflow && e.workflow.runId && e.workflow.background) {
@@ -302,8 +287,7 @@ function handlePiEvent(getWindow, e) {
       // 站点登录态上报（report_site_auth 工具）：登记表更新；状态翻转时
       // 广播前端 + login.required 通知（点击打开登录向导专用小窗）。
       // 登录闭环由 login-wizard 的 cookie 事件检测驱动收尾（系统行为，
-      // 不依赖 LLM 上报 logged_in）；此处的 logged_in 上报仅同步登记表 +
-      // 复位遗留的 headed 开关（旧方案状态清理）
+      // 不依赖 LLM 上报 logged_in）；logged_in 上报仅同步登记表
       const r = siteAuth.report(e.url, e.status, e.note)
       if (r.host) {
         emit(getWindow, chatId, { type: 'site_auth', host: r.host, status: e.status })
@@ -318,11 +302,6 @@ function handlePiEvent(getWindow, e) {
               emit(getWindow, chatId, { type: 'login_wizard', host: r.host, phase: 'open' })
             }
           })
-        } else if (e.status === 'logged_in' && mcp.getHeaded()) {
-          // 兼容复位：遗留的有头开关清零（登录闭环已不再使用有头模式）
-          mcp.setHeaded(false)
-          emit(getWindow, chatId, { type: 'pw_mode', headed: false })
-          console.log('[omnibuddy:site-auth] 登录完成，已复位遗留有头开关（' + r.host + '）')
         }
       }
       break

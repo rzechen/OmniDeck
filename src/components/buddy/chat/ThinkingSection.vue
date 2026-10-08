@@ -71,6 +71,8 @@
             />
             <span v-if="isMcp(item)" class="ob-tool-server">{{ mcpServerLabel(item) }}</span>
             <span class="ob-tool-name">{{ friendlyToolName(item) }}</span>
+            <!-- subagent 委派目标专员名：并行多卡片时一眼区分各 agent -->
+            <span v-if="subagentAgent(item)" class="ob-tool-tag ob-tool-agent">{{ subagentAgent(item) }}</span>
             <span v-if="rawToolTag(item)" class="ob-tool-tag">{{ rawToolTag(item) }}</span>
             <!-- 等待授权徽标：该工具正在等权限确认（确认条在输入框上方），醒目提示防隐形挂起 -->
             <span
@@ -78,14 +80,7 @@
               class="ob-tool-perm-wait"
               title="等待权限确认：请在输入框上方的确认条中处理"
             >等待授权</span>
-            <!-- 后台子代理徽标：async 委派的 subagent 已返回 runId、child 仍在独立
-                 进程执行（无流式回传）—— 活性信号由主进程轮询 run 状态推来，
-                 避免页面静默期被误判为「已停止」 -->
-            <span
-              v-if="subagentLive(item)"
-              class="ob-tool-sub-live"
-              :title="'后台子代理运行中（' + subagentDur(item) + '），最近活动 ' + subagentAgo(item) + '；无活动可能是在等权限确认'"
-            >后台运行 · {{ subagentAgo(item) }}</span>
+            <!-- 后台子代理徽标已移除：宿主强制前台同步委派，子代理过程实时流式可见 -->
             <!-- 文件变更摘要：目标文件 + 类型徽章 + 增删行数 -->
             <template v-if="item.fileChange">
               <span class="ob-fc-file" :title="item.fileChange.file">{{ fcFileShort(item.fileChange) }}</span>
@@ -372,6 +367,12 @@ export default {
       if (item.isError) return 'warning-outline'
       return 'check'
     },
+    // subagent 委派目标专员（args.agent）：并行委派多卡片时的区分标识
+    subagentAgent(item) {
+      if (item.toolName !== 'subagent' || !item.args) return ''
+      const a = item.args.agent || item.args.agentId
+      return typeof a === 'string' ? a.replace(/^wechat-/, '') : ''
+    },
     // 运行中的工具是否即当前待确认权限的目标：bash 类按 command、文件类按 path 匹配，
     // 其余按工具名兜底（并发工具时区分"在执行"与"在等授权"）
     matchesPerm(item) {
@@ -382,27 +383,6 @@ export default {
       if (p.path && (args.file_path === p.path || args.path === p.path)) return true
       if (p.toolName && item.name === p.toolName) return true
       return false
-    },
-    // 后台子代理（pi-subagents async）活性：state 非 run 终态即视为运行中
-    subagentLive(item) {
-      const sa = item.subagent
-      return !!(sa && sa.progress && sa.progress.state === 'running')
-    },
-    // 已运行时长（run 启动到最近一次活动）
-    subagentDur(item) {
-      const p = (item.subagent && item.subagent.progress) || {}
-      const ms = Math.max(0, (p.lastActivityAt || p.ts || 0) - (p.startedAt || 0))
-      const m = Math.floor(ms / 60000)
-      const s = Math.floor((ms % 60000) / 1000)
-      return m > 0 ? m + ' 分 ' + s + ' 秒' : s + ' 秒'
-    },
-    // 距最近一次活动的时长（轮询推送的 ts 为基准）
-    subagentAgo(item) {
-      const p = (item.subagent && item.subagent.progress) || {}
-      const ms = Math.max(0, (p.ts || 0) - (p.lastActivityAt || 0))
-      const s = Math.floor(ms / 1000)
-      if (s < 60) return s + ' 秒前活跃'
-      return Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒前活跃'
     },
     hasArgs(item) {
       return !!(item.args && typeof item.args === 'object' && Object.keys(item.args).length)
@@ -776,6 +756,10 @@ export default {
     flex-shrink: 0;
     font-family: 'SF Mono', Menlo, Consolas, monospace;
   }
+  .ob-tool-agent {
+    color: var(--el-color-primary, #409eff);
+    background: rgba(64, 158, 255, 0.1);
+  }
 
   /* 等待授权徽标：琥珀色 pill + 呼吸动画，提示回合卡在权限确认而非命令执行 */
   .ob-tool-perm-wait {
@@ -790,18 +774,6 @@ export default {
     line-height: 16px;
     cursor: help;
     animation: ob-perm-wait-pulse 1.6s ease-in-out infinite;
-  }
-  .ob-tool-sub-live {
-    font-size: 10.5px;
-    color: #0e7490;
-    background: rgba(6, 182, 212, 0.12);
-    border: 1px solid rgba(6, 182, 212, 0.35);
-    border-radius: 4px;
-    padding: 0 6px;
-    white-space: nowrap;
-    flex-shrink: 0;
-    line-height: 16px;
-    cursor: help;
   }
 
   @keyframes ob-perm-wait-pulse {

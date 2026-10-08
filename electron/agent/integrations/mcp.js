@@ -14,34 +14,19 @@ let agentDir = ''
 // 联动：npx-cache 预热须同 spec 才能离线命中；@latest 会绕过缓存重新联网下载）
 const PLAYWRIGHT_MCP_VERSION = '0.0.81'
 
-// ===== 有头开关 =====
-// playwright 有头开关（旧登录方案遗留，仅兜底保留）：<agentDir>/playwright.json
-// 的 { "headed": true }。登录闭环已改走登录向导（login-wizard.js）：
-// 撞登录墙 → 通知点击打开专用小窗 → cookie 检测成功自动保存 storageState 并
-// 关窗；本开关在向导成功时由主进程自动复位清零，正常流程不再置 true
-function playwrightHeaded() {
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(agentDir, 'playwright.json'), 'utf-8'))
-    return !!cfg.headed
-  } catch (e) { /* 文件不存在或损坏：默认无头 */ return false }
-}
-
-// 有头开关读取 / 写入（UI 入口：连接器页「内置浏览器」卡片）
-// 写入后同步刷新 mcp.json 内置条目（浏览器参数随开关变化）；MCP server
-// 随 pi 会话启动，新开关自下一个会话生效，运行中会话不受影响
-function getHeaded() {
-  return playwrightHeaded()
-}
-
-function setHeaded(headed) {
-  try {
-    fs.mkdirSync(agentDir, { recursive: true })
-    fs.writeFileSync(path.join(agentDir, 'playwright.json'),
-      JSON.stringify({ headed: !!headed }, null, 2))
-    refreshBuiltinEntry()
-    return { ok: true }
-  } catch (e) {
-    return { ok: false, error: '写入有头开关失败：' + e.message }
+// ===== 有头模式遗留清理 =====
+// 旧登录方案曾用 <agentDir>/playwright.json 的 { "headed": true } 切换
+// --browser chrome（系统 Chrome 弹窗登录）。登录闭环已改走登录向导
+// （login-wizard.js），本机制彻底移除：任何遗留 playwright.json 都在启动时
+// 删除（其中的 headed:true 会导致新会话 playwright 以系统 Chrome 有头启动），
+// mcp.json 内置条目随 refreshBuiltinEntry 一并修正回 --headless
+function cleanupLegacyHeaded() {
+  const file = path.join(agentDir, 'playwright.json')
+  if (fs.existsSync(file)) {
+    try {
+      fs.rmSync(file, { force: true })
+      console.log('[omnibuddy:mcp] 已清理旧方案遗留 playwright.json（有头开关机制已移除）')
+    } catch (e) { /* 删除失败不阻断：refreshBuiltinEntry 仍会修正 mcp.json */ }
   }
 }
 
@@ -63,18 +48,16 @@ function builtinServers() {
   }
   // 产物目录指向应用内部：不指定时 MCP 会把截图等自动产物写入
   // <工作空间>/.playwright-mcp（stdio server 以会话 cwd 启动），污染用户目录
-  // 浏览器模式（见 playwrightHeaded）：
-  //   无头（默认）：--headless 静默运行，窗口不弹出（截图/自动化能力不受影响）
-  //   有头：--browser chrome 走系统 Chrome 弹窗，供扫码/验证码等人工交互登录
+  // --headless：无头静默运行，窗口不弹出（截图/自动化能力不受影响）。
+  //   需人工交互的登录一律走登录向导（login-wizard.js 专用小窗），
+  //   不再切换 --browser chrome 有头模式
   // --user-data-dir：持久浏览器 profile（cookie / 登录态跨会话保持），
-  //   支撑「首次登录一次、后续免登录」的站点自动化（如需登录态的站点搜索）；
-  //   有头首登的登录态同样落此 profile，切回无头后直接复用
+  //   支撑「首次登录一次、后续免登录」的站点自动化（如需登录态的站点搜索）
   // --caps=storage：登录态持久化工具组（browser_storage_state 保存 /
   //   browser_set_storage_state 恢复 / cookie 与 localStorage 管理等），
   //   支撑「首登一次 → 存状态 → 后续会话恢复免登录」，与 --user-data-dir
   //   持久 profile 双轨互补（storageState 为 JSON 文件，可单独备份迁移）
-  args = args.concat(['--caps=storage'],
-    playwrightHeaded() ? ['--browser', 'chrome'] : ['--headless'],
+  args = args.concat(['--caps=storage', '--headless'],
     ['--output-dir', path.join(agentDir, 'playwright-output'),
       '--user-data-dir', path.join(agentDir, 'playwright-profile')])
   const env = {}
@@ -136,6 +119,9 @@ function cleanupLegacyAdapter() {
 function init(dir) {
   agentDir = dir
   fs.mkdirSync(agentDir, { recursive: true })
+  // 清理旧登录方案遗留的有头开关文件（机制已移除；须先于 refreshBuiltinEntry，
+  // 确保 mcp.json 中的 --browser chrome 被修正回 --headless）
+  cleanupLegacyHeaded()
   const builtin = builtinServers()
   // 首次运行写入预置配置（内置服务）
   if (!fs.existsSync(mcpFile())) {
@@ -145,15 +131,16 @@ function init(dir) {
       // 写入失败不阻塞启动，list() 会回退空列表
     }
   } else {
-    // 内置服务条目按当前运行时刷新（dev ⇄ 打包路径切换 / 版本升级后自动修正），幂等
+    // 内置服务条目按当前运行时刷新（dev ⇄ 打包路径切换 / 版本升级 /
+    // 旧版有头参数清理后自动修正），幂等
     refreshBuiltinEntry()
   }
   // 清理旧版 pi-mcp-adapter 注册（升级到内置 MCP 后的幂等迁移）
   cleanupLegacyAdapter()
 }
 
-// 内置服务条目按当前运行时刷新 mcp.json（幂等）：init 启动校正与
-// setHeaded 开关切换共用——路径 / 版本 / 有头开关任一变化即重写条目
+// 内置服务条目按当前运行时刷新 mcp.json（幂等）：init 启动校正专用——
+// 路径 / 版本 / 运行时环境任一变化即重写条目
 function refreshBuiltinEntry() {
   try {
     const config = JSON.parse(fs.readFileSync(mcpFile(), 'utf-8'))
@@ -304,9 +291,5 @@ module.exports = {
   // 内置服务清单（能力中心用）
   builtinList,
   // 校验并全量保存（含凭证注入）
-  save,
-  // 读取有头开关
-  getHeaded,
-  // 写入有头开关并刷新内置条目
-  setHeaded
+  save
 }

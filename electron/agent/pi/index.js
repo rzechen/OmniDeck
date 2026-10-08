@@ -71,6 +71,10 @@ function init(agentDir) {
   // subagentOnlyExtensions 显式引用，child 内部经 pi 内置 createMcpExtension
   // 读取同一 agentDir/mcp.json —— 使前台同步委派（业界主流模式）可用
   piSetup.deployChildMcpExtension(agentDir)
+  // subagent 前台同步强制：pi-subagents 默认省略 async 即后台（独立进程、无流式
+  // 回传）——恒定 asyncByDefault=false + tool_call 钩子剥离显式 async:true，
+  // 只保留前台同步委派（阻塞执行、过程实时可见、回合内完成）
+  piSetup.deploySubagentForegroundPolicy(agentDir)
   // pi-memory 语义记忆：异步安装 + 旧记忆迁移，失败下次启动重试
   piSetup.setupMemoryExtension()
   // 权限系统（@gotgenes/pi-permission-system）：异步安装 + 默认策略 config

@@ -124,9 +124,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // MCP 服务管理（pi 内置 MCP，配置落 <agentDir>/mcp.json）
     mcp: {
       list: () => ipcRenderer.invoke('omnibuddy:mcp:list'),
-      save: servers => ipcRenderer.invoke('omnibuddy:mcp:save', servers),
-      // 内置浏览器（playwright）有头模式：只读状态（旧登录方案遗留，向导成功时自动清零）
-      headedGet: () => ipcRenderer.invoke('omnibuddy:mcp:headed:get')
+      save: servers => ipcRenderer.invoke('omnibuddy:mcp:save', servers)
     },
     // 站点登录（登录向导 + storageState 登记表）
     siteAuth: {

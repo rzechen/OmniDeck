@@ -127,10 +127,6 @@ function registerSettingsIpc() {
 
   ipcMain.handle('omnibuddy:mcp:save', (_e, servers) => mcp.save(servers))
 
-  // 内置浏览器（playwright）有头模式：旧登录方案遗留开关，登录闭环已改走
-  // 登录向导；此接口保留供前端复位展示（向导成功时主进程自动清零）
-  ipcMain.handle('omnibuddy:mcp:headed:get', () => mcp.getHeaded())
-
   // ===== 站点登录（登录向导 + storageState 登记表） =====
   // 站点清单（含登录态文件有无标记）：连接器页「站点登录」区展示 / 主动补登
   ipcMain.handle('omnibuddy:siteauth:list', () => {

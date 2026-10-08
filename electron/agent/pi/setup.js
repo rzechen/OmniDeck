@@ -61,6 +61,81 @@ function deployChildMcpExtension(agentDir) {
   }
 }
 
+// ===== subagent 前台同步强制（产品策略：只保留同步委派）=====
+// pi-subagents 出厂默认 asyncByDefault=true（省略 async 即后台执行，且模型可
+// 显式传 async:true）——后台 child 在独立 runner 进程运行、无流式回传，主回合
+// 立即结束只剩轮询活性，违背「过程实时可见、回合内完成」的产品形态。双层强制：
+//   1) extensions/subagent/config.json 恒定 asyncByDefault=false（含 workflow
+//      script 内省略 async 的内部 spawn 默认）
+//   2) omnideck-fg-subagent.mjs 经官方 tool_call 钩子原地改写参数（mutate
+//      event.input），剥离显式 async:true —— 官方 disabledFeatures 无 async 组、
+//      纯配置挡不住显式传参，钩子层兜底（API 见 pi-coding-agent types.d.ts
+//      ToolCallEventResult："To modify arguments, mutate event.input in place"）
+function subagentConfigFile(agentDir) {
+  return path.join(agentDir, 'extensions', 'subagent', 'config.json')
+}
+
+function ensureSubagentForegroundConfig(agentDir) {
+  const file = subagentConfigFile(agentDir)
+  let config = {}
+  try {
+    config = JSON.parse(fs.readFileSync(file, 'utf-8'))
+    if (!config || typeof config !== 'object') config = {}
+  } catch (e) { /* 无文件或损坏：重建 */ }
+  if (config.asyncByDefault === false) return false
+  config.asyncByDefault = false
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify(config, null, 2))
+    return true
+  } catch (e) {
+    console.warn('[omnibuddy:pi] subagent 前台默认写入失败：', e.message)
+    return false
+  }
+}
+
+function fgSubagentExtensionSource() {
+  return [
+    '// OmniBuddy 自动部署：subagent 前台同步强制扩展（勿手改，启动时幂等覆写）',
+    '// 官方 tool_call 钩子原地改写参数：剥离 subagent 调用中的显式 async:true，',
+    '// 杜绝模型绕过 asyncByDefault=false 的后台委派（后台 child 无流式回传，不采用）',
+    'export default function (pi) {',
+    '  pi.on("tool_call", (event) => {',
+    '    if (event.toolName !== "subagent") return',
+    '    const input = event.input',
+    '    if (input && typeof input === "object" && input.async === true) {',
+    '      delete input.async',
+    '      console.log("[omnideck:fg-subagent] 已强制前台执行（剥离 async:true）")',
+    '    }',
+    '  })',
+    '}',
+    ''
+  ].join('\n')
+}
+
+function deployFgSubagentExtension(agentDir) {
+  const dir = path.join(agentDir, 'extensions')
+  const file = path.join(dir, 'omnideck-fg-subagent.mjs')
+  const src = fgSubagentExtensionSource()
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    try {
+      if (fs.readFileSync(file, 'utf-8') === src) return
+    } catch (e) { /* 首次部署无文件 */ }
+    fs.writeFileSync(file, src)
+    console.log('[omnibuddy:pi] 已部署 subagent 前台强制扩展：', file)
+  } catch (e) {
+    console.warn('[omnibuddy:pi] subagent 前台强制扩展部署失败：', e.message)
+  }
+}
+
+function deploySubagentForegroundPolicy(agentDir) {
+  if (ensureSubagentForegroundConfig(agentDir)) {
+    console.log('[omnibuddy:pi] 已写入 pi-subagents 前台默认（asyncByDefault=false）')
+  }
+  deployFgSubagentExtension(agentDir)
+}
+
 // ===== pi-memory 语义记忆 =====
 // 社区扩展包 pi-memory：MEMORY.md 长期记忆 + 每日日志 + 语义检索（qmd），
 // 经 pi install npm:pi-memory 装到 agentDir 并由 DefaultResourceLoader 自动装载。
@@ -269,6 +344,8 @@ async function setupWorkflowsExtension() {
 module.exports = {
   // 部署前台子代理 MCP 加载扩展到 agentDir/extensions（幂等，内容一致跳过）
   deployChildMcpExtension,
+  // 部署 subagent 前台同步强制策略（config + tool_call 拦截扩展，幂等）
+  deploySubagentForegroundPolicy,
   // 安装 pi-memory + 迁移旧记忆 + qmd 检测（异步，失败下次启动重试）
   setupMemoryExtension,
   // 安装 pi-permission-system + 写默认策略（异步，失败下次启动重试）

@@ -8,7 +8,7 @@
 //   ipc/           IPC 注册层（chat / sessions / settings / workspace / automation 定时任务执行体）
 //   sessions/      会话数据（sessions 存储 / checkpoints / file-changes / branchView / export 导出）
 //   knowledge/     知识资产（skills / rules / profile / memory / market）
-//   integrations/  外部接入（mcp / connectors / credentials / web-search / site-auth / login-wizard / notify / workflows / subagent-watch / pkg-registry）
+//   integrations/  外部接入（mcp / connectors / credentials / web-search / site-auth / login-wizard / notify / workflows / pkg-registry）
 //   workspace/     空间与文件（workspaces / files / attachments）
 //   platform/      平台与安全（permissions / capabilities / runtime / sandbox / scheduler / usage）
 //   tools/         pi 工具扩展（builtin-tools / doc-export / image-gen）
@@ -77,16 +77,11 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   notify.init(baseDir)
   siteAuth.init(baseDir)
 
-  // 登录向导收尾接线：系统检测成功 / 取消时广播前端（连接器页徽标实时
-  // 翻转），成功时顺带复位遗留的有头开关（旧方案状态清理，幂等）
+  // 登录向导收尾接线：系统检测成功 / 取消时广播前端（连接器页徽标实时翻转）
   loginWizard.init({
     onSuccess: (host) => {
       emit(getWindow, null, { type: 'login_wizard', host, phase: 'success' })
       emit(getWindow, null, { type: 'site_auth', host, status: 'logged_in' })
-      if (mcp.getHeaded()) {
-        mcp.setHeaded(false)
-        emit(getWindow, null, { type: 'pw_mode', headed: false })
-      }
     },
     onCancel: (host) => {
       emit(getWindow, null, { type: 'login_wizard', host, phase: 'cancel' })
