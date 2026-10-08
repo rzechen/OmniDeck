@@ -12,7 +12,7 @@
 # - CLI 工具走 npx 通道（@playwright/mcp 已预热 npx-cache；markdownlint
 #   为 coding 向）
 # - mermaid-cli：puppeteer 拉独立 chromium（~170MB，与 playwright 浏览器
-#   重复），挂账——图表渲染可由 playwright 截图方案替代
+#   重复）；图表渲染可由 playwright 截图方案替代
 # - coding 向：typescript / ts-node / tsx / react / react-dom（skill 按需拉起）
 
 # ---- 图像 ----

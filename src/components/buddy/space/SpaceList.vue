@@ -31,7 +31,7 @@
 
 <script>
 // 空间页列表视图
-import { iconOf, formatSize, formatTime } from '@/utils/file-meta'
+import { iconOf, formatSize, formatTime } from '@/utils/ui/file-meta'
 
 export default {
   name: 'SpaceList',

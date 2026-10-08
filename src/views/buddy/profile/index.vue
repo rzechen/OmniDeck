@@ -174,12 +174,12 @@
 </template>
 
 <script>
-// 我的资料（B 方案）：tabs（基本信息 / 我的凭据 / 全局规则）
+// 我的资料：tabs（基本信息 / 我的凭据 / 全局规则）
 // - 基本信息与自定义条目 → profile.json，systemPrompt 确定性注入
 // - 我的凭据 → safeStorage 加密存储，对话中 credential_get 按名取用（默认 ask）
 // - 全局规则 → AGENTS.md（pi 原生装载），保存即销毁 pi 会话（主进程内置）
 // - 工作空间规则入口在工作空间页工具栏（SpaceToolbar「空间规则」按钮）
-import { downloadText } from '@/utils/download'
+import { downloadText } from '@/utils/ui/download'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import RuleEditor from '@/components/buddy/RuleEditor.vue'
 import AiCredentialDialog from '@/components/buddy/AiCredentialDialog.vue'

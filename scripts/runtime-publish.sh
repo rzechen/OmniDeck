@@ -5,17 +5,16 @@
 #   ./scripts/runtime-publish.sh [runtime-v1.1.0]   # tag 缺省 runtime-v1.1.0
 #
 # 流程（继承式 merge，适配 lib 已瘦身：本地无需备齐全部组件）：
-#   1. clone OmniBuddy-Plugins，读 repo 内旧 runtime-manifest.json 作继承基础
+#   1. clone OmniBuddy-Plugins（GitCode），读 repo 内旧 runtime-manifest.json 作继承基础
 #   2. 逐组件比对：本地有且 sha256 变 → 更新条目 + 计入上传；本地有未变 / 本地无
 #      → 继承旧条目（公共组件官方源 URL / 私有组件旧 tag Release 资产仍可下载）
-#   3. 生成 runtime-manifest.json → 写 README + manifest → push 双远端
+#   3. 生成 runtime-manifest.json → 写 README + manifest → push GitCode
 #   4. GitCode Release：创建 + 预签名 PUT 上传增量私有 zip
-#   5. GitHub Release：草稿创建 + 上传 + 发布
 #
-# 依赖：git 凭证存储中有 gitcode.com / github.com 的 token（git credential fill）
+# 依赖：git 凭证存储中有 gitcode.com 的 token（git credential fill）
 #   私有组件（app 内下载解压装配）：
 #     python-env-*.zip（解释器 + 预装数据栈）  node-tools-*.zip（sharp/docx 等）
-#     MinGit-*.zip（Windows git 兜底，统一在线装配）
+#     MinGit-*.zip（Windows git）  git-env-*.zip（mac/linux conda 便携 git）
 #   公共组件不入仓库，manifest 直接给官方/镜像 URL（npmmirror / playwright cdn）。
 set -euo pipefail
 
@@ -23,9 +22,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIB_ROOT="$ROOT/lib"
 TAG="${1:-runtime-v1.1.0}"
 
-# ---- 目标仓库 ----
+# ---- 目标仓库（GitCode 单源）----
 GC_OWNER="m0_59492087"; GC_REPO="OmniBuddy-Plugins"
-GH_OWNER="rzechen";     GH_REPO="OmniBuddy-Plugins"
 
 # ---- 公共组件版本锚点（与 provision-runtime.sh 对齐；升级时联动）----
 NODE_VERSION=22.23.1
@@ -38,16 +36,14 @@ MINGIT_VERSION=2.55.0
 # ---- 凭证 ----
 GC_TOKEN=$(printf 'protocol=https\nhost=gitcode.com\n\n' | git credential fill 2>/dev/null | grep '^password=' | cut -d= -f2-)
 GC_USER=$(printf 'protocol=https\nhost=gitcode.com\n\n' | git credential fill 2>/dev/null | grep '^username=' | cut -d= -f2-)
-GH_TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill 2>/dev/null | grep '^password=' | cut -d= -f2-)
 [ -n "$GC_TOKEN" ] || { echo "✗ 无法从 git 凭证获取 GitCode token"; exit 1; }
-[ -n "$GH_TOKEN" ] || { echo "✗ 无法从 git 凭证获取 GitHub token"; exit 1; }
 
 # ---- git 工作副本提前 clone（manifest 继承需要 repo 内旧清单）----
 echo "==> clone OmniBuddy-Plugins（读取旧 manifest 作继承基础）"
 WORK=$(mktemp -d /tmp/omnibuddy-plugins.XXXXXX)
 cd "$WORK"
-git clone -q "https://x-access-token:${GH_TOKEN}@github.com/${GH_OWNER}/${GH_REPO}.git" repo 2>/dev/null || {
-  echo "✗ clone github 仓库失败"; exit 1
+git clone -q "https://${GC_USER}:${GC_TOKEN}@gitcode.com/${GC_OWNER}/${GC_REPO}.git" repo 2>/dev/null || {
+  echo "✗ clone GitCode 仓库失败"; exit 1
 }
 cd repo
 git checkout -q -B main 2>/dev/null || git checkout -q -b main
@@ -60,7 +56,6 @@ from datetime import date
 
 lib, tag, work = os.environ['LIB_ROOT'], os.environ['RT_TAG'], os.environ['RT_WORK']
 gc_base = f'https://gitcode.com/m0_59492087/OmniBuddy-Plugins/releases/download/{tag}'
-gh_base = f'https://github.com/rzechen/OmniBuddy-Plugins/releases/download/{tag}'
 
 NV, CFT, FFR, WLR, PV, MGV = '22.23.1', '154.0.8037.0', '1011', '1007', '3.6.3', '2.55.0'
 NPM = 'https://registry.npmmirror.com/-/binary/node'
@@ -77,6 +72,8 @@ SPEC = {
     'chrome-headless-shell-mac-arm64.zip': ('chrome-headless-shell', [f'{PWCDN}/builds/cft/{CFT}/mac-arm64/chrome-headless-shell-mac-arm64.zip']),
     'ffmpeg-mac-arm64.zip': ('ffmpeg', [f'{PWPRSS}/builds/ffmpeg/{FFR}/ffmpeg-mac-arm64.zip', f'{PWCDN}/builds/ffmpeg/{FFR}/ffmpeg-mac-arm64.zip']),
     f'pandoc-{PV}-arm64-macOS.zip': ('pandoc', [f'https://github.com/jgm/pandoc/releases/download/{PV}/pandoc-{PV}-arm64-macOS.zip']),
+    # conda 便携 git（provision-runtime.sh do_git 生成存档；私有上传）
+    'git-env-osx-arm64.zip': ('git', []),
   },
   'windows-x86_64': {
     'python-env-win-64.zip': ('python-env', []),
@@ -86,7 +83,8 @@ SPEC = {
     'ffmpeg-win64.zip': ('ffmpeg', [f'{PWPRSS}/builds/ffmpeg/{FFR}/ffmpeg-win64.zip', f'{PWCDN}/builds/ffmpeg/{FFR}/ffmpeg-win64.zip']),
     f'pandoc-{PV}-windows-x86_64.zip': ('pandoc', [f'https://github.com/jgm/pandoc/releases/download/{PV}/pandoc-{PV}-windows-x86_64.zip']),
     'winldd-win64.zip': ('winldd', [f'{PWPRSS}/builds/winldd/{WLR}/winldd-win64.zip', f'{PWCDN}/builds/winldd/{WLR}/winldd-win64.zip']),
-    f'MinGit-{MGV}-64-bit.zip': ('mingit', []),
+    # git 组件（原 mingit 改名，Windows target 仍为 MinGit 官方包）
+    f'MinGit-{MGV}-64-bit.zip': ('git', []),
   },
 }
 
@@ -110,7 +108,11 @@ comps = {}
 for plat, files in SPEC.items():
     for fname, (comp, urls) in files.items():
         p = os.path.join(lib, plat, fname)
+        # 过渡期继承：git 组件在旧 manifest 中键名为 mingit（Windows MinGit 包
+        # sha 一致则免重传，直接继承旧 Release 资产）
         old = base.get(comp, {}).get('targets', {}).get(plat)
+        if not old and comp == 'git':
+            old = base.get('mingit', {}).get('targets', {}).get(plat)
         if os.path.exists(p):
             digest = sha256(p)
             # 内容未变且旧条目 URL 不指向本次 tag → 继承（资产在旧 tag Release，可免传）；
@@ -119,7 +121,7 @@ for plat, files in SPEC.items():
                 entry, state = old, 'unchanged'
             else:
                 if not urls:
-                    urls = [f'{gc_base}/{fname}', f'{gh_base}/{fname}']
+                    urls = [f'{gc_base}/{fname}']
                     uploads.append(p)
                 entry = {'file': fname, 'size': os.path.getsize(p), 'sha256': digest, 'urls': urls}
                 state = 'updated'
@@ -154,10 +156,10 @@ done < "$WORK/upload-list.txt"
 cat > README.md <<'MD'
 # OmniBuddy-Plugins
 
-OmniBuddy / OmniDeck 的**运行时组件分发仓库**（按需懒加载方案）。
+OmniBuddy / OmniDeck 的**运行时组件分发仓库**（按需懒加载方案，GitCode 单源）。
 
-- `runtime-manifest.json`：组件清单（版本 / sha256 / 多源下载 URL），应用首启引导装配或功能按需时读取
-- Release 附件：私有组件包（`python-env-*` Python 解释器+预装数据栈、`node-tools-*` sharp/docx 等预装库、`MinGit-*` Windows git 兜底）
+- `runtime-manifest.json`：组件清单（版本 / sha256 / 下载 URL），应用首启引导装配或功能按需时读取
+- Release 附件：私有组件包（`python-env-*` Python 解释器+预装数据栈、`node-tools-*` sharp/docx 等预装库、`MinGit-*` Windows git、`git-env-*` mac/linux 便携 git）
 - 公共组件（node / chrome-headless-shell / ffmpeg / pandoc / winldd）直接使用官方源与国内镜像，不入库
 
 组件内软件版权归上游各自所有（node MIT、pandoc GPL-2.0+、Chromium/ffmpeg/Git 见上游许可）。
@@ -168,14 +170,11 @@ GIT_MAIL="$(git config user.email || echo 'ci@omnibuddy.local')"
 git add README.md runtime-manifest.json
 # 与远端内容一致（同日重跑）时 nothing to commit 是合法态，跳过提交继续上传
 git -c user.name="$GIT_AUTHOR" -c user.email="$GIT_MAIL" commit -qm "runtime manifest ${TAG}" || echo "  （manifest 与远端一致，无新提交）"
-push_gh="https://x-access-token:${GH_TOKEN}@github.com/${GH_OWNER}/${GH_REPO}.git"
 push_gc="https://${GC_USER}:${GC_TOKEN}@gitcode.com/${GC_OWNER}/${GC_REPO}.git"
 # 资产清单仓库（机器生成线性历史）：普通 push 被拒（远端 init 过）时 force-with-lease 覆盖
-git push -q "$push_gh" HEAD:main 2>/dev/null || { echo "  github 常规 push 被拒，force-with-lease 覆盖"; git push -q --force-with-lease "$push_gh" HEAD:main; }
 git push -q "$push_gc" HEAD:main 2>/dev/null || { echo "  gitcode 常规 push 被拒，force-with-lease 覆盖"; git push -q --force-with-lease "$push_gc" HEAD:main; }
 echo "✓ manifest 已推送（raw 地址）"
 echo "  GitCode: https://raw.gitcode.com/${GC_OWNER}/${GC_REPO}/raw/main/runtime-manifest.json"
-echo "  GitHub:  https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/main/runtime-manifest.json"
 
 # ---- GitCode Release：创建 + 上传增量私有 zip ----
 if [ "${#private_paths[@]}" -eq 0 ]; then
@@ -228,48 +227,6 @@ if code != '200':
 PYEOF
 done
 [ "$fail" -eq 0 ] && echo "✓ [gitcode] 私有组件上传完成" || echo "✗ [gitcode] $fail 个文件失败"
-gc_fail=$fail
-
-# ---- GitHub Release：草稿创建 + 上传 + 发布 ----
-echo "==> [github] release $TAG"
-API="https://api.github.com"
-auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
-rel=$(curl -s --max-time 20 "${auth[@]}" "$API/repos/$GH_OWNER/$GH_REPO/releases/tags/$TAG")
-REL_ID=$(echo "$rel" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-if [ -z "$REL_ID" ]; then
-  echo "→ 创建草稿 release ..."
-  rel=$(curl -s --max-time 20 "${auth[@]}" -X POST "$API/repos/$GH_OWNER/$GH_REPO/releases" \
-    -d "{\"tag_name\":\"$TAG\",\"target_commitish\":\"main\",\"name\":\"OmniBuddy Runtime $TAG\",\"draft\":true,
-         \"body\":\"Runtime components: python-env (Python 3.12 + data stack), node-tools (sharp/docx etc). See runtime-manifest.json.\"}")
-  REL_ID=$(echo "$rel" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-  [ -n "$REL_ID" ] || { echo "  ✗ 创建 release 失败：$rel"; exit 1; }
-fi
-
-fail=0
-for f in "${private_paths[@]}"; do
-  name=$(basename "$f")
-  echo "→ [github] 上传 $name ..."
-  code=$(curl -sS -o /tmp/gh-rt-resp.$$.json -w '%{http_code}' \
-    --connect-timeout 30 --speed-time 60 --speed-limit 10240 --retry 2 --retry-delay 5 \
-    "${auth[@]}" -H "Content-Type: application/octet-stream" \
-    --data-binary "@$f" \
-    "https://uploads.github.com/repos/$GH_OWNER/$GH_REPO/releases/$REL_ID/assets?name=$name")
-  if [ "$code" = "201" ]; then
-    echo "  上传响应: $code"
-  elif [ "$code" = "422" ]; then
-    echo "  上传响应: $code（同名资产已存在，视为已传）"
-  else
-    echo "  ✗ 上传失败（$code）：$(head -c 200 /tmp/gh-rt-resp.$$.json 2>/dev/null)"
-    fail=$((fail + 1))
-  fi
-done
-if [ "$fail" -eq 0 ]; then
-  curl -s --max-time 20 -o /dev/null "${auth[@]}" -X PATCH "$API/repos/$GH_OWNER/$GH_REPO/releases/$REL_ID" -d '{"draft":false}'
-  echo "✓ [github] 私有组件上传完成并已发布"
-else
-  echo "✗ [github] $fail 个文件失败（release 保持草稿态，可重跑续传）"
-fi
 
 echo ""
-echo "==> 汇总：gitcode 失败 $gc_fail 个 / github 失败 $fail 个"
-[ $((gc_fail + fail)) -eq 0 ] && echo "✓ 运行时组件发布完成" || { echo "✗ 部分失败，可重跑脚本续传（已上传的 GitCode 资产会重复，需手动删或忽略）"; exit 1; }
+[ "$fail" -eq 0 ] && echo "✓ 运行时组件发布完成" || { echo "✗ 部分失败，可重跑脚本续传（已上传的 GitCode 资产会重复，需手动删或忽略）"; exit 1; }

@@ -43,7 +43,7 @@
 <script>
 // 用量统计（N4 / §18.2）：主进程 summarize 聚合好三维数据，页面只做数据编排；
 // 卡片 / 柱状图 / 饼图 / TOP5 榜单拆分为 components/ 下 co-locate 子组件
-import { buddyApi } from '@/utils/buddy-api'
+import { buddyApi } from '@/utils/buddy/buddy-api'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import UsageStatCards from './components/UsageStatCards.vue'
 import DailyBarChart from './components/DailyBarChart.vue'

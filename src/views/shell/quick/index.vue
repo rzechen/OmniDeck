@@ -102,7 +102,7 @@
 </template>
 
 <script>
-// 快捷面板（P0-M2）：Spotlight 式独立对话面板
+// 快捷面板：Spotlight 式独立对话面板
 // - 固定「快捷面板」会话：唤起自动恢复最近一条，跨唤起延续上下文；新话题另起
 // - 复用主窗口对话组件（MessageBubble / AskUserCard / BuddyComposer / ComposerPicker）
 //   与 omnibuddy IPC（sendMessage / replyAskUser / interrupt）
@@ -112,7 +112,7 @@ import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
 import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
 import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
-import { getItem, setItem } from '@/utils/db'
+import { getItem, setItem } from '@/utils/storage/db'
 
 // 面板会话固定展示名：主窗口侧栏按此分组
 const QUICK_DISPLAY_NAME = '快捷面板'
@@ -128,7 +128,7 @@ export default {
       workspaces: [],
       workspaceId: '',
       openSelect: '',
-      // 待发送文件附件（[{id,name,size,kind,thumb,path}]，P1-7）
+      // 待发送文件附件（[{id,name,size,kind,thumb,path}]）
       fileAttachments: [],
       // 会话与消息
       sessionId: '',
@@ -147,7 +147,7 @@ export default {
     currentProvider() {
       return this.providers.find(p => p.id === this.currentProviderId) || null
     },
-    // 深度研究（P3）：三档模型映射（与 buddy chat 页同源，providers 页配置）
+    // 深度研究：三档模型映射（与 buddy chat 页同源，providers 页配置）
     tierMapping() {
       const map = {}
       this.providers.forEach(p => {
@@ -352,7 +352,7 @@ export default {
       this.messages = []
       this.fileAttachments = []
     },
-    // ===== 文件附件（P1-7）=====
+    // ===== 文件附件 =====
     async pickAttachments() {
       if (this.streaming) return
       const res = await this.api().pickAttachments()

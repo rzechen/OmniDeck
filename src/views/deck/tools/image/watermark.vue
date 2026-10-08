@@ -62,7 +62,7 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
-import { loadImage } from '@/utils/image'
+import { loadImage } from '@/utils/ui/image'
 
 export default {
   name: 'ImageWatermark',

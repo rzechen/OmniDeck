@@ -15,7 +15,7 @@
 </template>
 
 <script>
-// 长截图控制条小窗（P2）：captureScroll 选区完成后由主进程 openScrollCtrl
+// 长截图控制条小窗：captureScroll 选区完成后由主进程 openScrollCtrl
 // 加载（208×44 无边框置顶小窗）。用户滚动目标内容后点「拍一帧」逐帧连拍，
 // 「完成」拼接入库并自动复制，「取消」丢弃。主进程会在 finish/cancel 后
 // 关闭本窗，页面无需自关；Esc 兜底触发取消。

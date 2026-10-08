@@ -2,7 +2,7 @@
 // 存储：壁纸列表（含 Blob 文件本体）与配置分开存放于 IndexedDB
 // 壁纸层渲染见 components/common/AppWallpaper.vue；界面半透明化见 styles/theme.scss
 
-import { getItem, setItem } from './db'
+import { getItem, setItem } from '../storage/db'
 
 const LIST_KEY = 'wallpaperList'
 const CONFIG_KEY = 'wallpaperConfig'

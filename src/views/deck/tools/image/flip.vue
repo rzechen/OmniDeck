@@ -55,7 +55,7 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
-import { loadImage, formatSize } from '@/utils/image'
+import { loadImage, formatSize } from '@/utils/ui/image'
 
 export default {
   name: 'ImageFlip',

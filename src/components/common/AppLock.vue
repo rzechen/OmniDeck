@@ -83,8 +83,8 @@
 </template>
 
 <script>
-import { getItem } from '@/utils/db'
-import { getShortcut, matchesShortcut } from '@/utils/shortcuts'
+import { getItem } from '@/utils/storage/db'
+import { getShortcut, matchesShortcut } from '@/utils/ui/shortcuts'
 
 // 应用锁定：全屏遮罩（触控 ID 优先 / 密码解锁）
 // 创意吉祥物：瞳孔跟随鼠标、随机眨眼、输入密码时闭眼「不看」、失败 ><

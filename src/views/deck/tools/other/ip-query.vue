@@ -86,7 +86,7 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
-import { record, get as getHistory } from '@/utils/tool-history'
+import { record, get as getHistory } from '@/utils/storage/tool-history'
 
 // ip-api.com 免费接口：中文返回，无需 Key
 const API = ip =>

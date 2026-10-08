@@ -10,23 +10,44 @@ import path from 'path'
 const hasCore = fs.existsSync(path.resolve(__dirname, 'electron/main.js'))
 
 // agent 模块清单：CJS require 互相引用，产物镜像源码目录（dist-electron/agent/），
-// 相对 require 不内联，运行时解析
+// 相对 require 不内联，运行时解析。目录按领域划分：
+//   index      IPC 门面（组合根）
+//   pi/        pi Agent 运行时（index.js 门面 + 子模块；require('./pi') 目录解析）
+//   core/      对话核心（chat-state / pi-events / direct-llm / llm）
+//   ipc/       IPC 注册层（chat / sessions / settings / workspace / automation）
+//   sessions/  会话数据（sessions / checkpoints / file-changes / branchView / export）
+//   knowledge/ 知识资产（skills / rules / profile / memory / market）
+//   integrations/ 外部接入（mcp / connectors / credentials / web-search / site-auth /
+//                 login-wizard / notify / workflows / subagent-watch / pkg-registry）
+//   workspace/ 空间与文件（workspaces / files / attachments）
+//   platform/  平台与安全（permissions / capabilities / runtime / sandbox / scheduler / usage）
+//   tools/     pi 工具扩展（builtin-tools / doc-export / image-gen）
 const agentNames = [
-  'index', 'pi', 'sessions', 'llm', 'sandbox', 'permissions', 'capabilities', 'runtime',
-  'skills', 'workspaces', 'files', 'mcp', 'credentials', 'builtin-tools', 'pkg-registry',
-  'web-search', 'rules', 'profile', 'memory', 'file-changes', 'attachments', 'market',
-  'connectors', 'usage', 'export', 'doc-export', 'image-gen', 'checkpoints', 'branchView', 'scheduler', 'workflows',
-  'subagent-watch', 'notify', 'site-auth'
+  'index',
+  'pi/index', 'pi/state', 'pi/provider', 'pi/extensions', 'pi/prompt', 'pi/ui-context',
+  'pi/session', 'pi/session-events', 'pi/session-branch', 'pi/native-export',
+  'pi/packages', 'pi/setup',
+  'core/chat-state', 'core/pi-events', 'core/direct-llm', 'core/llm',
+  'ipc/chat', 'ipc/sessions', 'ipc/settings', 'ipc/workspace', 'ipc/automation',
+  'sessions/sessions', 'sessions/checkpoints', 'sessions/file-changes', 'sessions/branchView', 'sessions/export',
+  'knowledge/skills', 'knowledge/rules', 'knowledge/profile', 'knowledge/memory', 'knowledge/market',
+  'integrations/mcp', 'integrations/connectors', 'integrations/credentials', 'integrations/web-search',
+  'integrations/site-auth', 'integrations/login-wizard', 'integrations/notify', 'integrations/workflows',
+  'integrations/subagent-watch', 'integrations/pkg-registry',
+  'workspace/workspaces', 'workspace/files', 'workspace/attachments',
+  'platform/permissions', 'platform/capabilities', 'platform/runtime', 'platform/sandbox',
+  'platform/scheduler', 'platform/usage',
+  'tools/builtin-tools', 'tools/doc-export', 'tools/image-gen'
 ]
 
 // 运行时 require / 定位的裸包并集（均在 dependencies，electron-builder 默认收集）：
 // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()；
-// pi-mcp-adapter 随应用打包，mcp.js 以 require.resolve 定位其运行时路径，须保留原生调用；
-// pi-subagents 随应用打包，builtin-tools.js 以 require.resolve 定位其运行时路径，须保留原生调用；
-// pi-web-access 随应用打包，pkg-registry.js 以 require.resolve 定位其运行时路径，须保留原生调用；
-// adm-zip 由 skills.js / core/deps.js 运行时 require（node_modules 内），保留原生调用；
-// pdf-parse 由 attachments.js 运行时 require，保留原生调用；
-// markdown-it 由 export.js 运行时 require（会话导出 HTML 渲染），保留原生调用；
+// pi-mcp-adapter 随应用打包，agent/integrations/mcp.js 以 require.resolve 定位其运行时路径，须保留原生调用；
+// pi-subagents 随应用打包，agent/tools/builtin-tools.js 以 require.resolve 定位其运行时路径，须保留原生调用；
+// pi-web-access 随应用打包，agent/integrations/pkg-registry.js 以 require.resolve 定位其运行时路径，须保留原生调用；
+// adm-zip 由 agent/knowledge/skills.js / core/deps.js 运行时 require（node_modules 内），保留原生调用；
+// pdf-parse 由 agent/workspace/attachments.js 运行时 require，保留原生调用；
+// markdown-it 由 agent/sessions/export.js 运行时 require，保留原生调用；
 // electron-updater 由 core/updater.js 运行时 require，保留原生调用
 const runtimeDeps = [
   '@earendil-works/pi-coding-agent',
@@ -68,7 +89,22 @@ const mainInput = hasCore
       'agent-shim': abs('electron/agent-shim.js'),
       ...Object.fromEntries(agentNames.map(name => [`agent/${name}`, abs(`electron/agent/${name}.js`)])),
       'windows/quick-panel': abs('electron/windows/quick-panel.js'),
-      'windows/capture': abs('electron/windows/capture.js'),
+      // capture 门面（windows/capture/index.js，require('./windows/capture') 目录解析）
+      // + 子模块（同目录镜像产物，相对 require 运行时解析）
+      'windows/capture/index': abs('electron/windows/capture/index.js'),
+      'windows/capture/settings': abs('electron/windows/capture/settings.js'),
+      'windows/capture/native': abs('electron/windows/capture/native.js'),
+      'windows/capture/utils': abs('electron/windows/capture/utils.js'),
+      'windows/capture/persist': abs('electron/windows/capture/persist.js'),
+      'windows/capture/records': abs('electron/windows/capture/records.js'),
+      'windows/capture/clips': abs('electron/windows/capture/clips.js'),
+      'windows/capture/screen': abs('electron/windows/capture/screen.js'),
+      'windows/capture/overlay': abs('electron/windows/capture/overlay.js'),
+      'windows/capture/pin': abs('electron/windows/capture/pin.js'),
+      'windows/capture/scroll': abs('electron/windows/capture/scroll.js'),
+      'windows/capture/favs': abs('electron/windows/capture/favs.js'),
+      'windows/capture/shortcuts': abs('electron/windows/capture/shortcuts.js'),
+      'windows/capture/ipc': abs('electron/windows/capture/ipc.js'),
       'windows/browser': abs('electron/windows/browser.js'),
       // 翻译浏览器：控制器 / 引擎层 / 注入脚本（main.js 与 browser.js 相对引用，产物镜像源码结构）
       'translate/controller': abs('electron/translate/controller.js'),

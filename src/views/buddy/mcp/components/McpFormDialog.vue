@@ -128,8 +128,8 @@
 
 <script>
 // 新增/编辑连接器（MCP Server）弹窗：表单初始化、JSON 字段校验/失焦格式化、组装与全量保存
-import { parseJsonField, formatJsonField } from '@/utils/json-field'
-import { buddyApi } from '@/utils/buddy-api'
+import { parseJsonField, formatJsonField } from '@/utils/data/json-field'
+import { buddyApi } from '@/utils/buddy/buddy-api'
 
 export default {
   name: 'McpFormDialog',

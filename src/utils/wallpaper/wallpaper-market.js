@@ -7,7 +7,7 @@
 //   <所选目录>/动态壁纸/   mp4/webm/mov/m4v（可放同名 jpg/png 作封面）
 //   <所选目录>/静态壁纸/   jpg/png/webp/gif/bmp
 
-import { getItem, setItem } from './db'
+import { getItem, setItem } from '../storage/db'
 
 const DIR_KEY = 'localWallpaperDir'
 

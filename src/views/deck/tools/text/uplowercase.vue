@@ -70,7 +70,7 @@
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
-import { record, get as getHistory } from '@/utils/tool-history'
+import { record, get as getHistory } from '@/utils/storage/tool-history'
 
 const TOOL_PATH = '/tools/text/uplowercase'
 

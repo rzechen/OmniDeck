@@ -1,5 +1,5 @@
 <template>
-  <!-- 右栏产物/代码放大预览（P2-2）：由消息流内产物卡片点击或代码块「放大」按钮唤起，
+  <!-- 右栏产物/代码放大预览：由消息流内产物卡片点击或代码块「放大」按钮唤起，
        在聊天主列右侧滑出（宽屏利用，消息流保持 768px 不动）；
        文本/Markdown/HTML/图片内嵌渲染，其余格式提示转系统应用打开 -->
   <div class="ob-preview">
@@ -72,12 +72,12 @@
 </template>
 
 <script>
-// 右栏预览面板（P2-2）：item 数据源两种——
+// 右栏预览面板：item 数据源两种——
 //   { kind:'code', lang, code }        代码块放大（内存内容，无磁盘路径）
 //   { path, name, format }             产物文件（经 files IPC 读取）
-import { buddyApiSection } from '@/utils/buddy-api'
-import { fileIcon, modeOf } from '@/utils/file-meta'
-import { renderMarkdown } from '@/utils/markdown'
+import { buddyApiSection } from '@/utils/buddy/buddy-api'
+import { fileIcon, modeOf } from '@/utils/ui/file-meta'
+import { renderMarkdown } from '@/utils/ui/markdown'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 // 补充预览高频语言 mode（CodeEditor 自带 js/css/xml/yaml/sql/markdown）
 import 'codemirror/mode/python/python'

@@ -81,7 +81,7 @@ function normalizeHistory(list) {
           isError: !!m.isError,
           fileChange: m.fileChange || null,
           artifacts: m.artifacts || null,
-          // 深度研究（P3）：workflow 运行标识（后台 runId；前台含最终快照）
+          // 深度研究：workflow 运行标识（后台 runId；前台含最终快照）
           workflow: m.workflow || null
         }
         lastAssistant.items.push(item)
@@ -367,7 +367,7 @@ export default {
     // 主进程流式事件：按 sessionId 定向写入会话池（组件在不在场都照常累积）
     // （自 chat 组件 onAgentEvent 迁入，行为保持一致；UI 提示改走 notice）
     handleEvent({ state, commit, dispatch }, e) {
-      // 定时任务无头会话（P2 自动化）：主进程先落盘用户消息（user_message）
+      // 定时任务无头会话（自动化）：主进程先落盘用户消息（user_message）
       // 再广播 automation:run。普通对话的 user_message 是乐观消息的落盘回执、
       // 池必已存在；定时任务会话池尚不存在 —— 建池并把任务的问题入池，
       // 否则会话视图中缺失任务指令（只见异常气泡不见提问）
@@ -375,7 +375,7 @@ export default {
         commit('ENSURE', e.sessionId)
         state.sessions[e.sessionId].messages.push(normalizeHistory([e.message])[0])
       }
-      // 定时任务启动（P2 自动化）：会话可能从未在前端打开（如错过上面的
+      // 定时任务启动（自动化）：会话可能从未在前端打开（如错过上面的
       // user_message），先建池再进入流式乐观占位 —— 否则事件在下方「会话不在池」
       // 守卫被丢，切到该对话要等 pi 冷启动 + LLM 首 token 后才见「思考中」
       if (e.type === 'automation:run' && e.sessionId) {
@@ -412,7 +412,7 @@ export default {
       // 此时 ensureTurnMessage 会凭空新建一条空助手消息（表现为中断后
       // 出现两行 meta 操作行），一律忽略
       //
-      // 例外（P3 深度研究）：自发回合 —— 后台 workflow 结果回注对话或自动化
+      // 例外（深度研究）：自发回合 —— 后台 workflow 结果回注对话或自动化
       // 任务触发的回合没有用户发送动作（streaming=false），assistant_start
       // 即开启「幽灵回合」，让后续 delta / tool / assistant_end 正常渲染。
       // 中断后（lastFinishedMsg 残留）仍维持丢弃，避免被中止回合的迟到事件误触发
@@ -584,7 +584,7 @@ export default {
             if (e.subagent && e.subagent.runId) {
               t.subagent = { runId: e.subagent.runId }
             }
-            // 深度研究（P3）：workflow 工具返回 runId（后台）或最终快照（前台）
+            // 深度研究：workflow 工具返回 runId（后台）或最终快照（前台）
             if (e.workflow) {
               t.workflow = e.workflow
               if (!e.workflow.background && e.workflow.snapshot) {
@@ -595,7 +595,7 @@ export default {
           break
         }
         case 'workflow_progress': {
-          // 深度研究（P3）：后台运行状态轮询推送（主进程 1s 轮询 run 落盘 head）
+          // 深度研究：后台运行状态轮询推送（主进程 1s 轮询 run 落盘 head）
           // 目标工具条目可能在已结束的回合里（后台运行跨越回合），全消息扫描
           const wf = e.workflow || {}
           if (!wf.runId) break

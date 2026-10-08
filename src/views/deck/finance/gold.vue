@@ -115,7 +115,7 @@
 import ToolShell from '@/components/tool/ToolShell.vue'
 import AnimatedNumber from '@/components/deck/AnimatedNumber.vue'
 import { GOLD_API, GOLD_VARIETIES, GOLD_GROUPS, OZ_TO_GRAM } from '@/config/gold-api'
-import { fetchGoldQuotes } from '@/utils/gold'
+import { fetchGoldQuotes } from '@/utils/finance/gold'
 
 export default {
   name: 'FinanceGold',

@@ -70,7 +70,7 @@
                 <li v-for="(note, i) in updateNotes" :key="i">{{ note }}</li>
               </ul>
 
-              <!-- N5 阶段二：全自动通道（win）——下载 → 进度 → 重启安装 -->
+              <!-- 全自动通道（win）：下载 → 进度 → 重启安装 -->
               <template v-if="updateState.fullAuto">
                 <div v-if="dlState.status === 'downloading'" class="dl-progress">
                   <el-progress
@@ -111,7 +111,7 @@
                   </el-button>
                 </div>
               </template>
-              <!-- 阶段一：引导下载（mac 未签名等场景） -->
+              <!-- 引导下载（mac 未签名等场景） -->
               <template v-else>
                 <div class="update-actions nv-actions">
                   <el-button type="primary" size="small" round @click="goDownload">

@@ -31,7 +31,7 @@
 <script>
 // 空间页文件预览 / 编辑弹窗
 import CodeEditor from '@/components/tool/CodeEditor.vue'
-import { fileIcon, modeOf, formatSize, formatTime } from '@/utils/file-meta'
+import { fileIcon, modeOf, formatSize, formatTime } from '@/utils/ui/file-meta'
 
 export default {
   name: 'SpaceFilePreview',

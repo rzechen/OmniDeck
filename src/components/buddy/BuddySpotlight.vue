@@ -57,12 +57,12 @@
 
 <script>
 // OmniBuddy 快速唤起浮窗（可配置快捷键，默认 ⌘⌥J / Ctrl+Alt+J）
-// 真实对话（P2-3）：与快捷面板（quick 窗口）共用「快捷面板」会话，跨入口延续上下文；
+// 真实对话：与快捷面板（quick 窗口）共用「快捷面板」会话，跨入口延续上下文；
 // 会话状态托管在 buddyChat store（主窗口单点订阅流式事件，浮窗收起期间照常累积）；
 // 轻量形态：不支持附件 / 划选引用 / 分支重发，权限确认自动拒绝（与快捷面板同策略）
 import ChatMessageList from '@/views/buddy/chat/components/ChatMessageList.vue'
-import { getItem } from '@/utils/db'
-import { getShortcut, matchesShortcut } from '@/utils/shortcuts'
+import { getItem } from '@/utils/storage/db'
+import { getShortcut, matchesShortcut } from '@/utils/ui/shortcuts'
 
 // 浮窗会话固定展示名：与快捷面板共用同一条会话
 const SPOT_NAME = '快捷面板'

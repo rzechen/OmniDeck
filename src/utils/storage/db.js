@@ -116,7 +116,7 @@ export async function setItem(key, value) {
       tx.objectStore(STORE_NAME).put(value, key)
       tx.oncomplete = () => resolve()
       tx.onerror = () => {
-        // 不再静默：写入失败必须留痕（此前 DataCloneError 被吞，表现为「重启后数据回退」）
+        // 写入失败必须留痕（否则表现为「重启后数据回退」）
         console.warn('[omnideck:db] IndexedDB 写入失败:', key, tx.error)
         resolve()
       }

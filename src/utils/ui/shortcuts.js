@@ -6,7 +6,7 @@
 // - 存储：IndexedDB（key: appShortcuts），读取同步（内存缓存），写入异步
 // - 生效方式：设置页改动后 emit('shortcuts:changed')，各监听组件重读配置
 import mitt from 'mitt'
-import { getItem, setItem } from './db'
+import { getItem, setItem } from '../storage/db'
 
 const STORAGE_KEY = 'appShortcuts'
 

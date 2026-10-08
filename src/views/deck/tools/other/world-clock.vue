@@ -105,7 +105,7 @@
 <script>
 import draggable from 'vuedraggable'
 import ToolShell from '@/components/tool/ToolShell.vue'
-import { getItem, setItem } from '@/utils/db'
+import { getItem, setItem } from '@/utils/storage/db'
 
 // 常用时区（IANA）
 const ZONES = [

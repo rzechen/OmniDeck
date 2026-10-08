@@ -302,8 +302,8 @@ import {
   loadPositions, savePositions, fetchQuote, fetchFundBasic,
   calcProfit, riseColor, fmtMoney, fmtPct,
   calcMarketStatus, fmtQuoteDate, fmtQuoteTime
-} from '@/utils/fund'
-import { getItem as dbGetItem, setItem as dbSetItem } from '@/utils/db'
+} from '@/utils/finance/fund'
+import { getItem as dbGetItem, setItem as dbSetItem } from '@/utils/storage/db'
 
 export default {
   name: 'FundPortfolio',

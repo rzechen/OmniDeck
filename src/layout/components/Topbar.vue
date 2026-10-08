@@ -88,7 +88,7 @@
 
 <script>
 import { searchItems, toolCategories } from '@/config/tools'
-import { getShortcut, matchesShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/shortcuts'
+import { getShortcut, matchesShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/ui/shortcuts'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 
 export default {
@@ -365,7 +365,7 @@ export default {
 
 .topbar-center {
   // 必须置顶：否则会被 z-index:0 的毛玻璃层盖住（backdrop-filter 连带模糊），
-  // 出现"看不见但能点"的遮挡（此前靠 app-region 触发合成层提升才浮在上层，去掉后暴露）
+  // 出现"看不见但能点"的遮挡
   position: relative;
   z-index: 1;
   flex: 1;

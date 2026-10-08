@@ -1,6 +1,6 @@
 // 主题工具：主题模式（浅色/深色/跟随系统/自定义）+ 强调色 + IndexedDB 持久化
 
-import { getItem, setItem } from './db'
+import { getItem, setItem } from '../storage/db'
 
 const MODE_KEY = 'theme-mode'
 const COLOR_KEY = 'primary-color'

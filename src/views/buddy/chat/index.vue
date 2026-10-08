@@ -219,7 +219,7 @@
       />
     </div>
 
-    <!-- 右栏：产物 / 代码放大预览（P2-2）：消息流内点产物卡片或代码块「放大」滑出，
+    <!-- 右栏：产物 / 代码放大预览：消息流内点产物卡片或代码块「放大」滑出，
          宽屏利用（消息流保持 768px 不动）；组件内部自治加载与渲染 -->
     <transition name="ob-preview-slide">
       <div v-if="preview" class="ob-preview-col">
@@ -251,8 +251,8 @@ import ArtifactPreview from './components/ArtifactPreview.vue'
 import TodoCard from '@/components/buddy/chat/TodoCard.vue'
 import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
-import { getItem, setItem } from '@/utils/db'
-import { computeBranchView } from '@/utils/branchView'
+import { getItem, setItem } from '@/utils/storage/db'
+import { computeBranchView } from '@/utils/buddy/branchView'
 
 // OmniBuddy 对话主区：pi Agent 流式对话
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
@@ -279,7 +279,7 @@ export default {
       webEnabled: true,
       // ===== 检查点（N4）：抽屉开关（列表加载与回滚在 CheckpointDrawer 内自治） =====
       cpDrawer: false,
-      // ===== 右栏预览（P2-2）：当前预览目标（产物文件 / 放大代码块），null 为关闭 =====
+      // ===== 右栏预览：当前预览目标（产物文件 / 放大代码块），null 为关闭 =====
       preview: null,
       // ===== 本实例是否为当前激活页签（keep-alive 后台实例不响应预览唤起） =====
       tabActive: true,
@@ -343,7 +343,7 @@ export default {
     showBackToBottom() {
       return !!(this.sess && !this.sess.atBottom)
     },
-    // 待发送文件附件（[{id,name,size,kind,thumb,path}]，P1-7）
+    // 待发送文件附件（[{id,name,size,kind,thumb,path}]）
     fileAttachments() {
       return (this.sess && this.sess.fileAttachments) || []
     },
@@ -371,7 +371,7 @@ export default {
     currentProvider() {
       return this.providers.find(p => p.id === this.currentProviderId) || null
     },
-    // 深度研究（P3）：三档模型映射（providers 页为供应商配置 tier 字段），
+    // 深度研究：三档模型映射（providers 页为供应商配置 tier 字段），
     // 随 provider 透传主进程注册（未配置档位由主进程回落主模型）
     tierMapping() {
       const map = {}
@@ -578,7 +578,7 @@ export default {
         rollbackCheckpoint: async () => ({ ok: false, error: '检查点需要 OmniDeck 桌面端' })
       }
     },
-    // ===== 右栏预览（P2-2）=====
+    // ===== 右栏预览 =====
     // 全局总线唤起：仅当前激活页签响应（keep-alive 后台实例静默忽略）
     onArtifactPreview(payload) {
       if (!this.tabActive) return
@@ -719,7 +719,7 @@ export default {
       }
       this.outlineActiveId = active || this.questions[0].id
     },
-    // ===== 文件附件（P1-7）=====
+    // ===== 文件附件 =====
     // “+”按钮：系统文件选择框（多选）
     async pickAttachments() {
       if (this.streaming) return
@@ -1056,7 +1056,7 @@ export default {
       if (e.target.closest('.ob-select')) return
       this.openSelect = ''
     },
-    // ===== 回退与分支（M4） =====
+    // ===== 回退与分支 =====
     branchAt(m) {
       this.$confirm('将以此处为分叉点复制完整上下文创建新会话，当前会话保留。继续吗？', '创建分叉', {
         confirmButtonText: '创建分叉',
@@ -1218,7 +1218,7 @@ export default {
   overflow: hidden;
 }
 
-/* ===== 右栏预览列（P2-2）：与主列以细分隔线相接，滑入过渡 ===== */
+/* ===== 右栏预览列：与主列以细分隔线相接，滑入过渡 ===== */
 /* 右栏：与对话列各占一半（对齐豆包放大态；侧栏由预览联动临时收起腾宽度） */
 .ob-preview-col {
   flex-shrink: 0;

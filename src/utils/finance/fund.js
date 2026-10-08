@@ -1,7 +1,7 @@
 // 基金数据服务层：封装三方接口请求（经主进程 http:request 代理绕过 CORS）、
 // JS/JSONP 响应剥壳、内存+IndexedDB 缓存、交易时段判断与收益计算
 import { FUND_API } from '@/config/fund-api'
-import { getItem, setItem } from './db'
+import { getItem, setItem } from '../storage/db'
 
 /* ============ 基础请求 ============ */
 

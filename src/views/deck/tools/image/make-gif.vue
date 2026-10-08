@@ -85,7 +85,7 @@ import draggable from 'vuedraggable'
 import GIF from 'gif.js'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
-import { loadImage, formatSize } from '@/utils/image'
+import { loadImage, formatSize } from '@/utils/ui/image'
 
 let uid = 0
 

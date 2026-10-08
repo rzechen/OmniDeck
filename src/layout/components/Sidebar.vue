@@ -183,8 +183,8 @@ import {
   browserItem,
   menuGroups
 } from '@/config/tools'
-import { getMenuOrder, saveMenuOrder } from '@/utils/menu-order'
-import { getShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/shortcuts'
+import { getMenuOrder, saveMenuOrder } from '@/utils/ui/menu-order'
+import { getShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/ui/shortcuts'
 
 export default {
   name: 'Sidebar',

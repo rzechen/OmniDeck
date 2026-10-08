@@ -23,7 +23,7 @@
 
     <div class="ob-card-url" :title="provider.baseUrl">{{ provider.baseUrl }}</div>
 
-    <!-- 深度研究档位（P3）：仅标签展示结果，配置入口在新建/编辑表单 -->
+    <!-- 深度研究档位：仅标签展示结果，配置入口在新建/编辑表单 -->
     <div class="ob-card-tier" v-if="provider.tier">
       <span class="ob-tier-tag" :class="provider.tier">
         <i class="ob-tier-dot"></i>深度研究 · {{ tierLabel }}

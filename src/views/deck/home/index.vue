@@ -212,7 +212,7 @@
 
 <script>
 import { toolCategories } from '@/config/tools'
-import { getItem, getDailyGrowth } from '@/utils/db'
+import { getItem, getDailyGrowth } from '@/utils/storage/db'
 
 // 字节数人性化：B → KB → MB → GB
 function fmtBytes(n) {

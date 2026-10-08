@@ -41,7 +41,7 @@
 </template>
 
 <script>
-import { buddyApi } from '@/utils/buddy-api'
+import { buddyApi } from '@/utils/buddy/buddy-api'
 
 // OmniBuddy 检查点抽屉（自治组件）：内部加载检查点时间线并执行回滚，
 // 回滚成功后 $emit('rolled-back') 通知页面刷新消息

@@ -48,7 +48,7 @@ import Sidebar from './components/Sidebar.vue'
 import TagsBar from '@/components/common/TagsBar.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 import SetupProgressBanner from '@/components/common/SetupProgressBanner.vue'
-import { getShortcut, matchesShortcut } from '@/utils/shortcuts'
+import { getShortcut, matchesShortcut } from '@/utils/ui/shortcuts'
 
 export default {
   name: 'Layout',

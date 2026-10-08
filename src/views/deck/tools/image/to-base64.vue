@@ -64,7 +64,7 @@
 <script>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
-import { formatSize, downloadDataUrl, baseName } from '@/utils/image'
+import { formatSize, downloadDataUrl, baseName } from '@/utils/ui/image'
 
 export default {
   name: 'ImageToBase64',

@@ -107,7 +107,7 @@
       @reveal="revealFile(preview.path)"
     />
 
-    <!-- 空间规则弹窗（B 方案收编）：编辑当前空间 AGENTS.md -->
+    <!-- 空间规则弹窗：编辑当前空间 AGENTS.md -->
     <space-rule-dialog
       :visible="ruleDialog.visible"
       :space-id="activeId"
@@ -131,8 +131,8 @@ import SpaceContextMenu from '@/components/buddy/space/SpaceContextMenu.vue'
 import SpaceFilePreview from '@/components/buddy/space/SpaceFilePreview.vue'
 import SpaceRuleDialog from '@/components/buddy/space/SpaceRuleDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
-import { isTextEntry } from '@/utils/file-meta'
-import { getItem, setItem } from '@/utils/db'
+import { isTextEntry } from '@/utils/ui/file-meta'
+import { getItem, setItem } from '@/utils/storage/db'
 
 export default {
   name: 'OmniBuddyWorkspace',

@@ -31,17 +31,43 @@
                 <span class="ob-builtin-tag">系统内置</span>
               </div>
               <div class="ob-builtin-desc">
-                无头浏览器自动化（登录态保存已启用）：访问站点遇登录墙自动通知，一键转有头完成登录后自动恢复无头，各站点首登一次后免登录
+                无头浏览器自动化（登录态保存已启用）：访问站点遇登录墙自动通知，一键打开登录向导小窗完成登录，成功后自动保存登录态并关闭，各站点首登一次后免登录
               </div>
-              <div class="ob-builtin-tip" v-if="pwHeaded">
-                有头登录进行中：浏览器窗口弹出供扫码 / 验证码登录，完成后自动恢复无头（期间新建会话将弹出窗口）
+              <div class="ob-builtin-tip" v-if="wizardHost">
+                登录向导已打开（{{ wizardHost }}）：在弹出的窗口中完成登录即可，成功后自动保存并关闭；关闭窗口视为取消
               </div>
             </div>
           </div>
           <div class="ob-builtin-ctrl">
-            <el-tag size="small" :type="pwHeaded ? 'warning' : 'info'">
-              {{ pwHeaded ? '有头 · 登录中' : '无头 · 自动' }}
+            <el-tag size="small" :type="wizardHost ? 'warning' : 'info'">
+              {{ wizardHost ? '登录中 · ' + wizardHost : '无头 · 自动' }}
             </el-tag>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 站点登录（登录向导入口：登记表驱动，支持空闲时主动补登） ===== -->
+      <section class="ob-connector-section" v-if="sites.length">
+        <div class="ob-site-card">
+          <div class="ob-site-head">
+            <div class="ob-site-title">站点登录</div>
+            <div class="ob-site-sub">Agent 访问撞过登录墙的站点；登录态保存后自动复用，失效可重新登录</div>
+          </div>
+          <div class="ob-site-list">
+            <div class="ob-site-row" v-for="s in sites" :key="s.host">
+              <span class="ob-site-host">{{ s.host }}</span>
+              <el-tag size="small" :type="s.hasState ? 'success' : 'danger'">
+                {{ s.hasState ? '已保存登录态' : '待登录' }}
+              </el-tag>
+              <el-button
+                size="small"
+                round
+                :type="s.wizardOpen ? 'warning' : 'primary'"
+                :plain="!s.wizardOpen"
+                class="ob-site-btn"
+                @click="openSiteLogin(s)"
+              >{{ s.wizardOpen ? '登录中…' : (s.hasState ? '重新登录' : '去登录') }}</el-button>
+            </div>
           </div>
         </div>
       </section>
@@ -128,7 +154,7 @@
 import McpCard from './components/McpCard.vue'
 import McpFormDialog from './components/McpFormDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
-import { buddyApi, buddyApiSection } from '@/utils/buddy-api'
+import { buddyApi, buddyApiSection } from '@/utils/buddy/buddy-api'
 
 export default {
   name: 'OmniBuddyMcp',
@@ -137,8 +163,12 @@ export default {
     return {
       mcpServers: [],
       mcpLoading: false,
-      // 内置浏览器（playwright）有头开关状态
+      // 旧登录方案遗留的有头开关状态（仅复位展示，登录闭环已改走向导）
       pwHeaded: false,
+      // 登录向导当前打开的站点（空 = 未开）：login_wizard 事件实时驱动
+      wizardHost: '',
+      // 站点登录登记表（含 hasState / wizardOpen 标记）
+      sites: [],
       // 新增/编辑弹窗显隐与编辑对象（null 表示新增）
       mcpModalVisible: false,
       mcpEditing: null,
@@ -163,13 +193,21 @@ export default {
   created() {
     this.loadMcp()
     this.loadPwHeaded()
+    this.loadSites()
   },
   mounted() {
-    // 有头/无头切换由登录闭环自动驱动（主进程 pw_mode 广播）：实时同步状态徽标
+    // 登录向导开/关与站点登录态变化由主进程广播实时驱动：
+    // login_wizard（open/success/cancel）翻转徽标，site_auth 刷新站点列表
     const api = buddyApi()
     if (api && api.onEvent) {
       this._unsubPw = api.onEvent(e => {
         if (e && e.type === 'pw_mode') this.pwHeaded = !!e.headed
+        if (e && e.type === 'login_wizard') {
+          this.wizardHost = e.phase === 'open' ? e.host : ''
+          if (e.phase === 'success') this.$message.success('「' + e.host + '」登录成功，登录态已保存')
+          this.loadSites()
+        }
+        if (e && e.type === 'site_auth') this.loadSites()
       })
     }
   },
@@ -180,9 +218,8 @@ export default {
     }
   },
   methods: {
-    // ===== 内置浏览器（Playwright）有头模式（只读状态展示） =====
-    // 开/关全自动：无头撞登录墙 → 系统通知一键转有头 → 登录完成（agent 上报
-    // logged_in）自动切回无头；切换只影响下一会话，登录态落持久 profile
+    // ===== 内置浏览器（Playwright）有头开关（旧方案遗留，只读复位展示） =====
+    // 登录闭环已改走登录向导：向导成功时主进程自动清零该开关并广播 pw_mode
     async loadPwHeaded() {
       const api = buddyApi()
       const mcpApi = api && api.mcp
@@ -190,6 +227,33 @@ export default {
       try {
         this.pwHeaded = !!(await mcpApi.headedGet())
       } catch (e) { /* 读取失败按默认无头 */ }
+    },
+    // ===== 站点登录登记表 =====
+    async loadSites() {
+      const api = buddyApi()
+      const siteApi = api && api.siteAuth
+      if (!siteApi || !siteApi.list) return
+      try {
+        const list = await siteApi.list()
+        this.sites = Array.isArray(list) ? list : []
+        // 向导打开状态兜底同步（页面刷新丢失事件时以主进程状态为准；
+        // 向导已关则清空，避免徽标残留）
+        const openSite = this.sites.find(s => s.wizardOpen)
+        this.wizardHost = openSite ? openSite.host : ''
+      } catch (e) { /* 读取失败保持现状 */ }
+    },
+    // 打开登录向导（主进程弹专用小窗，成功自动保存登录态并关闭）
+    async openSiteLogin(s) {
+      const api = buddyApi()
+      const siteApi = api && api.siteAuth
+      if (!siteApi || !siteApi.login) return
+      try {
+        const res = await siteApi.login(s.host)
+        if (res && res.ok) this.loadSites()
+        else if (res && res.error) this.$message.error(res.error)
+      } catch (e) {
+        this.$message.error('打开登录窗口失败')
+      }
     },
     // 连接器 IPC 桥（官方分区已移除，凭证弹窗仍走该桥）
     api() {
@@ -457,6 +521,64 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 站点登录卡片（登记表 + 登录向导入口） */
+.ob-site-card {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color);
+}
+
+.ob-site-head {
+  margin-bottom: 10px;
+}
+
+.ob-site-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.ob-site-sub {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: $text-secondary;
+}
+
+.ob-site-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ob-site-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--bg-color, #f7f8fa);
+
+  .el-tag {
+    flex-shrink: 0;
+  }
+}
+
+.ob-site-host {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: $text-primary;
+}
+
+.ob-site-btn {
   flex-shrink: 0;
 }
 

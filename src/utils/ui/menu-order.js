@@ -1,7 +1,7 @@
 // 侧边栏菜单排序持久化（IndexedDB）
 // 结构：{ groupKeys: ['tools'], children: { tools: ['Format', 'Convert', ...] } }
 
-import { getItem, setItem, removeItem } from './db'
+import { getItem, setItem, removeItem } from '../storage/db'
 
 const KEY = 'menu-order'
 

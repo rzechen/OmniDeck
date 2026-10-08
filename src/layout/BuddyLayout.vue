@@ -173,7 +173,7 @@
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 import SetupProgressBanner from '@/components/common/SetupProgressBanner.vue'
-import { getItem, setItem } from '@/utils/db'
+import { getItem, setItem } from '@/utils/storage/db'
 
 // OmniBuddy 视图壳：与主 Layout 平级的独立视图
 // 侧边栏（新建/设置入口 + 菜单 + 任务列表，可拖宽/收起）+ 主区（对话/管理页，无页签行）
@@ -206,7 +206,7 @@ export default {
         {
           title: '配置',
           items: [
-            // 我的资料（B 方案）：结构化个人背景 + 全局规则折叠区（原项目规则页收编）
+            // 我的资料：结构化个人背景 + 全局规则折叠区
             { label: '我的资料', name: 'OmniBuddyProfile', path: '/omnibuddy/profile', icon: 'user' },
             { label: '工作空间', name: 'OmniBuddyWorkspace', path: '/omnibuddy/workspace', icon: 'folder' },
             { label: '模型管理', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' }

@@ -117,7 +117,7 @@ import ItemDetailDialog from '@/components/buddy/ItemDetailDialog.vue'
 import SkillCard from './components/SkillCard.vue'
 import SkillImportDialog from './components/SkillImportDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
-import { buddyApi } from '@/utils/buddy-api'
+import { buddyApi } from '@/utils/buddy/buddy-api'
 
 export default {
   name: 'OmniBuddySkills',

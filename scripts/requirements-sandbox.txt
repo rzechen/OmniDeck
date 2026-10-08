@@ -9,7 +9,7 @@
 # 不含任何后端服务依赖；升级互不牵制。
 #
 # 纳入标准：非 coding 高频（覆盖办公自动化/数据分析 ~90% 场景）。
-# 刻意排除（P2 挂账，场景驱动再引入，见 08 号文档沙箱增强包节）：
+# 刻意排除（场景驱动再引入）：
 # - 系统二进制依赖项：pytesseract（需 tesseract）/ pdf2image（需 poppler）
 # - 重型项：scikit-learn / scikit-image / opencv / mediapipe / onnxruntime
 # - coding 向：mkdocs / flask（Node 侧 typescript/react 等同理由 npx 按需）

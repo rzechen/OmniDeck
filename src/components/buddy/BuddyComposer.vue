@@ -111,7 +111,7 @@ export default {
       type: Boolean,
       default: false
     },
-    // 待发送文件附件（[{id,name,size,kind,thumb}]，P1-7）：图片缩略图 + 文本/PDF 文件胶囊
+    // 待发送文件附件（[{id,name,size,kind,thumb}]）：图片缩略图 + 文本/PDF 文件胶囊
     files: {
       type: Array,
       default: null
@@ -164,7 +164,7 @@ export default {
       if (this.isComposing || e.isComposing) return
       this.onSend()
     },
-    // 粘贴含文件时转为附件（P1-7）：拦截默认行为，交主进程落盘
+    // 粘贴含文件时转为附件：拦截默认行为，交主进程落盘
     onPaste(e) {
       const items = e.clipboardData && e.clipboardData.items
       if (!items) return
@@ -185,7 +185,7 @@ export default {
         }
       }
     },
-    // ===== 拖拽导入（P1-7）：Electron 32+ File.path 已移除，须经 webUtils 取真实路径 =====
+    // ===== 拖拽导入：Electron 32+ File.path 已移除，须经 webUtils 取真实路径 =====
     onDragOver(e) {
       if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return
       this.isDrag = true
