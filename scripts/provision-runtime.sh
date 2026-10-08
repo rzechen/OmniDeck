@@ -192,6 +192,11 @@ package_list() {  # <plat> → "file<TAB>url1 url2 ..." 行
   printf '%s\t%s\n' \
     "chrome-headless-shell-$pw_asset.zip" \
     "https://cdn.playwright.dev/builds/cft/$PW_CFT_BUILD/$pw_asset/chrome-headless-shell-$pw_asset.zip"
+  # 完整 chromium（有头）：登录向导窗口用（headless-shell 无 GUI 起不了窗），
+  # 与 MCP 无头浏览器共用同一 user-data-dir（playwright profile）
+  printf '%s\t%s\n' \
+    "chrome-$pw_asset.zip" \
+    "https://cdn.playwright.dev/builds/cft/$PW_CFT_BUILD/$pw_asset/chrome-$pw_asset.zip"
   printf '%s\t%s %s\n' \
     "ffmpeg-$ff_asset.zip" \
     "https://playwright.download.prss.microsoft.com/dbazure/download/playwright/builds/ffmpeg/$PW_FFMPEG_REV/ffmpeg-$ff_asset.zip" \
@@ -621,12 +626,13 @@ do_playwright() {
   pw_asset="$(plat_asset_pw "$plat")"
   ff_asset="$(plat_asset_ffmpeg "$plat")"
   dir="$RUNTIME_ROOT/$plat/playwright-browsers"
-  # Windows：三 zip（chrome-headless-shell/ffmpeg/winldd），解压型可跨宿主
+  # Windows：四 zip（chrome-headless-shell/chromium/ffmpeg/winldd），解压型可跨宿主
   if [ "$plat" = windows-x86_64 ]; then
     wipe_dir "$dir"
-    echo "==> lib 三 zip 解压至 ${dir}（离线装配，含 winldd）"
+    echo "==> lib 四 zip 解压至 ${dir}（离线装配，含完整 chromium 与 winldd）"
     local pair zip dest
     for pair in "chromium_headless_shell-$PW_CHROMIUM_REV:chrome-headless-shell-$pw_asset.zip" \
+                "chromium-$PW_CHROMIUM_REV:chrome-$pw_asset.zip" \
                 "ffmpeg-$PW_FFMPEG_REV:ffmpeg-$ff_asset.zip" \
                 "winldd-$PW_WINLDD_REV:winldd-win64.zip"; do
       dest="$dir/${pair%%:*}"
@@ -638,6 +644,8 @@ do_playwright() {
     done
     [ -f "$dir/chromium_headless_shell-$PW_CHROMIUM_REV/chrome-headless-shell-$pw_asset/chrome-headless-shell.exe" ] \
       || { echo "错误: chrome-headless-shell.exe 缺失（zip 布局异常）" >&2; exit 1; }
+    [ -f "$dir/chromium-$PW_CHROMIUM_REV/chrome-win64/chrome.exe" ] \
+      || { echo "错误: chrome.exe 缺失（zip 布局异常）" >&2; exit 1; }
     echo "==> 完成: $dir"
     return
   fi
@@ -647,9 +655,10 @@ do_playwright() {
     echo "错误: playwright 组件必须在目标平台本机执行（浏览器为平台二进制）" >&2; exit 1
   }
   wipe_dir "$dir"
-  echo "==> lib 两 zip 解压至 ${dir}（离线装配）"
+  echo "==> lib 三 zip 解压至 ${dir}（离线装配）"
   local pair zip dest
   for pair in "chromium_headless_shell-$PW_CHROMIUM_REV:chrome-headless-shell-$pw_asset.zip" \
+              "chromium-$PW_CHROMIUM_REV:chrome-$pw_asset.zip" \
               "ffmpeg-$PW_FFMPEG_REV:ffmpeg-$ff_asset.zip"; do
     dest="$dir/${pair%%:*}"
     zip="$(require_lib_pkg "$plat" "${pair##*:}")"
@@ -659,6 +668,12 @@ do_playwright() {
   done
   local shell_bin="$dir/chromium_headless_shell-$PW_CHROMIUM_REV/chrome-headless-shell-$pw_asset/chrome-headless-shell"
   [ -x "$shell_bin" ] || { echo "错误: 未找到 ${shell_bin}（zip 布局异常）" >&2; exit 1; }
+  # 完整 chromium：mac zip 解出 chrome-mac[-arm64]/<app>（app 名两种：旧版
+  # Chromium.app / 新版 CFT "Google Chrome for Testing.app"），布局探测交给
+  # 运行时（runtime.chromiumFullBin），此处只校验 chrome-* 目录存在
+  if [ ! -d "$dir/chromium-$PW_CHROMIUM_REV"/chrome-* ]; then
+    echo "错误: 未找到完整 chromium 目录（zip 布局异常）" >&2; exit 1
+  fi
   "$shell_bin" --version
   if [ "$(uname -s)" = Darwin ]; then
     xattr -rd com.apple.quarantine "$dir" 2>/dev/null || true

@@ -30,7 +30,7 @@
           :key="'thinking-' + i"
           class="ob-think-text"
         >
-          <div class="ob-think-md" v-html="rendered(item.content)" @click="onMdClick"></div>
+          <div class="ob-think-md" v-html="renderedCached(item, item.content)" @click="onMdClick"></div>
           <span v-if="isThinking && i === items.length - 1" class="ob-cursor"></span>
         </div>
 
@@ -41,7 +41,7 @@
           class="ob-think-text ob-narration"
         >
           <div class="ob-narration-tag">过程说明</div>
-          <div class="ob-think-md" v-html="rendered(item.content)" @click="onMdClick"></div>
+          <div class="ob-think-md" v-html="renderedCached(item, item.content)" @click="onMdClick"></div>
         </div>
 
         <!-- Skill 激活 -->
@@ -96,6 +96,25 @@
             />
           </div>
 
+          <!-- 站点登录引导：撞登录墙上报后内嵌一键入口（应用内直达登录向导小窗，
+               不依赖系统通知；向导开/关由 login_wizard 广播实时翻转；
+               logged_in 广播翻转已登录终态：文案更新 + 按钮收起 + 整行弱化 -->
+          <div v-if="item.siteLogin" class="ob-tool-login" :class="{ 'is-logged': item.siteLogin.loggedIn }">
+            <svg-icon icon-class="browser" class="ob-tool-login-ico" />
+            <span class="ob-tool-login-text">
+              {{ item.siteLogin.loggedIn ? '「' + item.siteLogin.host + '」已登录' : '「' + item.siteLogin.host + '」需要登录' }}
+            </span>
+            <el-button
+              v-if="!item.siteLogin.loggedIn"
+              size="small"
+              round
+              type="primary"
+              :plain="!isWizardOpen(item.siteLogin.host)"
+              class="ob-tool-login-btn"
+              @click="openLoginWizard(item)"
+            >{{ isWizardOpen(item.siteLogin.host) ? '登录中…' : '打开登录向导' }}</el-button>
+          </div>
+
           <!-- ask_user 提问卡片：挂接在「询问用户」工具条目上（挂起中可交互，已答显示答案） -->
           <ask-user-card
             v-if="item.ask"
@@ -136,7 +155,7 @@
                 v-if="isWebTool(item)"
                 class="ob-tool-result ob-tool-result-md"
                 :class="{ error: item.isError }"
-                v-html="rendered(truncatedResult(item))"
+                v-html="renderedCached(item, truncatedResult(item))"
                 @click="onMdClick"
               ></div>
               <div v-else class="ob-tool-result" :class="{ error: item.isError }">
@@ -153,6 +172,7 @@
 <script>
 // OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) / ask_user 提问 的聚合渲染
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
+import { buddyApi } from '@/utils/buddy/buddy-api'
 import AskUserCard from './AskUserCard.vue'
 
 // 内置工具的中文短名（与 builtin-tools.js / pi.js registerTool 的 label 对齐；
@@ -186,7 +206,32 @@ const TOOL_LABELS = {
   source_check: '核实来源',
   // 文档交付（doc_export 自研 + pi-markdown-preview）
   doc_export: '导出文档',
-  preview_export: '生成预览'
+  preview_export: '生成预览',
+  // 站点登录态上报（builtin-tools.js 注册）
+  report_site_auth: '上报站点登录态',
+  // pi-subagents 委派与运行时配套
+  subagent: '子任务委派',
+  bg_wait: '等待后台任务',
+  contact_supervisor: '联系父会话',
+  structured_output: '提交结构化输出',
+  subagent_supervisor: '监督子代理',
+  // 语义记忆（pi-memory 扩展注册）
+  memory_write: '写入记忆',
+  memory_read: '读取记忆',
+  memory_search: '检索记忆',
+  memory_forget: '遗忘记忆',
+  memory_restore: '恢复记忆',
+  scratchpad: '草稿清单',
+  memory_status: '记忆体检',
+  // 凭据取用（pi.js 内联注册）
+  credential_get: '取用凭据',
+  // 图像生成（pi 1.0.0）
+  generate_image: '生成图片',
+  // 深度研究（pi-dynamic-workflows 扩展注册）
+  workflow: '编排工作流',
+  workflow_control: '控制工作流',
+  // 联网伴随读取（pi-web-access）
+  get_search_content: '调取搜索结果'
 }
 
 export default {
@@ -219,8 +264,33 @@ export default {
     return {
       // 默认收起（含生成中；头部仍有动态标识轮次进度）；此后由用户自由展开收起
       collapsed: true,
-      toolOpenOverrides: {}
+      toolOpenOverrides: {},
+      // 登录向导当前打开的站点集合（host → true）：login_wizard 广播驱动，
+      // 工具卡片「打开登录向导」按钮据此翻转「登录中…」态
+      wizardHosts: {}
     }
+  },
+  created() {
+    // 订阅登录向导开关广播（主进程 loginWizard 直发）：翻转向导打开态
+    const wizardApi = buddyApi()
+    if (wizardApi && wizardApi.onEvent) {
+      this._unsubWizard = wizardApi.onEvent(e => {
+        if (!e || e.type !== 'login_wizard') return
+        const next = Object.assign({}, this.wizardHosts)
+        if (e.phase === 'open') next[e.host] = true
+        else delete next[e.host]
+        this.wizardHosts = next
+      })
+    }
+    // Markdown 渲染缓存（非响应式，WeakMap 不阻止条目回收）：
+    // v-html 绑定的是方法，组件每次重渲染都会对全部条目重新执行 markdown 解析；
+    // 流式期间 items 每个 tick 都变更，点击展开/收起也会触发整组件重渲染，
+    // 全量重解析导致明显卡顿。按「条目对象 + 文本内容」缓存后，
+    // 内容未变化的条目直接复用渲染结果，仅当前增长的条目重新渲染
+    this._mdCache = new WeakMap()
+    // 无 toolCallId 条目的 key 缓存：args 可能极大（如 write 的 content），
+    // JSON.stringify 全量序列化每次渲染重复执行同样有开销
+    this._toolKeyCache = new WeakMap()
   },
   watch: {
     // 系统等待用户回答时思考区不允许保持收起（提问卡片必须可见：
@@ -230,6 +300,13 @@ export default {
       handler(v) {
         if (v) this.collapsed = false
       }
+    }
+  },
+  beforeUnmount() {
+    // 退出登录向导广播订阅（防泄漏）
+    if (this._unsubWizard) {
+      this._unsubWizard()
+      this._unsubWizard = null
     }
   },
   computed: {
@@ -300,8 +377,15 @@ export default {
         if (ok) this.$message.success('已下载 CSV')
       })
     },
-    rendered(text) {
-      return renderMarkdown(text || '')
+    // 带缓存的 Markdown 渲染：文本与上次相同时复用结果（streaming 高频重渲染下
+    // 避免对全部条目重复解析，点击展开/收起不再触发全量重解析）
+    renderedCached(item, text) {
+      const s = text || ''
+      const cached = this._mdCache.get(item)
+      if (cached && cached.text === s) return cached.html
+      const html = renderMarkdown(s)
+      this._mdCache.set(item, { text: s, html })
+      return html
     },
     isMcp(item) {
       const name = item.toolName
@@ -373,6 +457,26 @@ export default {
       const a = item.args.agent || item.args.agentId
       return typeof a === 'string' ? a.replace(/^wechat-/, '') : ''
     },
+    // ===== 站点登录向导（撞墙工具卡片内嵌入口） =====
+    isWizardOpen(host) {
+      return !!this.wizardHosts[host]
+    },
+    // 打开登录向导小窗（主进程专用 BrowserWindow，成功自动保存登录态并关闭）
+    openLoginWizard(item) {
+      const sl = item.siteLogin
+      if (!sl || !sl.host) return
+      const api = buddyApi()
+      const siteApi = api && api.siteAuth
+      if (!siteApi || !siteApi.login) return
+      siteApi.login(sl.host, sl.url).then(res => {
+        // 同 host 重复打开时主进程只聚焦复用（ok:true），不重复计数
+        if (!res || !res.ok) {
+          this.$message.error((res && res.error) || '打开登录窗口失败')
+        }
+      }).catch(() => {
+        this.$message.error('打开登录窗口失败')
+      })
+    },
     // 运行中的工具是否即当前待确认权限的目标：bash 类按 command、文件类按 path 匹配，
     // 其余按工具名兜底（并发工具时区分"在执行"与"在等授权"）
     matchesPerm(item) {
@@ -439,7 +543,13 @@ export default {
       return this.hasArgs(item) || this.hasResult(item) || !!item.fileChange
     },
     toolKey(item) {
-      return item.toolCallId || (item.toolName + '::' + (item.args ? JSON.stringify(item.args).slice(0, 40) : ''))
+      if (item.toolCallId) return item.toolCallId
+      // 兜底 key：按条目缓存（args 引用不变即复用），避免每次渲染重复全量序列化
+      const cached = this._toolKeyCache.get(item)
+      if (cached && cached.args === item.args) return cached.key
+      const key = item.toolName + '::' + (item.args ? JSON.stringify(item.args).slice(0, 40) : '')
+      this._toolKeyCache.set(item, { args: item.args, key })
+      return key
     },
     isToolOpen(item) {
       // 默认收起（错误时默认展开）；用户手动操作后以 override 为准
@@ -787,6 +897,47 @@ export default {
     transition: transform 0.2s ease;
 
     &.open { transform: rotate(180deg); }
+  }
+}
+
+/* 站点登录引导行（撞墙工具卡片内嵌）：提示语 + 一键打开登录向导 */
+.ob-tool-login {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0 4px 20px;
+  padding: 5px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+
+  /* 已登录终态：登录墙提示转成功态（绿色系弱化） */
+  &.is-logged {
+    border-color: rgba(15, 220, 120, 0.35);
+    background: rgba(15, 220, 120, 0.08);
+
+    .ob-tool-login-ico,
+    .ob-tool-login-text {
+      color: #0f7a4a;
+    }
+  }
+
+  .ob-tool-login-ico {
+    font-size: 13px;
+    color: #b45309;
+    flex-shrink: 0;
+  }
+
+  .ob-tool-login-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    color: #b45309;
+    word-break: break-all;
+  }
+
+  .ob-tool-login-btn {
+    flex-shrink: 0;
   }
 }
 

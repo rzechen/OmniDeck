@@ -212,6 +212,17 @@ function findToolItem(s, toolCallId) {
   return null
 }
 
+// 倒序找最近的 report_site_auth 工具条目（site_auth 事件缺 toolCallId 时的关联兜底）
+function findLatestSiteAuthItem(s) {
+  const msg = s.turnMsg
+  if (!msg || !msg.items) return null
+  for (let i = msg.items.length - 1; i >= 0; i--) {
+    const it = msg.items[i]
+    if (it.type === 'tool' && it.toolName === 'report_site_auth') return it
+  }
+  return null
+}
+
 // 流式轮次内事件集合：仅在 streaming=true 时有效（结束后到达即视为迟到丢弃）
 const TURN_EVENTS = [
   'assistant_start', 'delta', 'thinking', 'skill',
@@ -586,6 +597,32 @@ export default {
                 t.workflow.progress = e.workflow.snapshot
               }
             }
+          }
+          break
+        }
+        case 'site_auth': {
+          // 撞登录墙上报：把站点信息附加到上报工具条目，思考区卡片内嵌
+          // 「打开登录向导」一键按钮（应用内直达，不依赖系统通知）；
+          // logged_in 广播（向导检测成功 / 补登成功）翻转同站点行为已登录终态
+          if (!e.host) break
+          if (e.status === 'logged_in') {
+            // 全消息扫描按 host 匹配（登录可能发生在后续回合或手动补登后）；
+            // 整体替换 siteLogin 对象保证 vue2 响应式（新增字段不触发更新）
+            for (let i = s.messages.length - 1; i >= 0; i--) {
+              const m = s.messages[i]
+              if (!m.items) continue
+              for (let j = m.items.length - 1; j >= 0; j--) {
+                const it = m.items[j]
+                if (it.type === 'tool' && it.siteLogin && it.siteLogin.host === e.host && !it.siteLogin.loggedIn) {
+                  it.siteLogin = Object.assign({}, it.siteLogin, { loggedIn: true })
+                }
+              }
+            }
+            break
+          }
+          const target = (e.toolCallId && findToolItem(s, e.toolCallId)) || findLatestSiteAuthItem(s)
+          if (target) {
+            target.siteLogin = { host: e.host, url: e.url || undefined }
           }
           break
         }
