@@ -20,6 +20,7 @@ const state = {
   ipcHandlers: new Map(),  // channel -> handler（agent 的 ipcMain.handle 注册表）
   appHandlers: new Map(),  // eventName -> [handlers]（before-quit / browser-window-focus）
   notifications: new Map(),// 通知 id -> Notification 实例（宿主点击事件回掷用）
+  hostEventSubs: new Map(),// host-event name -> [callbacks]（__host.on 订阅表）
   notifSeq: 0
 }
 
@@ -212,6 +213,24 @@ const __host = {
     const r = await state.hostCall('fetchBuffer', [url, opts])
     if (r && r.ok && r.dataB64) r.data = Buffer.from(r.dataB64, 'base64')
     return r || { ok: false, error: '下载失败' }
+  },
+  // 通用宿主服务调用（agent-bridge HOST 方法表）：子进程不能用主进程专属
+  // 能力（如登录向导的 BrowserWindow）时经此转发
+  call(method, args) {
+    assertWired()
+    return state.hostCall(method, args || [])
+  },
+  // 宿主事件订阅（桥 host-event 回掷分发，如 login-wizard-state）；
+  // 返回退订函数（模块卸载场景用，常驻模块可忽略）
+  on(name, cb) {
+    if (typeof cb !== 'function') return () => {}
+    if (!state.hostEventSubs.has(name)) state.hostEventSubs.set(name, [])
+    const list = state.hostEventSubs.get(name)
+    list.push(cb)
+    return () => {
+      const i = list.indexOf(cb)
+      if (i >= 0) list.splice(i, 1)
+    }
   }
 }
 
@@ -253,7 +272,8 @@ module.exports.__invoke = function __invoke(channel, args) {
 }
 
 // 宿主事件回掷：win-focus（聚焦态维护 + 触发 agent 的 browser-window-focus 处理器）
-// / notification-click（真实通知被点击，回掷对应实例的 click 监听）
+// / notification-click（真实通知被点击，回掷对应实例的 click 监听）；
+// 其余名称分发 __host.on 订阅表（如 login-wizard-state 薄壳状态同步）
 module.exports.__hostEvent = function __hostEvent(name, payload) {
   if (name === 'win-focus') {
     state.winFocused = !!payload
@@ -263,6 +283,13 @@ module.exports.__hostEvent = function __hostEvent(name, payload) {
   if (name === 'notification-click') {
     const n = state.notifications.get(payload && payload.id)
     if (n) n.__fireClick()
+    return
+  }
+  const subs = state.hostEventSubs.get(name)
+  if (subs) {
+    for (const cb of subs.slice()) {
+      try { cb(payload) } catch (e) { console.error('[agent-shim] 宿主事件处理器异常：', e) }
+    }
   }
 }
 

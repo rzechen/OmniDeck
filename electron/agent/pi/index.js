@@ -75,6 +75,9 @@ function init(agentDir) {
   // 回传）——恒定 asyncByDefault=false + tool_call 钩子剥离显式 async:true，
   // 只保留前台同步委派（阻塞执行、过程实时可见、回合内完成）
   piSetup.deploySubagentForegroundPolicy(agentDir)
+  // 子代理工具通用化：agent 定义只写 mcp:server / 能力名，环境注入收敛宿主——
+  // child 图像扩展 + settings defaultSubagentOnlyExtensions（pi-web-access 等）
+  piSetup.deployChildToolPolicy(agentDir)
   // pi-memory 语义记忆：异步安装 + 旧记忆迁移，失败下次启动重试
   piSetup.setupMemoryExtension()
   // 权限系统（@gotgenes/pi-permission-system）：异步安装 + 默认策略 config

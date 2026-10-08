@@ -438,8 +438,11 @@ function init(dir) {
 }
 
 // ---------- site_auth：站点登录态上报（登录闭环登记） ----------
-// 浏览器自动化撞登录墙 / 登录成功时上报，主进程登记 site-auth.json 并在
-// 状态翻转为 login_required 时投递 login.required 通知（点击打开登录向导小窗）
+// 浏览器自动化撞登录墙 / 登录成功时上报。login_required 上报后登录闭环
+// 内联在工具执行中：自动弹出登录向导浏览器窗口（playwright 完整 chromium
+// 有头，与任务浏览器共用同一 profile）并挂起等待用户完成登录——成功后
+// 登录态落在 profile 内（无迁移），直接重新访问即已登录；取消 / 超时
+// 返回收尾指引
 function createSiteAuthExtension(onReport) {
   return function (piApi) {
     piApi.registerTool({
@@ -447,10 +450,12 @@ function createSiteAuthExtension(onReport) {
       label: '上报站点登录态',
       description: '上报浏览器当前访问站点的登录状态（登录闭环流程）。'
         + '使用 browser 工具访问站点后：若页面出现登录墙 / 扫码 / 验证码 / 被重定向到登录页，'
-        + '立即以 status=login_required 上报（note 说明页面特征）；'
+        + '立即以 status=login_required 上报（note 说明页面特征）——系统将自动弹出登录向导'
+        + '浏览器窗口（与本工具共用同一浏览器配置），本工具会挂起等待用户完成登录：成功后'
+        + '直接重新访问目标页面即为已登录状态，继续任务即可（无需任何恢复操作）；用户取消 / '
+        + '超时则按返回说明收尾（用户可稍后经工具卡片「打开登录向导」补登）。'
         + '若确认已持有效登录态（此前上报过 login_required 的站点），以 status=logged_in 上报。'
-        + '不要对未实际访问的站点猜测上报。上报 login_required 后告知用户：'
-        + '桌面端已收到通知，点击即可打开登录向导窗口完成登录（成功后自动保存登录态并关闭）。',
+        + '不要对未实际访问的站点猜测上报。',
       parameters: {
         type: 'object',
         properties: {
@@ -460,13 +465,41 @@ function createSiteAuthExtension(onReport) {
         },
         required: ['url', 'status']
       },
-      execute: async (_id, params) => {
+      execute: async (toolCallId, params) => {
+        const url = String(params.url || '')
+        const status = params.status === 'logged_in' ? 'logged_in' : 'login_required'
         onReport({
-          url: String(params.url || ''),
-          status: params.status === 'logged_in' ? 'logged_in' : 'login_required',
+          toolCallId: String(toolCallId || ''),
+          url: url,
+          status: status,
           note: String(params.note || '')
         })
-        return textResult('登录态已登记')
+        if (status !== 'login_required') return textResult('登录态已登记')
+        // 登录等待闭环：登记 + 前端卡片 / 通知已由 onReport 发出，此处自动
+        // 开向导（已开则聚焦）并等待结果；等待期间用户操作向导即可。
+        // 先挂等待再开窗：向导复用持久 profile，已登录站点可能秒级成功，
+        // 结果回掷早于注册会丢失
+        const siteAuth = require('../integrations/site-auth')
+        const loginWizard = require('../integrations/login-wizard')
+        const host = siteAuth.hostOf(url)
+        if (!host) return textResult('站点域名无效，无法打开登录向导')
+        const waitPromise = loginWizard.waitForResult(host)
+        const opened = await loginWizard.open(host, url)
+        if (!opened || !opened.ok) {
+          // 开窗失败也要解除等待（waitForResult 已挂起）
+          loginWizard._resolveWaiter(host, 'cancel')
+          return textResult('登录窗口打开失败：' + ((opened && opened.error) || '未知错误')
+            + '。请停止需要登录的操作并收尾。')
+        }
+        const outcome = await waitPromise
+        if (outcome === 'success') {
+          return textResult('登录成功：「' + host + '」登录态已保存在浏览器配置中（与本工具共用）。'
+            + '请直接重新访问目标页面继续之前的任务——已是登录状态，无需任何恢复操作；'
+            + '若页面仍显示未登录，先刷新或重新访问一次。')
+        }
+        return textResult('用户未完成登录（' + (outcome === 'timeout' ? '等待超时' : '已取消') + '）。'
+          + '请停止需要登录的操作并收尾，告知用户：可稍后在对话中的工具卡片点「打开登录向导」补登'
+          + '（成功后登录态自动保存在浏览器配置中，后续免登录），届时可重新发起该任务。')
       }
     })
   }

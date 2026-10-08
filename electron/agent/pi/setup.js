@@ -136,6 +136,79 @@ function deploySubagentForegroundPolicy(agentDir) {
   deployFgSubagentExtension(agentDir)
 }
 
+// ===== 子代理工具通用化（环境注入收敛到宿主，agent 定义零绝对路径）=====
+// 官方通道（pi-subagents docs/agents.md）：前台 child 不加载宿主 ambient 扩展，
+// 其工具来源两条——
+//   1) `mcp:server` tools 条目：Pi 内置 MCP（≥0.99）在 child 会话内直连
+//      agentDir/mcp.json 的 server，自动解析真实注册名并入白名单（前台可用；
+//      仅"扩展运行时注册的 server"前台不可用，本应用 server 均静态配置）
+//   2) settings 键 `subagents.defaultSubagentOnlyExtensions`：对未自带
+//      subagentOnlyExtensions 的 agent 统一注入 child-only 扩展路径
+// 本函数做两件事（均幂等）：
+//   a) 部署 omnideck-child-image.mjs：child 版 generate_image（复用宿主
+//      image-gen.js 工厂，绝对路径直连——与 omnideck-child-mcp.mjs 同模式）
+//   b) settings.json 注入 defaultSubagentOnlyExtensions：pi-web-access
+//      （web_search 等）+ child-image。注册后由各 agent 的 tools 白名单筛用
+function childImageExtensionSource(projectRoot, agentDir) {
+  return [
+    '// OmniBuddy 自动部署：前台子代理图像生成扩展（勿手改，启动时幂等覆写）',
+    '// 复用宿主 image-gen.js 工厂；agentDir 经 PI_CODING_AGENT_DIR 传递（宿主已设）',
+    "import { createImageGenExtension } from '" + path.join(projectRoot, 'electron', 'agent', 'tools', 'image-gen.js') + "'",
+    'const agentDir = process.env.PI_CODING_AGENT_DIR || ' + JSON.stringify(agentDir),
+    'export default createImageGenExtension({ dir: process.cwd() }, agentDir, null)',
+    ''
+  ].join('\n')
+}
+
+function deployChildImageExtension(agentDir) {
+  const dir = path.join(agentDir, 'extensions')
+  const file = path.join(dir, 'omnideck-child-image.mjs')
+  const src = childImageExtensionSource(PROJECT_ROOT, agentDir)
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    try {
+      if (fs.readFileSync(file, 'utf-8') === src) return
+    } catch (e) { /* 首次部署无文件 */ }
+    fs.writeFileSync(file, src)
+    console.log('[omnibuddy:pi] 已部署子代理图像生成扩展：', file)
+  } catch (e) {
+    console.warn('[omnibuddy:pi] 子代理图像生成扩展部署失败：', e.message)
+  }
+}
+
+// settings.json 注入 subagents.defaultSubagentOnlyExtensions（merge 不覆盖其余键）
+function ensureChildToolDefaults(agentDir) {
+  const file = path.join(agentDir, 'settings.json')
+  let settings = {}
+  try {
+    settings = JSON.parse(fs.readFileSync(file, 'utf-8'))
+    if (!settings || typeof settings !== 'object') settings = {}
+  } catch (e) { /* 首次无文件 */ }
+  // pi-web-access 本地路径：settings packages 已登记（pkg-registry），取本地路径条目
+  const pkgPath = (settings.packages || []).find(p =>
+    typeof p === 'string' && p.indexOf('pi-web-access') >= 0 && p.indexOf('npm:') !== 0)
+  if (!pkgPath) {
+    console.warn('[omnibuddy:pi] pi-web-access 未登记，跳过 child 工具默认注入')
+    return
+  }
+  const wanted = [pkgPath, path.join(agentDir, 'extensions', 'omnideck-child-image.mjs')]
+  const cur = (settings.subagents && settings.subagents.defaultSubagentOnlyExtensions) || []
+  const merged = cur.concat(wanted.filter(p => cur.indexOf(p) < 0))
+  if (merged.length === cur.length) return
+  settings.subagents = Object.assign({}, settings.subagents, { defaultSubagentOnlyExtensions: merged })
+  try {
+    fs.writeFileSync(file, JSON.stringify(settings, null, 2))
+    console.log('[omnibuddy:pi] 已注入 subagents.defaultSubagentOnlyExtensions')
+  } catch (e) {
+    console.warn('[omnibuddy:pi] child 工具默认注入失败：', e.message)
+  }
+}
+
+function deployChildToolPolicy(agentDir) {
+  deployChildImageExtension(agentDir)
+  ensureChildToolDefaults(agentDir)
+}
+
 // ===== pi-memory 语义记忆 =====
 // 社区扩展包 pi-memory：MEMORY.md 长期记忆 + 每日日志 + 语义检索（qmd），
 // 经 pi install npm:pi-memory 装到 agentDir 并由 DefaultResourceLoader 自动装载。
@@ -346,6 +419,8 @@ module.exports = {
   deployChildMcpExtension,
   // 部署 subagent 前台同步强制策略（config + tool_call 拦截扩展，幂等）
   deploySubagentForegroundPolicy,
+  // 部署子代理工具通用化（child 图像扩展 + defaultSubagentOnlyExtensions，幂等）
+  deployChildToolPolicy,
   // 安装 pi-memory + 迁移旧记忆 + qmd 检测（异步，失败下次启动重试）
   setupMemoryExtension,
   // 安装 pi-permission-system + 写默认策略（异步，失败下次启动重试）

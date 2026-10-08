@@ -193,22 +193,22 @@
               <div class="ob-auto-field row-inline">
                 <label class="ob-auto-label">重复周期</label>
                 <el-radio-group v-model="wizard.scheduleType" @change="onScheduleTypeChange">
-                  <el-radio-button label="daily">每天</el-radio-button>
-                  <el-radio-button label="weekly">每周</el-radio-button>
+                  <el-radio-button value="daily">每天</el-radio-button>
+                  <el-radio-button value="weekly">每周</el-radio-button>
                 </el-radio-group>
               </div>
               <div v-if="wizard.scheduleType === 'weekly'" class="ob-auto-field">
                 <label class="ob-auto-label">执行日</label>
                 <el-radio-group v-model="wizard.weekday">
-                  <el-radio-button v-for="(d, i) in ['日', '一', '二', '三', '四', '五', '六']" :key="d" :label="i">周{{ d }}</el-radio-button>
+                  <el-radio-button v-for="(d, i) in ['日', '一', '二', '三', '四', '五', '六']" :key="d" :value="i">周{{ d }}</el-radio-button>
                 </el-radio-group>
               </div>
               <div class="ob-auto-field">
                 <label class="ob-auto-label">执行时间</label>
                 <div class="ob-auto-time-mode">
                   <el-radio-group v-model="wizard.timeMode">
-                    <el-radio-button label="fixed">固定时间</el-radio-button>
-                    <el-radio-button label="random">范围随机</el-radio-button>
+                    <el-radio-button value="fixed">固定时间</el-radio-button>
+                    <el-radio-button value="random">范围随机</el-radio-button>
                   </el-radio-group>
                   <!-- Element TimePicker：分钟步长 1 -->
                   <el-time-picker

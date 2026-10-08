@@ -72,9 +72,9 @@
                       @click="toggleDetail(row)"
                     >细则 {{ row.patterns.length }}<svg-icon :icon-class="row.expanded ? 'arrow-up' : 'arrow-down'" /></el-button>
                     <el-radio-group v-model="row.action" size="small" class="ob-action-group" @change="onRowActionChange(row)">
-                      <el-radio-button label="allow">允许</el-radio-button>
-                      <el-radio-button label="ask">每次确认</el-radio-button>
-                      <el-radio-button label="deny">禁用</el-radio-button>
+                      <el-radio-button value="allow">允许</el-radio-button>
+                      <el-radio-button value="ask">每次确认</el-radio-button>
+                      <el-radio-button value="deny">禁用</el-radio-button>
                     </el-radio-group>
                   </div>
                   <!-- 匹配细则展开区：pattern 级规则（如 bash 的 git status 放行） -->
@@ -117,9 +117,9 @@
                       @click="toggleDetail(row)"
                     >细则 {{ row.patterns.length }}<svg-icon :icon-class="row.expanded ? 'arrow-up' : 'arrow-down'" /></el-button>
                     <el-radio-group v-model="row.action" size="small" class="ob-action-group" @change="onSpecialActionChange(row)">
-                      <el-radio-button label="allow">允许</el-radio-button>
-                      <el-radio-button label="ask">每次确认</el-radio-button>
-                      <el-radio-button label="deny">禁用</el-radio-button>
+                      <el-radio-button value="allow">允许</el-radio-button>
+                      <el-radio-button value="ask">每次确认</el-radio-button>
+                      <el-radio-button value="deny">禁用</el-radio-button>
                     </el-radio-group>
                   </div>
                   <div v-if="row.expanded && row.patterns.length" class="ob-detail">

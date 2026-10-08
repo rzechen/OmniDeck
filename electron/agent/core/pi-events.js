@@ -285,16 +285,17 @@ function handlePiEvent(getWindow, e) {
       break
     case 'site_auth': {
       // 站点登录态上报（report_site_auth 工具）：登记表更新；状态翻转时
-      // 广播前端 + login.required 通知（点击打开登录向导专用小窗）。
-      // 登录闭环由 login-wizard 的 cookie 事件检测驱动收尾（系统行为，
-      // 不依赖 LLM 上报 logged_in）；logged_in 上报仅同步登记表
+      // 广播前端 + login.required 通知（向导已由工具自动弹出，通知点击
+      // 重新调出）。登录闭环内联在工具执行中（开向导 → 挂起等待用户 →
+      // 结果回执工具），不依赖 LLM 上报 logged_in；logged_in 上报仅同步登记表
       const r = siteAuth.report(e.url, e.status, e.note)
       if (r.host) {
-        emit(getWindow, chatId, { type: 'site_auth', host: r.host, status: e.status })
+        // url + toolCallId 供前端工具卡片内嵌「打开登录向导」按钮（应用内一键入口）
+        emit(getWindow, chatId, { type: 'site_auth', toolCallId: e.toolCallId, host: r.host, url: e.url, status: e.status })
         if (r.changed && e.status === 'login_required') {
           notify.dispatch('login.required', {
             title: '站点需要登录',
-            body: '「' + r.host + '」访问遇到登录墙：点击打开登录窗口，登录成功后自动保存登录态并关闭（后续免登录）',
+            body: '「' + r.host + '」访问遇到登录墙：登录窗口已自动打开，完成登录后自动保存登录态并继续任务（点击通知可重新调出窗口）',
             ok: false,
             dedupeKey: 'login:' + r.host,
             click: () => {

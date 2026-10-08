@@ -127,11 +127,11 @@ function registerSettingsIpc() {
 
   ipcMain.handle('omnibuddy:mcp:save', (_e, servers) => mcp.save(servers))
 
-  // ===== 站点登录（登录向导 + storageState 登记表） =====
-  // 站点清单（含登录态文件有无标记）：连接器页「站点登录」区展示 / 主动补登
+  // ===== 站点登录（登录向导 + 登录态登记表） =====
+  // 站点清单（含向导打开标记）：连接器页「站点登录」区展示 / 主动补登
+  // （登录态本体在 playwright profile，此处只呈现登记状态）
   ipcMain.handle('omnibuddy:siteauth:list', () => {
     return siteAuth.list().map(s => Object.assign({}, s, {
-      hasState: siteAuth.hasStorageState(s.host),
       wizardOpen: loginWizard.currentHost() === s.host
     }))
   })

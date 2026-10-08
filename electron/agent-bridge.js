@@ -15,6 +15,7 @@ const {
   app, ipcMain, dialog, shell, BrowserWindow, Notification,
   nativeImage, safeStorage, net, utilityProcess
 } = require('electron')
+const loginWizardHost = require('./login-wizard')
 
 let started = false
 
@@ -38,6 +39,17 @@ function startAgentBridge(getWindow, baseDir) {
   function post(msg) {
     if (!child) return
     try { child.postMessage(msg) } catch (e) { /* 端口关闭竞态忽略 */ }
+  }
+
+  // omnibuddy:event 广播全窗口（等价子进程 chat-state emit：各窗口按 sessionId 过滤）
+  function broadcastEvent(payload) {
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+          win.webContents.send('omnibuddy:event', Object.assign({ sessionId: null }, payload))
+        }
+      } catch (e) { /* 窗口销毁竞态忽略 */ }
+    }
   }
 
   function errText(err) {
@@ -172,7 +184,11 @@ function startAgentBridge(getWindow, baseDir) {
       const quality = (opts && opts.quality) != null ? opts.quality : 72
       return { dataUrl: img.resize({ width }).toJPEG(quality).toDataURL() }
     },
-    'fetchBuffer': (url, opts) => fetchBufferViaNet(url, opts)
+    'fetchBuffer': (url, opts) => fetchBufferViaNet(url, opts),
+    // 登录向导：BrowserWindow 仅主进程可建，窗口实体落位本进程
+    // （electron/login-wizard.js），子进程薄壳经 __host.call 转发至此
+    'loginWizard.open': (host, url) => loginWizardHost.open(String(host || ''), url),
+    'loginWizard.state': () => ({ open: loginWizardHost.isOpen(), host: loginWizardHost.currentHost() })
   }
 
   // ===== 子进程消息路由 =====
@@ -348,6 +364,14 @@ function startAgentBridge(getWindow, baseDir) {
   // 处理器（darwin 清角标）
   app.on('browser-window-focus', () => post({ t: 'host-event', name: 'win-focus', payload: true }))
   app.on('browser-window-blur', () => post({ t: 'host-event', name: 'win-focus', payload: false }))
+
+  // ===== 登录向导（主进程侧窗口实体）=====
+  // 开关状态经 host-event 回掷子进程薄壳（login-wizard-state），
+  // 成功 / 取消广播等价原子进程 hooks 的 emit
+  loginWizardHost.init(baseDir, {
+    broadcast: broadcastEvent,
+    postHostEvent: (name, payload) => post({ t: 'host-event', name, payload })
+  })
 
   forkChild()
 }

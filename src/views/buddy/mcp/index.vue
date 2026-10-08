@@ -46,32 +46,6 @@
         </div>
       </section>
 
-      <!-- ===== 站点登录（登录向导入口：登记表驱动，支持空闲时主动补登） ===== -->
-      <section class="ob-connector-section" v-if="sites.length">
-        <div class="ob-site-card">
-          <div class="ob-site-head">
-            <div class="ob-site-title">站点登录</div>
-            <div class="ob-site-sub">Agent 访问撞过登录墙的站点；登录态保存后自动复用，失效可重新登录</div>
-          </div>
-          <div class="ob-site-list">
-            <div class="ob-site-row" v-for="s in sites" :key="s.host">
-              <span class="ob-site-host">{{ s.host }}</span>
-              <el-tag size="small" :type="s.hasState ? 'success' : 'danger'">
-                {{ s.hasState ? '已保存登录态' : '待登录' }}
-              </el-tag>
-              <el-button
-                size="small"
-                round
-                :type="s.wizardOpen ? 'warning' : 'primary'"
-                :plain="!s.wizardOpen"
-                class="ob-site-btn"
-                @click="openSiteLogin(s)"
-              >{{ s.wizardOpen ? '登录中…' : (s.hasState ? '重新登录' : '去登录') }}</el-button>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- ===== 连接器（MCP Server） ===== -->
       <!-- 空状态直接挂在 .ob-page-body 下，flex:1 占满剩余空间实现垂直居中 -->
       <div v-if="!mcpServers.length && !mcpLoading" class="ob-empty">
@@ -165,8 +139,6 @@ export default {
       mcpLoading: false,
       // 登录向导当前打开的站点（空 = 未开）：login_wizard 事件实时驱动
       wizardHost: '',
-      // 站点登录登记表（含 hasState / wizardOpen 标记）
-      sites: [],
       // 新增/编辑弹窗显隐与编辑对象（null 表示新增）
       mcpModalVisible: false,
       mcpEditing: null,
@@ -190,20 +162,17 @@ export default {
   },
   created() {
     this.loadMcp()
-    this.loadSites()
   },
   mounted() {
-    // 登录向导开/关与站点登录态变化由主进程广播实时驱动：
-    // login_wizard（open/success/cancel）翻转徽标，site_auth 刷新站点列表
+    // 登录向导开/关由主进程广播实时驱动（徽标翻转 + 成功提示）；
+    // 撞墙引导入口已收敛到聊天思考区工具卡片内嵌按钮，本页不再展示站点登记表
     const api = buddyApi()
     if (api && api.onEvent) {
       this._unsubPw = api.onEvent(e => {
         if (e && e.type === 'login_wizard') {
           this.wizardHost = e.phase === 'open' ? e.host : ''
           if (e.phase === 'success') this.$message.success('「' + e.host + '」登录成功，登录态已保存')
-          this.loadSites()
         }
-        if (e && e.type === 'site_auth') this.loadSites()
       })
     }
   },
@@ -214,33 +183,6 @@ export default {
     }
   },
   methods: {
-    // ===== 站点登录登记表 =====
-    async loadSites() {
-      const api = buddyApi()
-      const siteApi = api && api.siteAuth
-      if (!siteApi || !siteApi.list) return
-      try {
-        const list = await siteApi.list()
-        this.sites = Array.isArray(list) ? list : []
-        // 向导打开状态兜底同步（页面刷新丢失事件时以主进程状态为准；
-        // 向导已关则清空，避免徽标残留）
-        const openSite = this.sites.find(s => s.wizardOpen)
-        this.wizardHost = openSite ? openSite.host : ''
-      } catch (e) { /* 读取失败保持现状 */ }
-    },
-    // 打开登录向导（主进程弹专用小窗，成功自动保存登录态并关闭）
-    async openSiteLogin(s) {
-      const api = buddyApi()
-      const siteApi = api && api.siteAuth
-      if (!siteApi || !siteApi.login) return
-      try {
-        const res = await siteApi.login(s.host)
-        if (res && res.ok) this.loadSites()
-        else if (res && res.error) this.$message.error(res.error)
-      } catch (e) {
-        this.$message.error('打开登录窗口失败')
-      }
-    },
     // 连接器 IPC 桥（官方分区已移除，凭证弹窗仍走该桥）
     api() {
       return buddyApiSection('connectors')
@@ -510,63 +452,7 @@ export default {
   flex-shrink: 0;
 }
 
-/* 站点登录卡片（登记表 + 登录向导入口） */
-.ob-site-card {
-  padding: 14px 18px;
-  border-radius: 12px;
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border-color);
-}
-
-.ob-site-head {
-  margin-bottom: 10px;
-}
-
-.ob-site-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: $text-primary;
-}
-
-.ob-site-sub {
-  margin-top: 3px;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: $text-secondary;
-}
-
-.ob-site-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ob-site-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: 8px;
-  background: var(--bg-color, #f7f8fa);
-
-  .el-tag {
-    flex-shrink: 0;
-  }
-}
-
-.ob-site-host {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: $text-primary;
-}
-
-.ob-site-btn {
-  flex-shrink: 0;
-}
+/* 站点登录卡片已移除（撞墙引导收敛到思考区工具卡片内嵌按钮 + 系统通知） */
 
 /* 加载骨架容器内边距 */
 .ob-sk-wrap {

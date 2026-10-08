@@ -25,7 +25,7 @@ function systemPrompt() {
     '内部思考过程（thinking）请使用中文撰写。',
     '执行多步骤任务（≥2 步）时，必须先用 todo_write 工具建立任务清单。此后每完成一项或切换到下一项时都要立即调用 todo_write 更新状态（in_progress → completed 逐项推进），任务全部结束前保持清单与实际进度严格同步——用户界面实时展示此清单，只建不更会让进度面板停留在初始状态。',
     '当信息不足或存在歧义时，先用 ask_user 工具向用户提问再行动。',
-    '使用浏览器自动化（mcp__playwright 工具）访问需要登录的站点后：若遇到登录墙 / 扫码 / 验证码（无法自动交互），立即调用 report_site_auth 工具以 status=login_required 上报，随后告知用户：桌面通知可一键打开登录向导小窗，登录成功自动保存登录态并关闭（后续免登录）；确认站点已登录时同样以 status=logged_in 上报（用于登记表同步）。',
+    '使用浏览器自动化（mcp__playwright 工具）访问需要登录的站点后：若遇到登录墙 / 扫码 / 验证码（无法自动交互），立即调用 report_site_auth 工具以 status=login_required 上报——系统会自动弹出登录向导浏览器窗口（登录态与本工具的浏览器共用同一配置），工具将挂起等待用户完成登录（期间不要做其它操作，等待工具结果即可）：登录成功后直接重新访问目标页面继续之前的任务（已登录状态，无需任何恢复操作；如仍见登录墙，刷新或重新访问一次）；用户取消 / 超时则按返回说明收尾。确认站点已登录时同样以 status=logged_in 上报（用于登记表同步）。',
     '协助用户处理日常办公任务：阅读、整理、检索本地文件。'
   ]
   // 联网能力引导按当前实际配置动态生成：
@@ -61,13 +61,13 @@ function systemPrompt() {
   // 用户资料：结构化个人背景确定性注入，填工时等场景无需再手写 work-assistant 技能
   const profileBlock = profile.promptBlock()
   if (profileBlock) lines.push(profileBlock)
-  // 已保存登录态的站点清单（登录向导产出）：撞墙时优先恢复 storageState 重试，
-  // 恢复成功即免登录访问；仍失败才上报 login_required 引导用户重新登录
-  const saved = siteAuth.savedSites()
-  if (saved.length) {
-    lines.push('以下站点已保存登录态（storageState 文件，经登录向导产出）：')
-    saved.forEach(s => lines.push('- ' + s.host + ' → ' + s.path))
-    lines.push('访问上述站点遇到登录墙时，先调用 mcp__playwright__browser_set_storage_state 工具（filename 传上述文件绝对路径）恢复登录态，再重新访问验证；恢复后仍撞墙才调用 report_site_auth 上报 login_required。')
+  // 已登录站点提示（登记表 status=logged_in）：登录态在浏览器 profile 内，
+  // 直接访问即已登录；偶发掉线时先刷新重试，仍撞墙才上报引导重新登录
+  const loggedIn = siteAuth.list().filter(s => s.status === 'logged_in')
+  if (loggedIn.length) {
+    lines.push('以下站点此前已完成登录（登录态保持在浏览器配置中，直接访问即可）：' +
+      loggedIn.map(s => s.host).join('、') +
+      '。若访问时仍遇登录墙，先刷新或重新访问一次；仍被拦截才调用 report_site_auth 上报 login_required。')
   }
   // 凭据清单：开关开启且有「AI 取用类」凭据时注入，引导 credential_get 按名取用
   const credBlock = credentials.aiPromptBlock()

@@ -353,6 +353,47 @@ function stripLegacyMcpSurface(agentDir) {
   return changed
 }
 
+// 存量 MCP 规则键 sanitize 迁移：早期目录键按原始服务器名拼接（可含横杠等
+// 字符），而 pi 注册的工具名一律转下划线（createMcpToolName：非 [A-Za-z0-9_]
+// 全部转 _），导致同一服务器在权限页分裂出「目录行 + 追加行」两条规则，且
+// 旧键永远匹配不到真实工具（死规则）。目录键已改按 sanitize 名生成
+// （capabilities.mcpBuiltinTools），此处把配置中的存量键同步转换：值迁移、
+// 原键删除（目标键已存在时保留现有配置，只摘除旧键），notes sidecar
+// 的同面说明一并迁移。启动幂等
+function migrateMcpSurfaceKeys(agentDir) {
+  const config = readConfig(agentDir)
+  const perm = config && config.permission
+  if (!perm) return false
+  const stale = Object.keys(perm).filter(k =>
+    k.indexOf('mcp__') === 0 && /[^A-Za-z0-9_*]/.test(k))
+  if (!stale.length) return false
+  stale.forEach(k => {
+    const sane = k.replace(/[^A-Za-z0-9_*]/g, '_')
+    if (perm[sane] === undefined) perm[sane] = perm[k]
+    delete perm[k]
+  })
+  try {
+    writeConfig(agentDir, config)
+  } catch (e) {
+    return false // 写盘失败下次启动重试
+  }
+  const notes = readNotes(agentDir)
+  let notesChanged = false
+  stale.forEach(k => {
+    const sane = k.replace(/[^A-Za-z0-9_*]/g, '_')
+    Object.keys(notes).forEach(nk => {
+      if (nk.indexOf(k + '|') === 0) {
+        notes[sane + '|' + nk.slice(k.length + 1)] = notes[nk]
+        delete notes[nk]
+        notesChanged = true
+      }
+    })
+  })
+  if (notesChanged) writeNotes(agentDir, notes)
+  console.log('[permissions] 已迁移存量 MCP 规则键至 sanitize 命名（mcp__服务器名*）')
+  return true
+}
+
 // ===== 配置初始化与读写 =====
 // 无 config 时写入默认策略；已有 config 补齐缺失工具键 + agentDir 放行幂等校正
 function ensureConfig(agentDir) {
@@ -361,7 +402,8 @@ function ensureConfig(agentDir) {
     const backfilled = backfillToolDefaults(agentDir)
     const strippedWebEnable = stripOrphanWebEnable(agentDir)
     const strippedLegacyMcp = stripLegacyMcpSurface(agentDir)
-    return patchAgentDirAllow(agentDir) || backfilled || strippedWebEnable || strippedLegacyMcp
+    const migratedMcpKeys = migrateMcpSurfaceKeys(agentDir)
+    return patchAgentDirAllow(agentDir) || backfilled || strippedWebEnable || strippedLegacyMcp || migratedMcpKeys
   }
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, JSON.stringify(defaultConfig(agentDir), null, 2))

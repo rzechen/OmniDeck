@@ -214,8 +214,8 @@
                   </div>
                   <div class="pf-adv-ctrl">
                     <el-radio-group v-model="form.imageInput" size="small">
-                      <el-radio-button :label="true">支持</el-radio-button>
-                      <el-radio-button :label="false">不支持</el-radio-button>
+                      <el-radio-button :value="true">支持</el-radio-button>
+                      <el-radio-button :value="false">不支持</el-radio-button>
                     </el-radio-group>
                   </div>
                 </div>
@@ -228,9 +228,9 @@
                   </div>
                   <div class="pf-adv-ctrl">
                     <el-radio-group v-model="form.thinkingMode" size="small">
-                      <el-radio-button label="follow">跟随默认</el-radio-button>
-                      <el-radio-button label="on">开启</el-radio-button>
-                      <el-radio-button label="off">关闭</el-radio-button>
+                      <el-radio-button value="follow">跟随默认</el-radio-button>
+                      <el-radio-button value="on">开启</el-radio-button>
+                      <el-radio-button value="off">关闭</el-radio-button>
                     </el-radio-group>
                   </div>
                 </div>

@@ -42,6 +42,8 @@ const agentNames = [
 
 // 运行时 require / 定位的裸包并集（均在 dependencies，electron-builder 默认收集）：
 // pi-coding-agent / sandbox-runtime 为纯 ESM 包：external 保留原生 dynamic import()；
+// playwright-core 由根级 login-wizard.js 运行时 require（登录向导有头窗口驱动，
+// 与 @playwright/mcp 共用同一 user-data-dir），保留原生调用；
 // pi-mcp-adapter 随应用打包，agent/integrations/mcp.js 以 require.resolve 定位其运行时路径，须保留原生调用；
 // pi-subagents 随应用打包，agent/tools/builtin-tools.js 以 require.resolve 定位其运行时路径，须保留原生调用；
 // pi-web-access 随应用打包，agent/integrations/pkg-registry.js 以 require.resolve 定位其运行时路径，须保留原生调用；
@@ -52,6 +54,7 @@ const agentNames = [
 const runtimeDeps = [
   '@earendil-works/pi-coding-agent',
   '@anthropic-ai/sandbox-runtime',
+  'playwright-core',
   'pi-mcp-adapter',
   'pi-subagents',
   'pi-web-access',
@@ -87,6 +90,8 @@ const mainInput = hasCore
       'agent-bridge': abs('electron/agent-bridge.js'),
       'agent-host': abs('electron/agent-host.js'),
       'agent-shim': abs('electron/agent-shim.js'),
+      // 登录向导窗口实体（主进程侧；agent-bridge HOST 服务 require('./login-wizard')）
+      'login-wizard': abs('electron/login-wizard.js'),
       ...Object.fromEntries(agentNames.map(name => [`agent/${name}`, abs(`electron/agent/${name}.js`)])),
       'windows/quick-panel': abs('electron/windows/quick-panel.js'),
       // capture 门面（windows/capture/index.js，require('./windows/capture') 目录解析）

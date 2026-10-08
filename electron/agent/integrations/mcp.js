@@ -49,17 +49,31 @@ function builtinServers() {
   // 产物目录指向应用内部：不指定时 MCP 会把截图等自动产物写入
   // <工作空间>/.playwright-mcp（stdio server 以会话 cwd 启动），污染用户目录
   // --headless：无头静默运行，窗口不弹出（截图/自动化能力不受影响）。
-  //   需人工交互的登录一律走登录向导（login-wizard.js 专用小窗），
-  //   不再切换 --browser chrome 有头模式
+  //   需人工交互的登录一律走登录向导（login-wizard.js：playwright 完整
+  //   chromium 有头窗口，与本服务共用 --user-data-dir，登录态落 profile）
   // --user-data-dir：持久浏览器 profile（cookie / 登录态跨会话保持），
-  //   支撑「首次登录一次、后续免登录」的站点自动化（如需登录态的站点搜索）
-  // --caps=storage：登录态持久化工具组（browser_storage_state 保存 /
-  //   browser_set_storage_state 恢复 / cookie 与 localStorage 管理等），
-  //   支撑「首登一次 → 存状态 → 后续会话恢复免登录」，与 --user-data-dir
-  //   持久 profile 双轨互补（storageState 为 JSON 文件，可单独备份迁移）
+  //   支撑「登录向导首登一次 → 后续无头免登录」（登录态在 profile 内，
+  //   无 storageState 迁移，规避强风控站点的跨环境吊销）
+  // --caps=storage：storage state / cookie 管理工具组（通用备份能力保留）
+  // --executable-path：指向完整 chromium（登录向导同款二进制）。不指定时
+  //   playwright 对 headless 默认选 chromium_headless_shell（无 GUI 裁剪版），
+  //   其 UA / Sec-CH-UA brands 自报 HeadlessChrome(HeadlessChromium)——与向导
+  //   （完整 chromium，报 Google Chrome）指纹冲突，强风控站点（豆包实测）
+  //   会判定 cookie 跨环境使用而吊销会话。指定完整 chromium 后以 new
+  //   headless 模式运行：同一渲染管线、正常 brands，铸造与使用环境一致。
+  //   未装配时返回空串则不传，回退默认 headless shell（功能可用，指纹退化）
   args = args.concat(['--caps=storage', '--headless'],
     ['--output-dir', path.join(agentDir, 'playwright-output'),
       '--user-data-dir', path.join(agentDir, 'playwright-profile')])
+  const fullBin = runtime.chromiumFullBin()
+  if (fullBin) args = args.concat(['--executable-path', fullBin])
+  // UA 对齐：登录向导（完整 chromium 有头）成功后回填 browser-ua.json，
+  // 无头 headless-shell 默认 UA 含 HeadlessChrome 标识，强风控站点可据此
+  // 识别自动化环境——对齐为登录时的真实 UA（向导回写后下次会话生效）
+  try {
+    const ua = JSON.parse(fs.readFileSync(path.join(agentDir, 'browser-ua.json'), 'utf-8')).ua
+    if (ua) args = args.concat(['--user-agent', ua])
+  } catch (e) { /* 未回填过则用默认 UA */ }
   const env = {}
   const nodeBin = runtime.nodeBinDir()
   if (nodeBin) env.PATH = nodeBin + path.delimiter + (process.env.PATH || '')
@@ -137,6 +151,11 @@ function init(dir) {
   }
   // 清理旧版 pi-mcp-adapter 注册（升级到内置 MCP 后的幂等迁移）
   cleanupLegacyAdapter()
+  // 登录向导（主进程）回填真实 UA（browser-ua.json）后刷新内置条目，
+  // --user-agent 对齐在下次 MCP server 启动（新会话 / 浏览器重启）时生效
+  try {
+    require('electron').__host.on('browser-ua-updated', () => refreshBuiltinEntry())
+  } catch (e) { /* __host 仅 utilityProcess 子进程存在，其他环境忽略 */ }
 }
 
 // 内置服务条目按当前运行时刷新 mcp.json（幂等）：init 启动校正专用——

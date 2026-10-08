@@ -231,9 +231,10 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
       builtinTools.cacheTodos(chatId, todos)
       onEvent({ kind: 'todo_update', chatId, todos })
     }),
-    // 站点登录态上报：撞登录墙 → 主进程登记 + login.required 通知（引导有头首登）
+    // 站点登录态上报：撞登录墙 → 主进程登记 + login.required 通知（引导有头首登）；
+    // toolCallId 随行携带，供前端把上报关联回思考区工具卡片（内嵌「打开登录向导」按钮）
     builtinTools.createSiteAuthExtension(r =>
-      onEvent({ kind: 'site_auth', chatId, url: r.url, status: r.status, note: r.note })),
+      onEvent({ kind: 'site_auth', chatId, toolCallId: r.toolCallId, url: r.url, status: r.status, note: r.note })),
     builtinTools.createCdExtension(cwdState),
     builtinTools.createExecToolsExtension(cwdState, path.join(cwd, '.tmp'), getSkillEnv),
     builtinTools.createFileToolsExtension(cwdState),

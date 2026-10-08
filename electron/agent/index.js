@@ -32,10 +32,8 @@ const checkpoints = require('./sessions/checkpoints')
 const scheduler = require('./platform/scheduler')
 const notify = require('./integrations/notify')
 const siteAuth = require('./integrations/site-auth')
-const loginWizard = require('./integrations/login-wizard')
 const workflows = require('./integrations/workflows')
 const { handlePiEvent } = require('./core/pi-events')
-const { emit } = require('./core/chat-state')
 const { writeExitSummary } = require('./core/direct-llm')
 const { createAutomation } = require('./ipc/automation')
 const { registerChatIpc } = require('./ipc/chat')
@@ -77,16 +75,9 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   notify.init(baseDir)
   siteAuth.init(baseDir)
 
-  // 登录向导收尾接线：系统检测成功 / 取消时广播前端（连接器页徽标实时翻转）
-  loginWizard.init({
-    onSuccess: (host) => {
-      emit(getWindow, null, { type: 'login_wizard', host, phase: 'success' })
-      emit(getWindow, null, { type: 'site_auth', host, status: 'logged_in' })
-    },
-    onCancel: (host) => {
-      emit(getWindow, null, { type: 'login_wizard', host, phase: 'cancel' })
-    }
-  })
+  // 登录向导（integrations/login-wizard.js 薄壳）：窗口实体在主进程
+  // （utilityProcess 无法 new BrowserWindow），成功 / 取消的广播由主进程
+  // 向导直发全窗口，此处不再注入 hooks
 
   // macOS dock 角标：任务完成且窗口未聚焦时点亮，任意窗口聚焦即清除
   if (process.platform === 'darwin' && app.dock) {

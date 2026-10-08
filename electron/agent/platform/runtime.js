@@ -187,6 +187,76 @@ function chromeHeadlessBin() {
   return ''
 }
 
+// 完整 chromium 可执行文件（有头，登录向导窗口用；headless-shell 无 GUI 起不了窗）。
+// 候选目录：内置装配（playwright-browsers）→ 系统 playwright 默认缓存（dev 常见），
+// 取修订号最大的一档；布局 chromium-<rev>/chrome-mac*/Chromium.app（mac）/
+// chrome-win|chrome-linux（win/linux）
+function chromiumFullBin() {
+  const dirs = [playwrightBrowsersDir(), systemPwCacheDir()].filter(Boolean)
+  let best = null // { rev, bin }
+  for (const dir of dirs) {
+    let entries = []
+    try {
+      entries = fs.readdirSync(dir)
+    } catch (e) {
+      continue
+    }
+    for (const n of entries) {
+      const m = /^chromium-(\d+)$/.exec(n)
+      if (!m) continue
+      const sub = path.join(dir, n)
+      if (!fs.statSync(sub).isDirectory()) continue
+      const bin = findChromiumBin(sub)
+      if (bin && (!best || Number(m[1]) > best.rev)) best = { rev: Number(m[1]), bin }
+    }
+  }
+  return best ? best.bin : ''
+}
+
+// chromium-<rev>/ 下的平台可执行文件（chrome-mac[-arm64] 布局；app 名两种：
+// 旧版 Chromium.app / 新版 CFT "Google Chrome for Testing.app"）
+function findChromiumBin(sub) {
+  try {
+    for (const leaf of fs.readdirSync(sub)) {
+      const inner = path.join(sub, leaf)
+      if (!fs.statSync(inner).isDirectory()) continue
+      if (isWin()) {
+        const bin = path.join(inner, 'chrome.exe')
+        if (fs.existsSync(bin)) return bin
+      } else if (process.platform === 'darwin') {
+        for (const app of ['Chromium.app', 'Google Chrome for Testing.app']) {
+          const bin = path.join(inner, app, 'Contents', 'MacOS', path.basename(app, '.app'))
+          if (fs.existsSync(bin)) return bin
+        }
+      } else {
+        const bin = path.join(inner, 'chrome')
+        if (fs.existsSync(bin)) return bin
+      }
+    }
+  } catch (e) { /* 布局异常跳过该档 */ }
+  return ''
+}
+
+// 系统 playwright 默认浏览器缓存目录（未配置 PLAYWRIGHT_BROWSERS_PATH 时
+// npx @playwright/mcp 的落位处；dev 环境常见形态）
+function systemPwCacheDir() {
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    const p = process.env.PLAYWRIGHT_BROWSERS_PATH
+    return fs.existsSync(p) ? p : ''
+  }
+  const home = process.env.HOME || ''
+  if (isWin()) {
+    const p = path.join(process.env.LOCALAPPDATA || '', 'ms-playwright')
+    return fs.existsSync(p) ? p : ''
+  }
+  if (process.platform === 'darwin') {
+    const p = path.join(home, 'Library', 'Caches', 'ms-playwright')
+    return fs.existsSync(p) ? p : ''
+  }
+  const p = path.join(home, '.cache', 'ms-playwright')
+  return fs.existsSync(p) ? p : ''
+}
+
 // 系统 python 探测（PATH 上 python3 / python；进程级缓存防重复 spawn）
 let sysPythonCache = null
 function systemPython() {
@@ -505,6 +575,8 @@ module.exports = {
   probeGit,
   // chrome-headless-shell 可执行文件路径
   chromeHeadlessBin,
+  // 完整 chromium 可执行文件路径（有头，登录向导用；'' = 未装配且无系统缓存）
+  chromiumFullBin,
   // pandoc 可用性总览（含版本）
   probePandoc,
   // python 可用性总览（bin + 来源）

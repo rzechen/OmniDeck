@@ -163,10 +163,15 @@ function mcpBuiltinTools() {
   try {
     mcp.list().forEach(srv => {
       if (!srv || !srv.name) return
+      // 键名须与 pi 的 MCP 工具名生成规则对齐（createMcpToolName：
+      // 非 [A-Za-z0-9_] 一律转 _）。服务器名含横杠等字符时，真实权限面是
+      // mcp__wechat_mcp__*（下划线）——目录键按原始名拼接会分裂成
+      // 「目录行 + 追加行」两条规则，且目录行永远匹配不到任何工具（死规则）
+      const sane = String(srv.name).replace(/[^A-Za-z0-9_]/g, '_')
       dynamic.push({
-        name: 'mcp__' + srv.name + '*',
+        name: 'mcp__' + sane + '*',
         label: srv.name + '（全部工具）',
-        description: '自建 MCP 服务器「' + srv.name + '」全部工具（mcp__' + srv.name + '__工具名）的通配规则：缺省逐次确认（落兜底），可在权限策略中调整为允许，或按 mcp__' + srv.name + '__工具名 细分到具体工具。',
+        description: '自建 MCP 服务器「' + srv.name + '」全部工具（mcp__' + sane + '__工具名）的通配规则：缺省逐次确认（落兜底），可在权限策略中调整为允许，或按 mcp__' + sane + '__工具名 细分到具体工具。',
         perm: 'ask',
         disabled: !srv.enabled,
         // 非系统默认：不进默认策略 / 启动补齐；保存时动作若与兜底等价则不落显式键

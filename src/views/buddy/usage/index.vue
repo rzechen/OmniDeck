@@ -8,8 +8,8 @@
       </div>
       <div class="ob-usage-actions">
         <el-radio-group v-model="days" size="small" @change="load">
-          <el-radio-button :label="7">7 天</el-radio-button>
-          <el-radio-button :label="30">30 天</el-radio-button>
+          <el-radio-button :value="7">7 天</el-radio-button>
+          <el-radio-button :value="30">30 天</el-radio-button>
         </el-radio-group>
         <el-button size="small" @click="exportCsv"><svg-icon icon-class="download" /> 导出 CSV</el-button>
       </div>
