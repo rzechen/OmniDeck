@@ -147,7 +147,7 @@
                 <el-input
                   v-model="wizard.prompt"
                   type="textarea"
-                  :rows="32"
+                  :rows="20"
                   placeholder="描述希望助手自动完成什么，可按场景模板修改"
                   @input="onPromptInput"
                 />
