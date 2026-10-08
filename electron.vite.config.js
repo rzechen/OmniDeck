@@ -18,7 +18,7 @@ const hasCore = fs.existsSync(path.resolve(__dirname, 'electron/main.js'))
 //   sessions/  会话数据（sessions / checkpoints / file-changes / branchView / export）
 //   knowledge/ 知识资产（skills / rules / profile / memory / market）
 //   integrations/ 外部接入（mcp / connectors / credentials / web-search / site-auth /
-//                 login-wizard / notify / workflows / subagent-watch / pkg-registry）
+//                 login-wizard / notify / workflows / pkg-registry）
 //   workspace/ 空间与文件（workspaces / files / attachments）
 //   platform/  平台与安全（permissions / capabilities / runtime / sandbox / scheduler / usage）
 //   tools/     pi 工具扩展（builtin-tools / doc-export / image-gen）
@@ -33,7 +33,7 @@ const agentNames = [
   'knowledge/skills', 'knowledge/rules', 'knowledge/profile', 'knowledge/memory', 'knowledge/market',
   'integrations/mcp', 'integrations/connectors', 'integrations/credentials', 'integrations/web-search',
   'integrations/site-auth', 'integrations/login-wizard', 'integrations/notify', 'integrations/workflows',
-  'integrations/subagent-watch', 'integrations/pkg-registry',
+  'integrations/pkg-registry',
   'workspace/workspaces', 'workspace/files', 'workspace/attachments',
   'platform/permissions', 'platform/capabilities', 'platform/runtime', 'platform/sandbox',
   'platform/scheduler', 'platform/usage',

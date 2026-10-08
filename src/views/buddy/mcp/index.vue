@@ -163,8 +163,6 @@ export default {
     return {
       mcpServers: [],
       mcpLoading: false,
-      // 旧登录方案遗留的有头开关状态（仅复位展示，登录闭环已改走向导）
-      pwHeaded: false,
       // 登录向导当前打开的站点（空 = 未开）：login_wizard 事件实时驱动
       wizardHost: '',
       // 站点登录登记表（含 hasState / wizardOpen 标记）
@@ -192,7 +190,6 @@ export default {
   },
   created() {
     this.loadMcp()
-    this.loadPwHeaded()
     this.loadSites()
   },
   mounted() {
@@ -201,7 +198,6 @@ export default {
     const api = buddyApi()
     if (api && api.onEvent) {
       this._unsubPw = api.onEvent(e => {
-        if (e && e.type === 'pw_mode') this.pwHeaded = !!e.headed
         if (e && e.type === 'login_wizard') {
           this.wizardHost = e.phase === 'open' ? e.host : ''
           if (e.phase === 'success') this.$message.success('「' + e.host + '」登录成功，登录态已保存')
@@ -218,16 +214,6 @@ export default {
     }
   },
   methods: {
-    // ===== 内置浏览器（Playwright）有头开关（旧方案遗留，只读复位展示） =====
-    // 登录闭环已改走登录向导：向导成功时主进程自动清零该开关并广播 pw_mode
-    async loadPwHeaded() {
-      const api = buddyApi()
-      const mcpApi = api && api.mcp
-      if (!mcpApi || !mcpApi.headedGet) return
-      try {
-        this.pwHeaded = !!(await mcpApi.headedGet())
-      } catch (e) { /* 读取失败按默认无头 */ }
-    },
     // ===== 站点登录登记表 =====
     async loadSites() {
       const api = buddyApi()
