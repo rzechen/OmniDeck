@@ -184,6 +184,7 @@
               <div class="ob-auto-field row">
                 <label class="ob-auto-label">完成后通知</label>
                 <el-switch v-model="wizard.notify" />
+                <span class="ob-auto-tip-inline">开启后按「设置 → 通知」的渠道投递（系统通知 / Webhook）；关闭则仅应用内提示</span>
               </div>
             </div>
 
@@ -1044,6 +1045,14 @@ export default {
 .ob-auto-tip {
   margin: 6px 0 2px;
   font-size: 11.5px;
+  color: $text-secondary;
+}
+
+/* 行内提示（与开关同行，不占独立行） */
+.ob-auto-tip-inline {
+  margin-left: 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
   color: $text-secondary;
 }
 

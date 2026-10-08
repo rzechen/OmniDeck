@@ -591,6 +591,75 @@
           </div>
         </template>
 
+        <!-- 通知中心（定时任务 / 权限审批 / 登录引导的统一投递） -->
+        <template v-else-if="activeTab === 'notify'">
+          <header class="settings-section-header">
+            <h2 class="section-title">通知</h2>
+            <p class="section-desc">定时任务完成、权限审批与站点登录引导的统一通知：按类型选择投递渠道（系统通知 / Webhook）</p>
+          </header>
+
+          <div class="settings-group">
+            <!-- 总开关 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">启用通知</span>
+                <span class="label-desc">关闭后所有类型均不投递；应用内确认卡片与会话流不受影响</span>
+              </div>
+              <el-switch v-model="notifyCfg.enabled" @change="saveNotifyEnabled" />
+            </div>
+          </div>
+
+          <!-- 类型 × 渠道矩阵 -->
+          <div class="settings-group">
+            <div v-for="t in notifyCfg.types" :key="t.key" class="settings-row">
+              <div class="row-label">
+                <span class="label-text">{{ t.label }}</span>
+              </div>
+              <div class="notify-channels">
+                <el-checkbox
+                  :model-value="matrixHas(t.key, 'system')"
+                  @change="v => toggleMatrix(t.key, 'system', v)"
+                >系统通知</el-checkbox>
+                <el-checkbox
+                  :model-value="matrixHas(t.key, 'webhook')"
+                  @change="v => toggleMatrix(t.key, 'webhook', v)"
+                >Webhook</el-checkbox>
+              </div>
+            </div>
+          </div>
+
+          <!-- Webhook 渠道配置 -->
+          <div class="settings-group">
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">Webhook 地址</span>
+                <span class="label-desc">勾选 Webhook 的类型会 POST JSON（type / title / body / ok / ts）到此地址</span>
+              </div>
+              <div class="notify-webhook-input">
+                <el-input v-model="notifyCfg.url" size="small" placeholder="https://..." />
+                <el-button size="small" round type="primary" :loading="notifySaving" @click="saveWebhookCfg">保存</el-button>
+                <el-button size="small" round :loading="notifyTesting === 'webhook'" @click="testNotify('webhook')">测试</el-button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">Secret</span>
+                <span class="label-desc">{{ notifyCfg.hasSecret ? '已设置，随请求以 X-Notify-Secret 头携带' : '可选：随请求以 X-Notify-Secret 头携带，供接收端校验来源' }}</span>
+              </div>
+              <div class="notify-webhook-input">
+                <el-input v-model="notifyCfg.secret" size="small" show-password :placeholder="notifyCfg.hasSecret ? '留空保持不变' : '可选'" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">系统通知</span>
+                <span class="label-desc">发送一条测试通知验证渠道连通性</span>
+              </div>
+              <el-button size="small" round :loading="notifyTesting === 'system'" @click="testNotify('system')">发送测试</el-button>
+            </div>
+          </div>
+        </template>
+
         <!-- 运行时组件（按需在线装配：瘦身版安装包的 python-env / node 等大组件） -->
         <template v-else-if="activeTab === 'runtime'">
           <header class="settings-section-header">
@@ -834,9 +903,21 @@ export default {
         { key: 'quick', label: '快捷键', icon: 'magic-stick' },
         { key: 'tray', label: '托盘项', icon: 'menu' },
         { key: 'security', label: '安全项', icon: 'lock' },
+        { key: 'notify', label: '通知项', icon: 'chat-dot-round' },
         { key: 'runtime', label: '运行时', icon: 'cpu' },
         { key: 'about', label: '关于项', icon: 'info' }
       ],
+      // 通知中心配置（loadNotify 拉取；matrix 为 类型 → 渠道数组）
+      notifyCfg: {
+        enabled: true,
+        url: '',
+        secret: '',
+        hasSecret: false,
+        matrix: {},
+        types: []
+      },
+      notifySaving: false,
+      notifyTesting: '',
       themeModes,
       presetColors,
       // 入口视图选项（启动时进入的默认视图，重启生效）
@@ -1128,6 +1209,7 @@ export default {
     this.loadHistoryState()
     this.loadClipKeep()
     this.loadBuddySessions()
+    this.loadNotify()
   },
   watch: {
     // 外部跳转（如启动检查横幅「去装配」）带 ?tab= 直达指定分区；
@@ -1652,6 +1734,92 @@ export default {
         .catch(() => {})
     },
     // ===== 关于 =====
+    // ===== 通知中心（类型 × 渠道矩阵 + Webhook 配置） =====
+    async loadNotify() {
+      const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
+      if (!api || !api.notify) return
+      try {
+        const cfg = await api.notify.config()
+        this.notifyCfg = {
+          enabled: cfg.enabled !== false,
+          url: (cfg.webhook && cfg.webhook.url) || '',
+          secret: '',
+          hasSecret: !!(cfg.webhook && cfg.webhook.hasSecret),
+          matrix: cfg.matrix || {},
+          types: cfg.types || []
+        }
+      } catch (e) { /* 忽略加载失败 */ }
+    },
+    matrixHas(type, channel) {
+      return (this.notifyCfg.matrix[type] || []).indexOf(channel) >= 0
+    },
+    notifyApi() {
+      const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
+      return (api && api.notify) || null
+    },
+    async saveNotifyEnabled(v) {
+      const api = this.notifyApi()
+      if (!api) return
+      try {
+        const res = await api.update({ enabled: v })
+        if (res && res.ok === false) this.$message.error(res.error || '保存失败')
+      } catch (e) { this.$message.error('保存失败') }
+    },
+    // 矩阵开关：单类型单渠道增量保存（失败回滚视图状态）
+    async toggleMatrix(type, channel, v) {
+      const api = this.notifyApi()
+      if (!api) return
+      const cur = (this.notifyCfg.matrix[type] || []).slice()
+      const next = v ? cur.concat([channel]) : cur.filter(c => c !== channel)
+      this.notifyCfg.matrix[type] = next
+      try {
+        const res = await api.update({ matrix: { [type]: next } })
+        if (res && res.ok === false) {
+          this.$message.error(res.error || '保存失败')
+          this.notifyCfg.matrix[type] = cur
+        }
+      } catch (e) {
+        this.$message.error('保存失败')
+        this.notifyCfg.matrix[type] = cur
+      }
+    },
+    async saveWebhookCfg() {
+      const api = this.notifyApi()
+      if (!api) return
+      this.notifySaving = true
+      try {
+        const res = await api.update({
+          webhook: { url: this.notifyCfg.url, secret: this.notifyCfg.secret }
+        })
+        if (res && res.ok === false) {
+          this.$message.error(res.error || '保存失败')
+        } else {
+          // secret 只在本次提交携带：保存后清空输入，hasSecret 相应更新
+          if (this.notifyCfg.secret) this.notifyCfg.hasSecret = true
+          this.notifyCfg.secret = ''
+          this.$message.success('Webhook 配置已保存')
+        }
+      } catch (e) {
+        this.$message.error('保存失败：' + (e && e.message ? e.message : '未知错误'))
+      }
+      this.notifySaving = false
+    },
+    async testNotify(channel) {
+      const api = this.notifyApi()
+      if (!api) return
+      this.notifyTesting = channel
+      try {
+        const r = await api.test(channel)
+        if (r && r.ok) {
+          this.$message.success(channel === 'webhook' ? 'Webhook 投递成功' : '测试通知已发送')
+        } else {
+          this.$message.error('投递失败：' + ((r && r.error) || '未知错误'))
+        }
+      } catch (e) {
+        this.$message.error('投递失败：' + (e && e.message ? e.message : '未知错误'))
+      }
+      this.notifyTesting = ''
+    },
     // 版本 / 反馈为应用级公共页：在哪个视图的设置里点开就在哪个视图打开
     //（Buddy → /omnibuddy/* 挂 BuddyLayout 页签内；Deck → /version、/feedback）
     goVersion() {
@@ -2309,6 +2477,25 @@ export default {
   font-weight: 600;
   letter-spacing: 0.4px;
   color: $text-secondary;
+}
+
+/* ===== 通知分区（类型 × 渠道矩阵 + webhook 配置） ===== */
+.notify-channels {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.notify-webhook-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+
+  .el-input {
+    width: 240px;
+  }
 }
 
 /* ============ Mac 式设置分组（圆角卡片 + 行布局） ============ */
