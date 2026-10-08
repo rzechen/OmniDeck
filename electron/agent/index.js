@@ -4,7 +4,7 @@
 //      pi 加载失败时回退到 llm.js 纯对话（OpenAI 兼容流式）。
 const fs = require('fs')
 const path = require('path')
-const { ipcMain, app, dialog, BrowserWindow, Notification } = require('electron')
+const { ipcMain, app, dialog, BrowserWindow } = require('electron')
 const sessions = require('./sessions')
 const { streamChat } = require('./llm')
 const piRuntime = require('./pi')
@@ -30,6 +30,8 @@ const checkpoints = require('./checkpoints')
 const fileChanges = require('./file-changes')
 const branchView = require('./branchView')
 const scheduler = require('./scheduler')
+const notify = require('./notify')
+const siteAuth = require('./site-auth')
 const workflows = require('./workflows')
 const subagentWatch = require('./subagent-watch')
 
@@ -652,6 +654,23 @@ function handlePiEvent(getWindow, e) {
       // 权限系统 ask：转发前端确认卡片（允许 / 本会话内允许 / 拒绝）
       const askId = e.askId
       const info = { surface: e.surface, value: e.value, toolName: e.toolName, command: e.command, path: e.path, preview: e.preview }
+      // 通知中心投递（窗口未开/后台时用户仍可感知；同 askId 冷却去重，
+      // ui.select 兜底路径与 chain 路径各自到达时不重复打扰）
+      notify.dispatch('permission.ask', {
+        title: '权限审批请求',
+        body: '「' + (e.toolName || e.surface || '操作') + '」等待授权' +
+          (e.value ? '：' + String(e.value).slice(0, 60) : ''),
+        ok: true,
+        dedupeKey: 'perm:' + askId,
+        click: () => {
+          const win = getWindow()
+          if (win && !win.isDestroyed()) {
+            win.show()
+            win.focus()
+            win.webContents.send('nav:goto', '/omnibuddy?s=' + chatId)
+          }
+        }
+      })
       // ui.select 兜底路径（'ui-' 前缀）：等待方是 pi 的 pendingUiAsks，应答走
       // replyUiAsk。绝不能注册进 pendingPermissions —— 否则 reply 先命中此处，
       // resolve 的 verdictPromise 无人消费，真正的 select 永远挂起（点击被吞）
@@ -675,6 +694,40 @@ function handlePiEvent(getWindow, e) {
     case 'todo_update':
       emit(getWindow, chatId, { type: 'todo_update', todos: e.todos })
       break
+    case 'site_auth': {
+      // 站点登录态上报（report_site_auth 工具）：登记表更新；状态翻转时
+      // 广播前端 + login.required 通知（点击一键切有头，新会话完成登录）。
+      // logged_in 上报即自动收尾：有头模式下切回无头（全自动闭环——开关
+      // 状态仅前端展示，用户无手动操作；切换只影响下一会话，当前有头
+      // 会话的浏览器不受影响，批量登录可在同会话继续）
+      const r = siteAuth.report(e.url, e.status, e.note)
+      if (r.host) {
+        emit(getWindow, chatId, { type: 'site_auth', host: r.host, status: e.status })
+        if (r.changed && e.status === 'login_required') {
+          notify.dispatch('login.required', {
+            title: '站点需要登录',
+            body: '「' + r.host + '」无头访问遇到登录墙：点击切换有头模式，在新会话中完成登录（登录完成自动恢复无头）',
+            ok: false,
+            dedupeKey: 'login:' + r.host,
+            click: () => {
+              mcp.setHeaded(true)
+              emit(getWindow, chatId, { type: 'pw_mode', headed: true })
+              const win = getWindow()
+              if (win && !win.isDestroyed()) {
+                win.show()
+                win.focus()
+                win.webContents.send('nav:goto', '/omnibuddy')
+              }
+            }
+          })
+        } else if (e.status === 'logged_in' && mcp.getHeaded()) {
+          mcp.setHeaded(false)
+          emit(getWindow, chatId, { type: 'pw_mode', headed: false })
+          console.log('[omnibuddy:site-auth] 登录完成，已自动切回无头模式（' + r.host + '）')
+        }
+      }
+      break
+    }
     case 'sandbox_status':
       emit(getWindow, chatId, { type: 'sandbox_status', status: e.status })
       break
@@ -739,6 +792,9 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   // 调度器只管「何时跑」；执行体在此注入（无头会话 + pi 运行 + 结果落系统会话）
   scheduler.init(baseDir)
   scheduler.setRunner(runAutomationTask)
+  // 通知中心 / 站点登录态登记（任务完成 / 权限审批 / 登录墙引导的统一投递）
+  notify.init(baseDir)
+  siteAuth.init(baseDir)
   // macOS dock 角标：任务完成且窗口未聚焦时点亮，任意窗口聚焦即清除
   if (process.platform === 'darwin' && app.dock) {
     app.on('browser-window-focus', () => {
@@ -816,7 +872,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   }
 
   async function runAutomationTask(task, reason) {
-    // 结束统一处理：广播 automation:done + 系统通知 + dock 角标。
+    // 结束统一处理：广播 automation:done + 通知中心投递 + dock 角标。
     // 预检失败（无会话）时同样走此链路，避免定时触发静默失败无任何提示
     const finish = (result, chatId) => {
       emit(getWindow, chatId, {
@@ -827,30 +883,26 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
         error: result.error || '',
         sessionId: chatId || ''
       })
-      if (task.notify !== false) {
-        try {
-          if (Notification.isSupported()) {
-            const n = new Notification({
-              title: result.ok ? '定时任务已完成' : '定时任务失败',
-              body: result.ok
-                ? '「' + task.name + '」执行完成，点击查看结果'
-                : '「' + task.name + '」执行失败：' + (result.error || '未知错误')
-            })
-            n.on('click', () => {
-              // 预检失败无会话可跳转
-              if (!chatId) return
-              // 复用 quick-panel 的 nav:goto 机制（App.vue 监听跳转）：聚焦 + 直达会话
-              const win = getWindow()
-              if (win && !win.isDestroyed()) {
-                win.show()
-                win.focus()
-                win.webContents.send('nav:goto', '/omnibuddy?s=' + chatId)
-              }
-            })
-            n.show()
+      // 通知中心投递（task.notify=false 时跳过系统通知，其余启用渠道照常）
+      notify.dispatch(result.ok ? 'task.completed' : 'task.failed', {
+        title: result.ok ? '定时任务已完成' : '定时任务失败',
+        body: result.ok
+          ? '「' + task.name + '」执行完成，点击查看结果'
+          : '「' + task.name + '」执行失败：' + (result.error || '未知错误'),
+        ok: !!result.ok,
+        silentSystem: task.notify === false,
+        click: () => {
+          // 预检失败无会话可跳转
+          if (!chatId) return
+          // 复用 quick-panel 的 nav:goto 机制（App.vue 监听跳转）：聚焦 + 直达会话
+          const win = getWindow()
+          if (win && !win.isDestroyed()) {
+            win.show()
+            win.focus()
+            win.webContents.send('nav:goto', '/omnibuddy?s=' + chatId)
           }
-        } catch (e) { /* 通知失败不影响任务 */ }
-      }
+        }
+      })
       if (process.platform === 'darwin' && app.dock) {
         try {
           const win = getWindow()
@@ -1014,6 +1066,10 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
           : { type: 'error', error: failError })
       }
       result = { ok: false, sessionId: chatId, error: failError }
+      // 终判即退出：不可重试的失败（含用户手动中断）落盘后必须离开循环——
+      // 此前缺 break，manual 中断落在 attempt=1 时终判后 attempt=2 照常发起
+      // （无 3 秒等待），表现为「已停止生成」后任务立即自动重跑
+      break
     }
     running.delete(chatId)
     automationTurnErrors.delete(chatId)
@@ -1614,6 +1670,15 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   ipcMain.handle('omnibuddy:mcp:list', () => mcp.list())
 
   ipcMain.handle('omnibuddy:mcp:save', (_e, servers) => mcp.save(servers))
+
+  // 内置浏览器（playwright）有头模式：全自动闭环（撞登录墙通知一键开有头、
+  // 登录完成自动切回），设置/切换单向只读供前端状态展示
+  ipcMain.handle('omnibuddy:mcp:headed:get', () => mcp.getHeaded())
+
+  // ===== 通知中心（类型 × 渠道矩阵 + webhook 配置 + 测试投递） =====
+  ipcMain.handle('omnibuddy:notify:config', () => notify.configView())
+  ipcMain.handle('omnibuddy:notify:update', (_e, patch) => notify.updateConfig(patch || {}))
+  ipcMain.handle('omnibuddy:notify:test', (_e, channel) => notify.testChannel(channel))
 
   // ===== 生态连接器（官方 MCP Server 目录，一键接入） =====
   // 目录合并 mcp.list() 实时连接状态

@@ -3,7 +3,8 @@
 // 权限策略页（views/buddy/permissions）消费，主进程 capabilities.js 新增
 // 分组时在此同步登记即可（未登记的分组在视图中按 key 名兜底展示）。
 // asSurface：该分组条目是否可直接作为权限策略的操作面（surface）——
-// 连接器组的权限统一走特殊面 mcp（pattern 匹配 mcp__服务器__工具），不直接纳入
+// 连接器服务器本身不产生权限规则（其工具统一由 mcp__服务器名* 通配键管控，
+// 见 mcpBuiltin 分组），不直接纳入权限工具组
 export const CAPABILITY_CATEGORIES = [
   {
     key: 'core',

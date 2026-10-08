@@ -15,12 +15,49 @@ const workflows = require('./workflows')
 // pi 内置工具（pi-coding-agent 核心工具集）
 const CORE_TOOLS = [
   { name: 'read', label: '读取文件', description: '读取本地文件内容（文本与图片），支持行范围。', perm: 'allow' },
-  { name: 'bash', label: '执行命令', description: '在当前工作空间执行 bash 命令并返回输出；沙箱开启时在受限环境中运行。', perm: { '*': 'ask' } },
+  // bash 默认策略：只读命令白名单 + 兜底逐次确认（业界通行的模式白名单，
+  // Claude Code `Bash(git status:*)` / OpenCode 同构）。安全边界四条：
+  //   1) 链式 / 复合命令逐段匹配、最严者胜（扩展 schema 明文语义）——
+  //      `ls x; rm -rf y` 的 rm 段单独落兜底 ask，白名单不外溢；
+  //   2) 重定向写有独立效果归因：工作区外落 external_directory_write 逐次
+  //      确认，`cat ~/.env` 等敏感路径由 path 面 deny 独立拦截；
+  //   3) 不放 find（-delete / -exec 属写效果，文件查找走内置 find 工具）；
+  //   4) 不放 echo（`echo x > f` 重定向写工作区会绕过 write 工具的 ask）。
+  // pattern 语义：结尾「空格 + *」的通配（如 `ls *`）使裸命令也匹配；
+  // `git diff*` 匹配 git diff 及其任意参数形态；`git status` / `git branch`
+  // 为精确匹配（branch 带参即创建分支，属写操作不放开）。
+  // 键序：'*' 在前、具体 pattern 在后（last-match-wins，后写的白名单生效）
+  {
+    name: 'bash',
+    label: '执行命令',
+    description: '在当前工作空间执行 bash 命令并返回输出；沙箱开启时在受限环境中运行。常用只读命令（ls / cat / git status 等）默认放行，其余逐次确认。',
+    perm: {
+      '*': 'ask',
+      'ls *': 'allow',
+      'pwd': 'allow',
+      'cat *': 'allow',
+      'head *': 'allow',
+      'tail *': 'allow',
+      'wc *': 'allow',
+      'grep *': 'allow',
+      'which *': 'allow',
+      'file *': 'allow',
+      'stat *': 'allow',
+      'du *': 'allow',
+      'df': 'allow',
+      'git status': 'allow',
+      'git diff*': 'allow',
+      'git log*': 'allow',
+      'git show*': 'allow',
+      'git branch': 'allow'
+    }
+  },
   { name: 'edit', label: '编辑文件', description: '精确替换文件片段；默认需逐次确认，可在权限策略中调整。', perm: 'ask' },
   { name: 'write', label: '写入文件', description: '创建/覆写文件内容；默认需逐次确认，可在权限策略中调整。', perm: 'ask' },
-  { name: 'find', label: '查找文件', description: '按名称 / 类型 / 大小等条件在工作空间内查找文件（pi 内置）。' },
-  { name: 'grep', label: '搜索内容', description: '按正则表达式在文件内容中搜索匹配行（pi 内置，支持 include 过滤）。' },
-  // ls 为纯只读列目录（无副作用），默认放行；find / grep 仍落 '*' 兜底
+  // find / grep / ls 均为 pi 内置纯只读工具（无副作用），默认放行，
+  // 不再回落 '*' 兜底逐次询问
+  { name: 'find', label: '查找文件', description: '按名称 / 类型 / 大小等条件在工作空间内查找文件（pi 内置）。', perm: 'allow' },
+  { name: 'grep', label: '搜索内容', description: '按正则表达式在文件内容中搜索匹配行（pi 内置，支持 include 过滤）。', perm: 'allow' },
   { name: 'ls', label: '列出目录', description: '列出指定目录的内容（pi 内置）。', perm: 'allow' },
   // pi 1.0.0 内置编排工具：codemode 经 QuickJS 沙箱脚本编排工具调用（省约 40%
   // prompt token）。工具本身只做编排：脚本内嵌套调用的工具（read/bash/mcp__*
@@ -103,23 +140,23 @@ function webTools() {
   }))
 }
 
-// 内置 MCP 通配放行（pi 1.0.0 命名适配）：内置 MCP 的工具名为
-// mcp__服务器__工具（每工具独立注册，权限 surface = 工具全名），而
-// pi-permission-system 的「mcp 面」是旧适配器形态（字面 mcp 工具 +
-// 入参派生 server:tool），对内置命名不生效——若无通配键，playwright
-// 数十个浏览器工具会逐个落 '*' 兜底询问。权限规则的 surface 键支持
-// 通配（* 编译为 .*），mcp__playwright* 一条键放行内置浏览器全部工具。
-// 自行登记的 MCP 服务器仍逐工具确认（fail-safe），用户可照此格式自建
-// mcp__服务器名* 通配规则
+// 内置 MCP 通配放行（pi 1.0.0 命名）：内置 MCP 的工具名为
+// mcp__服务器__工具（每工具独立注册，权限 surface = 工具全名）。
+// 权限规则的 surface 键支持通配（* 编译为 .*），mcp__playwright* 一条键
+// 放行内置浏览器全部工具，否则 playwright 数十个浏览器工具会逐个落 '*'
+// 兜底询问。自行登记的 MCP 服务器仍逐工具确认（fail-safe），用户可照此
+// 格式自建 mcp__服务器名* 通配规则
+// （旧 pi-mcp-adapter 的字面「mcp」面已退役：适配器启动时强制清理，
+// 默认策略不再写 mcp 键，存量键由启动迁移摘除）
 const MCP_BUILTIN_TOOLS = [
   { name: 'mcp__playwright*', label: '内置浏览器（全部工具）', description: '内置 playwright MCP 服务的全部浏览器操作工具（mcp__playwright__导航 / 截图 / 点击 / 等待等）通配放行：系统内置服务、无头运行、产物落应用自管目录。', perm: 'allow' }
 ]
 
-// MCP 通配条目（能力清单呈现）：静态内置条目 + 自建连接器动态条目。
-// 动态条目与 toolPermissionDefaults 的自建服务器默认键（mcp__服务器名* → ask）
-// 同源同键：backfillToolDefaults 会把该键写进 config，权限页出现对应规则行；
-// 此前清单侧无同名条目，出现「权限策略有的、能力清单没有」的偏差，现并入展示
-// （权限页对象下拉遍历本分组，选项随之同步出现）
+// MCP 通配条目（仅用于能力目录下发 / 权限页呈现）：静态内置条目 +
+// 自建连接器动态条目。注意：自建条目只让权限页「看得见」该服务器，
+// 不进入 toolPermissionDefaults——不产生默认规则键，其工具落 '*'
+// 兜底 ask；用户在页面调整后保存的键（allow/ask）属用户配置，
+// 「重置默认」时清除
 function mcpBuiltinTools() {
   const dynamic = []
   try {
@@ -128,9 +165,11 @@ function mcpBuiltinTools() {
       dynamic.push({
         name: 'mcp__' + srv.name + '*',
         label: srv.name + '（全部工具）',
-        description: '自建 MCP 服务器「' + srv.name + '」全部工具（mcp__' + srv.name + '__工具名）的通配规则：默认逐次确认（fail-safe），可在权限策略中调整为允许，或按 mcp__' + srv.name + '__工具名 细分到具体工具。',
+        description: '自建 MCP 服务器「' + srv.name + '」全部工具（mcp__' + srv.name + '__工具名）的通配规则：缺省逐次确认（落兜底），可在权限策略中调整为允许，或按 mcp__' + srv.name + '__工具名 细分到具体工具。',
         perm: 'ask',
-        disabled: !srv.enabled
+        disabled: !srv.enabled,
+        // 非系统默认：不进默认策略 / 启动补齐；保存时动作若与兜底等价则不落显式键
+        systemDefault: false
       })
     })
   } catch (e) { /* mcp 未初始化时无自建条目 */ }
@@ -215,6 +254,9 @@ const UI_TOOLS = [
   { name: 'ask_user', label: '向用户提问', description: '信息不足或存在歧义时向用户提问，前端渲染表单收集回答。', perm: 'allow' },
   { name: 'todo_write', label: '更新任务清单', description: '维护当前任务清单（pending / in_progress / completed），前端看板呈现。', perm: 'allow' },
   { name: 'todo_read', label: '查看任务清单', description: '读取当前会话的任务清单与进度。', perm: 'allow' },
+  // 站点登录态上报（两段式自动登录）：撞登录墙时通知桌面端引导有头首登；
+  // 默认放行——纯登记操作无副作用，无头定时任务中被 ask 拦截会丢失登录引导
+  { name: 'report_site_auth', label: '上报站点登录态', description: '浏览器访问站点后上报登录状态：撞登录墙报 login_required（触发桌面通知引导有头登录），确认已登录报 logged_in。', perm: 'allow' },
   // pi-subagents 注册的委派工具（实际工具名 subagent；有 token 成本且产生
   // 子代理行为，默认逐次确认）。早期目录误记为 'task' 且无 perm，导致该键
   // 从未进入默认策略与启动补齐，落 '*' 兜底
@@ -254,13 +296,14 @@ function memoryTools() {
   }))
 }
 
-// 权限策略可用的特殊面（非单一工具）：跨工具路径面 / 外部目录 / MCP / 技能 / 兜底
+// 权限策略可用的特殊面（非单一工具）：跨工具路径面 / 外部目录 / 技能 / 兜底
+// （旧 pi-mcp-adapter 的字面「mcp」面已退役：连接器统一走 mcp__服务器名*
+// 通配键，见「MCP 通配规则」分组）
 const SPECIAL_SURFACES = [
   { name: 'path', label: '路径面（跨工具）', description: '对 read/bash 等工具访问的文件路径统一设规则，如 *.env。' },
   { name: 'external_directory', label: '外部目录', description: '访问当前工作空间之外的目录（方向不明时读写一并管控）。' },
   { name: 'external_directory_read', label: '外部目录（只读）', description: '仅控制读取工作空间之外的目录；写入走「外部目录（只写）」面。' },
   { name: 'external_directory_write', label: '外部目录（只写）', description: '仅控制写入工作空间之外的目录；读取走「外部目录（只读）」面。' },
-  { name: 'mcp', label: '连接器（旧 MCP 面）', description: '仅匹配旧版 MCP 代理工具形态；pi 1.0.0 内置 MCP 的工具名为 mcp__服务器__工具（按工具全名单独设规则，或用 mcp__服务器名* 通配，见「内置 MCP」分组）。' },
   { name: 'skill', label: '技能', description: '技能激活与输入工具。' },
   { name: '*', label: '所有操作（兜底）', description: '未命中其他规则的操作按此规则处理。' }
 ]
@@ -329,9 +372,10 @@ const TOOL_GROUPS = [
 // 工具名 → 默认权限规则（标量或 pattern 映射对象），供 permissions.js
 // 派生默认策略与启动补齐；无 perm 的工具不产生键。
 // 对象值深拷贝：防止消费方就地在返回值上改写目录常量。
-// 另并入自建连接器的通配默认键（mcp__服务器名* → ask）：自建 MCP 服务
-// 不逐工具登记目录，无通配键时其工具全部落 '*' 兜底——权限页呈现不出
-// 该服务的默认行；fail-safe 语义用 ask 呈现（发布类动作逐次确认合理）
+// 只含「系统自带」键（含内置 playwright 通配放行）；用户自建连接器
+// （mcp.list() 动态服务器）不在此列——其工具缺省落 '*' 兜底 ask，
+// fail-safe 不破；用户在权限页调整 / 确认条「始终允许」产生的键属
+// 用户配置，「重置默认」整份重写时随之清除（重置 = 只保留系统默认）
 function toolPermissionDefaults() {
   const out = {}
   TOOL_GROUPS.forEach(([, tools]) => {
@@ -342,11 +386,6 @@ function toolPermissionDefaults() {
         : t.perm
     })
   })
-  try {
-    mcp.list().forEach(srv => {
-      if (srv && srv.name) out['mcp__' + srv.name + '*'] = 'ask'
-    })
-  } catch (e) { /* mcp 未初始化时跳过（无自建连接器键） */ }
   return out
 }
 

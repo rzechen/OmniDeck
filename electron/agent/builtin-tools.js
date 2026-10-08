@@ -437,6 +437,41 @@ function init(dir) {
   registerBuiltinSubagents()
 }
 
+// ---------- site_auth：站点登录态上报（两段式自动登录） ----------
+// 浏览器自动化撞登录墙 / 登录成功时上报，主进程登记 site-auth.json 并在
+// 状态翻转为 login_required 时投递 login.required 通知（点击切有头首登）
+function createSiteAuthExtension(onReport) {
+  return function (piApi) {
+    piApi.registerTool({
+      name: 'report_site_auth',
+      label: '上报站点登录态',
+      description: '上报浏览器当前访问站点的登录状态（两段式登录流程）。'
+        + '使用 browser 工具访问站点后：若页面出现登录墙 / 扫码 / 验证码 / 被重定向到登录页，'
+        + '立即以 status=login_required 上报（note 说明页面特征）；'
+        + '若确认已持有效登录态（此前上报过 login_required 的站点），以 status=logged_in 上报。'
+        + '不要对未实际访问的站点猜测上报。上报 login_required 后告知用户：'
+        + '桌面端已收到通知，可按系统通知引导一键切换有头模式完成登录。',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: '站点 URL 或域名' },
+          status: { type: 'string', enum: ['login_required', 'logged_in'], description: 'login_required=遇到登录墙；logged_in=已确认登录' },
+          note: { type: 'string', description: '可选：页面特征说明（如「重定向到 /login 要求扫码」）' }
+        },
+        required: ['url', 'status']
+      },
+      execute: async (_id, params) => {
+        onReport({
+          url: String(params.url || ''),
+          status: params.status === 'logged_in' ? 'logged_in' : 'login_required',
+          note: String(params.note || '')
+        })
+        return textResult('登录态已登记')
+      }
+    })
+  }
+}
+
 module.exports = {
   init,
   cacheTodos,
@@ -445,5 +480,6 @@ module.exports = {
   createCdExtension,
   createExecToolsExtension,
   createFileToolsExtension,
-  createTodoReadExtension
+  createTodoReadExtension,
+  createSiteAuthExtension
 }

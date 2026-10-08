@@ -26,6 +26,25 @@ function playwrightHeaded() {
   } catch (e) { /* 文件不存在或损坏：默认无头 */ return false }
 }
 
+// 有头开关读取 / 写入（UI 入口：连接器页「内置浏览器」卡片）
+// 写入后同步刷新 mcp.json 内置条目（浏览器参数随开关变化）；MCP server
+// 随 pi 会话启动，新开关自下一个会话生效，运行中会话不受影响
+function getHeaded() {
+  return playwrightHeaded()
+}
+
+function setHeaded(headed) {
+  try {
+    fs.mkdirSync(agentDir, { recursive: true })
+    fs.writeFileSync(path.join(agentDir, 'playwright.json'),
+      JSON.stringify({ headed: !!headed }, null, 2))
+    refreshBuiltinEntry()
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: '写入有头开关失败：' + e.message }
+  }
+}
+
 // 系统内置服务：配置始终保留且强制启用（不带 disabled 字段），不在 UI 列表呈现。
 // 运行时动态生成：npx / 浏览器 / npx 缓存优先取内置运行时（provision 装配 +
 // afterPack 打进 Resources），未装配时回退系统环境（npx 走宿主 PATH，
@@ -49,7 +68,12 @@ function builtinServers() {
   // --user-data-dir：持久浏览器 profile（cookie / 登录态跨会话保持），
   //   支撑「首次登录一次、后续免登录」的站点自动化（如需登录态的站点搜索）；
   //   有头首登的登录态同样落此 profile，切回无头后直接复用
-  args = args.concat(playwrightHeaded() ? ['--browser', 'chrome'] : ['--headless'],
+  // --caps=storage：登录态持久化工具组（browser_storage_state 保存 /
+  //   browser_set_storage_state 恢复 / cookie 与 localStorage 管理等），
+  //   支撑「首登一次 → 存状态 → 后续会话恢复免登录」，与 --user-data-dir
+  //   持久 profile 双轨互补（storageState 为 JSON 文件，可单独备份迁移）
+  args = args.concat(['--caps=storage'],
+    playwrightHeaded() ? ['--browser', 'chrome'] : ['--headless'],
     ['--output-dir', path.join(agentDir, 'playwright-output'),
       '--user-data-dir', path.join(agentDir, 'playwright-profile')])
   const env = {}
@@ -120,26 +144,32 @@ function init(dir) {
     }
   } else {
     // 内置服务条目按当前运行时刷新（dev ⇄ 打包路径切换 / 版本升级后自动修正），幂等
-    try {
-      const config = JSON.parse(fs.readFileSync(mcpFile(), 'utf-8'))
-      const servers = (config && config.mcpServers) || {}
-      const cur = servers.playwright
-      const target = builtin.playwright
-      const stale = !cur || cur.command !== target.command ||
-        JSON.stringify(cur.args || []) !== JSON.stringify(target.args) ||
-        JSON.stringify(cur.env || {}) !== JSON.stringify(target.env)
-      if (stale) {
-        servers.playwright = target
-        config.mcpServers = servers
-        fs.writeFileSync(mcpFile(), JSON.stringify(config, null, 2))
-        console.log('[omnibuddy:mcp] 内置服务条目已按当前运行时刷新')
-      }
-    } catch (e) {
-      // 损坏文件交给 list() 回退空列表，不做硬性修复
-    }
+    refreshBuiltinEntry()
   }
   // 清理旧版 pi-mcp-adapter 注册（升级到内置 MCP 后的幂等迁移）
   cleanupLegacyAdapter()
+}
+
+// 内置服务条目按当前运行时刷新 mcp.json（幂等）：init 启动校正与
+// setHeaded 开关切换共用——路径 / 版本 / 有头开关任一变化即重写条目
+function refreshBuiltinEntry() {
+  try {
+    const config = JSON.parse(fs.readFileSync(mcpFile(), 'utf-8'))
+    const servers = (config && config.mcpServers) || {}
+    const cur = servers.playwright
+    const target = builtinServers().playwright
+    const stale = !cur || cur.command !== target.command ||
+      JSON.stringify(cur.args || []) !== JSON.stringify(target.args) ||
+      JSON.stringify(cur.env || {}) !== JSON.stringify(target.env)
+    if (stale) {
+      servers.playwright = target
+      config.mcpServers = servers
+      fs.writeFileSync(mcpFile(), JSON.stringify(config, null, 2))
+      console.log('[omnibuddy:mcp] 内置服务条目已按当前运行时刷新')
+    }
+  } catch (e) {
+    // 损坏文件交给 list() 回退空列表，不做硬性修复
+  }
 }
 
 // mcp.json → UI 结构数组：
@@ -263,4 +293,4 @@ function save(servers) {
   }
 }
 
-module.exports = { init, list, builtinList, save }
+module.exports = { init, list, builtinList, save, getHeaded, setHeaded }

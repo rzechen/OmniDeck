@@ -62,53 +62,44 @@ function configPath(agentDir) {
 // agentDir 自管目录的 external_directory 放行规则（playwright 产物 / 记忆 / 扩展配置等）：
 // 应用内部路径而非用户工作区，模型读取属正常行为，逐次确认会频繁打断；
 // path 面的敏感文件 deny（*.env / .ssh）仍独立生效，不受此处放行影响
-// 空格转义变体：模型常写 `App\ Support` 转义形式的命令，权限扩展的路径解析
-// 不去除转义（token 字面保留 `\`），须为两种形态各放行一条 pattern
+// 空格路径的字面形态（权限扩展解析 bash 命令时 token 保留原始转义 / 引号，
+// 不做归一化，每种形态须各登记一条 pattern）：
+//   无引号：.../Application Support/...
+//   反斜杠转义：.../App\ Support/...（模型常写 `App\ Support` 转义形式）
+//   双引号包裹：".../Application Support/..."（含空格路径的常态命令写法，
+//   --caps=storage 后 agent 检视 playwright-profile 等自管目录高频出现）
 // 多层补齐：pattern 的 `*` 不跨目录分隔符，而自管目录存在三层及以上路径
 // （skills/<name>/SKILL.md 等）——单层 glob 盖不住会落到 '*' 兜底 ask，
 // 无头定时任务无人应答即被拒，故逐层显式放行（敏感 deny 面独立生效）
+// patterns 形如 ['*', '*/*', ...]（相对 dir 的逐层通配）
+function dirAllowPatterns(dir, patterns) {
+  const paths = [dir].concat(patterns.map(s => path.join(dir, s)))
+  const rules = {}
+  const hasSpace = dir.indexOf(' ') >= 0
+  paths.forEach(p => {
+    rules[p] = 'allow'
+    if (hasSpace) {
+      rules[p.replace(/ /g, '\\ ')] = 'allow'
+      rules['"' + p + '"'] = 'allow'
+    }
+  })
+  return rules
+}
+
 function agentDirAllowRules(agentDir) {
   if (!agentDir) return {}
-  const rules = {
-    [agentDir]: 'allow',
-    [path.join(agentDir, '*')]: 'allow',
-    [path.join(agentDir, '*', '*')]: 'allow',
-    [path.join(agentDir, '*', '*', '*')]: 'allow',
-    [path.join(agentDir, '*', '*', '*', '*')]: 'allow'
-  }
-  const escaped = agentDir.replace(/ /g, '\\ ')
-  if (escaped !== agentDir) {
-    rules[escaped] = 'allow'
-    rules[escaped + '/*'] = 'allow'
-    rules[escaped + '/*/*'] = 'allow'
-    rules[escaped + '/*/*/*'] = 'allow'
-    rules[escaped + '/*/*/*/*'] = 'allow'
-  }
-  return rules
+  return dirAllowPatterns(agentDir, ['*', '*/*', '*/*/*', '*/*/*/*'])
 }
 
 // 应用数据根目录（agentDir 的上级，如 .../omnibuddy）只读放行规则：
 // agent 检视自家数据目录（凭据存储 / 工作区清单等）属正常行为，逐次确认会
 // 频繁打断。只放开读（写仍限 pi-agent 白名单）；敏感面 deny（*.env / .ssh）
 // 独立生效不受影响；credentials.json 为 safeStorage 密文，读不到明文。
-// 多层补齐同 agentDirAllowRules（sessions/<id>/messages.jsonl 等三层路径）
+// 多层补齐与空格字面形态同 agentDirAllowRules（sessions/<id>/messages.jsonl
+// 等三层路径；反斜杠转义与双引号包裹变体）
 function baseDirReadAllowRules(agentDir) {
   if (!agentDir) return {}
-  const baseDir = path.dirname(agentDir)
-  const rules = {
-    [baseDir]: 'allow',
-    [path.join(baseDir, '*')]: 'allow',
-    [path.join(baseDir, '*', '*')]: 'allow',
-    [path.join(baseDir, '*', '*', '*')]: 'allow'
-  }
-  const escaped = baseDir.replace(/ /g, '\\ ')
-  if (escaped !== baseDir) {
-    rules[escaped] = 'allow'
-    rules[escaped + '/*'] = 'allow'
-    rules[escaped + '/*/*'] = 'allow'
-    rules[escaped + '/*/*/*'] = 'allow'
-  }
-  return rules
+  return dirAllowPatterns(path.dirname(agentDir), ['*', '*/*', '*/*/*'])
 }
 
 // 默认策略（平衡）：工具默认权限从 capabilities.js 统一目录派生，此处只
@@ -127,11 +118,10 @@ function defaultConfig(agentDir) {
         // 深度研究（P3）：workflow 启动多代理编排（有 token 成本）走 '*' 兜底逐次确认；
         // workflow_control 为控制面（查进度/暂停/停止/恢复），放行避免频繁打断
         workflow_control: 'allow',
-        // 其余（MCP / subagents / 未登记工具）兜底确认；
+        // 其余（subagents / 未登记工具）兜底确认；
         // skill 技能面默认放行：技能为应用内置/用户自装，激活读取 SKILL.md
         // 属正常低风险操作，逐次确认会频繁打断（发布等敏感工具仍按各自键管控）
         '*': 'ask',
-        mcp: { '*': 'ask' },
         skill: { '*': 'allow' },
         // agentDir 放行须排在 '*' 之后（last-match-wins，后写的具体 pattern 生效）
         // 外部目录三面（族 / _read / _write）默认均逐次确认（fail-safe）：
@@ -334,13 +324,42 @@ function stripOrphanWebEnable(agentDir) {
   return true
 }
 
+// 清理旧版 MCP 面（字面 mcp 规则键）：pi-mcp-adapter 时代用单一 mcp 工具 +
+// 入参派生 server:tool，其规则面为 mcp；pi 1.0.0 内置 MCP 后工具名为
+// mcp__服务器__工具，mcp 面不再匹配任何运行时工具（适配器启动时强制清理）。
+// 启动幂等摘除配置键与 notes sidecar 中的同面说明（默认策略已不再写入）
+function stripLegacyMcpSurface(agentDir) {
+  let changed = false
+  const config = readConfig(agentDir)
+  if (config && config.permission && config.permission.mcp !== undefined) {
+    delete config.permission.mcp
+    try {
+      writeConfig(agentDir, config)
+      changed = true
+    } catch (e) {
+      return false // 写盘失败下次启动重试
+    }
+  }
+  // notes sidecar 同面键（'mcp|*' / 'mcp|<pattern>''）一并清理
+  const notes = readNotes(agentDir)
+  const staleKeys = Object.keys(notes).filter(k => k.indexOf('mcp|') === 0)
+  if (staleKeys.length) {
+    staleKeys.forEach(k => { delete notes[k] })
+    writeNotes(agentDir, notes)
+    changed = true
+  }
+  if (changed) console.log('[permissions] 已清理旧版 MCP 面规则（连接器统一走 mcp__服务器名* 通配键）')
+  return changed
+}
+
 // 无 config 时写入默认策略；已有 config 补齐缺失工具键 + agentDir 放行幂等校正
 function ensureConfig(agentDir) {
   const file = configPath(agentDir)
   if (fs.existsSync(file)) {
     const backfilled = backfillToolDefaults(agentDir)
-    const stripped = stripOrphanWebEnable(agentDir)
-    return patchAgentDirAllow(agentDir) || backfilled || stripped
+    const strippedWebEnable = stripOrphanWebEnable(agentDir)
+    const strippedLegacyMcp = stripLegacyMcpSurface(agentDir)
+    return patchAgentDirAllow(agentDir) || backfilled || strippedWebEnable || strippedLegacyMcp
   }
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, JSON.stringify(defaultConfig(agentDir), null, 2))

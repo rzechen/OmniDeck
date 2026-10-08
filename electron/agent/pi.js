@@ -490,6 +490,7 @@ function systemPrompt() {
     '内部思考过程（thinking）请使用中文撰写。',
     '执行多步骤任务（≥2 步）时，必须先用 todo_write 工具建立任务清单。此后每完成一项或切换到下一项时都要立即调用 todo_write 更新状态（in_progress → completed 逐项推进），任务全部结束前保持清单与实际进度严格同步——用户界面实时展示此清单，只建不更会让进度面板停留在初始状态。',
     '当信息不足或存在歧义时，先用 ask_user 工具向用户提问再行动。',
+    '使用浏览器自动化（mcp__playwright 工具）访问需要登录的站点后：若遇到登录墙 / 扫码 / 验证码（无头模式无法人工交互），立即调用 report_site_auth 工具以 status=login_required 上报，随后告知用户点击系统通知即可一键转有头完成登录（登录完成自动恢复无头，无需手动操作）；确认站点已登录时同样以 status=logged_in 上报（系统将自动切回无头模式）。',
     '协助用户处理日常办公任务：阅读、整理、检索本地文件。'
   ]
   // 联网能力引导按当前实际配置动态生成：
@@ -794,6 +795,9 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
       builtinTools.cacheTodos(chatId, todos)
       onEvent({ kind: 'todo_update', chatId, todos })
     }),
+    // 站点登录态上报：撞登录墙 → 主进程登记 + login.required 通知（引导有头首登）
+    builtinTools.createSiteAuthExtension(r =>
+      onEvent({ kind: 'site_auth', chatId, url: r.url, status: r.status, note: r.note })),
     builtinTools.createCdExtension(cwdState),
     builtinTools.createExecToolsExtension(cwdState, path.join(cwd, '.tmp'), getSkillEnv),
     builtinTools.createFileToolsExtension(cwdState),

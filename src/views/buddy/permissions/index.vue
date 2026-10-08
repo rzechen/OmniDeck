@@ -41,13 +41,21 @@
               </div>
               <div class="ob-perm-list">
                 <div v-for="row in g.items" :key="row.name" class="ob-perm-item">
-                  <div class="ob-perm-row" :class="{ off: row.disabled }">
+                  <div class="ob-perm-row" :class="{ off: row.disabled, inherited: row.inherited }">
                     <span class="ob-row-ico"><svg-icon :icon-class="g.icon" /></span>
                     <span class="ob-row-label" :title="row.label">{{ row.label }}</span>
                     <span class="ob-row-name" :title="row.name">{{ row.name }}</span>
                     <span class="ob-row-desc" :title="row.description">{{ row.description }}</span>
                     <el-tag v-if="row.disabled" size="small" type="info" effect="plain" class="ob-disabled-tag">已禁用</el-tag>
                     <el-tag v-if="row.appended" size="small" type="warning" effect="plain" class="ob-appended-tag">追加</el-tag>
+                    <el-tag
+                      v-if="row.inherited"
+                      size="small"
+                      type="info"
+                      effect="plain"
+                      class="ob-inherited-tag"
+                      :title="'该连接器未单独配置规则，按全局兜底策略执行（当前：' + fallbackLabel + '）；调整动作后成为专属规则'"
+                    >继承兜底</el-tag>
                     <el-button
                       v-if="row.runtime && row.runtime.modules"
                       size="small"
@@ -63,7 +71,7 @@
                       class="ob-detail-toggle"
                       @click="toggleDetail(row)"
                     >细则 {{ row.patterns.length }}<svg-icon :icon-class="row.expanded ? 'arrow-up' : 'arrow-down'" /></el-button>
-                    <el-radio-group v-model="row.action" size="small" class="ob-action-group" @change="markDirty">
+                    <el-radio-group v-model="row.action" size="small" class="ob-action-group" @change="onRowActionChange(row)">
                       <el-radio-button label="allow">允许</el-radio-button>
                       <el-radio-button label="ask">每次确认</el-radio-button>
                       <el-radio-button label="deny">禁用</el-radio-button>
@@ -72,7 +80,7 @@
                   <!-- 匹配细则展开区：pattern 级规则（如 bash 的 git status 放行） -->
                   <div v-if="row.expanded && row.patterns.length" class="ob-detail">
                     <div v-for="(pt, pi) in row.patterns" :key="pi" class="ob-detail-row">
-                      <el-input v-model.trim="pt.pattern" size="small" placeholder="匹配模式，如 git status / *.log" @input="markDirty" />
+                      <el-input v-model.trim="pt.pattern" size="small" placeholder="匹配模式，如 git status / *.log" @input="onPatternInput(row)" />
                       <el-select v-model="pt.action" size="small" @change="markDirty">
                         <el-option label="允许" value="allow" />
                         <el-option label="每次确认" value="ask" />
@@ -92,7 +100,7 @@
                 <span class="ob-perm-ico"><svg-icon icon-class="lock" /></span>
                 <span class="ob-perm-title">特殊面</span>
                 <span class="ob-perm-count">{{ specialRows.length }}</span>
-                <span class="ob-perm-desc">跨工具管控面：路径规则 / 工作空间外目录 / 连接器旧面 / 技能 / 全局兜底（能力清单不呈现此类管理面）</span>
+                <span class="ob-perm-desc">跨工具管控面：路径规则 / 工作空间外目录 / 技能 / 全局兜底（连接器工具见上方「MCP 通配规则」分组）</span>
               </div>
               <div class="ob-perm-list">
                 <div v-for="row in specialRows" :key="row.name" class="ob-perm-item">
@@ -108,7 +116,7 @@
                       class="ob-detail-toggle"
                       @click="toggleDetail(row)"
                     >细则 {{ row.patterns.length }}<svg-icon :icon-class="row.expanded ? 'arrow-up' : 'arrow-down'" /></el-button>
-                    <el-radio-group v-model="row.action" size="small" class="ob-action-group" @change="markDirty">
+                    <el-radio-group v-model="row.action" size="small" class="ob-action-group" @change="onSpecialActionChange(row)">
                       <el-radio-button label="allow">允许</el-radio-button>
                       <el-radio-button label="ask">每次确认</el-radio-button>
                       <el-radio-button label="deny">禁用</el-radio-button>
@@ -285,6 +293,11 @@ export default {
         n += (v && typeof v === 'object') ? Object.keys(v).length : 1
       })
       return n
+    },
+    // 当前全局兜底动作的中文标签（继承兜底角标提示用）
+    fallbackLabel() {
+      const a = (this.specialRows.find(r => r.name === '*') || {}).action || 'ask'
+      return { allow: '允许', ask: '每次确认', deny: '禁用' }[a] || '每次确认'
     }
   },
   created() {
@@ -341,7 +354,9 @@ export default {
               key: k, label: t.label, description: t.description, perm: t.perm,
               // 运行时状态（原能力清单承接）：禁用态标识 + 预装依赖弹窗数据
               disabled: !!t.disabled,
-              runtime: t.runtime || null
+              runtime: t.runtime || null,
+              // 系统默认项（静态工具 / 内置连接器）= true；自建连接器动态条目 = false
+              systemDefault: t.systemDefault !== false
             }
           })
           this.viewGroups.push(group)
@@ -392,6 +407,11 @@ export default {
             description: meta.description,
             disabled: meta.disabled,
             runtime: meta.runtime,
+            systemDefault: meta.systemDefault !== false,
+            // 自建连接器初始无专属规则：动作与兜底等价时标记「继承兜底」，
+            // 被显式配置命中或用户手动调整后取消（与序列化「等价兜底不落键」
+            // 口径一致）
+            inherited: meta.systemDefault === false && this.permDefault(meta.perm, fallback) === fallback,
             action: this.permDefault(meta.perm, fallback),
             patterns: [],
             expanded: false
@@ -420,6 +440,8 @@ export default {
         if (this.catalogIndex[f.surface]) {
           const hit = rowOf(f.surface)
           if (!hit) return
+          // 配置中存在该面的显式规则 → 不再是继承兜底态
+          hit.inherited = false
           if (f.pattern === '*') hit.action = f.action
           else hit.patterns.push({ pattern: f.pattern, action: f.action, desc: f.desc })
           return
@@ -477,7 +499,15 @@ export default {
           perm[name] = obj
         }
       }
-      this.viewGroups.forEach(g => g.items.forEach(r => write(r.name, r.action, r.patterns)))
+      // 当前编辑态兜底动作（特殊面 '*' 行）：非系统默认条目动作与其等价时
+      // 不落显式键（回落兜底即可），避免保存 / 重置后自建连接器 ask 键成为
+      // 既看不见差异、又清不掉的冗余配置
+      const fallbackAction = (this.specialRows.find(r => r.name === '*') || {}).action || 'ask'
+      this.viewGroups.forEach(g => g.items.forEach(r => {
+        const hasPatterns = (r.patterns || []).some(p => p.pattern)
+        if (r.systemDefault === false && !hasPatterns && r.action === fallbackAction) return
+        write(r.name, r.action, r.patterns)
+      }))
       this.specialRows.forEach(r => write(r.name, r.action, r.patterns))
       // 自定义行：按 surface 聚合（单 '*' 标量 / 多条对象）
       const bySurface = {}
@@ -617,11 +647,39 @@ export default {
     addPattern(row) {
       row.patterns.push({ pattern: '', action: 'ask', desc: '' })
       row.expanded = true
+      // 添加细则即显式意图：立即脱离继承兜底态
+      if (row.systemDefault === false) row.inherited = false
       this.markDirty()
     },
     removePattern(row, i) {
       row.patterns.splice(i, 1)
+      this.refreshInherited(row)
       this.markDirty()
+    },
+    // 细则 pattern 输入：填入有效 pattern → 脱离继承态；全部清空 → 重算
+    onPatternInput(row) {
+      this.refreshInherited(row)
+      this.markDirty()
+    },
+    // 工具行三态切换：自建连接器切回与全局兜底等价且无细则时恢复继承态
+    onRowActionChange(row) {
+      this.refreshInherited(row)
+      this.markDirty()
+    },
+    // 特殊面动作变更：兜底 '*' 变化会改变所有自建连接器行的「等价」判定，
+    // 需统一重算继承态（如兜底改 allow 后，ask 的连接器行即成为显式规则）
+    onSpecialActionChange(row) {
+      if (row.name === '*') {
+        this.viewGroups.forEach(g => g.items.forEach(r => this.refreshInherited(r)))
+      }
+      this.markDirty()
+    },
+    // 重算自建连接器行的继承态：无有效细则且动作 == 兜底动作 → 继承
+    refreshInherited(row) {
+      if (!row || row.systemDefault !== false) return
+      const fb = (this.specialRows.find(r => r.name === '*') || {}).action || 'ask'
+      const hasPatterns = (row.patterns || []).some(p => p.pattern)
+      row.inherited = !hasPatterns && row.action === fb
     },
     addCustomRow() {
       this.customRows.push({ surface: '', desc: '', pattern: '*', action: 'ask' })
@@ -783,6 +841,14 @@ export default {
   &.off .ob-row-desc {
     opacity: 0.55;
   }
+
+  /* 继承兜底态（自建连接器无专属规则）：仅文字轻弱化，控件照常可操作；
+     比 disabled 态（0.55）更轻，避免被误判为不可用 */
+  &.inherited .ob-row-label,
+  &.inherited .ob-row-name,
+  &.inherited .ob-row-desc {
+    opacity: 0.72;
+  }
 }
 
 .ob-row-ico {
@@ -830,6 +896,13 @@ export default {
 
 .ob-disabled-tag {
   flex-shrink: 0;
+}
+
+/* 继承兜底角标：虚边灰调，区别于「追加」的警示橙 */
+.ob-inherited-tag {
+  flex-shrink: 0;
+  --el-tag-border-color: var(--border-color);
+  opacity: 0.85;
 }
 
 /* 「预装依赖」按钮（原能力清单承接）：行尾、细则开关左侧，不被压缩 */

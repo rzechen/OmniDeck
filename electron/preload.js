@@ -114,10 +114,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     // 深度研究（P3）：workflow 运行状态（历史卡片回放）
     workflowStatus: payload => ipcRenderer.invoke('omnibuddy:workflow:status', payload),
+    // 通知中心：类型×渠道矩阵 + webhook 配置 + 测试投递
+    notify: {
+      config: () => ipcRenderer.invoke('omnibuddy:notify:config'),
+      update: patch => ipcRenderer.invoke('omnibuddy:notify:update', patch),
+      test: channel => ipcRenderer.invoke('omnibuddy:notify:test', channel)
+    },
     // MCP 服务管理（pi 内置 MCP，配置落 <agentDir>/mcp.json）
     mcp: {
       list: () => ipcRenderer.invoke('omnibuddy:mcp:list'),
-      save: servers => ipcRenderer.invoke('omnibuddy:mcp:save', servers)
+      save: servers => ipcRenderer.invoke('omnibuddy:mcp:save', servers),
+      // 内置浏览器（playwright）有头模式：只读状态（开/关由登录闭环自动驱动）
+      headedGet: () => ipcRenderer.invoke('omnibuddy:mcp:headed:get')
     },
     // 联网搜索（pi-web-access：web_search / fetch_content，免配置即用）
     webSearch: {
