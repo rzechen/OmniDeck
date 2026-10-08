@@ -8,6 +8,7 @@ native/build
 release
 runtime
 lib
+external-services/
 .DS_Store
 *.log
 .vscode
