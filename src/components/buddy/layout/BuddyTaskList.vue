@@ -14,25 +14,17 @@
     </div>
 
     <div v-for="g in groups" :key="g.key" class="buddy-group">
-      <!-- 分组标题：展示名（无则磁盘路径），title 提示完整路径 -->
-      <div class="buddy-group-title" :title="g.dir">
+      <!-- 分组标题：展示名（无则磁盘路径），title 提示完整路径；点击展开/收起组内任务 -->
+      <div class="buddy-group-title" :class="{ collapsed: !!collapsedGroups[g.key] }" :title="g.dir" @click="toggleGroup(g.key)">
+        <svg-icon icon-class="arrow-down" class="buddy-group-arrow" />
         <svg-icon icon-class="folder" class="buddy-group-ico" />
         <span class="buddy-group-name">{{ g.name }}</span>
         <span class="buddy-group-count">{{ g.chats.length }}</span>
       </div>
 
-      <template v-for="(sec, si) in g.sections">
-        <!-- 置顶区起始：带「置顶」文字的分隔线 -->
-        <div v-if="sec.pinned" :key="'ph' + si" class="buddy-pin-divider">
-          <span class="buddy-pin-divider-line"></span>
-          <span class="buddy-pin-divider-text">置顶</span>
-          <span class="buddy-pin-divider-line"></span>
-        </div>
-        <!-- 置顶区收尾：普通段前的闭合细线（与上方「置顶」线围出完整区域） -->
-        <div v-if="!sec.pinned && si > 0" :key="'pe' + si" class="buddy-pin-divider buddy-pin-divider-end">
-          <span class="buddy-pin-divider-line"></span>
-        </div>
-
+      <!-- 组内容：收起时整体隐藏（v-show 不支持 template，包一层 div 承载） -->
+      <div v-show="!collapsedGroups[g.key]" class="buddy-group-body">
+        <template v-for="(sec, si) in g.sections">
         <div
           v-for="c in sec.chats"
           :key="c.id"
@@ -70,7 +62,8 @@
             <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="emit('delete-chat', c)" />
           </span>
         </div>
-      </template>
+        </template>
+      </div>
     </div>
   </div>
 </template>
@@ -78,8 +71,9 @@
 <script setup>
 // OmniBuddy 侧边栏任务列表：按会话工作空间的展示名（displayName）分组
 // 分组名 = displayName || workspaceDir（快照自会话元数据），纯展示组件
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import { useStore } from 'vuex'
+import { getItem, setItem } from '@/utils/storage/db'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
 defineOptions({ name: 'BuddyTaskList' })
@@ -147,6 +141,15 @@ const groups = computed(() => {
     })
 })
 
+// ===== 分组展开/收起 =====
+// 收起的分组 key 集合，持久化到 IndexedDB（应用启动时 loadAll 已预热内存缓存，getItem 同步取）
+const COLLAPSED_KEY = 'buddyCollapsedGroups'
+const collapsedGroups = reactive(getItem(COLLAPSED_KEY, {}))
+function toggleGroup(key) {
+  collapsedGroups[key] = !collapsedGroups[key]
+  setItem(COLLAPSED_KEY, collapsedGroups)
+}
+
 // 会话实时状态（store 会话池快照）：streaming = 流式输出中 / pending = 待权限确认
 function stateOf(c) {
   const s = store.getters['buddyChat/session'](c.id)
@@ -187,41 +190,7 @@ function onChatLeave(e) {
   margin-bottom: 10px;
 }
 
-/* 组内「置顶」分隔线：置顶段与普通段交界（线 - 文字 - 线） */
-.buddy-pin-divider {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px 3px;
-  margin-top: 2px;
-
-  .buddy-pin-divider-line {
-    flex: 1;
-    height: 1px;
-    background: $sidebar-item-hover;
-  }
-
-  .buddy-pin-divider-text {
-    flex-shrink: 0;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    color: var(--primary-color);
-    opacity: 0.85;
-  }
-}
-
-/* 置顶区收尾线：稍深更醒目（围出置顶区域，与普通任务明确分区） */
-.buddy-pin-divider-end {
-  margin-top: 0;
-  padding: 2px 10px 4px;
-
-  .buddy-pin-divider-line {
-    background: var(--border-color);
-  }
-}
-
-/* 分组标题：展示名 + 计数 */
+/* 分组标题：展示名 + 计数（整行可点击展开/收起） */
 .buddy-group-title {
   display: flex;
   align-items: center;
@@ -232,6 +201,24 @@ function onChatLeave(e) {
   letter-spacing: 0.3px;
   color: $text-secondary;
   white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    color: $text-primary;
+  }
+
+  /* 展开/收起箭头：展开朝下，收起时旋回朝右 */
+  .buddy-group-arrow {
+    font-size: 11px;
+    flex-shrink: 0;
+    color: $text-secondary;
+    transition: transform 0.2s ease;
+  }
+
+  &.collapsed .buddy-group-arrow {
+    transform: rotate(-90deg);
+  }
 
   .buddy-group-ico {
     font-size: 12px;

@@ -6,7 +6,7 @@
       <!-- data-mid：问题导航定位锚点（页面大纲面板按 id 查找元素滚动定位） -->
       <message-bubble
         v-if="m.role === 'user' || m.role === 'assistant'"
-        :key="(m.id || i) + '-msg'"
+        :key="(m._localId || m.id || i) + '-msg'"
         :data-mid="m.id"
         :message="m"
         :streaming="streaming"

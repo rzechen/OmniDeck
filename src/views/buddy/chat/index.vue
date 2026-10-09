@@ -190,20 +190,6 @@
                 </template>
               </composer-picker>
 
-              <!-- 联网开关（web_search / fetch_content，免密钥即可用，主进程持久化；关闭后新会话屏蔽联网工具） -->
-              <composer-picker
-                picker-key="web"
-                :active-key="openSelect"
-                :model-value="webEnabled ? 'on' : 'off'"
-                trigger-icon="search"
-                :trigger-label="webEnabled ? '联网' : '已断网'"
-                trigger-title="联网搜索：开启后可搜索网页与抓取在线内容，免密钥即可用"
-                panel-title="联网搜索"
-                :items="webItems"
-                @toggle="toggleSelect('web')"
-                @select="onSelectWeb"
-              />
-
             </template>
           </buddy-composer>
         </div>
@@ -258,6 +244,7 @@ import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
 import { getItem, setItem } from '@/utils/storage/db'
 import { computeBranchView } from '@/utils/buddy/branchView'
+import { genLocalId } from '@/store/buddyChat'
 import { bus } from '@/utils/ui/bus'
 import { useFeedback } from '@/composables/useFeedback'
 
@@ -282,8 +269,6 @@ const workspaces = ref([])
 const openSelect = ref('')
 // ===== 权限模式（只读 / 自动 / 每次确认），主进程持久化 =====
 const permissionMode = ref('confirm')
-// ===== 联网开关（web_search / fetch_content），主进程持久化 =====
-const webEnabled = ref(true)
 // ===== 检查点（N4）：抽屉开关（列表加载与回滚在 CheckpointDrawer 内自治） =====
 const cpDrawer = ref(false)
 // ===== 右栏预览：当前预览目标（产物文件 / 放大代码块），null 为关闭 =====
@@ -386,11 +371,6 @@ const permissionModeItems = computed(() => [
   { value: 'auto', label: '自动', svg: 'magic-stick', tag: '自主执行' },
   { value: 'confirm', label: '每次确认', svg: 'key', tag: '推荐' }
 ])
-// ===== 联网开关选择器 =====
-const webItems = computed(() => [
-  { value: 'on', label: '开启', svg: 'search', tag: '免密钥可用' },
-  { value: 'off', label: '关闭', svg: 'circle_close', tag: '屏蔽联网工具' }
-])
 // 待确认浮动条：展示队列首条
 const permQueue = computed(() => (sess.value && sess.value.permQueue) || [])
 const pendingPerm = computed(() => permQueue.value.length ? permQueue.value[0] : null)
@@ -457,7 +437,6 @@ loadProviders()
 loadWorkspaces()
 restoreWorkspaceLink()
 loadPermissionMode()
-loadWebEnabled()
 // 工作空间重命名后同步底部空间名：主进程已级联更新会话快照与登记表
 bus.on('omnibuddy:workspaces-changed', onWorkspacesChanged)
 // 右栏预览唤起（消息流内产物卡片点击 / 代码块「放大」按钮经全局总线上抛）
@@ -763,6 +742,7 @@ async function send() {
         role: 'user',
         content: text,
         steered: true,
+        _localId: genLocalId(),
         anchors: branchView.value.anchors.length ? branchView.value.anchors.slice() : undefined,
         createdAt: Date.now()
       }
@@ -823,6 +803,7 @@ async function send() {
       role: 'user',
       content: text,
       fileAttachments: files.length ? files : undefined,
+      _localId: genLocalId(),
       anchors: anchors.length ? anchors : undefined,
       createdAt: Date.now()
     }
@@ -836,6 +817,7 @@ async function send() {
     thinking: true,
     seconds: 0,
     createdAt: Date.now(),
+    _localId: genLocalId(),
     items: [],
     anchors: anchors.length ? anchors : undefined
   }
@@ -921,25 +903,6 @@ async function onSelectPermissionMode(mode) {
   await api().setPermissionMode(mode)
   const name = { readonly: '只读', auto: '自动', confirm: '每次确认' }[mode] || mode
   message.success('权限模式：' + name)
-}
-
-// ===== 联网开关：切换即时持久化（新建会话按新状态装载/屏蔽 web 工具） =====
-async function loadWebEnabled() {
-  const webApi = api().webSearch
-  if (!webApi || !webApi.get) return
-  try {
-    const cfg = await webApi.get()
-    webEnabled.value = !!cfg.enabled
-  } catch (e) { /* 保持默认开启 */ }
-}
-
-async function onSelectWeb(v) {
-  const next = v === 'on'
-  if (next === webEnabled.value) return
-  webEnabled.value = next
-  const webApi = api().webSearch
-  if (webApi) await webApi.setEnabled(next)
-  message.success(next ? '已开启联网：新对话可搜索与抓取网页' : '已关闭联网：新对话屏蔽联网工具')
 }
 
 // 停止生成（仅用户显式触发；切页签/返回 deck/关页签不再中断，主进程继续执行）
@@ -1133,6 +1096,7 @@ async function editResend({ message: msg, text }) {
     thinking: true,
     seconds: 0,
     createdAt: Date.now(),
+    _localId: genLocalId(),
     items: [],
     anchors
   }

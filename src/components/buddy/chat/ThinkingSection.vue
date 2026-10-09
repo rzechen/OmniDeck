@@ -61,7 +61,7 @@
         />
 
         <!-- 工具调用（含 MCP 工具） -->
-        <div v-else-if="item.type === 'tool'" :key="'tool-' + i" class="ob-tool">
+        <div v-else-if="item.type === 'tool'" :key="toolKey(item)" class="ob-tool">
           <!-- 摘要行：状态图标三态（运行中 / 错误 / 完成）+ MCP 服务名 + 中文名 + 原始名 tag -->
           <div class="ob-tool-head" :class="{ error: item.isError }" @click="toggleTool(item)">
             <svg-icon

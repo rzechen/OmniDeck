@@ -22,6 +22,45 @@
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
     <div class="ob-page-body">
+      <!-- 编写 Skill 工具可用性说明（按执行场景；可折叠） -->
+      <div class="ob-skill-tools-tip">
+        <div class="ob-tip-row" @click="toolTipOpen = !toolTipOpen">
+          <svg-icon icon-class="tips" class="ob-tip-icon" />
+          <div class="ob-tip-text">
+            <b>编写 Skill 前先看工具边界：</b>
+            SKILL.md 主体在主会话执行（全部工具可用），agents/*.md 子代理只认 pi 内置工具、联网工具与 MCP——curl / python 等写入子代理白名单会报错，展开看完整清单。
+          </div>
+          <svg-icon :icon-class="toolTipOpen ? 'arrow-up' : 'arrow-down'" class="ob-tip-arrow" />
+        </div>
+        <div v-if="toolTipOpen" class="ob-tip-detail">
+          <div class="ob-tip-case">
+            <div class="ob-tip-case-title">SKILL.md 主体（主会话执行）可用工具</div>
+            <div class="ob-tip-case-body">
+              <p><span class="ok">文件与命令</span>：read、bash、edit、write、find、grep、ls、codemode、tool_search</p>
+              <p><span class="ok">代码与请求</span>：python、node、curl、multi_edit、append、mkdir、cd</p>
+              <p><span class="ok">联网</span>：web_search、fetch_content、source_check、get_search_content</p>
+              <p><span class="ok">文档与图像</span>：doc_export、preview_export、generate_image</p>
+              <p><span class="ok">交互与任务</span>：ask_user、todo_write、todo_read、report_site_auth、subagent、bg_wait、contact_supervisor、structured_output、subagent_supervisor</p>
+              <p><span class="ok">深度研究</span>：workflow、workflow_control</p>
+              <p><span class="ok">记忆</span>：memory_write、memory_read、memory_search、memory_forget、memory_restore、scratchpad、memory_status</p>
+              <p><span class="ok">连接器</span>：mcp__服务器__工具（如内置浏览器 mcp__playwright__*，完整清单见「能力」页）</p>
+            </div>
+          </div>
+          <div class="ob-tip-case">
+            <div class="ob-tip-case-title">子代理 agents/*.md 可用工具</div>
+            <div class="ob-tip-case-body">
+              <p><span class="ok">文件与命令</span>：read、bash、edit、write、find、grep、ls、codemode、tool_search</p>
+              <p><span class="ok">联网</span>：web_search、fetch_content、source_check、get_search_content</p>
+              <p><span class="ok">图像</span>：generate_image</p>
+              <p><span class="ok">交付面</span>：contact_supervisor、structured_output</p>
+              <p><span class="ok">连接器</span>：mcp:服务器名（如 mcp:playwright）</p>
+              <p><span class="no">不可用</span>：curl、python、node、multi_edit、append、mkdir、cd、doc_export、preview_export、workflow、memory 系列等宿主扩展工具——写入 tools 白名单会直接报错</p>
+              <p><span class="alt">替代</span>：需要这些能力时经 bash 执行命令行等价物（如 bash 里跑 <code>curl -sL "&lt;url&gt;"</code> 抓网页、写好脚本后 <code>python3 xxx.py</code> 执行）</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 空状态 -->
       <div v-if="!skillList.length && !skillLoading" class="ob-empty">
         <div class="ob-empty-icon">
@@ -124,6 +163,9 @@ import { useFeedback } from '@/composables/useFeedback'
 defineOptions({ name: 'OmniBuddySkills' })
 
 const { message, confirm } = useFeedback()
+
+// ===== 工具边界说明（可折叠） =====
+const toolTipOpen = ref(false)
 
 // ===== 技能管理 =====
 const skillList = ref([])
@@ -303,6 +345,104 @@ onActivated(() => {
 /* 加载骨架容器内边距 */
 .ob-sk-wrap {
   padding: 18px 4px;
+}
+
+/* ===== 编写 Skill 工具边界说明（顶部可折叠提示条） ===== */
+.ob-skill-tools-tip {
+  margin: 0 4px 14px;
+  border: 1px solid rgba(var(--primary-color-rgb, 64, 158, 255), 0.25);
+  border-radius: 8px;
+  background: rgba(var(--primary-color-rgb, 64, 158, 255), 0.05);
+  overflow: hidden;
+
+  code {
+    padding: 0 4px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 12px;
+    border-radius: 4px;
+    background: rgba(var(--primary-color-rgb, 64, 158, 255), 0.1);
+  }
+}
+
+.ob-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ob-tip-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--primary-color, #409eff);
+}
+
+.ob-tip-text {
+  flex: 1;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary, #303133);
+
+  b { font-weight: 600; }
+}
+
+.ob-tip-arrow {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary, #909399);
+}
+
+.ob-tip-detail {
+  padding: 2px 14px 12px 40px;
+}
+
+.ob-tip-case {
+  & + & { margin-top: 10px; }
+}
+
+.ob-tip-case-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary, #303133);
+  margin-bottom: 4px;
+}
+
+.ob-tip-case-body {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary, #606266);
+
+  p { margin: 0; }
+}
+
+.ob-tip-case-body .ok,
+.ob-tip-case-body .no,
+.ob-tip-case-body .alt {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+.ob-tip-case-body .ok {
+  color: var(--success-color, #67c23a);
+  background: rgba(103, 194, 58, 0.1);
+}
+
+.ob-tip-case-body .no {
+  color: var(--danger-color, #f56c6c);
+  background: rgba(245, 108, 108, 0.1);
+}
+
+.ob-tip-case-body .alt {
+  color: var(--warning-color, #e6a23c);
+  background: rgba(230, 162, 60, 0.12);
 }
 
 /* 详情弹窗：所需变量标签（✓ 已录入 / ! 缺失）——cells slot 内容带父 scope，需深度选择器

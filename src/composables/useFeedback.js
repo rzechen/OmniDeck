@@ -6,8 +6,14 @@ import { getCurrentInstance } from 'vue'
 
 export function useFeedback() {
   const proxy = getCurrentInstance().proxy
+  // $message 的 success/warning/info/error 是挂在函数上的静态方法，
+  // 直接 bind 会丢失，故包一层并透传各类型方法
+  const message = (...args) => proxy.$message(...args)
+  ;['success', 'warning', 'info', 'error'].forEach(type => {
+    message[type] = (...args) => proxy.$message[type](...args)
+  })
   return {
-    message: proxy.$message.bind(proxy),
+    message,
     confirm: proxy.$confirm.bind(proxy),
     prompt: proxy.$prompt.bind(proxy),
     alert: proxy.$alert.bind(proxy),
