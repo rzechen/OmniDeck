@@ -177,7 +177,6 @@ function ensureTurnMessage(s) {
   }
   // 兜底创建时带上本轮分支线路（正常流程占位消息由页面层先行 push）
   if (s.turnAnchors && s.turnAnchors.length) msg.anchors = s.turnAnchors.slice()
-  console.log('[buddy-diag] 新建 turnMsg（分裂现场）sessionId=', s.id || '(?)', 'turnMsg旧=', s.turnMsg ? '存在' : 'null', 'streaming=', s.streaming) // 临时诊断
   s.messages.push(msg)
   s.turnMsg = msg
   s.cycleBase = ''
@@ -401,7 +400,6 @@ export default {
       // 中断后迟到的 assistant_end：pi 中止后仍会送达本轮落盘回执（含消息 id、
       // 上下文快照等）——回填到刚被中断的消息（restore id/用量，不新建气泡）
       if (!s.streaming && e.type === 'assistant_end' && s.lastFinishedMsg) {
-        console.log('[buddy-diag] 迟到 assistant_end 归并 sessionId=', e.sessionId) // 临时诊断
         const m = s.lastFinishedMsg
         s.lastFinishedMsg = null
         if (s.messages.indexOf(m) >= 0) {
@@ -433,7 +431,6 @@ export default {
       // 消息会出现「多个深度思考、仅首段有 meta 行」的碎片观感 —— 自发续跑
       // 本质是同一任务的延续，复用末条助手消息聚合展示（一个思考区、一个 meta）
       if (e.type === 'assistant_start' && !s.streaming && !s.lastFinishedMsg) {
-        console.log('[buddy-diag] 幽灵回合兜底触发（streaming=false→true）sessionId=', e.sessionId) // 临时诊断
         s.streaming = true
         s.lastFinishedMsg = null
         // 尾部一路找本任务的助手消息（越过 todo/permission 等展示行；遇 user
@@ -450,7 +447,6 @@ export default {
         }
       }
       if (!s.streaming && TURN_EVENTS.indexOf(e.type) >= 0) {
-        console.log('[buddy-diag] 丢弃迟到事件 type=', e.type, 'sessionId=', e.sessionId) // 临时诊断
         return
       }
       switch (e.type) {
@@ -504,7 +500,6 @@ export default {
           break
         }
         case 'assistant_end': {
-          console.log('[buddy-diag] 实时 assistant_end mid=', !!e.mid, 'sessionId=', e.sessionId, 'content=', JSON.stringify(String(e.content || '').slice(0, 40))) // 临时诊断
           const msg = ensureTurnMessage(s)
           msg.isThinking = false
           msg.content = s.cycleBase + (e.content || '')
@@ -742,7 +737,6 @@ export default {
           commit('NOTICE', { sessionId: e.sessionId, kind: 'warning', text: 'Agent 模式不可用，已回退纯对话：' + (e.error || '') })
           break
         case 'done':
-          console.log('[buddy-diag] done 到达 finishTurn sessionId=', e.sessionId, 'turnMsg=', s.turnMsg ? '有' : '无') // 临时诊断
           s.streaming = false
           // 收尾防抖（600ms）：后台子代理唤醒 / followUp 排队的续跑回合可能在
           // 毫秒级后开启（assistant_start 到达即置回 streaming）——立即 finishTurn
