@@ -243,8 +243,9 @@ defineExpose({ focus })
   flex-direction: column;
 }
 
-/* 输入容器：悬浮卡片式大圆角气泡（无边框，层次由阴影承载） */
+/* 输入容器：悬浮卡片式大圆角气泡（1px 细边框 + 轻阴影；hover 边框清晰浮现） */
 .bc-box {
+  border: 1px solid var(--border-color);
   border-radius: 22px;
   background: var(--card-bg, #fff);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
@@ -253,6 +254,10 @@ defineExpose({ focus })
   flex-direction: column;
   gap: 6px;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
+
+  &:hover {
+    border-color: rgba(var(--primary-color-rgb), 0.35);
+  }
 
   &.focus {
     border-color: rgba(var(--primary-color-rgb), 0.55);

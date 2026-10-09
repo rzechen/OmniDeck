@@ -103,6 +103,34 @@ function baseDirReadAllowRules(agentDir) {
   return dirAllowPatterns(path.dirname(agentDir), ['*', '*/*', '*/*/*'])
 }
 
+// ===== 宿主配置写保护（deny，10-09 事故实证：任务级排障时 agent 手改
+// settings.json 注入 child-mcp「修环境」——环境装配是宿主职责，agent 只读）=====
+// 覆盖：settings.json / mcp.json / extensions 子树（含权限系统自身配置
+// extensions/pi-permission-system/config.json，防篡改绕过）。
+// 读不限制（自省/检视正常）；写三面拦截：external_directory（bash 方向不明）、
+// external_directory_write（write 工具）、path（bash cat/重定向场景）。
+// 空格路径同样登记三种字面形态（无引号 / 反斜杠转义 / 双引号包裹）
+function hostDenyVariants(p, rules) {
+  rules[p] = 'deny'
+  if (p.indexOf(' ') >= 0) {
+    rules[p.replace(/ /g, '\\ ')] = 'deny'
+    rules['"' + p + '"'] = 'deny'
+  }
+  return rules
+}
+
+function hostConfigDenyRules(agentDir) {
+  if (!agentDir) return {}
+  const rules = {}
+  hostDenyVariants(path.join(agentDir, 'settings.json'), rules)
+  hostDenyVariants(path.join(agentDir, 'mcp.json'), rules)
+  const ext = path.join(agentDir, 'extensions')
+  for (const pat of [ext, path.join(ext, '*'), path.join(ext, '*/*'), path.join(ext, '*/*/*')]) {
+    hostDenyVariants(pat, rules)
+  }
+  return rules
+}
+
 // 默认策略（平衡）：工具默认权限从 capabilities.js 统一目录派生，此处只
 // 保留目录之外的横切规则（workflow 控制面 / 兜底 / 路径面 / 托管放行）
 // 注意：config.json 顶层只能放扩展 schema 认识的 key（strictObject 校验，
@@ -130,20 +158,24 @@ function defaultConfig(agentDir) {
         // _write 面、只读工具读走 _read 面、bash 等方向不明落裸族名。
         // 显式 _write 面必须镜像族面的 agentDir 托管放行：显式方向键排在
         // 裸键糖展开条目之后（后写胜出），若只写 '*' 兜底 ask 会压过糖展开
-        // 的 agentDir allow，playwright 产物等应用自管写入将被逐次打断
-        external_directory: Object.assign({ '*': 'ask' }, agentDirAllowRules(agentDir)),
-        external_directory_write: Object.assign({ '*': 'ask' }, agentDirAllowRules(agentDir)),
+        // 的 agentDir allow，playwright 产物等应用自管写入将被逐次打断。
+        // 托管 deny（宿主配置写保护）再排在 allow 之后——后写胜出
+        external_directory: Object.assign(
+          { '*': 'ask' }, agentDirAllowRules(agentDir), hostConfigDenyRules(agentDir)),
+        external_directory_write: Object.assign(
+          { '*': 'ask' }, agentDirAllowRules(agentDir), hostConfigDenyRules(agentDir)),
         // 应用数据根只读放行：显式 external_directory_read 条目在裸键糖展开的
         // 条目之后（后写胜出），可越过 external_directory 的 '*' 兜底 ask
         external_directory_read: Object.assign({ '*': 'ask' }, baseDirReadAllowRules(agentDir)),
-        // 跨工具路径面：密钥与本地凭据文件一律拒绝（含 bash cat 场景）
-        path: {
+        // 跨工具路径面：密钥与本地凭据文件一律拒绝（含 bash cat 场景）；
+        // 宿主配置文件（settings.json / mcp.json / extensions 子树）同样托管 deny
+        path: Object.assign({
           '*': 'allow',
           '*.env': 'deny',
           '*.env.*': 'deny',
           '*.env.example': 'allow',
           '.ssh/*': 'deny'
-        }
+        }, hostConfigDenyRules(agentDir))
       }
     )
   }
@@ -156,17 +188,27 @@ function defaultConfig(agentDir) {
 //      绕过前端直调 IPC 均无法破坏系统放行）
 //   3) 启动无条件校正（patchAgentDirAllow；含排序——托管键须排在 '*' 之后，
 //      last-match-wins 才能越过兜底 ask/deny 生效）
-// 作用于 external_directory（agentDir 读写）与 external_directory_read（baseDir 只读）
+// 作用于 external_directory（agentDir 读写 + 宿主配置 deny）、
+// external_directory_write（同上）、external_directory_read（baseDir 只读）、
+// path（宿主配置 deny，bash 写场景）。rules 值为该键的裁决（allow / deny）
 function managedSurfaces(agentDir) {
   return [
-    { surface: 'external_directory', rules: agentDirAllowRules(agentDir) },
-    { surface: 'external_directory_write', rules: agentDirAllowRules(agentDir) },
-    { surface: 'external_directory_read', rules: baseDirReadAllowRules(agentDir) }
+    {
+      surface: 'external_directory',
+      rules: Object.assign({}, agentDirAllowRules(agentDir), hostConfigDenyRules(agentDir))
+    },
+    {
+      surface: 'external_directory_write',
+      rules: Object.assign({}, agentDirAllowRules(agentDir), hostConfigDenyRules(agentDir))
+    },
+    { surface: 'external_directory_read', rules: baseDirReadAllowRules(agentDir) },
+    { surface: 'path', rules: hostConfigDenyRules(agentDir) }
   ]
 }
 
-// 就地强制：托管键先 delete 再按规范顺序重写为 allow（确保排在 '*' 与
-// 用户自建规则之后）；标量/未配置的面规整为对象并保留原兜底语义
+// 就地强制：托管键先 delete 再按 rules 值重写（allow 放行 / deny 宿主配置
+// 写保护），确保排在 '*' 与用户自建规则之后（last-match-wins 生效）；
+// 标量/未配置的面规整为对象并保留原兜底语义
 function enforceManagedInto(permission, agentDir) {
   managedSurfaces(agentDir).forEach(function (entry) {
     let cur = permission[entry.surface]
@@ -175,7 +217,7 @@ function enforceManagedInto(permission, agentDir) {
       permission[entry.surface] = cur
     }
     Object.keys(entry.rules).forEach(k => { delete cur[k] })
-    Object.keys(entry.rules).forEach(k => { cur[k] = 'allow' })
+    Object.keys(entry.rules).forEach(k => { cur[k] = entry.rules[k] })
   })
 }
 
@@ -190,7 +232,7 @@ function patchAgentDirAllow(agentDir) {
   if (JSON.stringify(config.permission) === before) return false
   try {
     writeConfig(agentDir, config)
-    console.log('[permissions] 已回填应用托管放行规则（external_directory / external_directory_read）')
+    console.log('[permissions] 已回填应用托管规则（agentDir 放行 + 宿主配置写保护 deny）')
   } catch (e) { /* 写盘失败忽略，下次启动再补 */ }
   return true
 }

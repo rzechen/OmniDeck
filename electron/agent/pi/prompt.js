@@ -46,6 +46,15 @@ function systemPrompt() {
   // 临时文件按工作空间划分：统一落 <workspace>/.tmp（会话创建时自动建目录并注入 TMPDIR），
   // 避免模型按通用习惯写系统 /tmp 触发 external_directory 逐次询问
   lines.push('临时文件（脚本、中间产物等）一律写入当前工作空间根目录的 .tmp/ 目录（已自动创建，环境变量 TMPDIR 已指向该处），不要写入系统 /tmp 等工作空间外的路径。')
+  // 环境地图：三层目录职责 + MCP 命名双轨映射一次性注入——模型不再 ls/grep
+  // 试探目录关系、不再自行推断下划线名与横杠名的等价性（10-09 排障跑偏实证）
+  lines.push([
+    '环境地图（直接按此对齐，勿再探索目录关系或逆向宿主实现）：',
+    '- 工作空间（当前目录）：业务资产与流水线交付；自定义 agent 定义在 .agents/*.md，场景配置在 .agents/scenarios/。',
+    '- agentDir（环境变量 PI_CODING_AGENT_DIR 指向）：全局配置位——mcp.json（MCP 服务器注册）、settings.json（宿主装配，只读，勿改）、skills/（技能安装位，其 SKILL.md 可读）。',
+    '- 产品仓库 node_modules：仅 pi-* 扩展包本体，属宿主实现——任何排障都不读不改；环境装配缺口（工具缺失 / 扩展未装载）一律如实汇报交宿主处理。',
+    'MCP 命名规则：工具真实注册名 = mcp__<server 名中非 [A-Za-z0-9_] 字符替换为 _ 后的名>__<工具名>（如 wechat-mcp 的工具形如 mcp__wechat_mcp__xxx）；agent 定义与 tools 白名单用 mcp:<原始 server 名> 选择器语法——两者是同一 server 的两种写法，等价。'
+  ].join('\n'))
   lines.push('每次任务完成后，删除本次任务产生的临时文件（.tmp/ 中不再需要的脚本、中间产物等），不要遗留；exports/ 下的交付产物与用户既有文件不属于临时文件，不得删除。')
   lines.push('交付正式文档（Word / PDF / HTML 报告、方案、纪要、信函等）时，先组织好完整的 Markdown 内容，再调用 doc_export 工具导出文件（输出到当前目录 exports/ 下，Word 可用 reference_doc 参数或工作目录下的 template.docx 沿用模板样式），不要把长文档直接贴在回复正文里。')
   // 图像生成引导（pi 1.0.0）：仅配置了图像模型时注入，未配置不提及（工具未注册）
@@ -56,6 +65,11 @@ function systemPrompt() {
   // codemode 脚本约束：脚本被包装为 (async (tools, console) => {...}) 执行，
   // 声明同名变量会直接语法报错（invalid redefinition of parameter name）
   lines.push('编写 codemode 脚本时：脚本以 (tools, console) 参数形式注入环境，不得用 const/let/function 再声明 tools、console 同名变量（会报 invalid redefinition of parameter name）；调用工具写作 await tools.<工具名>({ ...参数 })，查找未列出的工具用 searchTools(关键词)。')
+  // 参数名猜错是 codemode 编排最高频错误（目录预算外的工具 schema 不可见，
+  // 模型凭先验猜 fn/script 等）——强制"先查 schema 再调用"，10-09 事故实证
+  lines.push('codemode 中首次调用不熟悉的 MCP 工具前，先读取其参数 schema 确认键名（脚本内直接访问 tools.<工具名>.inputSchema，返回 JSON Schema；不要凭记忆猜参数名——如 browser_evaluate 的参数名是 function 而非 fn）。')
+  // playwright MCP 生命周期坑（官方设计行为，模型缺心智模型时每项多试错一轮）
+  lines.push('playwright MCP 注意：browser_close 关闭整个浏览器，之后任何页面类工具（wait_for / snapshot / evaluate）都会报 "No open pages available"——close 后直接 browser_navigate 即可自动重开浏览器；browser_wait_for 的等待时长上限 30 秒（超出静默截断）。')
   // 沙箱能力边界：实测踩坑记录（无定时器/模块能力，输出截断），
   // 避免模型按完整 Node 环境心智模型写脚本反复试错
   lines.push('codemode 与 browser_run_code_unsafe 均为裁剪沙箱：无 setTimeout/setInterval（等待用 Playwright 的 page.waitForTimeout，或把轮询循环放进 run_code_unsafe 内部执行）、无 require 与动态 import、不能直接读写磁盘文件；工具输出约 50KB 截断，大文件不要经 base64 传输。')

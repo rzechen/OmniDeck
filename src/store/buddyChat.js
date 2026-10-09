@@ -4,6 +4,13 @@
 // - '' 为新对话暂存位，send() 创建会话后整体迁移至正式 id（配合 tagsView REBIND 保 uid，实例不重建）
 // - $message / $root 广播等 UI 副作用经 notice 队列中转，由组件层认领消费（store 不碰 UI）
 
+// 乐观消息本地 id 生成器：占位消息在 assistant_end 回填服务端 messageId 之前，
+// 用 _localId 作为列表 key 的稳定来源（回填 id 后 key 不突变，避免整树重建吞掉点击/展开状态）
+let _localSeq = 0
+export function genLocalId() {
+  return '_l' + Date.now().toString(36) + (_localSeq++).toString(36)
+}
+
 // 单个会话的初始状态
 function blankSession() {
   return {
@@ -173,6 +180,7 @@ function ensureTurnMessage(s) {
     isThinking: false,
     seconds: 0,
     createdAt: Date.now(),
+    _localId: genLocalId(),
     items: []
   }
   // 兜底创建时带上本轮分支线路（正常流程占位消息由页面层先行 push）
@@ -190,6 +198,18 @@ function finishTurn(s) {
   if (s.doneTimer) { clearTimeout(s.doneTimer); s.doneTimer = null }
   const msg = s.turnMsg
   if (msg) {
+    // 兜底收尾仍标记 running 的工具条：done / error 结束路径可能没有 tool_end
+    // （回合中止、pi 侧事件丢失、bash 命令仍在后台执行而模型请求已报错），
+    // 不收尾会永久转圈——如实标注结果未被采用（interrupted 分支已先行
+    // 收尾并写"已停止生成"，此处扫描天然跳过，幂等）
+    if (msg.items) {
+      for (const it of msg.items) {
+        if (it.type === 'tool' && it.status === 'running') {
+          it.status = 'done'
+          if (!it.result) it.result = '回合已结束，工具未返回结果（命令可能仍在后台执行，输出未被采用）'
+        }
+      }
+    }
     delete msg.streaming
     delete msg.thinking
     msg.isThinking = false

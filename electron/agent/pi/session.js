@@ -213,8 +213,13 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     // codemode / tool_search（pi 1.0.0 内置，SDK 宿主须显式注册）：
     // 注册为 inactive，经 settings 的 defaultTools ["+codemode"] 激活；
     // MCP 服务器默认 codemode exposure 的工具经 codemode 脚本调用（不占工具声明），
-    // tool_search 供模型按需加载 deferred 工具
-    pi.createCodemodeExtension(),
+    // tool_search 供模型按需加载 deferred 工具。
+    // inlineBudget 10000（默认 3000）：实测（官方 renderToolSample + 轮转算法
+    // 模拟）内置工具组 ~2500 + playwright 43 工具 4939 + wechat-mcp 6 工具 1005
+    // ≈ 8500 token——10000 全量入目录并留余量，未来增配 MCP 无需再调。预算外
+    // 工具 schema 不可见时模型凭先验猜参数名（10-09 事故：browser_evaluate 传
+    // fn 而非 function）。工具目录是稳定前缀，prompt cache 命中后增量成本极低
+    pi.createCodemodeExtension({ inlineBudget: 10000 }),
     pi.createToolSearchExtension(),
     // pi-web-access 懒激活校正（见上方 createWebToolsDirectExtension 注释）
     createWebToolsDirectExtension,

@@ -144,11 +144,73 @@ function deploySubagentForegroundPolicy(agentDir) {
 //      仅"扩展运行时注册的 server"前台不可用，本应用 server 均静态配置）
 //   2) settings 键 `subagents.defaultSubagentOnlyExtensions`：对未自带
 //      subagentOnlyExtensions 的 agent 统一注入 child-only 扩展路径
-// 本函数做两件事（均幂等）：
+// 本组函数职责（均幂等）：
 //   a) 部署 omnideck-child-image.mjs：child 版 generate_image（复用宿主
 //      image-gen.js 工厂，绝对路径直连——与 omnideck-child-mcp.mjs 同模式）
-//   b) settings.json 注入 defaultSubagentOnlyExtensions：pi-web-access
-//      （web_search 等）+ child-image。注册后由各 agent 的 tools 白名单筛用
+//   b) 部署 omnideck-child-introspect.mjs：child 首回合注入实际装载工具清单
+//      （自省简报——工具缺失属宿主装配缺口时模型如实上报，不再读源码排障）
+//   c) settings.json 注入 defaultSubagentOnlyExtensions：pi-web-access
+//      + child-image + child-mcp + child-introspect。注册后由各 agent 的
+//      tools 白名单筛用
+// ===== child 自省简报（修复「碰壁式探索」：10-09 公众号任务实证）=====
+// before_agent_start（扩展 API 见 pi-coding-agent types.d.ts
+// BeforeAgentStartEventResult.message）在首个回合前注入一条 custom message：
+// 实际装载工具清单 + 「缺工具 = 宿主装配缺口，如实上报，勿读源码/装依赖/改
+// agentDir 配置」的处置指令。MCP 前缀分组压缩（playwright 43 工具不刷屏）。
+function childIntrospectExtensionSource() {
+  return [
+    '// OmniBuddy 自动部署：前台子代理环境简报扩展（勿手改，启动时幂等覆写）',
+    '// 首回合注入实际装载工具清单：模型不再为确认工具可用性读宿主源码 /',
+    '// 检查 node_modules / 修改 agentDir 配置（环境排障收敛为如实上报）',
+    'export default function (pi) {',
+    '  let briefed = false',
+    '  pi.on("session_start", () => { briefed = false })',
+    '  pi.on("before_agent_start", () => {',
+    '    if (briefed) return',
+    '    briefed = true',
+    '    let names = []',
+    '    try { names = pi.getActiveTools() || [] } catch (e) { names = [] }',
+    '    const groups = {}',
+    '    const singles = []',
+    '    for (const n of names) {',
+    '      const m = /^mcp__([a-z0-9_]+)__/i.exec(n)',
+    '      if (m) { (groups[m[1]] = groups[m[1]] || []).push(n) } else singles.push(n)',
+    '    }',
+    '    const parts = []',
+    '    for (const srv of Object.keys(groups).sort()) {',
+    '      const tools = groups[srv]',
+    '      parts.push("mcp server " + srv + "(" + tools.length + " 个工具)")',
+    '    }',
+    '    for (const n of singles) parts.push(n)',
+    '    const content = "环境简报（宿主注入，可信，勿再自行验证）：本会话实际装载的工具——"',
+    '      + parts.join("、") + "。"',
+    '      + "任务所需工具若不在此列，属宿主装配缺口：直接如实失败并报告缺少的工具名，"',
+    '      + "不要安装依赖、不要读取宿主/产品源码或 node_modules、不要修改 agentDir 配置"',
+    '      + "（settings.json / mcp.json / extensions 均为宿主托管，只读）。"',
+    '      + "MCP 工具名中 server 段的下划线对应原始 server 名中的连字符等字符（如 wechat_mcp 对应 wechat-mcp）。"',
+    '    return { message: { customType: "omnideck_env_brief", content, display: false } }',
+    '  })',
+    '}',
+    ''
+  ].join('\n')
+}
+
+function deployChildIntrospectExtension(agentDir) {
+  const dir = path.join(agentDir, 'extensions')
+  const file = path.join(dir, 'omnideck-child-introspect.mjs')
+  const src = childIntrospectExtensionSource()
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    try {
+      if (fs.readFileSync(file, 'utf-8') === src) return
+    } catch (e) { /* 首次部署无文件 */ }
+    fs.writeFileSync(file, src)
+    console.log('[omnibuddy:pi] 已部署子代理环境简报扩展：', file)
+  } catch (e) {
+    console.warn('[omnibuddy:pi] 子代理环境简报扩展部署失败：', e.message)
+  }
+}
+
 function childImageExtensionSource(projectRoot, agentDir) {
   return [
     '// OmniBuddy 自动部署：前台子代理图像生成扩展（勿手改，启动时幂等覆写）',
@@ -176,7 +238,17 @@ function deployChildImageExtension(agentDir) {
   }
 }
 
-// settings.json 注入 subagents.defaultSubagentOnlyExtensions（merge 不覆盖其余键）
+// 归一化路径比较键：macOS 默认卷大小写不敏感，/OmniDeck 与 /omnideck 为同一路径，
+// 字符串直等判重会让同一路径以两种大小写重复注入（实测 child-image 被注入两次）
+function pathKey(p) {
+  return path.normalize(String(p)).toLowerCase()
+}
+
+// settings.json 注入 subagents.defaultSubagentOnlyExtensions（merge 不覆盖其余键）。
+// 顺带收敛存量：同路径不同大小写/分隔符的重复条目归一保留首个；宿主 wanted
+// （web-access / child-image / child-mcp / child-introspect）缺失则补齐——
+// child-mcp 补齐即「前台 child MCP 装配闭环」，不再依赖 agent 定义自带
+// subagentOnlyExtensions 或模型运行时手动修补（10-09 事故实证）
 function ensureChildToolDefaults(agentDir) {
   const file = path.join(agentDir, 'settings.json')
   let settings = {}
@@ -191,14 +263,32 @@ function ensureChildToolDefaults(agentDir) {
     console.warn('[omnibuddy:pi] pi-web-access 未登记，跳过 child 工具默认注入')
     return
   }
-  const wanted = [pkgPath, path.join(agentDir, 'extensions', 'omnideck-child-image.mjs')]
+  const childExtras = [
+    'omnideck-child-image.mjs',
+    'omnideck-child-mcp.mjs',
+    'omnideck-child-introspect.mjs'
+  ]
+    .map(name => path.join(agentDir, 'extensions', name))
+    .filter(p => fs.existsSync(p)) // 部署失败的扩展不注入（避免 child 加载报错）
+  const wanted = [pkgPath].concat(childExtras)
   const cur = (settings.subagents && settings.subagents.defaultSubagentOnlyExtensions) || []
-  const merged = cur.concat(wanted.filter(p => cur.indexOf(p) < 0))
-  if (merged.length === cur.length) return
+  // 存量归一去重（保留用户/历史手动加入的其他条目），再补宿主 wanted 缺项
+  const seen = new Set()
+  const deduped = []
+  for (const p of cur) {
+    const k = pathKey(p)
+    if (k === '' || seen.has(k)) continue
+    seen.add(k)
+    deduped.push(p)
+  }
+  const merged = deduped.concat(wanted.filter(p => !seen.has(pathKey(p))))
+  const changed = merged.length !== cur.length ||
+    merged.some((p, i) => pathKey(p) !== pathKey(cur[i]))
+  if (!changed) return
   settings.subagents = Object.assign({}, settings.subagents, { defaultSubagentOnlyExtensions: merged })
   try {
     fs.writeFileSync(file, JSON.stringify(settings, null, 2))
-    console.log('[omnibuddy:pi] 已注入 subagents.defaultSubagentOnlyExtensions')
+    console.log('[omnibuddy:pi] 已注入 subagents.defaultSubagentOnlyExtensions（含去重收敛）')
   } catch (e) {
     console.warn('[omnibuddy:pi] child 工具默认注入失败：', e.message)
   }
@@ -206,6 +296,7 @@ function ensureChildToolDefaults(agentDir) {
 
 function deployChildToolPolicy(agentDir) {
   deployChildImageExtension(agentDir)
+  deployChildIntrospectExtension(agentDir)
   ensureChildToolDefaults(agentDir)
 }
 
@@ -419,8 +510,10 @@ module.exports = {
   deployChildMcpExtension,
   // 部署 subagent 前台同步强制策略（config + tool_call 拦截扩展，幂等）
   deploySubagentForegroundPolicy,
-  // 部署子代理工具通用化（child 图像扩展 + defaultSubagentOnlyExtensions，幂等）
+  // 部署子代理工具通用化（child 图像/自省扩展 + defaultSubagentOnlyExtensions，幂等）
   deployChildToolPolicy,
+  // 部署子代理环境简报扩展（幂等；deployChildToolPolicy 内已含，独立导出供按需重部署）
+  deployChildIntrospectExtension,
   // 安装 pi-memory + 迁移旧记忆 + qmd 检测（异步，失败下次启动重试）
   setupMemoryExtension,
   // 安装 pi-permission-system + 写默认策略（异步，失败下次启动重试）
