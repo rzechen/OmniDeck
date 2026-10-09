@@ -66,62 +66,58 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
 
 const TOOL_PATH = '/tools/text/uplowercase'
 
-export default {
-  name: 'TextUplowercase',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      input: 'The quick brown fox jumps over the lazy dog',
-      historyVisible: false,
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  computed: {
-    wordCount() {
-      return (this.input.trim().match(/\S+/g) || []).length
-    },
-    results() {
-      const t = this.input
-      const capitalize = s => s.replace(/\b\w/g, c => c.toUpperCase())
-      return [
-        { label: '全大写 UPPER', value: t.toUpperCase() },
-        { label: '全小写 lower', value: t.toLowerCase() },
-        { label: '首字母大写 Capitalize', value: capitalize(t.toLowerCase()) },
-        { label: '句首大写 Sentence', value: t.toLowerCase().replace(/(^\s*\w|[.!?]\s+\w)/g, c => c.toUpperCase()) },
-        { label: '反转大小写 sWAP', value: [...t].map(c => c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()).join('') }
-      ]
-    }
-  },
-  methods: {
-    copy(t) {
-      if (!t) return
-      navigator.clipboard.writeText(t).then(() => {
-        this.$message({ message: '已复制', type: 'success', duration: 1200 })
-      })
-      record(TOOL_PATH, {
-        input: this.input,
-        output: t,
-        options: { action: 'copy' }
-      })
-    },
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.input = full.input || ''
-      this.$message.success('已从历史恢复')
-    }
+defineOptions({ name: 'TextUplowercase' })
+
+const { message } = useFeedback()
+
+const input = ref('The quick brown fox jumps over the lazy dog')
+const historyVisible = ref(false)
+// 「复制结果」按钮引用的输出值（历史遗留：始终为空，点击复制为 no-op）
+const output = ref('')
+
+const wordCount = computed(() => (input.value.trim().match(/\S+/g) || []).length)
+const results = computed(() => {
+  const t = input.value
+  const capitalize = s => s.replace(/\b\w/g, c => c.toUpperCase())
+  return [
+    { label: '全大写 UPPER', value: t.toUpperCase() },
+    { label: '全小写 lower', value: t.toLowerCase() },
+    { label: '首字母大写 Capitalize', value: capitalize(t.toLowerCase()) },
+    { label: '句首大写 Sentence', value: t.toLowerCase().replace(/(^\s*\w|[.!?]\s+\w)/g, c => c.toUpperCase()) },
+    { label: '反转大小写 sWAP', value: [...t].map(c => c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()).join('') }
+  ]
+})
+
+function copy(t) {
+  if (!t) return
+  navigator.clipboard.writeText(t).then(() => {
+    message({ message: '已复制', type: 'success', duration: 1200 })
+  })
+  record(TOOL_PATH, {
+    input: input.value,
+    output: t,
+    options: { action: 'copy' }
+  })
+}
+
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
   }
+  input.value = full.input || ''
+  message.success('已从历史恢复')
 }
 </script>
 

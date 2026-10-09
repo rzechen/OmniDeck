@@ -20,45 +20,49 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
+
 // 图像工具共享：拖拽/点击上传组件
-export default {
-  name: 'ImageDrop',
-  // 声明自定义事件，阻止 @change 监听器 fallthrough 到根元素成为原生 change 监听
-  // （否则 input 的原生 change 事件冒泡后会用 Event 对象再次触发父级处理器，覆盖 File）
-  emits: ['change'],
-  props: {
-    accept: { type: String, default: 'image/*' },
-    multiple: { type: Boolean, default: false },
-    compact: { type: Boolean, default: false },
-    // 紧凑模式下显示的文字（为空则仅显示 + 号）
-    compactLabel: { type: String, default: '' },
-    hint: { type: String, default: '支持 PNG / JPEG / WEBP / GIF / BMP' }
-  },
-  data() {
-    return { isOver: false }
-  },
-  methods: {
-    pick() {
-      this.$refs.file.click()
-    },
-    emitFiles(fileList) {
-      const files = [...fileList].filter(f => f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f.name))
-      if (!files.length) {
-        this.$message.warning('请选择图片文件')
-        return
-      }
-      this.$emit('change', this.multiple ? files : files[0])
-    },
-    onDrop(e) {
-      this.isOver = false
-      this.emitFiles(e.dataTransfer.files)
-    },
-    onChange(e) {
-      this.emitFiles(e.target.files)
-      e.target.value = ''
-    }
+defineOptions({ name: 'ImageDrop' })
+
+// 声明自定义事件，阻止 @change 监听器 fallthrough 到根元素成为原生 change 监听
+// （否则 input 的原生 change 事件冒泡后会用 Event 对象再次触发父级处理器，覆盖 File）
+const emit = defineEmits(['change'])
+
+const props = defineProps({
+  accept: { type: String, default: 'image/*' },
+  multiple: { type: Boolean, default: false },
+  compact: { type: Boolean, default: false },
+  // 紧凑模式下显示的文字（为空则仅显示 + 号）
+  compactLabel: { type: String, default: '' },
+  hint: { type: String, default: '支持 PNG / JPEG / WEBP / GIF / BMP' }
+})
+
+const { message } = useFeedback()
+
+const isOver = ref(false)
+const file = ref(null)
+
+function pick() {
+  file.value.click()
+}
+function emitFiles(fileList) {
+  const files = [...fileList].filter(f => f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f.name))
+  if (!files.length) {
+    message.warning('请选择图片文件')
+    return
   }
+  emit('change', props.multiple ? files : files[0])
+}
+function onDrop(e) {
+  isOver.value = false
+  emitFiles(e.dataTransfer.files)
+}
+function onChange(e) {
+  emitFiles(e.target.files)
+  e.target.value = ''
 }
 </script>
 

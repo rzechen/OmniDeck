@@ -1,5 +1,5 @@
 <template>
-  <div class="ob-grid-card ob-skill-card" @click="$emit('detail', skill)">
+  <div class="ob-grid-card ob-skill-card" @click="emit('detail', skill)">
     <div class="ob-card-head">
       <div class="ob-card-logo logo-skill">
         <svg-icon icon-class="skill" />
@@ -66,7 +66,7 @@
           v-for="m in skill.packageMembers"
           :key="m"
           class="ob-pkg-chip"
-          @click.stop="$emit('open-member', m)"
+          @click.stop="emit('open-member', m)"
         >{{ m }}</span>
       </div>
       <div class="ob-pkg-tip">随包一并安装（覆盖导入整包 zip 可全部更新）</div>
@@ -75,13 +75,13 @@
     <div class="ob-card-foot">
       <div class="ob-foot-info" />
       <div class="ob-card-actions" @click.stop>
-        <span class="ob-item-action" title="导出 ZIP" @click="$emit('export', skill)">
+        <span class="ob-item-action" title="导出 ZIP" @click="emit('export', skill)">
           <svg-icon icon-class="download" />
         </span>
-        <span class="ob-item-action" title="编辑" @click="$emit('edit', skill)">
+        <span class="ob-item-action" title="编辑" @click="emit('edit', skill)">
           <svg-icon icon-class="edit" />
         </span>
-        <span class="ob-item-action danger" title="删除" @click="$emit('remove', skill)">
+        <span class="ob-item-action danger" title="删除" @click="emit('remove', skill)">
           <svg-icon icon-class="delete" />
         </span>
       </div>
@@ -89,39 +89,41 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 技能卡片：名称/描述 + 声明的所需环境变量（env-keys，键名级录入状态）
 // 所有操作事件上抛父级，卡片自身不持有业务状态
-export default {
-  name: 'SkillCard',
-  props: {
-    skill: { type: Object, required: true },
-    // 已录入的环境变量键名列表（该技能绑定的全部凭据聚合，脱敏视图）
-    envKeys: { type: Array, default: () => [] }
-  },
-  data() {
-    return {
-      // 包成员折叠区展开状态（默认收起）
-      pkgExpanded: false
-    }
-  },
-  computed: {
-    // 技能声明的所需变量名（SKILL.md env-keys）
-    declaredKeys() {
-      return this.skill.envKeys || []
-    },
-    // 已录入的变量名（绑定本技能的凭据 envKeys）
-    providedKeys() {
-      return this.envKeys || []
-    },
-    missingCount() {
-      return this.declaredKeys.filter(k => !this.providedKeys.includes(k)).length
-    },
-    allProvided() {
-      return this.declaredKeys.length > 0 && this.missingCount === 0
-    }
-  }
-}
+import { ref, computed } from 'vue'
+
+defineOptions({ name: 'SkillCard' })
+
+const props = defineProps({
+  skill: { type: Object, required: true },
+  // 已录入的环境变量键名列表（该技能绑定的全部凭据聚合，脱敏视图）
+  envKeys: { type: Array, default: () => [] }
+})
+
+const emit = defineEmits(['detail', 'open-member', 'export', 'edit', 'remove'])
+
+// 包成员折叠区展开状态（默认收起）
+const pkgExpanded = ref(false)
+
+// 技能声明的所需变量名（SKILL.md env-keys）
+const declaredKeys = computed(() => {
+  return props.skill.envKeys || []
+})
+
+// 已录入的变量名（绑定本技能的凭据 envKeys）
+const providedKeys = computed(() => {
+  return props.envKeys || []
+})
+
+const missingCount = computed(() => {
+  return declaredKeys.value.filter(k => !providedKeys.value.includes(k)).length
+})
+
+const allProvided = computed(() => {
+  return declaredKeys.value.length > 0 && missingCount.value === 0
+})
 </script>
 
 <style lang="scss" scoped>

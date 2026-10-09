@@ -102,12 +102,18 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
 import { sm4EcbEncrypt, sm4EcbDecrypt, deriveSm4KeyFromSeed } from '@/utils/crypto/sm4'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'EncryptSm4' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/encrypt/sm4'
 
@@ -143,153 +149,147 @@ function base64ToBytes(b64) {
   return out
 }
 
-export default {
-  name: 'EncryptSm4',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      seed: 'risenhzsjds00000', // 默认种子：与 Java demo（risen.解密.utils.SM4EcbUtils）一致
-      mode: 'text', // text：整段单一文本；batch：逐行 key=value 仅处理值
-      inputText: '',
-      outputText: '',
-      errorMsg: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  computed: {
-    // 由种子实时派生的 128 位密钥（Hex 展示便于核对）
-    derivedKey() {
-      return deriveSm4KeyFromSeed(this.seed)
-    },
-    derivedKeyHex() {
-      return bytesToHex(this.derivedKey)
-    },
-    inputPlaceholder() {
-      return this.mode === 'batch'
-        ? '每行 key=value，仅对等号后的值加解密；无等号的行（注释/空行）原样保留…'
-        : '加密输入明文；解密输入 Base64 或 Hex 密文…'
-    }
-  },
-  methods: {
-    validate() {
-      this.errorMsg = ''
-      if (!this.inputText) {
-        this.errorMsg = '请输入内容'
-        return false
-      }
-      if (!this.seed) {
-        this.errorMsg = '请输入密钥种子'
-        return false
-      }
-      return true
-    },
-    // 单值加密：UTF-8 文本 → Base64
-    encryptValue(text) {
-      const plain = new TextEncoder().encode(text)
-      return bytesToBase64(sm4EcbEncrypt(this.derivedKey, plain))
-    },
-    // 单值解密：Hex / Base64（自动识别）→ UTF-8 文本
-    decryptValue(text) {
-      const input = text.replace(/\s+/g, '')
-      const isHex = /^[0-9a-fA-F]+$/.test(input) &&
-        input.length % 32 === 0 && input.length >= 32
-      const cipher = isHex ? hexToBytes(input) : base64ToBytes(input)
-      return new TextDecoder().decode(sm4EcbDecrypt(this.derivedKey, cipher))
-    },
-    // 逐行 key=value 批量处理：仅处理第一个 = 之后的值，返回失败行数
-    processLines(isEncrypt) {
-      const lines = this.inputText.split(/\r?\n/)
-      let fail = 0
-      const out = lines.map(line => {
-        const eq = line.indexOf('=')
-        // 空行 / 注释 / 无等号 / 等号后为空：原样保留
-        if (eq < 0) return line
-        const head = line.slice(0, eq + 1)
-        const val = line.slice(eq + 1).trim()
-        if (!val) return line
-        try {
-          return head + (isEncrypt ? this.encryptValue(val) : this.decryptValue(val))
-        } catch (e) {
-          fail++
-          return line // 失败行原样保留，便于定位
-        }
-      })
-      this.outputText = out.join('\n')
-      return fail
-    },
-    doEncrypt() {
-      if (!this.validate()) return
-      const before = this.inputText
-      try {
-        if (this.mode === 'batch') {
-          const fail = this.processLines(true)
-          if (fail) this.$message.warning(`${fail} 行处理失败，已原样保留`)
-        } else {
-          this.outputText = this.encryptValue(before)
-        }
-        record(TOOL_PATH, {
-          input: before,
-          output: this.outputText,
-          options: { action: 'encrypt', mode: this.mode, seed: this.seed }
-        })
-      } catch (e) {
-        this.errorMsg = '加密失败：' + e.message
-      }
-    },
-    doDecrypt() {
-      if (!this.validate()) return
-      const before = this.inputText
-      try {
-        if (this.mode === 'batch') {
-          const fail = this.processLines(false)
-          if (fail) this.$message.warning(`${fail} 行解密失败，已原样保留`)
-        } else {
-          this.outputText = this.decryptValue(before)
-        }
-        record(TOOL_PATH, {
-          input: before,
-          output: this.outputText,
-          options: { action: 'decrypt', mode: this.mode, seed: this.seed }
-        })
-      } catch (e) {
-        this.errorMsg = '解密失败：' + (e.message || '密钥错误或密文无效')
-      }
-    },
-    copyOutput() {
-      if (!this.outputText) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.outputText).then(() => {
-        this.$message.success('复制成功')
-      })
-    },
-    // 从历史恢复：回填输入输出与种子/模式
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.inputText = full.input || ''
-      this.outputText = full.output || ''
-      if (full.options) {
-        if (full.options.seed) this.seed = full.options.seed
-        if (full.options.mode) this.mode = full.options.mode
-      }
-      this.errorMsg = ''
-      this.$nextTick(() => this.$refs.inputEditor && this.$refs.inputEditor.focus())
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.inputText = ''
-      this.outputText = ''
-      this.errorMsg = ''
-      this.$refs.inputEditor.focus()
-    }
+const seed = ref('risenhzsjds00000') // 默认种子：与 Java demo（risen.解密.utils.SM4EcbUtils）一致
+const mode = ref('text') // text：整段单一文本；batch：逐行 key=value 仅处理值
+const inputText = ref('')
+const outputText = ref('')
+const errorMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+// 由种子实时派生的 128 位密钥（Hex 展示便于核对）
+const derivedKey = computed(() => deriveSm4KeyFromSeed(seed.value))
+const derivedKeyHex = computed(() => bytesToHex(derivedKey.value))
+const inputPlaceholder = computed(() =>
+  mode.value === 'batch'
+    ? '每行 key=value，仅对等号后的值加解密；无等号的行（注释/空行）原样保留…'
+    : '加密输入明文；解密输入 Base64 或 Hex 密文…'
+)
+
+function validate() {
+  errorMsg.value = ''
+  if (!inputText.value) {
+    errorMsg.value = '请输入内容'
+    return false
   }
+  if (!seed.value) {
+    errorMsg.value = '请输入密钥种子'
+    return false
+  }
+  return true
+}
+
+// 单值加密：UTF-8 文本 → Base64
+function encryptValue(text) {
+  const plain = new TextEncoder().encode(text)
+  return bytesToBase64(sm4EcbEncrypt(derivedKey.value, plain))
+}
+
+// 单值解密：Hex / Base64（自动识别）→ UTF-8 文本
+function decryptValue(text) {
+  const input = text.replace(/\s+/g, '')
+  const isHex = /^[0-9a-fA-F]+$/.test(input) &&
+    input.length % 32 === 0 && input.length >= 32
+  const cipher = isHex ? hexToBytes(input) : base64ToBytes(input)
+  return new TextDecoder().decode(sm4EcbDecrypt(derivedKey.value, cipher))
+}
+
+// 逐行 key=value 批量处理：仅处理第一个 = 之后的值，返回失败行数
+function processLines(isEncrypt) {
+  const lines = inputText.value.split(/\r?\n/)
+  let fail = 0
+  const out = lines.map(line => {
+    const eq = line.indexOf('=')
+    // 空行 / 注释 / 无等号 / 等号后为空：原样保留
+    if (eq < 0) return line
+    const head = line.slice(0, eq + 1)
+    const val = line.slice(eq + 1).trim()
+    if (!val) return line
+    try {
+      return head + (isEncrypt ? encryptValue(val) : decryptValue(val))
+    } catch (e) {
+      fail++
+      return line // 失败行原样保留，便于定位
+    }
+  })
+  outputText.value = out.join('\n')
+  return fail
+}
+
+function doEncrypt() {
+  if (!validate()) return
+  const before = inputText.value
+  try {
+    if (mode.value === 'batch') {
+      const fail = processLines(true)
+      if (fail) message.warning(`${fail} 行处理失败，已原样保留`)
+    } else {
+      outputText.value = encryptValue(before)
+    }
+    record(TOOL_PATH, {
+      input: before,
+      output: outputText.value,
+      options: { action: 'encrypt', mode: mode.value, seed: seed.value }
+    })
+  } catch (e) {
+    errorMsg.value = '加密失败：' + e.message
+  }
+}
+
+function doDecrypt() {
+  if (!validate()) return
+  const before = inputText.value
+  try {
+    if (mode.value === 'batch') {
+      const fail = processLines(false)
+      if (fail) message.warning(`${fail} 行解密失败，已原样保留`)
+    } else {
+      outputText.value = decryptValue(before)
+    }
+    record(TOOL_PATH, {
+      input: before,
+      output: outputText.value,
+      options: { action: 'decrypt', mode: mode.value, seed: seed.value }
+    })
+  } catch (e) {
+    errorMsg.value = '解密失败：' + (e.message || '密钥错误或密文无效')
+  }
+}
+
+function copyOutput() {
+  if (!outputText.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(outputText.value).then(() => {
+    message.success('复制成功')
+  })
+}
+
+// 从历史恢复：回填输入输出与种子/模式
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  inputText.value = full.input || ''
+  outputText.value = full.output || ''
+  if (full.options) {
+    if (full.options.seed) seed.value = full.options.seed
+    if (full.options.mode) mode.value = full.options.mode
+  }
+  errorMsg.value = ''
+  await nextTick()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  inputText.value = ''
+  outputText.value = ''
+  errorMsg.value = ''
+  inputEditor.value.focus()
 }
 </script>
 

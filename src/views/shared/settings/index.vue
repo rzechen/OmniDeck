@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-page page-container">
+  <div ref="root" class="settings-page page-container">
     <div class="settings-layout">
       <!-- 左侧：设置分类导航（后续可扩展：AI / 技能 / 插件 / 快捷键等） -->
       <aside class="settings-nav">
@@ -821,7 +821,12 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
 import { presetColors, themeModes, applyTheme } from '@/utils/ui/theme'
 import { setItem, getItem } from '@/utils/storage/db'
 import { clearMenuOrder } from '@/utils/ui/menu-order'
@@ -854,6 +859,8 @@ import {
 import * as toolHistory from '@/utils/storage/tool-history'
 import { toolCategories } from '@/config/tools'
 import RuntimeManager from '@/components/buddy/RuntimeManager.vue'
+
+defineOptions({ name: 'Settings' })
 
 // 字节数人性化
 function fmtBytes(n) {
@@ -891,1509 +898,1466 @@ function flattenRoutes(list, base) {
   return out
 }
 
-export default {
-  name: 'Settings',
-  components: { RuntimeManager },
-  data() {
-    return {
-      activeTab: 'general',
-      // 左侧二级菜单：label 统一为 3 字，避免长短参差
-      tabs: [
-        { key: 'general', label: '通用项', icon: 'setting' },
-        { key: 'quick', label: '快捷键', icon: 'magic-stick' },
-        { key: 'tray', label: '托盘项', icon: 'menu' },
-        { key: 'security', label: '安全项', icon: 'lock' },
-        { key: 'notify', label: '通知项', icon: 'chat-dot-round' },
-        { key: 'runtime', label: '运行时', icon: 'cpu' },
-        { key: 'about', label: '关于项', icon: 'info' }
-      ],
-      // 通知中心配置（loadNotify 拉取；matrix 为 类型 → 渠道数组）
-      notifyCfg: {
-        enabled: true,
-        url: '',
-        secret: '',
-        hasSecret: false,
-        matrix: {},
-        types: []
-      },
-      notifySaving: false,
-      notifyTesting: '',
-      themeModes,
-      presetColors,
-      // 入口视图选项（启动时进入的默认视图，重启生效）
-      entryViewOptions: [
-        { label: 'Deck 视图', value: 'deck' },
-        { label: 'Buddy 视图', value: 'buddy' }
-      ],
-      // 工具卡片每行个数枚举（'auto' 自适应）
-      gridOptions: [
-        { label: '自动', value: 'auto' },
-        { label: '2 列', value: 2 },
-        { label: '3 列', value: 3 },
-        { label: '4 列', value: 4 },
-        { label: '5 列', value: 5 },
-        { label: '6 列', value: 6 }
-      ],
-      // 侧边栏启动默认状态
-      sidebarOptions: [
-        { label: '展开', value: 'expand', icon: 's-unfold' },
-        { label: '收起', value: 'collapse', icon: 's-fold' }
-      ],
-      // 分组启动默认展开状态
-      sidebarGroupsOptions: [
-        { label: '展开', value: 'expand', icon: 'arrow-down' },
-        { label: '收起', value: 'collapse', icon: 'arrow-right' }
-      ],
-      // 减弱动态效果
-      motionOptions: [
-        { label: '关闭', value: false },
-        { label: '开启', value: true }
-      ],
-      // ===== 工具执行历史管理 =====
-      // 条数上限选项（每工具保留条数）
-      historyLimitOptions: [
-        { label: '20 条', value: 20 },
-        { label: '50 条', value: 50 },
-        { label: '100 条', value: 100 },
-        { label: '200 条', value: 200 }
-      ],
-      // 当前条数上限
-      historyLimit: 200,
-      // 有历史记录的工具列表 [{ path, name, count }]
-      historyTools: [],
-      // 本地数据用量（storage.estimate）
-      storageEstimate: null,
-      // 清空执行中
-      historyClearing: false,
-      // ===== Buddy 视图：会话历史管理 =====
-      // OmniBuddy 会话列表（计数展示 + 清空目标）
-      buddySessions: [],
-      // 清空 Buddy 会话执行中
-      buddyHistoryClearing: false,
-      // ===== 剪贴板历史上限（主进程 capture-settings.json） =====
-      clipKeepOptions: [
-        { label: '200 条', value: 200 },
-        { label: '500 条', value: 500 },
-        { label: '1000 条', value: 1000 },
-        { label: '2000 条', value: 2000 }
-      ],
-      clipKeep: 1000,
-      // 是否在 Electron 环境（非 Electron 隐藏该行）
-      hasCaptureApi: !!(window.electronAPI && window.electronAPI.capture && window.electronAPI.capture.getClipKeep),
-      // ===== 安全：应用锁定 =====
-      autoLockOptions: [
-        { label: '无', value: 0 },
-        { label: '1 分钟', value: 1 },
-        { label: '5 分钟', value: 5 },
-        { label: '15 分钟', value: 15 },
-        { label: '30 分钟', value: 30 }
-      ],
-      lockSettings: { autoLock: 0, biometric: false },
-      hasPassword: false,
-      biometricAvailable: false,
-      isMac: !!(window.electronAPI && window.electronAPI.platform === 'darwin'),
-      // 密码弹窗
-      pwdDialogVisible: false,
-      pwdForm: { oldPwd: '', newPwd: '', confirmPwd: '' },
-      // ===== 快捷键：全部可改键（升级） =====
-      // 当前快捷键（accelerator 格式；panel / 截图三项为系统级，其余为应用内）
-      shortcuts: { panel: '', search: '', lock: '', buddy: '', area: '', screen: '', scroll: '' },
-      // 全部默认键（含 O = OmniDeck / OmniBuddy 首字母，防与其他产品冲突）
-      DEFAULT_PANEL_SHORTCUT: 'CommandOrControl+Shift+O',
-      // 截图三项默认键（与主进程 capture.js DEFAULT_SHORTCUTS 一致）
-      CAPTURE_DEFAULTS: {
-        area: 'CommandOrControl+Shift+S',
-        screen: 'Alt+Shift+3',
-        scroll: 'Alt+Shift+S'
-      },
-      // 正在录制的快捷键 id（空串为未录制）
-      recordingId: '',
-      // 录制中：已按下的修饰键 / 普通键（松开组合键时组装 accelerator 保存）
-      recordMods: [],
-      recordKeys: [],
-      // ===== 托盘快捷菜单（Deck / Buddy 分组自定义项） =====
-      trayMenu: [],
-      // ===== 背景壁纸 =====
-      wpDimOptions: [
-        { label: '无', value: 'none' },
-        { label: '轻', value: 'light' },
-        { label: '中', value: 'medium' },
-        { label: '重', value: 'heavy' }
-      ],
-      wpCarouselOptions: [
-        { label: '关闭', value: 'off' },
-        { label: '30 秒', value: '30s' },
-        { label: '1 分钟', value: '1m' },
-        { label: '5 分钟', value: '5m' }
-      ],
-      // ===== 壁纸市场（本地目录·纯渲染层） =====
-      wpFileInput: null,     // 隐藏文件选择 input（复用，不 removeChild）
-      marketVisible: false,
-      marketLoadingMore: false,   // 分页追加加载中
-      marketDir: getSavedWallpaperDir(), // 当前壁纸目录（IndexedDB 持久化，重启自动恢复）
-      marketMissing: [],          // 缺失的子目录名（动态壁纸/静态壁纸）
-      marketCats: [
-        { id: 'all', name: '全部' },
-        { id: 'dynamic', name: '动态壁纸' },
-        { id: 'static', name: '静态壁纸' }
-      ],
-      marketCat: 'all',
-      marketRaw: [],              // 全量条目（含派生字段）
-      marketItems: [],            // 当前分类已渲染条目（分页累积）
-      marketPage: 0,
-      marketPageSize: 12,
-      marketReadingId: '',     // 正在读取入库的条目 id
-      wpPull: null,            // 拉取进度 { active, done, total, name }
-      wpThumbRetries: {},      // 壁纸缩略 objectURL 加载失败重试计数（id → 次数，防 error 死循环）
-      wpPullBusy: false        // 清单拉取中（按钮 loading）
-    }
+const route = useRoute()
+const router = useRouter()
+const store = useStore()
+const { message, confirm, prompt } = useFeedback()
+
+const root = ref(null)
+const marketScroll = ref(null)
+
+const activeTab = ref('general')
+// 左侧二级菜单：label 统一为 3 字，避免长短参差
+const tabs = [
+  { key: 'general', label: '通用项', icon: 'setting' },
+  { key: 'quick', label: '快捷键', icon: 'magic-stick' },
+  { key: 'tray', label: '托盘项', icon: 'menu' },
+  { key: 'security', label: '安全项', icon: 'lock' },
+  { key: 'notify', label: '通知项', icon: 'chat-dot-round' },
+  { key: 'runtime', label: '运行时', icon: 'cpu' },
+  { key: 'about', label: '关于项', icon: 'info' }
+]
+// 通知中心配置（loadNotify 拉取；matrix 为 类型 → 渠道数组）
+const notifyCfg = ref({
+  enabled: true,
+  url: '',
+  secret: '',
+  hasSecret: false,
+  matrix: {},
+  types: []
+})
+const notifySaving = ref(false)
+const notifyTesting = ref('')
+// 入口视图选项（启动时进入的默认视图，重启生效）
+const entryViewOptions = [
+  { label: 'Deck 视图', value: 'deck' },
+  { label: 'Buddy 视图', value: 'buddy' }
+]
+// 工具卡片每行个数枚举（'auto' 自适应）
+const gridOptions = [
+  { label: '自动', value: 'auto' },
+  { label: '2 列', value: 2 },
+  { label: '3 列', value: 3 },
+  { label: '4 列', value: 4 },
+  { label: '5 列', value: 5 },
+  { label: '6 列', value: 6 }
+]
+// 侧边栏启动默认状态
+const sidebarOptions = [
+  { label: '展开', value: 'expand', icon: 's-unfold' },
+  { label: '收起', value: 'collapse', icon: 's-fold' }
+]
+// 分组启动默认展开状态
+const sidebarGroupsOptions = [
+  { label: '展开', value: 'expand', icon: 'arrow-down' },
+  { label: '收起', value: 'collapse', icon: 'arrow-right' }
+]
+// 减弱动态效果
+const motionOptions = [
+  { label: '关闭', value: false },
+  { label: '开启', value: true }
+]
+// ===== 工具执行历史管理 =====
+// 条数上限选项（每工具保留条数）
+const historyLimitOptions = [
+  { label: '20 条', value: 20 },
+  { label: '50 条', value: 50 },
+  { label: '100 条', value: 100 },
+  { label: '200 条', value: 200 }
+]
+// 当前条数上限
+const historyLimit = ref(200)
+// 有历史记录的工具列表 [{ path, name, count }]
+const historyTools = ref([])
+// 本地数据用量（storage.estimate）
+const storageEstimate = ref(null)
+// 清空执行中
+const historyClearing = ref(false)
+// ===== Buddy 视图：会话历史管理 =====
+// OmniBuddy 会话列表（计数展示 + 清空目标）
+const buddySessions = ref([])
+// 清空 Buddy 会话执行中
+const buddyHistoryClearing = ref(false)
+// ===== 剪贴板历史上限（主进程 capture-settings.json） =====
+const clipKeepOptions = [
+  { label: '200 条', value: 200 },
+  { label: '500 条', value: 500 },
+  { label: '1000 条', value: 1000 },
+  { label: '2000 条', value: 2000 }
+]
+const clipKeep = ref(1000)
+// 是否在 Electron 环境（非 Electron 隐藏该行）
+const hasCaptureApi = !!(window.electronAPI && window.electronAPI.capture && window.electronAPI.capture.getClipKeep)
+// ===== 安全：应用锁定 =====
+const autoLockOptions = [
+  { label: '无', value: 0 },
+  { label: '1 分钟', value: 1 },
+  { label: '5 分钟', value: 5 },
+  { label: '15 分钟', value: 15 },
+  { label: '30 分钟', value: 30 }
+]
+const lockSettings = ref({ autoLock: 0, biometric: false })
+const hasPassword = ref(false)
+const biometricAvailable = ref(false)
+const isMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin')
+// 密码弹窗
+const pwdDialogVisible = ref(false)
+const pwdForm = ref({ oldPwd: '', newPwd: '', confirmPwd: '' })
+// ===== 快捷键：全部可改键（升级） =====
+// 当前快捷键（accelerator 格式；panel / 截图三项为系统级，其余为应用内）
+const shortcuts = reactive({ panel: '', search: '', lock: '', buddy: '', area: '', screen: '', scroll: '' })
+// 全部默认键（含 O = OmniDeck / OmniBuddy 首字母，防与其他产品冲突）
+const DEFAULT_PANEL_SHORTCUT = 'CommandOrControl+Shift+O'
+// 截图三项默认键（与主进程 capture.js DEFAULT_SHORTCUTS 一致）
+const CAPTURE_DEFAULTS = {
+  area: 'CommandOrControl+Shift+S',
+  screen: 'Alt+Shift+3',
+  scroll: 'Alt+Shift+S'
+}
+// 正在录制的快捷键 id（空串为未录制）
+const recordingId = ref('')
+// 录制中：已按下的修饰键 / 普通键（松开组合键时组装 accelerator 保存）
+const recordMods = ref([])
+const recordKeys = ref([])
+// ===== 托盘快捷菜单（Deck / Buddy 分组自定义项） =====
+const trayMenu = ref([])
+// ===== 背景壁纸 =====
+const wpDimOptions = [
+  { label: '无', value: 'none' },
+  { label: '轻', value: 'light' },
+  { label: '中', value: 'medium' },
+  { label: '重', value: 'heavy' }
+]
+const wpCarouselOptions = [
+  { label: '关闭', value: 'off' },
+  { label: '30 秒', value: '30s' },
+  { label: '1 分钟', value: '1m' },
+  { label: '5 分钟', value: '5m' }
+]
+// ===== 壁纸市场（本地目录·纯渲染层） =====
+let wpFileInput = null     // 隐藏文件选择 input（复用，不 removeChild）
+const marketVisible = ref(false)
+const marketLoadingMore = ref(false)   // 分页追加加载中
+const marketDir = ref(getSavedWallpaperDir()) // 当前壁纸目录（IndexedDB 持久化，重启自动恢复）
+const marketMissing = ref([])          // 缺失的子目录名（动态壁纸/静态壁纸）
+const marketCats = [
+  { id: 'all', name: '全部' },
+  { id: 'dynamic', name: '动态壁纸' },
+  { id: 'static', name: '静态壁纸' }
+]
+const marketCat = ref('all')
+const marketRaw = ref([])              // 全量条目（含派生字段）
+const marketItems = ref([])            // 当前分类已渲染条目（分页累积）
+const marketPage = ref(0)
+const marketPageSize = 12
+const marketReadingId = ref('')     // 正在读取入库的条目 id
+const wpPull = ref(null)            // 拉取进度 { active, done, total, name }
+const wpThumbRetries = ref({})      // 壁纸缩略 objectURL 加载失败重试计数（id → 次数，防 error 死循环）
+const wpPullBusy = ref(false)       // 清单拉取中（按钮 loading）
+
+// ===== computed =====
+// 入口视图（启动默认视图）：IndexedDB 直读（非 Vuex 状态，仅重启时消费）
+const entryView = computed(() => getItem('entryView', 'buddy'))
+const themeMode = computed(() => store.state.themeMode)
+// ===== 快捷键：分组结构（全部可改键） =====
+const shortcutGroups = [
+  {
+    title: '全局',
+    resetAll: true,
+    items: [
+      { id: 'panel', label: '唤起快捷面板', desc: '系统级快捷键，应用未聚焦也生效；仅支持「修饰键 + 单键」组合' },
+      { id: 'lock', label: '锁定应用', desc: '立即锁定应用（需已设置应用密码），锁定后凭密码或触控 ID 解锁' }
+    ]
   },
-  computed: {
-    // 入口视图（启动默认视图）：IndexedDB 直读（非 Vuex 状态，仅重启时消费）
-    entryView() {
-      return getItem('entryView', 'buddy')
-    },
-    themeMode() {
-      return this.$store.state.themeMode
-    },
-    // ===== 快捷键：分组结构（全部可改键） =====
-    shortcutGroups() {
-      return [
-        {
-          title: '全局',
-          resetAll: true,
-          items: [
-            { id: 'panel', label: '唤起快捷面板', desc: '系统级快捷键，应用未聚焦也生效；仅支持「修饰键 + 单键」组合' },
-            { id: 'lock', label: '锁定应用', desc: '立即锁定应用（需已设置应用密码），锁定后凭密码或触控 ID 解锁' }
-          ]
-        },
-        {
-          title: '截图',
-          items: [
-            { id: 'area', label: '选区截图', desc: '框选区域进入标注编辑，确认后自动复制并入复制历史' },
-            { id: 'screen', label: '全屏截图', desc: '截取光标所在显示器整屏，自动复制并入复制历史' },
-            { id: 'scroll', label: '滚动长截图', desc: '框选区域后滚动内容逐帧拼接成长图；系统级快捷键，仅支持「修饰键 + 单键」' }
-          ]
-        },
-        {
-          title: 'Deck 视图',
-          items: [
-            { id: 'search', label: '快捷搜索', desc: '打开「快捷搜索」页签并唤起搜索面板，可搜索工具与页面' }
-          ]
-        },
-        {
-          title: 'Buddy 视图',
-          items: [
-            { id: 'buddy', label: '唤起助手', desc: '呼出或收起 OmniBuddy 快速对话浮窗' }
-          ]
-        }
-      ]
-    },
-    // 录制中：实时预览键帽（修饰键 + 已按普通键）
-    recordPreview() {
-      const mods = this.recordMods.map(m => this.acceleratorToKeys(m)[0])
-      const keys = this.recordKeys.map(k => this.acceleratorToKeys(k)[0])
-      return mods.concat(keys)
-    },
-    // 任一快捷键偏离默认（控制「恢复全部默认」可用性）
-    anyShortcutModified() {
-      return Object.keys(this.shortcuts).some(id => this.shortcutModified(id))
-    },
-    // 托盘菜单分组视图（Deck / Buddy）
-    trayMenuGroups() {
-      return [
-        { key: 'deck', title: 'Deck 视图', items: this.trayMenu.filter(i => i.group === 'deck') },
-        { key: 'buddy', title: 'Buddy 视图', items: this.trayMenu.filter(i => i.group === 'buddy') }
-      ]
-    },
-    // 托盘菜单「页面路由」候选：取自真实路由表（去重 + 按路径排序）
-    routeCandidates() {
-      const seen = {}
-      const out = []
-      flattenRoutes(this.$router.options.routes, '/').forEach(r => {
-        if (seen[r.path]) return
-        seen[r.path] = true
-        out.push(r)
-      })
-      return out.sort((a, b) => a.path.localeCompare(b.path))
-    },
-    primaryColor() {
-      return this.$store.state.primaryColor
-    },
-    toolGridCols() {
-      return this.$store.state.toolGridCols
-    },
-    sidebarDefault() {
-      return this.$store.state.sidebarDefault
-    },
-    sidebarGroupsDefault() {
-      return this.$store.state.sidebarGroupsDefault
-    },
-    reduceMotion() {
-      return this.$store.state.reduceMotion
-    },
-    // ===== 背景壁纸 =====
-    wpEnabled() {
-      return this.$store.state.wallpaperConfig.enabled
-    },
-    wpConfig() {
-      return this.$store.state.wallpaperConfig
-    },
-    wallpaperList() {
-      return this.$store.state.wallpaperList
-    },
-    // 缩略图列表：图片附 blob URL（缓存复用，不反复 createObjectURL）
-    wpThumbs() {
-      return this.wallpaperList.map(wp => {
-        if (isVideoItem(wp)) return wp
-        if (!wp._thumb && wp.blob) {
-          try {
-            wp._thumb = URL.createObjectURL(wp.blob)
-          } catch (e) { /* 忽略 */ }
-        }
-        return wp
-      })
-    },
-    // 当前分类筛选后的全量条目
-    marketFiltered() {
-      return this.marketCat === 'all'
-        ? this.marketRaw
-        : this.marketRaw.filter(i => i.category === this.marketCat)
-    },
-    // 当前分类下是否还有未加载页
-    marketHasMore() {
-      return this.marketPage * this.marketPageSize < this.marketFiltered.length
-    },
-    // 是否有市场壁纸正在读取入库（进行中禁用其他「使用」按钮）
-    marketReading() {
-      return !!this.marketReadingId
-    },
-    // 拉取进度百分比
-    wpPullPercent() {
-      if (!this.wpPull || !this.wpPull.total) return 0
-      return Math.min(100, Math.round((this.wpPull.done / this.wpPull.total) * 100))
-    },
-    // 拉取是否进行中（按钮状态/操作禁用）
-    wpPullActive() {
-      return !!(this.wpPull && this.wpPull.active)
-    },
-    // ===== 工具执行历史 =====
-    // 历史总条数（「清空全部」按钮可用性 + 描述）
-    historyTotalCount() {
-      return this.historyTools.reduce((s, t) => s + t.count, 0)
-    },
-    // 本地数据用量描述（IndexedDB 配额）
-    storageUsageDesc() {
-      if (!this.storageEstimate) return '按工具管理执行历史记录；超过 30 天的记录启动时自动清理'
-      const { usage, quota } = this.storageEstimate
-      const pct = quota ? Math.min(100, Math.round((usage / quota) * 100)) : 0
-      return `本地数据已用 ${fmtBytes(usage)} / 配额 ${fmtBytes(quota)}（${pct}%）`
-    },
-    // ===== Buddy 视图：会话历史 =====
-    // Buddy 会话总数（描述展示 + 清空按钮可用性）
-    buddySessionCount() {
-      return this.buddySessions.length
-    }
+  {
+    title: '截图',
+    items: [
+      { id: 'area', label: '选区截图', desc: '框选区域进入标注编辑，确认后自动复制并入复制历史' },
+      { id: 'screen', label: '全屏截图', desc: '截取光标所在显示器整屏，自动复制并入复制历史' },
+      { id: 'scroll', label: '滚动长截图', desc: '框选区域后滚动内容逐帧拼接成长图；系统级快捷键，仅支持「修饰键 + 单键」' }
+    ]
   },
-  watch: {
-    // 切回通用页签时刷新 Buddy 会话计数（页面停留期间任务列表可能已变化）
-    activeTab(v) {
-      if (v === 'general') this.loadBuddySessions()
-    }
+  {
+    title: 'Deck 视图',
+    items: [
+      { id: 'search', label: '快捷搜索', desc: '打开「快捷搜索」页签并唤起搜索面板，可搜索工具与页面' }
+    ]
   },
-  mounted() {
-    this.syncTabFromQuery()
-    this.loadLockState()
-    this.loadShortcuts()
-    this.loadTrayMenu()
-    this.loadHistoryState()
-    this.loadClipKeep()
-    this.loadBuddySessions()
-    this.loadNotify()
-  },
-  watch: {
-    // 外部跳转（如启动检查横幅「去装配」）带 ?tab= 直达指定分区；
-    // 组件被 keep-alive 复用时 route 变化不重走 mounted，watch 兜底
-    '$route.query.tab': {
-      immediate: false,
-      handler() {
-        this.syncTabFromQuery()
-      }
-    }
-  },
-  beforeUnmount() {
-    window.removeEventListener('keydown', this.onRecordKeydown, true)
-    window.removeEventListener('keyup', this.onRecordKeyup, true)
-    document.removeEventListener('mousedown', this.onRecordBlur, true)
-  },
-  methods: {
-    // 从路由 query 同步激活分区（tab 键不合法时保持当前值）
-    syncTabFromQuery() {
-      const tab = this.$route.query.tab
-      if (tab && this.tabs.some(t => t.key === tab)) {
-        this.activeTab = tab
-      }
-    },
-    // ===== 工具执行历史管理 =====
-    // 加载历史状态：条数上限 + 各工具记录数 + 本地数据用量
-    async loadHistoryState() {
+  {
+    title: 'Buddy 视图',
+    items: [
+      { id: 'buddy', label: '唤起助手', desc: '呼出或收起 OmniBuddy 快速对话浮窗' }
+    ]
+  }
+]
+// 录制中：实时预览键帽（修饰键 + 已按普通键）
+const recordPreview = computed(() => {
+  const mods = recordMods.value.map(m => acceleratorToKeys(m)[0])
+  const keys = recordKeys.value.map(k => acceleratorToKeys(k)[0])
+  return mods.concat(keys)
+})
+// 任一快捷键偏离默认（控制「恢复全部默认」可用性）
+const anyShortcutModified = computed(() => Object.keys(shortcuts).some(id => shortcutModified(id)))
+// 托盘菜单分组视图（Deck / Buddy）
+const trayMenuGroups = computed(() => [
+  { key: 'deck', title: 'Deck 视图', items: trayMenu.value.filter(i => i.group === 'deck') },
+  { key: 'buddy', title: 'Buddy 视图', items: trayMenu.value.filter(i => i.group === 'buddy') }
+])
+// 托盘菜单「页面路由」候选：取自真实路由表（去重 + 按路径排序）
+const routeCandidates = computed(() => {
+  const seen = {}
+  const out = []
+  flattenRoutes(router.options.routes, '/').forEach(r => {
+    if (seen[r.path]) return
+    seen[r.path] = true
+    out.push(r)
+  })
+  return out.sort((a, b) => a.path.localeCompare(b.path))
+})
+const primaryColor = computed(() => store.state.primaryColor)
+const toolGridCols = computed(() => store.state.toolGridCols)
+const sidebarDefault = computed(() => store.state.sidebarDefault)
+const sidebarGroupsDefault = computed(() => store.state.sidebarGroupsDefault)
+const reduceMotion = computed(() => store.state.reduceMotion)
+// ===== 背景壁纸 =====
+const wpEnabled = computed(() => store.state.wallpaperConfig.enabled)
+const wpConfig = computed(() => store.state.wallpaperConfig)
+const wallpaperList = computed(() => store.state.wallpaperList)
+// 缩略图列表：图片附 blob URL（缓存复用，不反复 createObjectURL）
+const wpThumbs = computed(() => {
+  return wallpaperList.value.map(wp => {
+    if (isVideoItem(wp)) return wp
+    if (!wp._thumb && wp.blob) {
       try {
-        this.historyLimit = toolHistory.getLimit()
-        const counts = await toolHistory.countByTool()
-        this.historyTools = Object.keys(counts).map(path => ({
-          path,
-          name: TOOL_NAME_MAP[path] || path,
-          count: counts[path]
-        }))
-      } catch (e) { /* 忽略加载失败 */ }
-      try {
-        if (navigator.storage && navigator.storage.estimate) {
-          const { usage, quota } = await navigator.storage.estimate()
-          this.storageEstimate = { usage: usage || 0, quota: quota || 0 }
-        }
-      } catch (e) { /* 不支持时忽略 */ }
-    },
-    // 切换每工具历史条数上限（保存后立即按新上限淘汰）
-    async selectHistoryLimit(v) {
-      if (v === this.historyLimit) return
-      this.historyLimit = v
-      await toolHistory.setLimit(v)
-      await this.loadHistoryState()
-      this.$message.success(`已调整为每工具保留 ${v} 条历史`)
-    },
-    // ===== 剪贴板历史上限 =====
-    // 读取主进程当前值（capture-settings.json）
-    async loadClipKeep() {
-      if (!this.hasCaptureApi) return
-      try {
-        const v = await window.electronAPI.capture.getClipKeep()
-        if (Number.isInteger(v)) this.clipKeep = v
+        wp._thumb = URL.createObjectURL(wp.blob)
       } catch (e) { /* 忽略 */ }
-    },
-    // 切换剪贴板历史上限（主进程持久化 + 立即淘汰）
-    async selectClipKeep(v) {
-      if (v === this.clipKeep || !this.hasCaptureApi) return
-      const res = await window.electronAPI.capture.setClipKeep(v)
-      if (res && res.ok) {
-        this.clipKeep = res.clipKeep
-        this.$message.success(`剪贴板历史上限已调整为 ${v} 条`)
-      } else {
-        this.$message.error((res && res.error) || '设置失败')
-      }
-    },
-    // 按工具清空历史（下拉选择）
-    async clearToolHistory(path) {
-      const tool = this.historyTools.find(t => t.path === path)
-      const name = tool ? tool.name : path
-      try {
-        await this.$confirm(`将清空「${name}」的全部执行历史，是否继续？`, '按工具清空', {
-          confirmButtonText: '清空',
-          cancelButtonText: '取消',
-          type: 'warning'
-        })
-      } catch (e) {
-        return
-      }
-      await toolHistory.clear(path)
-      await this.loadHistoryState()
-      this.$message.success(`已清空「${name}」的历史`)
-    },
-    // 清空全部工具执行历史
-    async clearAllHistory() {
-      try {
-        await this.$confirm(
-          `将清空全部 ${this.historyTotalCount} 条工具执行历史记录，是否继续？`,
-          '清空全部历史',
-          {
-            confirmButtonText: '全部清空',
-            cancelButtonText: '取消',
-            type: 'warning'
-          }
-        )
-      } catch (e) {
-        return
-      }
-      this.historyClearing = true
-      try {
-        await toolHistory.clear()
-        await this.loadHistoryState()
-        this.$message.success('已清空全部执行历史')
-      } finally {
-        this.historyClearing = false
-      }
-    },
-    // ===== Buddy 视图：会话历史管理 =====
-    // 加载 OmniBuddy 会话列表（计数展示；非桌面端无 API 时保持为空）
-    async loadBuddySessions() {
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      if (!api || !api.listSessions) return
-      try {
-        this.buddySessions = (await api.listSessions()) || []
-      } catch (e) { /* 忽略加载失败 */ }
-    },
-    // 清空全部 OmniBuddy 会话历史（复用单会话删除链：记忆摘要照常留档）
-    async clearBuddyHistory() {
-      try {
-        await this.$confirm(
-          `将清空全部 ${this.buddySessionCount} 个任务的会话记录，是否继续？`,
-          '清空全部历史',
-          {
-            confirmButtonText: '全部清空',
-            cancelButtonText: '取消',
-            type: 'warning'
-          }
-        )
-      } catch (e) {
-        return
-      }
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      if (!api || !api.deleteSession) return
-      this.buddyHistoryClearing = true
-      try {
-        const removed = this.buddySessions.map(s => s.id)
-        for (const sid of removed) {
-          await api.deleteSession(sid)
-        }
-        // 被删会话：清理页签与会话状态池（防泄漏）
-        for (const sid of removed) {
-          this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + sid })
-          this.$store.commit('buddyChat/DROP_SESSION', sid)
-        }
-        await this.loadBuddySessions()
-        // 通知 Buddy 侧栏刷新任务列表
-        this.$bus.emit('omnibuddy:sessions-changed')
-        this.$message.success('已清空全部任务会话')
-      } finally {
-        this.buddyHistoryClearing = false
-      }
-    },
+    }
+    return wp
+  })
+})
+// 当前分类筛选后的全量条目
+const marketFiltered = computed(() => {
+  return marketCat.value === 'all'
+    ? marketRaw.value
+    : marketRaw.value.filter(i => i.category === marketCat.value)
+})
+// 当前分类下是否还有未加载页
+const marketHasMore = computed(() => marketPage.value * marketPageSize < marketFiltered.value.length)
+// 是否有市场壁纸正在读取入库（进行中禁用其他「使用」按钮）
+const marketReading = computed(() => !!marketReadingId.value)
+// 拉取进度百分比
+const wpPullPercent = computed(() => {
+  if (!wpPull.value || !wpPull.value.total) return 0
+  return Math.min(100, Math.round((wpPull.value.done / wpPull.value.total) * 100))
+})
+// 拉取是否进行中（按钮状态/操作禁用）
+const wpPullActive = computed(() => !!(wpPull.value && wpPull.value.active))
+// ===== 工具执行历史 =====
+// 历史总条数（「清空全部」按钮可用性 + 描述）
+const historyTotalCount = computed(() => historyTools.value.reduce((s, t) => s + t.count, 0))
+// 本地数据用量描述（IndexedDB 配额）
+const storageUsageDesc = computed(() => {
+  if (!storageEstimate.value) return '按工具管理执行历史记录；超过 30 天的记录启动时自动清理'
+  const { usage, quota } = storageEstimate.value
+  const pct = quota ? Math.min(100, Math.round((usage / quota) * 100)) : 0
+  return `本地数据已用 ${fmtBytes(usage)} / 配额 ${fmtBytes(quota)}（${pct}%）`
+})
+// ===== Buddy 视图：会话历史 =====
+// Buddy 会话总数（描述展示 + 清空按钮可用性）
+const buddySessionCount = computed(() => buddySessions.value.length)
 
-    // ===== 快捷键：全部可改键（升级） =====
-    // 加载全部快捷键：panel 走主进程 IPC，截图三项走 capture IPC，应用内走 shortcuts.js
-    async loadShortcuts() {
-      const quick = window.electronAPI && window.electronAPI.quick
-      if (quick && quick.getShortcut) {
-        const res = await quick.getShortcut()
-        this.shortcuts.panel = res && res.accelerator ? res.accelerator : this.DEFAULT_PANEL_SHORTCUT
-      } else {
-        this.shortcuts.panel = this.DEFAULT_PANEL_SHORTCUT
-      }
-      const cap = window.electronAPI && window.electronAPI.capture
-      if (cap && cap.getShortcuts) {
-        try {
-          const res = await cap.getShortcuts()
-          if (res) {
-            this.shortcuts.area = res.area || this.CAPTURE_DEFAULTS.area
-            this.shortcuts.screen = res.screen || this.CAPTURE_DEFAULTS.screen
-            this.shortcuts.scroll = res.scroll || this.CAPTURE_DEFAULTS.scroll
-          }
-        } catch (e) { /* 主进程不可达：走默认 */ }
-      }
-      if (!this.shortcuts.area) this.shortcuts.area = this.CAPTURE_DEFAULTS.area
-      if (!this.shortcuts.screen) this.shortcuts.screen = this.CAPTURE_DEFAULTS.screen
-      if (!this.shortcuts.scroll) this.shortcuts.scroll = this.CAPTURE_DEFAULTS.scroll
-      const app = getShortcuts()
-      this.shortcuts.search = app.search
-      this.shortcuts.lock = app.lock
-      this.shortcuts.buddy = app.buddy
-    },
-    // 某项是否偏离默认（控制单项「恢复默认」按钮显隐）
-    shortcutModified(id) {
-      return this.shortcuts[id] !== this.defaultOf(id)
-    },
-    // 某项默认键
-    defaultOf(id) {
-      if (id === 'panel') return this.DEFAULT_PANEL_SHORTCUT
-      if (this.CAPTURE_DEFAULTS[id]) return this.CAPTURE_DEFAULTS[id]
-      return DEFAULT_SHORTCUTS[id]
-    },
-    // accelerator → 键帽数组 / 展示文案（平台自感知，shortcuts.js 统一实现）
-    acceleratorToKeys,
-    formatAccelerator,
-    // id → 中文名（冲突提示用）
-    labelOf(id) {
-      const found = this.shortcutGroups.reduce((acc, g) => acc.concat(g.items), []).find(i => i.id === id)
-      return found ? found.label : id
-    },
-    toggleRecord(id) {
-      if (this.recordingId === id) {
-        this.stopRecord()
-      } else {
-        this.recordingId = id
-        this.recordMods = []
-        this.recordKeys = []
-        window.addEventListener('keydown', this.onRecordKeydown, true)
-        window.addEventListener('keyup', this.onRecordKeyup, true)
-        // 点击录制器外部：自动取消录制（主流改键交互）
-        this.$nextTick(() => document.addEventListener('mousedown', this.onRecordBlur, true))
-      }
-    },
-    stopRecord() {
-      this.recordingId = ''
-      window.removeEventListener('keydown', this.onRecordKeydown, true)
-      window.removeEventListener('keyup', this.onRecordKeyup, true)
-      document.removeEventListener('mousedown', this.onRecordBlur, true)
-    },
-    // 录制中点击外部取消
-    onRecordBlur(e) {
-      const el = this.$el && this.$el.querySelector('.shortcut-recorder.recording')
-      if (el && !el.contains(e.target)) this.stopRecord()
-    },
-    // 录制-按下：累积修饰键与普通键（实时预览），不立即保存
-    onRecordKeydown(e) {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === 'Escape') {
-        this.stopRecord()
-        return
-      }
-      const isMac = this.isMac
-      if (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
-        // 修饰键：更新实时修饰键集合
-        this.recordMods = []
-        if (isMac ? e.metaKey : (e.ctrlKey || e.metaKey)) this.recordMods.push('CommandOrControl')
-        if (e.ctrlKey && isMac) this.recordMods.push('Control')
-        if (e.altKey) this.recordMods.push('Alt')
-        if (e.shiftKey) this.recordMods.push('Shift')
-        return
-      }
-      // 普通键：归一命名（Electron accelerator 风格）
-      let key = e.key.length === 1 ? e.key.toUpperCase() : e.key
-      if (key === ' ') key = 'Space'
-      const alias = {
-        Space: 'Space', Escape: 'Esc', ArrowUp: 'Up', ArrowDown: 'Down',
-        ArrowLeft: 'Left', ArrowRight: 'Right', Enter: 'Return'
-      }
-      key = alias[key] || key
-      const ok = ['Up', 'Down', 'Left', 'Right', 'Space', 'Esc', 'Return', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown'].indexOf(key) >= 0 ||
-        /^[A-Z0-9]$/.test(key) || /^F\d{1,2}$/.test(key)
-      if (!ok) return
-      // 最多 2 个普通键（⌘O+K 式双键组合）
-      if (this.recordKeys.indexOf(key) < 0 && this.recordKeys.length < 2) this.recordKeys.push(key)
-    },
-    // 录制-松开：任一键松开后，若修饰键已全部松开且已有普通键 → 组装保存
-    // （先松修饰键或先松普通键均可触发；双键组合的中间键松开不打断录制）
-    onRecordKeyup(e) {
-      e.preventDefault()
-      const isMac = this.isMac
-      this.recordMods = []
-      if (isMac ? e.metaKey : (e.ctrlKey || e.metaKey)) this.recordMods.push('CommandOrControl')
-      if (e.ctrlKey && isMac) this.recordMods.push('Control')
-      if (e.altKey) this.recordMods.push('Alt')
-      if (e.shiftKey) this.recordMods.push('Shift')
-      if (!this.recordMods.length && this.recordKeys.length) {
-        this.commitRecording()
-      }
-    },
-    // 提交录制结果：校验修饰键后组装保存
-    commitRecording() {
-      if (!this.recordingId) return
-      // 必须含修饰键：提示后清空普通键继续录制
-      if (!this.recordMods.length) {
-        this.recordKeys = []
-        this.$message.warning('快捷键需包含修饰键（⌘ / Ctrl / Alt / Shift）')
-        return
-      }
-      if (!this.recordKeys.length) return
-      const full = this.recordMods.concat(this.recordKeys).join('+')
-      // 托盘菜单项快捷键（tray: 前缀）：系统级，仅支持「修饰键 + 单键」
-      if (this.recordingId.indexOf('tray:') === 0) {
-        const parsed = parseAccelerator(full)
-        if (!parsed || parsed.keys.size > 1) {
-          this.$message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
-          this.stopRecord()
-          return
-        }
-        this.saveTrayItemShortcut(this.recordingId.slice(5), full)
-        return
-      }
-      this.saveShortcutFor(this.recordingId, full)
-    },
-    // 保存托盘菜单项快捷键：写入该项并整单保存（冲突/占用由主进程清洗回写）
-    async saveTrayItemShortcut(id, accelerator) {
-      this.stopRecord()
-      const it = this.trayMenu.find(i => i.id === id)
-      if (!it) return
-      // 与固定快捷键冲突提示（panel 等）
-      if (Object.keys(this.shortcuts).some(k => this.shortcuts[k] && this.shortcuts[k].toLowerCase() === accelerator.toLowerCase())) {
-        this.$message.error('与既有快捷键冲突，请换一组按键')
-        return
-      }
-      it.accelerator = accelerator
-      // 校验未通过（存在填写错误的项）时不再提示"已更新"，避免误导
-      if (!(await this.saveTrayMenu())) return
-      // 回写后确认键位是否注册成功（失败被主进程置空）
-      const saved = this.trayMenu.find(i => i.id === id)
-      if (saved && saved.accelerator) {
-        this.$message.success('快捷键已更新：' + this.formatAccelerator(saved.accelerator))
-      } else {
-        this.$message.error('注册失败（可能已被其它应用占用），请换一组按键')
-      }
-    },
-    // 保存快捷键：panel 走主进程（仅支持单普通键），应用内走 shortcuts.js
-    async saveShortcutFor(id, accelerator) {
-      if (!id) return
-      this.stopRecord()
-      // 本地冲突检测（四项互查，大小写不敏感）
-      const conflict = Object.keys(this.shortcuts).find(
-        k => k !== id && this.shortcuts[k] && this.shortcuts[k].toLowerCase() === accelerator.toLowerCase()
-      )
-      if (conflict) {
-        this.$message.error('与「' + this.labelOf(conflict) + '」快捷键冲突')
-        return
-      }
-      if (id === 'panel') {
-        // 系统级快捷键：Electron globalShortcut 不支持多普通键
-        const parsed = parseAccelerator(accelerator)
-        if (!parsed || parsed.keys.size > 1) {
-          this.$message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
-          return
-        }
-        const quick = window.electronAPI && window.electronAPI.quick
-        if (!quick || !quick.setShortcut) {
-          this.$message.info('快捷键设置需要 OmniDeck 桌面端')
-          return
-        }
-        const res = await quick.setShortcut(accelerator)
-        if (res && res.ok) {
-          this.shortcuts.panel = res.accelerator
-          this.$message.success('快捷键已更新：' + this.formatAccelerator(res.accelerator))
-        } else {
-          this.$message.error((res && res.error) || '注册失败，请换一组按键')
-        }
-        return
-      }
-      // 截图快捷键（area / screen / scroll）：走主进程 globalShortcut，仅支持「修饰键 + 单键」
-      if (this.CAPTURE_DEFAULTS[id]) {
-        const parsed = parseAccelerator(accelerator)
-        if (!parsed || parsed.keys.size > 1) {
-          this.$message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
-          return
-        }
-        const cap = window.electronAPI && window.electronAPI.capture
-        if (!cap || !cap.setShortcut) {
-          this.$message.info('快捷键设置需要 OmniDeck 桌面端')
-          return
-        }
-        const res = await cap.setShortcut(id, accelerator)
-        if (res && res.ok) {
-          this.shortcuts[id] = res.shortcuts[id]
-          this.$message.success('快捷键已更新：' + this.formatAccelerator(res.shortcuts[id]))
-        } else {
-          this.$message.error((res && res.error) || '注册失败，请换一组按键')
-        }
-        return
-      }
-      // 应用内快捷键
-      const res = await saveShortcut(id, accelerator)
-      if (res && res.ok) {
-        this.shortcuts[id] = accelerator
-        this.$message.success('快捷键已更新：' + this.formatAccelerator(accelerator))
-      } else {
-        this.$message.error((res && res.error) || '保存失败，请换一组按键')
-      }
-    },
-    // 恢复单项默认键
-    resetShortcutItem(id) {
-      this.recordMods = []
-      this.recordKeys = []
-      this.saveShortcutFor(id, this.defaultOf(id))
-    },
-    // 恢复全部默认键（panel + 应用内三项 + 截图三项）
-    async resetAllShortcuts() {
-      // 应用内：一次性恢复并广播
-      const res = await resetAllAppShortcuts()
-      if (!(res && res.ok)) {
-        this.$message.error('恢复默认失败')
-        return
-      }
-      // panel：走主进程恢复默认键
-      this.recordMods = []
-      this.recordKeys = []
-      await this.saveShortcutFor('panel', this.DEFAULT_PANEL_SHORTCUT)
-      // 截图三项：依次恢复默认键（主进程注册）
-      for (const key of Object.keys(this.CAPTURE_DEFAULTS)) {
-        await this.saveShortcutFor(key, this.CAPTURE_DEFAULTS[key])
-      }
-      await this.loadShortcuts()
-      this.$message.success('已恢复全部默认快捷键')
-    },
-    // ===== 托盘快捷菜单（Deck / Buddy 分组自定义项） =====
-    // 加载托盘菜单配置（主进程 quick-settings.json）
-    async loadTrayMenu() {
-      const quick = window.electronAPI && window.electronAPI.quick
-      if (!quick || !quick.getTrayMenu) return
-      const res = await quick.getTrayMenu()
-      this.trayMenu = (res && res.items) || []
-    },
-    // 菜单名称校验：返回错误文案（空串表示合法），用于标红与阻止保存
-    labelInvalid(it) {
-      return ((it && it.label) || '').trim() ? '' : '菜单名称不能为空'
-    },
-    // 页面路由校验：必须命中真实路由表，避免填错地址
-    routeInvalid(it) {
-      const p = ((it && it.route) || '').trim()
-      if (!p) return '页面路由不能为空'
-      if (p.charAt(0) !== '/') return '页面路由需以 / 开头'
-      return this.routeCandidates.some(c => c.path === p) ? '' : '页面路由不存在'
-    },
-    // 路由候选检索（el-autocomplete 的 fetch-suggestions）：按路径或页面名称筛选
-    queryRoutes(queryString, cb) {
-      const kw = (queryString || '').toLowerCase()
-      cb(
-        this.routeCandidates.filter(
-          c => !kw || c.path.toLowerCase().indexOf(kw) !== -1 || (c.title || '').toLowerCase().indexOf(kw) !== -1
-        )
-      )
-    },
-    // 保存托盘菜单（编辑入口）：先做名称/路由校验，非法项不落盘并标红提示
-    // 返回是否通过校验（供调用方决定后续提示）
-    async saveTrayMenu() {
-      const bad = this.trayMenu.filter(it => this.labelInvalid(it) || this.routeInvalid(it))
-      if (bad.length) {
-        this.$message.warning('有 ' + bad.length + ' 项填写有误，已暂不保存，请修正后再试')
-        return false
-      }
-      await this.persistTrayMenu()
-      return true
-    },
-    // 落盘：主进程清洗/注册快捷键并重建托盘菜单，回写清洗后的数据
-    // （新增/删除等结构性操作直接调用，避免被其他行的填写错误卡住）
-    async persistTrayMenu() {
-      const quick = window.electronAPI && window.electronAPI.quick
-      if (!quick || !quick.setTrayMenu) return
-      const res = await quick.setTrayMenu(this.trayMenu)
-      if (res && res.ok) {
-        // 回写：注册失败的快捷键被主进程置空、冲突项被清洗
-        this.trayMenu = res.items || this.trayMenu
-        // 兜底：主进程仍丢弃了项时明示原因，避免菜单项无声消失
-        const invalid = (res && res.invalid) || []
-        if (invalid.length) {
-          this.$message.warning(
-            '已忽略 ' + invalid.length + ' 个无效菜单项：' +
-              invalid.map(v => (v.label || v.route || '未命名') + '（' + v.reason + '）').join('；')
-          )
-        }
-      }
-    },
-    // 新增菜单项（分组指定 deck / buddy）
-    async addTrayItem(group) {
-      const route = group === 'deck' ? '/home' : '/omnibuddy'
-      this.trayMenu.push({
-        id: 'custom-' + Date.now(),
-        group,
-        label: group === 'deck' ? '新 Deck 页面' : '新 Buddy 页面',
-        route,
-        accelerator: ''
-      })
-      await this.persistTrayMenu()
-    },
-    // 删除菜单项
-    async removeTrayItem(groupKey, id) {
-      const g = this.trayMenuGroups[groupKey]
-      if (!g) return
-      this.$confirm('确定删除菜单项「' + (g.items.find(i => i.id === id) || {}).label + '」吗？', '删除菜单项', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      })
-        .then(async () => {
-          this.trayMenu = this.trayMenu.filter(i => i.id !== id)
-          await this.persistTrayMenu()
-          this.$message.success('已删除')
-        })
-        .catch(() => {})
-    },
-    // 恢复托盘菜单默认配置
-    async resetTrayMenu() {
-      const quick = window.electronAPI && window.electronAPI.quick
-      if (!quick || !quick.resetTrayMenu) return
-      const res = await quick.resetTrayMenu()
-      if (res && res.ok) {
-        this.trayMenu = res.items || []
-        this.$message.success('托盘菜单已恢复默认')
-      }
-    },
-    selectMode(mode) {
-      this.$store.commit('SET_THEME', { mode })
-      applyTheme(this.themeMode, this.primaryColor)
-    },
-    // ===== Deck 视图 =====
-    // 还原菜单排序：清除持久化排序，广播事件由 Sidebar 重建菜单
-    resetMenuOrder() {
-      this.$confirm('确定要将菜单排序还原到初始状态吗？', '还原排序', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      })
-        .then(() => {
-          clearMenuOrder()
-          this.$bus.emit('menu-order-reset')
-          this.$message.success('排序已还原')
-        })
-        .catch(() => {})
-    },
-    // ===== 关于 =====
-    // ===== 通知中心（类型 × 渠道矩阵 + Webhook 配置） =====
-    async loadNotify() {
-      const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
-      if (!api || !api.notify) return
-      try {
-        const cfg = await api.notify.config()
-        this.notifyCfg = {
-          enabled: cfg.enabled !== false,
-          url: (cfg.webhook && cfg.webhook.url) || '',
-          secret: '',
-          hasSecret: !!(cfg.webhook && cfg.webhook.hasSecret),
-          matrix: cfg.matrix || {},
-          types: cfg.types || []
-        }
-      } catch (e) { /* 忽略加载失败 */ }
-    },
-    matrixHas(type, channel) {
-      return (this.notifyCfg.matrix[type] || []).indexOf(channel) >= 0
-    },
-    notifyApi() {
-      const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
-      return (api && api.notify) || null
-    },
-    async saveNotifyEnabled(v) {
-      const api = this.notifyApi()
-      if (!api) return
-      try {
-        const res = await api.update({ enabled: v })
-        if (res && res.ok === false) this.$message.error(res.error || '保存失败')
-      } catch (e) { this.$message.error('保存失败') }
-    },
-    // 矩阵开关：单类型单渠道增量保存（失败回滚视图状态）
-    async toggleMatrix(type, channel, v) {
-      const api = this.notifyApi()
-      if (!api) return
-      const cur = (this.notifyCfg.matrix[type] || []).slice()
-      const next = v ? cur.concat([channel]) : cur.filter(c => c !== channel)
-      this.notifyCfg.matrix[type] = next
-      try {
-        const res = await api.update({ matrix: { [type]: next } })
-        if (res && res.ok === false) {
-          this.$message.error(res.error || '保存失败')
-          this.notifyCfg.matrix[type] = cur
-        }
-      } catch (e) {
-        this.$message.error('保存失败')
-        this.notifyCfg.matrix[type] = cur
-      }
-    },
-    async saveWebhookCfg() {
-      const api = this.notifyApi()
-      if (!api) return
-      this.notifySaving = true
-      try {
-        const res = await api.update({
-          webhook: { url: this.notifyCfg.url, secret: this.notifyCfg.secret }
-        })
-        if (res && res.ok === false) {
-          this.$message.error(res.error || '保存失败')
-        } else {
-          // secret 只在本次提交携带：保存后清空输入，hasSecret 相应更新
-          if (this.notifyCfg.secret) this.notifyCfg.hasSecret = true
-          this.notifyCfg.secret = ''
-          this.$message.success('Webhook 配置已保存')
-        }
-      } catch (e) {
-        this.$message.error('保存失败：' + (e && e.message ? e.message : '未知错误'))
-      }
-      this.notifySaving = false
-    },
-    async testNotify(channel) {
-      const api = this.notifyApi()
-      if (!api) return
-      this.notifyTesting = channel
-      try {
-        const r = await api.test(channel)
-        if (r && r.ok) {
-          this.$message.success(channel === 'webhook' ? 'Webhook 投递成功' : '测试通知已发送')
-        } else {
-          this.$message.error('投递失败：' + ((r && r.error) || '未知错误'))
-        }
-      } catch (e) {
-        this.$message.error('投递失败：' + (e && e.message ? e.message : '未知错误'))
-      }
-      this.notifyTesting = ''
-    },
-    // 版本 / 反馈为应用级公共页：在哪个视图的设置里点开就在哪个视图打开
-    //（Buddy → /omnibuddy/* 挂 BuddyLayout 页签内；Deck → /version、/feedback）
-    goVersion() {
-      const name = this.$route.path.startsWith('/omnibuddy') ? 'OmniBuddyVersion' : 'Version'
-      if (this.$route.name !== name) {
-        this.$router.push({ name }).catch(() => {})
-      }
-    },
-    goFeedback() {
-      const name = this.$route.path.startsWith('/omnibuddy') ? 'OmniBuddyFeedback' : 'Feedback'
-      if (this.$route.name !== name) {
-        this.$router.push({ name }).catch(() => {})
-      }
-    },
-    selectColor(color) {
-      this.$store.commit('SET_THEME', { color })
-      applyTheme(this.themeMode, this.primaryColor)
-    },
-    // 切换工具卡片每行个数：更新全局状态并持久化
-    selectGridCols(cols) {
-      this.$store.commit('SET_TOOL_GRID_COLS', cols)
-      setItem('toolGridCols', cols)
-    },
-    // 切换侧边栏默认状态：立即生效并持久化
-    selectSidebarDefault(val) {
-      this.$store.commit('SET_SIDEBAR_DEFAULT', val)
-      setItem('sidebarDefault', val)
-    },
-    // 切换入口视图：二次确认后持久化并重启应用（启动时路由 redirect 消费）
-    async selectEntryView(val) {
-      if (val === this.entryView) return
-      const label = val === 'deck' ? 'Deck 视图' : 'Buddy 视图'
-      const yes = await this.$confirm(
-        `入口视图将切换为「${label}」，修改需重启应用后生效。确定并立即重启吗？`,
-        '切换入口视图',
-        { confirmButtonText: '确定并重启', cancelButtonText: '取消', type: 'warning' }
-      ).then(() => true).catch(() => false)
-      if (!yes) return
-      await setItem('entryView', val)
-      this.$message.success('入口视图已更新，正在重启应用')
-      // 稍候让提示渲染出来，再触发重启（非桌面端刷新页面兜底）
-      setTimeout(() => {
-        if (window.electronAPI && window.electronAPI.relaunchApp) {
-          window.electronAPI.relaunchApp()
-        } else {
-          location.reload()
-        }
-      }, 600)
-    },
-    // 切换分组默认展开状态（下次启动生效）
-    selectSidebarGroupsDefault(val) {
-      this.$store.commit('SET_SIDEBAR_GROUPS_DEFAULT', val)
-      setItem('sidebarGroupsDefault', val)
-    },
-    // 切换减弱动态效果：写入 html 根类，全局 CSS 感知
-    selectReduceMotion(val) {
-      this.$store.commit('SET_REDUCE_MOTION', val)
-      setItem('reduceMotion', val)
-      document.documentElement.classList.toggle('reduce-motion', val)
-    },
-    // ===== 背景壁纸 =====
-    isVideoWp(wp) {
-      return isVideoItem(wp)
-    },
-    // 生成缩略图地址：图片出 blob URL；视频优先封面（远程 URL 或本地封面 Blob，均带缓存），否则播放角标
-    wpThumbUrl(wp) {
-      if (!this.isVideoWp(wp)) {
-        if (!wp._thumb && wp.blob) {
-          try {
-            wp._thumb = URL.createObjectURL(wp.blob)
-          } catch (e) { /* 忽略 */ }
-        }
-        return wp._thumb || ''
-      }
-      if (wp.coverUrl) return wp.coverUrl
-      if (wp.coverBlob) {
-        if (!wp._coverThumb) {
-          try {
-            wp._coverThumb = URL.createObjectURL(wp.coverBlob)
-          } catch (e) { /* 忽略 */ }
-        }
-        return wp._coverThumb || ''
-      }
-      return ''
-    },
-    // 缩略 objectURL 加载失败兜底（如历史版本落盘的失效地址）：清缓存重造一次，
-    // 仍失败则保持现状（计数防 img error 死循环）
-    onWpThumbError(wp) {
-      if (!wp) return
-      const tries = (this.wpThumbRetries[wp.id] || 0) + 1
-      this.wpThumbRetries[wp.id] = tries
-      if (tries > 1) return
-      if (wp._thumb) wp._thumb = ''
-      if (wp._coverThumb) wp._coverThumb = ''
-    },
-    // 总开关
-    toggleWallpaper(on) {
-      if (on && !this.wallpaperList.length) {
-        this.$message({ message: '请先从壁纸市场选择壁纸', type: 'info' })
-        return
-      }
-      this.commitWpConfig({ enabled: !!on })
-    },
-    // 选中某张壁纸
-    selectWallpaper(wp) {
-      this.commitWpConfig({ selectedId: wp.id })
-    },
-    // 属性级修改（柔化/压暗/轮播）
-    setWpOption(key, value) {
-      this.commitWpConfig({ [key]: value })
-    },
-    commitWpConfig(patch) {
-      const config = Object.assign({}, this.$store.state.wallpaperConfig, patch)
-      this.$store.commit('SET_WALLPAPER_CONFIG', config)
-      saveWallpaperConfig(config)
-      applyWallpaperDom(config)
-    },
-    async deleteWallpaper(wp) {
-      const res = await removeWallpaper(wp.id)
-      this.$store.commit('SET_WALLPAPER_LIST', res.list)
-      this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
-      applyWallpaperDom(res.config)
-    },
-    // ===== 壁纸市场（本地目录） =====
-    // 选择壁纸文件（系统文件选择框，图片/视频多选）→ 入库 → 自动选中开启
-    pickWallpaperFiles() {
-      if (!this.wpFileInput) {
-        const input = document.createElement('input')
-        input.type = 'file'
-        input.accept = 'image/gif,image/jpeg,image/png,image/webp,image/bmp,video/mp4,video/webm,video/quicktime,.gif,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.webm,.mov,.m4v'
-        input.multiple = true
-        input.style.display = 'none'
-        input.addEventListener('change', () => {
-          const files = Array.from(input.files || [])
-          this.addWallpapers(files)
-          input.value = ''
-        })
-        document.body.appendChild(input)
-        // 不 removeChild：保留隐藏节点复用（移除会使已选 File 句柄失效）
-        this.wpFileInput = input
-      }
-      this.wpFileInput.click()
-    },
-    async addWallpapers(files) {
-      if (!files.length) return
-      let last = null
-      let count = 0
-      for (const f of files) {
-        // 视频壁纸：截取首帧自动生成封面（wp-gallery 列表缩略用）
-        let coverBlob = null
-        if (isVideoItem({ name: f.name, type: f.type })) {
-          coverBlob = await captureVideoPoster(f)
-          // 诊断：Console 可查看截帧结果（成功为 Blob 大小，失败为 null + 原因 warn）
-          console.log('[wp-poster]', f.name, coverBlob ? coverBlob.size + 'B' : 'null')
-        }
-        const res = await addWallpaperFile(f, coverBlob ? { coverBlob } : undefined)
-        if (res) {
-          last = res
-          count++
-          this.$store.commit('SET_WALLPAPER_LIST', res.list)
-          this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
-        }
-      }
-      if (last) {
-        // 自动选中最后一张并开启总开关
-        const added = last.list[last.list.length - 1]
-        this.commitWpConfig({ enabled: true, selectedId: added ? added.id : last.config.selectedId })
-        this.$message({ message: '已添加 ' + count + ' 张壁纸', type: 'success' })
-      } else {
-        this.$message({ message: '不支持的文件类型', type: 'warning' })
-      }
-    },
-    // 选择目录并加载（open = true 时选完自动开抽屉）：原生 dialog → 磁盘扫描 → 磁盘条目列表
-    async chooseMarketDir(open) {
-      if (!wpMarketApi()) {
-        this.$message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
-        return
-      }
-      try {
-        const dir = await pickWallpaperDirectory()
-        if (!dir) return // 用户取消
-        const res = await scanLocalWallpaperDir(dir)
-        this.marketDir = dir
-        saveWallpaperDir(dir) // 持久化，重启后自动恢复
-        this.applyScanResult(res, open)
-      } catch (e) {
-        this.$message({ message: e.message || '选择目录失败', type: 'error' })
-      }
-    },
-    // 打开壁纸市场抽屉浏览：拉取中直接恢复进度；有目录则重新扫描展示；无目录开抽屉空态引导
-    async openMarketDrawer() {
-      if (this.wpPullActive) {
-        this.marketVisible = true
-        return
-      }
-      if (!wpMarketApi()) {
-        this.$message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
-        return
-      }
-      if (this.marketDir) {
-        try {
-          const res = await scanLocalWallpaperDir(this.marketDir)
-          this.applyScanResult(res, true)
-        } catch (e) {
-          // 目录已失效（被删除/移动/无法访问）：清除记录并打开抽屉空态，
-          // 用户可经「从市场拉取」流程重新选择目录，避免打不开市场无法重新关联
-          this.marketDir = ''
-          saveWallpaperDir('')
-          this.marketRaw = []
-          this.marketItems = []
-          this.marketMissing = []
-          this.marketCat = 'all'
-          this.marketVisible = true
-          this.$message({ message: ((e && e.message) || '目录扫描失败') + '，请重新选择壁纸目录', type: 'warning' })
-        }
-        return
-      }
-      // 未选过目录：直接打开抽屉（空态内有「从市场拉取」引导）
-      this.marketVisible = true
-    },
-    // 应用扫描结果到市场列表（chooseMarketDir / openMarketDrawer 共用；open = 开抽屉）
-    applyScanResult(res, open) {
-      this.marketMissing = res.missing || []
-      this.marketRaw = (res.items || []).map(f => ({
-        id: f.category + ':' + f.name,
-        name: f.name,
-        category: f.category,
-        size: f.size,
-        sizeLabel: fmtBytes(f.size),
-        resLabel: f.category === 'dynamic' ? '动态' : '静态',
-        file: null,               // 磁盘条目：按需读盘
-        diskPath: f.path,
-        coverPath: f.cover || '',
-        coverUrl: '',
-        marketId: 'local:' + f.path,
-        added: false
-      }))
-      this.marketCat = 'all'
-      this.marketPage = 0
-      this.syncMarketAdded()
-      this.marketItems = this.marketFiltered.slice(0, this.marketPageSize)
-      this.ensureThumbs()
-      if (open) this.marketVisible = true
-      this.$nextTick(() => {
-        if (this.$refs.marketScroll) this.$refs.marketScroll.scrollTop = 0
-        this.fillMarketPageIfShort()
-      })
-    },
-    // 已渲染条目不足一屏时自动补页（首屏撑满触发滚动）
-    fillMarketPageIfShort() {
-      const el = this.$refs.marketScroll
-      if (el && el.scrollHeight <= el.clientHeight + 40 && this.marketHasMore) {
-        this.loadMoreMarket()
-      }
-    },
-    // 为当前页条目生成封面/缩略（磁盘条目读盘生成 objectURL，带缓存；动态无封面回退角标）
-    ensureThumbs() {
-      this.marketItems.forEach(it => {
-        if (it.coverUrl) return
-        const p = it.category === 'dynamic' ? it.coverPath : it.diskPath
-        if (!p) return
-        getDiskThumbUrl(p).then(url => {
-          if (url) it.coverUrl = url
-        })
-      })
-    },
-    // 切换分类：重置分页
-    selectMarketCat(id) {
-      if (this.marketCat === id) return
-      this.marketCat = id
-      this.marketPage = 0
-      this.marketItems = this.marketFiltered.slice(0, this.marketPageSize)
-      this.ensureThumbs()
-      this.$nextTick(() => {
-        if (this.$refs.marketScroll) this.$refs.marketScroll.scrollTop = 0
-        this.fillMarketPageIfShort()
-      })
-    },
-    // 滚动触底：追加下一页
-    onMarketScroll() {
-      const el = this.$refs.marketScroll
-      if (!el || this.marketLoadingMore || !this.marketHasMore) return
-      if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) this.loadMoreMarket()
-    },
-    loadMoreMarket() {
-      if (this.marketLoadingMore || !this.marketHasMore) return
-      this.marketLoadingMore = true
-      this.marketPage += 1
-      const next = this.marketFiltered.slice(0, this.marketPage * this.marketPageSize)
-      // 一拍加载间隔，避免瞬间铺满失去滚动反馈
-      setTimeout(() => {
-        this.marketItems = next
-        this.ensureThumbs()
-        this.marketLoadingMore = false
-        this.fillMarketPageIfShort()
-      }, 200)
-    },
-    // 从壁纸市场拉取：远程清单 → 确认（含下载位置）→ 下载写盘（进度 + 实时并入列表）
-    async pullFromMarket() {
-      // 拉取进行中：点击仅重新打开抽屉恢复进度展示
-      if (this.wpPullActive) {
-        this.marketVisible = true
-        return
-      }
-      const api = wpMarketApi()
-      if (!api) {
-        this.$message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
-        return
-      }
-      // 无下载目录：首次拉取前选择下载位置（原生目录选择，选完记录）
-      if (!this.marketDir) {
-        if (!wpMarketApi() || !wpMarketApi().pickDir) {
-          this.$message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
-          return
-        }
-        const dir = await pickWallpaperDirectory()
-        if (!dir) return // 用户取消
-        this.marketDir = dir
-        saveWallpaperDir(dir) // 记录下载位置，下次打开抽屉直接呈现该目录内容
-      }
-      // 拉远程清单
-      this.wpPullBusy = true
-      let res
-      try {
-        res = await api.manifest()
-      } catch (e) {
-        res = null
-      }
-      this.wpPullBusy = false
-      if (!res || !res.ok) {
-        this.$message({ message: (res && res.error) || '市场清单获取失败', type: 'error' })
-        return
-      }
-      const items = (res.data && Array.isArray(res.data.items)) ? res.data.items : []
-      if (!items.length) {
-        this.$message({ message: '壁纸市场暂无可用壁纸', type: 'info' })
-        return
-      }
-      const dyn = items.filter(i => i.type !== 'image').length
-      const sta = items.length - dyn
-      const size = items.reduce((s, i) => s + (i.size || 0), 0)
-      // 确认弹窗：明确展示下载到本地哪里
-      const yes = await this.$confirm(
-        `将拉取 ${items.length} 个壁纸（动态 ${dyn} / 静态 ${sta}，约 ${fmtBytes(size)}）\n下载位置：${this.marketDir}\n（写入「动态壁纸 / 静态壁纸」子目录，相同文件自动跳过）`,
-        '从壁纸市场拉取',
-        { confirmButtonText: '开始拉取', cancelButtonText: '取消' }
-      ).then(() => true).catch(() => false)
-      if (!yes) return
+// ===== watch =====
+// 切回通用页签时刷新 Buddy 会话计数（页面停留期间任务列表可能已变化）
+watch(activeTab, v => {
+  if (v === 'general') loadBuddySessions()
+})
+// 外部跳转（如启动检查横幅「去装配」）带 ?tab= 直达指定分区；
+// 组件被 keep-alive 复用时 route 变化不重走 mounted，watch 兜底
+watch(() => route.query.tab, () => {
+  syncTabFromQuery()
+})
 
-      this.marketVisible = true
-      this.marketCat = 'all'
-      // 订阅进度：更新进度条 + 完成的条目实时并入列表展示
-      const off = api.onProgress(p => {
-        this.wpPull = Object.assign({ active: true }, p)
-        if (p && p.entry) this.appendPulledEntry(p.entry)
-      })
-      this.wpPull = { active: true, done: 0, total: items.length, name: '' }
-      let pullRes
-      try {
-        pullRes = await api.pull({ dir: this.marketDir, ids: items.map(i => i.id) })
-      } catch (e) {
-        pullRes = null
-      }
-      off()
-      this.wpPull = null
-      if (!pullRes || !pullRes.ok) {
-        this.$message({ message: (pullRes && pullRes.error) || '拉取失败', type: 'error' })
-        return
-      }
-      // 条目已在拉取过程中逐个并入；此处仅同步已装状态与汇总提示
-      this.syncMarketAdded()
-      this.$message({
-        message: `已拉取 ${pullRes.pulled.length} 个壁纸${pullRes.skipped ? `（${pullRes.skipped} 个已存在跳过）` : ''}`,
-        type: 'success'
-      })
-    },
-    // 拉取条目实时并入列表（去重；当前分类匹配时立即上屏）
-    appendPulledEntry(f) {
-      const marketId = 'local:' + f.path
-      if (this.marketRaw.some(i => i.marketId === marketId)) return
-      const entry = {
-        id: f.category + ':' + f.name,
-        name: f.name,
-        category: f.category,
-        size: f.size,
-        sizeLabel: fmtBytes(f.size),
-        resLabel: f.category === 'dynamic' ? '动态' : '静态',
-        file: null,
-        diskPath: f.path,
-        coverPath: f.coverPath || '',
-        coverUrl: f.remoteCoverUrl || '',
-        marketId,
-        added: false
-      }
-      this.marketRaw.push(entry)
-      // 当前分类为「全部」或与条目同类时追加到已渲染列表（实时可见）
-      if (this.marketCat === 'all' || this.marketCat === f.category) {
-        this.marketItems.push(entry)
-      }
-    },
-    // 同步「已添加」标记（按 marketId 对照本地壁纸列表）
-    syncMarketAdded() {
-      const list = this.wallpaperList
-      this.marketRaw.forEach(it => {
-        it.added = (list || []).some(w => w && w.marketId === it.marketId)
-      })
-      this.marketItems.forEach(it => {
-        it.added = (list || []).some(w => w && w.marketId === it.marketId)
-      })
-    },
-    // 使用市场壁纸：File（本地选择）或按需读盘（市场拉取）→ 入库（IndexedDB）→ 选中并开启
-    async applyMarketItem(item) {
-      if (this.marketReadingId || item.added) return
-      this.marketReadingId = item.id
-      try {
-        // 本地选择的条目直接持有 File；市场拉取的条目按需从磁盘读取
-        const file = item.file || (item.diskPath ? await readPulledFile(item.diskPath) : null)
-        if (!file) throw new Error('文件不可用')
-        // 封面：本地选择的封面 File / 拉取条目的磁盘封面
-        let coverBlob = item.category === 'dynamic' ? (item.coverFile || null) : null
-        if (!coverBlob && item.category === 'dynamic' && item.coverPath) {
-          try { coverBlob = await readPulledFile(item.coverPath) } catch (e) { /* 无封面时角标 */ }
-        }
-        const res = await addWallpaperFile(file, {
-          marketId: item.marketId,
-          // 视频壁纸附带头像封面 Blob（wp-gallery 列表缩略用；静态壁纸自身即图）
-          coverBlob
-        })
-        if (!res) throw new Error('入库失败（不支持的文件类型）')
-        this.$store.commit('SET_WALLPAPER_LIST', res.list)
-        this.$store.commit('SET_WALLPAPER_CONFIG', res.config)
-        // 选中新壁纸并确保总开关开启
-        const added = res.list[res.list.length - 1]
-        this.commitWpConfig({ enabled: true, selectedId: added ? added.id : res.config.selectedId })
-        this.syncMarketAdded()
-        this.$message({ message: '壁纸已添加并应用', type: 'success' })
-      } catch (e) {
-        this.$message({ message: e.message || '读取文件失败', type: 'error' })
-      } finally {
-        this.marketReadingId = ''
-      }
-    },
-    // ===== 安全：应用锁定 =====
-    async loadLockState() {
-      const api = window.electronAPI && window.electronAPI.appLock
-      // 恢复偏好设置
-      const saved = getItem('appLockSettings', null) || {}
-      this.lockSettings = {
-        autoLock: Number(saved.autoLock) || 0,
-        biometric: !!saved.biometric
-      }
-      if (api) {
-        this.hasPassword = await api.hasPassword()
-        this.biometricAvailable = await api.biometricSupported()
-      }
-    },
-    persistLockSettings() {
-      setItem('appLockSettings', this.lockSettings)
-      // 通知 AppLock 组件即时应用新偏好
-      this.$bus.emit('app-lock:settings-changed')
-    },
-    // 自动锁定时机
-    selectAutoLock(val) {
-      this.lockSettings.autoLock = val
-      this.persistLockSettings()
-    },
-    // 触控 ID 开关：关闭属敏感操作，需先二次验证身份（开启无需验证）
-    async selectBiometric(val) {
-      if (!val && this.lockSettings.biometric) {
-        if (!(await this.verifyIdentity())) return // 验证失败/取消：保持开启
-      }
-      this.lockSettings.biometric = val
-      this.persistLockSettings()
-    },
-    openPwdDialog() {
-      this.pwdForm = { oldPwd: '', newPwd: '', confirmPwd: '' }
-      this.pwdDialogVisible = true
-    },
-    async savePassword() {
-      const api = window.electronAPI && window.electronAPI.appLock
-      if (!api) {
-        this.$message.error('当前环境不支持应用锁定')
-        return
-      }
-      const { oldPwd, newPwd, confirmPwd } = this.pwdForm
-      const target = this.hasPassword ? newPwd : oldPwd
-      if (!target || target.length < 4) {
-        this.$message.warning('密码至少 4 位')
-        return
-      }
-      if (target !== confirmPwd) {
-        this.$message.warning('两次输入的密码不一致')
-        return
-      }
-      // 修改时先校验旧密码
-      if (this.hasPassword) {
-        const check = await api.verify(oldPwd)
-        if (!check || !check.ok) {
-          this.$message.error('当前密码不正确')
-          return
-        }
-      }
-      const res = await api.setPassword(target)
-      if (res && res.ok) {
-        this.hasPassword = true
-        this.pwdDialogVisible = false
-        this.$message.success('应用密码已保存')
-        // 通知 AppLock 同步密码状态（锁定快捷键立即可用）
-        this.$bus.emit('app-lock:settings-changed')
-      } else {
-        this.$message.error('保存失败：系统加密存储不可用')
-      }
-    },
-    async clearPassword() {
-      const api = window.electronAPI && window.electronAPI.appLock
-      if (!api) return
-      this.$confirm('清除后应用将不再需要密码解锁，确定清除吗？', '清除密码', {
-        confirmButtonText: '清除',
+// ===== methods =====
+// 从路由 query 同步激活分区（tab 键不合法时保持当前值）
+function syncTabFromQuery() {
+  const tab = route.query.tab
+  if (tab && tabs.some(t => t.key === tab)) {
+    activeTab.value = tab
+  }
+}
+// ===== 工具执行历史管理 =====
+// 加载历史状态：条数上限 + 各工具记录数 + 本地数据用量
+async function loadHistoryState() {
+  try {
+    historyLimit.value = toolHistory.getLimit()
+    const counts = await toolHistory.countByTool()
+    historyTools.value = Object.keys(counts).map(path => ({
+      path,
+      name: TOOL_NAME_MAP[path] || path,
+      count: counts[path]
+    }))
+  } catch (e) { /* 忽略加载失败 */ }
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      const { usage, quota } = await navigator.storage.estimate()
+      storageEstimate.value = { usage: usage || 0, quota: quota || 0 }
+    }
+  } catch (e) { /* 不支持时忽略 */ }
+}
+// 切换每工具历史条数上限（保存后立即按新上限淘汰）
+async function selectHistoryLimit(v) {
+  if (v === historyLimit.value) return
+  historyLimit.value = v
+  await toolHistory.setLimit(v)
+  await loadHistoryState()
+  message.success(`已调整为每工具保留 ${v} 条历史`)
+}
+// ===== 剪贴板历史上限 =====
+// 读取主进程当前值（capture-settings.json）
+async function loadClipKeep() {
+  if (!hasCaptureApi) return
+  try {
+    const v = await window.electronAPI.capture.getClipKeep()
+    if (Number.isInteger(v)) clipKeep.value = v
+  } catch (e) { /* 忽略 */ }
+}
+// 切换剪贴板历史上限（主进程持久化 + 立即淘汰）
+async function selectClipKeep(v) {
+  if (v === clipKeep.value || !hasCaptureApi) return
+  const res = await window.electronAPI.capture.setClipKeep(v)
+  if (res && res.ok) {
+    clipKeep.value = res.clipKeep
+    message.success(`剪贴板历史上限已调整为 ${v} 条`)
+  } else {
+    message.error((res && res.error) || '设置失败')
+  }
+}
+// 按工具清空历史（下拉选择）
+async function clearToolHistory(path) {
+  const tool = historyTools.value.find(t => t.path === path)
+  const name = tool ? tool.name : path
+  try {
+    await confirm(`将清空「${name}」的全部执行历史，是否继续？`, '按工具清空', {
+      confirmButtonText: '清空',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  await toolHistory.clear(path)
+  await loadHistoryState()
+  message.success(`已清空「${name}」的历史`)
+}
+// 清空全部工具执行历史
+async function clearAllHistory() {
+  try {
+    await confirm(
+      `将清空全部 ${historyTotalCount.value} 条工具执行历史记录，是否继续？`,
+      '清空全部历史',
+      {
+        confirmButtonText: '全部清空',
         cancelButtonText: '取消',
         type: 'warning'
-      }).then(async () => {
-        // 敏感操作：先二次验证身份（触控 ID 优先，回退密码），防止他人清除
-        if (!(await this.verifyIdentity())) return
-        await api.clearPassword()
-        this.hasPassword = false
-        this.$message.success('应用密码已清除')
-        // 通知 AppLock 同步密码状态
-        this.$bus.emit('app-lock:settings-changed')
-      }).catch(() => {})
-    },
-    // 立即锁定：未设密码引导设置；preload 未加载提示重启
-    lockNow() {
-      const api = window.electronAPI && window.electronAPI.appLock
-      if (!api) {
-        this.$message.warning('应用锁定能力未加载，请重启应用后重试（开发模式需重启 dev 进程使 preload 生效）')
-        return
       }
-      if (!this.hasPassword) {
-        this.$message.warning('请先设置应用密码，锁定后需凭密码解锁')
-        return
-      }
-      // 事件总线通知全局 AppLock 遮罩锁定
-      this.$bus.emit('app-lock:lock-now')
-    },
-    // ===== 清除本地记录 =====
-    // 通用身份二次验证：设置了应用密码（或开启指纹）才需要，否则直接通过
-    // （清除密码 / 关闭触控 ID 等敏感操作共用）
-    async verifyIdentity() {
-      const api = window.electronAPI && window.electronAPI.appLock
-      if (!api || !this.hasPassword) return true
-      // 已开启触控 ID：优先指纹校验，取消/失败回退密码输入
-      if (this.biometricAvailable && this.lockSettings.biometric) {
-        try {
-          const bio = await api.biometricVerify()
-          if (bio && bio.ok) return true
-        } catch (e) { /* 回退密码输入 */ }
-      }
-      const { value } = await this.$prompt('请输入应用密码以确认此操作', '身份校验', {
-        confirmButtonText: '确认',
+    )
+  } catch (e) {
+    return
+  }
+  historyClearing.value = true
+  try {
+    await toolHistory.clear()
+    await loadHistoryState()
+    message.success('已清空全部执行历史')
+  } finally {
+    historyClearing.value = false
+  }
+}
+// ===== Buddy 视图：会话历史管理 =====
+// 加载 OmniBuddy 会话列表（计数展示；非桌面端无 API 时保持为空）
+async function loadBuddySessions() {
+  const api = window.electronAPI && window.electronAPI.omnibuddy
+  if (!api || !api.listSessions) return
+  try {
+    buddySessions.value = (await api.listSessions()) || []
+  } catch (e) { /* 忽略加载失败 */ }
+}
+// 清空全部 OmniBuddy 会话历史（复用单会话删除链：记忆摘要照常留档）
+async function clearBuddyHistory() {
+  try {
+    await confirm(
+      `将清空全部 ${buddySessionCount.value} 个任务的会话记录，是否继续？`,
+      '清空全部历史',
+      {
+        confirmButtonText: '全部清空',
         cancelButtonText: '取消',
-        inputType: 'password',
-        inputPattern: /^.+$/,
-        inputErrorMessage: '请输入应用密码'
-      }).catch(() => ({ value: null }))
-      if (value === null) return false
-      const res = await api.verify(value)
-      if (!res || !res.ok) {
-        this.$message.error('密码不正确')
-        return false
+        type: 'warning'
       }
-      return true
+    )
+  } catch (e) {
+    return
+  }
+  const api = window.electronAPI && window.electronAPI.omnibuddy
+  if (!api || !api.deleteSession) return
+  buddyHistoryClearing.value = true
+  try {
+    const removed = buddySessions.value.map(s => s.id)
+    for (const sid of removed) {
+      await api.deleteSession(sid)
+    }
+    // 被删会话：清理页签与会话状态池（防泄漏）
+    for (const sid of removed) {
+      store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + sid })
+      store.commit('buddyChat/DROP_SESSION', sid)
+    }
+    await loadBuddySessions()
+    // 通知 Buddy 侧栏刷新任务列表
+    bus.emit('omnibuddy:sessions-changed')
+    message.success('已清空全部任务会话')
+  } finally {
+    buddyHistoryClearing.value = false
+  }
+}
+
+// ===== 快捷键：全部可改键（升级） =====
+// 加载全部快捷键：panel 走主进程 IPC，截图三项走 capture IPC，应用内走 shortcuts.js
+async function loadShortcuts() {
+  const quick = window.electronAPI && window.electronAPI.quick
+  if (quick && quick.getShortcut) {
+    const res = await quick.getShortcut()
+    shortcuts.panel = res && res.accelerator ? res.accelerator : DEFAULT_PANEL_SHORTCUT
+  } else {
+    shortcuts.panel = DEFAULT_PANEL_SHORTCUT
+  }
+  const cap = window.electronAPI && window.electronAPI.capture
+  if (cap && cap.getShortcuts) {
+    try {
+      const res = await cap.getShortcuts()
+      if (res) {
+        shortcuts.area = res.area || CAPTURE_DEFAULTS.area
+        shortcuts.screen = res.screen || CAPTURE_DEFAULTS.screen
+        shortcuts.scroll = res.scroll || CAPTURE_DEFAULTS.scroll
+      }
+    } catch (e) { /* 主进程不可达：走默认 */ }
+  }
+  if (!shortcuts.area) shortcuts.area = CAPTURE_DEFAULTS.area
+  if (!shortcuts.screen) shortcuts.screen = CAPTURE_DEFAULTS.screen
+  if (!shortcuts.scroll) shortcuts.scroll = CAPTURE_DEFAULTS.scroll
+  const app = getShortcuts()
+  shortcuts.search = app.search
+  shortcuts.lock = app.lock
+  shortcuts.buddy = app.buddy
+}
+// 某项是否偏离默认（控制单项「恢复默认」按钮显隐）
+function shortcutModified(id) {
+  return shortcuts[id] !== defaultOf(id)
+}
+// 某项默认键
+function defaultOf(id) {
+  if (id === 'panel') return DEFAULT_PANEL_SHORTCUT
+  if (CAPTURE_DEFAULTS[id]) return CAPTURE_DEFAULTS[id]
+  return DEFAULT_SHORTCUTS[id]
+}
+// id → 中文名（冲突提示用）
+function labelOf(id) {
+  const found = shortcutGroups.reduce((acc, g) => acc.concat(g.items), []).find(i => i.id === id)
+  return found ? found.label : id
+}
+function toggleRecord(id) {
+  if (recordingId.value === id) {
+    stopRecord()
+  } else {
+    recordingId.value = id
+    recordMods.value = []
+    recordKeys.value = []
+    window.addEventListener('keydown', onRecordKeydown, true)
+    window.addEventListener('keyup', onRecordKeyup, true)
+    // 点击录制器外部：自动取消录制（主流改键交互）
+    nextTick(() => document.addEventListener('mousedown', onRecordBlur, true))
+  }
+}
+function stopRecord() {
+  recordingId.value = ''
+  window.removeEventListener('keydown', onRecordKeydown, true)
+  window.removeEventListener('keyup', onRecordKeyup, true)
+  document.removeEventListener('mousedown', onRecordBlur, true)
+}
+// 录制中点击外部取消
+function onRecordBlur(e) {
+  const el = root.value && root.value.querySelector('.shortcut-recorder.recording')
+  if (el && !el.contains(e.target)) stopRecord()
+}
+// 录制-按下：累积修饰键与普通键（实时预览），不立即保存
+function onRecordKeydown(e) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.key === 'Escape') {
+    stopRecord()
+    return
+  }
+  const mac = isMac
+  if (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
+    // 修饰键：更新实时修饰键集合
+    recordMods.value = []
+    if (mac ? e.metaKey : (e.ctrlKey || e.metaKey)) recordMods.value.push('CommandOrControl')
+    if (e.ctrlKey && mac) recordMods.value.push('Control')
+    if (e.altKey) recordMods.value.push('Alt')
+    if (e.shiftKey) recordMods.value.push('Shift')
+    return
+  }
+  // 普通键：归一命名（Electron accelerator 风格）
+  let key = e.key.length === 1 ? e.key.toUpperCase() : e.key
+  if (key === ' ') key = 'Space'
+  const alias = {
+    Space: 'Space', Escape: 'Esc', ArrowUp: 'Up', ArrowDown: 'Down',
+    ArrowLeft: 'Left', ArrowRight: 'Right', Enter: 'Return'
+  }
+  key = alias[key] || key
+  const ok = ['Up', 'Down', 'Left', 'Right', 'Space', 'Esc', 'Return', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown'].indexOf(key) >= 0 ||
+    /^[A-Z0-9]$/.test(key) || /^F\d{1,2}$/.test(key)
+  if (!ok) return
+  // 最多 2 个普通键（⌘O+K 式双键组合）
+  if (recordKeys.value.indexOf(key) < 0 && recordKeys.value.length < 2) recordKeys.value.push(key)
+}
+// 录制-松开：任一键松开后，若修饰键已全部松开且已有普通键 → 组装保存
+// （先松修饰键或先松普通键均可触发；双键组合的中间键松开不打断录制）
+function onRecordKeyup(e) {
+  e.preventDefault()
+  const mac = isMac
+  recordMods.value = []
+  if (mac ? e.metaKey : (e.ctrlKey || e.metaKey)) recordMods.value.push('CommandOrControl')
+  if (e.ctrlKey && mac) recordMods.value.push('Control')
+  if (e.altKey) recordMods.value.push('Alt')
+  if (e.shiftKey) recordMods.value.push('Shift')
+  if (!recordMods.value.length && recordKeys.value.length) {
+    commitRecording()
+  }
+}
+// 提交录制结果：校验修饰键后组装保存
+function commitRecording() {
+  if (!recordingId.value) return
+  // 必须含修饰键：提示后清空普通键继续录制
+  if (!recordMods.value.length) {
+    recordKeys.value = []
+    message.warning('快捷键需包含修饰键（⌘ / Ctrl / Alt / Shift）')
+    return
+  }
+  if (!recordKeys.value.length) return
+  const full = recordMods.value.concat(recordKeys.value).join('+')
+  // 托盘菜单项快捷键（tray: 前缀）：系统级，仅支持「修饰键 + 单键」
+  if (recordingId.value.indexOf('tray:') === 0) {
+    const parsed = parseAccelerator(full)
+    if (!parsed || parsed.keys.size > 1) {
+      message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
+      stopRecord()
+      return
+    }
+    saveTrayItemShortcut(recordingId.value.slice(5), full)
+    return
+  }
+  saveShortcutFor(recordingId.value, full)
+}
+// 保存托盘菜单项快捷键：写入该项并整单保存（冲突/占用由主进程清洗回写）
+async function saveTrayItemShortcut(id, accelerator) {
+  stopRecord()
+  const it = trayMenu.value.find(i => i.id === id)
+  if (!it) return
+  // 与固定快捷键冲突提示（panel 等）
+  if (Object.keys(shortcuts).some(k => shortcuts[k] && shortcuts[k].toLowerCase() === accelerator.toLowerCase())) {
+    message.error('与既有快捷键冲突，请换一组按键')
+    return
+  }
+  it.accelerator = accelerator
+  // 校验未通过（存在填写错误的项）时不再提示"已更新"，避免误导
+  if (!(await saveTrayMenu())) return
+  // 回写后确认键位是否注册成功（失败被主进程置空）
+  const saved = trayMenu.value.find(i => i.id === id)
+  if (saved && saved.accelerator) {
+    message.success('快捷键已更新：' + formatAccelerator(saved.accelerator))
+  } else {
+    message.error('注册失败（可能已被其它应用占用），请换一组按键')
+  }
+}
+// 保存快捷键：panel 走主进程（仅支持单普通键），应用内走 shortcuts.js
+async function saveShortcutFor(id, accelerator) {
+  if (!id) return
+  stopRecord()
+  // 本地冲突检测（四项互查，大小写不敏感）
+  const conflict = Object.keys(shortcuts).find(
+    k => k !== id && shortcuts[k] && shortcuts[k].toLowerCase() === accelerator.toLowerCase()
+  )
+  if (conflict) {
+    message.error('与「' + labelOf(conflict) + '」快捷键冲突')
+    return
+  }
+  if (id === 'panel') {
+    // 系统级快捷键：Electron globalShortcut 不支持多普通键
+    const parsed = parseAccelerator(accelerator)
+    if (!parsed || parsed.keys.size > 1) {
+      message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
+      return
+    }
+    const quick = window.electronAPI && window.electronAPI.quick
+    if (!quick || !quick.setShortcut) {
+      message.info('快捷键设置需要 OmniDeck 桌面端')
+      return
+    }
+    const res = await quick.setShortcut(accelerator)
+    if (res && res.ok) {
+      shortcuts.panel = res.accelerator
+      message.success('快捷键已更新：' + formatAccelerator(res.accelerator))
+    } else {
+      message.error((res && res.error) || '注册失败，请换一组按键')
+    }
+    return
+  }
+  // 截图快捷键（area / screen / scroll）：走主进程 globalShortcut，仅支持「修饰键 + 单键」
+  if (CAPTURE_DEFAULTS[id]) {
+    const parsed = parseAccelerator(accelerator)
+    if (!parsed || parsed.keys.size > 1) {
+      message.error('系统级快捷键仅支持「修饰键 + 单键」组合，请重新录制')
+      return
+    }
+    const cap = window.electronAPI && window.electronAPI.capture
+    if (!cap || !cap.setShortcut) {
+      message.info('快捷键设置需要 OmniDeck 桌面端')
+      return
+    }
+    const res = await cap.setShortcut(id, accelerator)
+    if (res && res.ok) {
+      shortcuts[id] = res.shortcuts[id]
+      message.success('快捷键已更新：' + formatAccelerator(res.shortcuts[id]))
+    } else {
+      message.error((res && res.error) || '注册失败，请换一组按键')
+    }
+    return
+  }
+  // 应用内快捷键
+  const res = await saveShortcut(id, accelerator)
+  if (res && res.ok) {
+    shortcuts[id] = accelerator
+    message.success('快捷键已更新：' + formatAccelerator(accelerator))
+  } else {
+    message.error((res && res.error) || '保存失败，请换一组按键')
+  }
+}
+// 恢复单项默认键
+function resetShortcutItem(id) {
+  recordMods.value = []
+  recordKeys.value = []
+  saveShortcutFor(id, defaultOf(id))
+}
+// 恢复全部默认键（panel + 应用内三项 + 截图三项）
+async function resetAllShortcuts() {
+  // 应用内：一次性恢复并广播
+  const res = await resetAllAppShortcuts()
+  if (!(res && res.ok)) {
+    message.error('恢复默认失败')
+    return
+  }
+  // panel：走主进程恢复默认键
+  recordMods.value = []
+  recordKeys.value = []
+  await saveShortcutFor('panel', DEFAULT_PANEL_SHORTCUT)
+  // 截图三项：依次恢复默认键（主进程注册）
+  for (const key of Object.keys(CAPTURE_DEFAULTS)) {
+    await saveShortcutFor(key, CAPTURE_DEFAULTS[key])
+  }
+  await loadShortcuts()
+  message.success('已恢复全部默认快捷键')
+}
+// ===== 托盘快捷菜单（Deck / Buddy 分组自定义项） =====
+// 加载托盘菜单配置（主进程 quick-settings.json）
+async function loadTrayMenu() {
+  const quick = window.electronAPI && window.electronAPI.quick
+  if (!quick || !quick.getTrayMenu) return
+  const res = await quick.getTrayMenu()
+  trayMenu.value = ((res && res.items) || []).map(i => reactive(i))
+}
+// 菜单名称校验：返回错误文案（空串表示合法），用于标红与阻止保存
+function labelInvalid(it) {
+  return ((it && it.label) || '').trim() ? '' : '菜单名称不能为空'
+}
+// 页面路由校验：必须命中真实路由表，避免填错地址
+function routeInvalid(it) {
+  const p = ((it && it.route) || '').trim()
+  if (!p) return '页面路由不能为空'
+  if (p.charAt(0) !== '/') return '页面路由需以 / 开头'
+  return routeCandidates.value.some(c => c.path === p) ? '' : '页面路由不存在'
+}
+// 路由候选检索（el-autocomplete 的 fetch-suggestions）：按路径或页面名称筛选
+function queryRoutes(queryString, cb) {
+  const kw = (queryString || '').toLowerCase()
+  cb(
+    routeCandidates.value.filter(
+      c => !kw || c.path.toLowerCase().indexOf(kw) !== -1 || (c.title || '').toLowerCase().indexOf(kw) !== -1
+    )
+  )
+}
+// 保存托盘菜单（编辑入口）：先做名称/路由校验，非法项不落盘并标红提示
+// 返回是否通过校验（供调用方决定后续提示）
+async function saveTrayMenu() {
+  const bad = trayMenu.value.filter(it => labelInvalid(it) || routeInvalid(it))
+  if (bad.length) {
+    message.warning('有 ' + bad.length + ' 项填写有误，已暂不保存，请修正后再试')
+    return false
+  }
+  await persistTrayMenu()
+  return true
+}
+// 落盘：主进程清洗/注册快捷键并重建托盘菜单，回写清洗后的数据
+// （新增/删除等结构性操作直接调用，避免被其他行的填写错误卡住）
+async function persistTrayMenu() {
+  const quick = window.electronAPI && window.electronAPI.quick
+  if (!quick || !quick.setTrayMenu) return
+  const res = await quick.setTrayMenu(trayMenu.value)
+  if (res && res.ok) {
+    // 回写：注册失败的快捷键被主进程置空、冲突项被清洗
+    trayMenu.value = (res.items || trayMenu.value).map(i => reactive(i))
+    // 兜底：主进程仍丢弃了项时明示原因，避免菜单项无声消失
+    const invalid = (res && res.invalid) || []
+    if (invalid.length) {
+      message.warning(
+        '已忽略 ' + invalid.length + ' 个无效菜单项：' +
+          invalid.map(v => (v.label || v.route || '未命名') + '（' + v.reason + '）').join('；')
+      )
     }
   }
 }
+// 新增菜单项（分组指定 deck / buddy）
+async function addTrayItem(group) {
+  const rt = group === 'deck' ? '/home' : '/omnibuddy'
+  trayMenu.value.push(reactive({
+    id: 'custom-' + Date.now(),
+    group,
+    label: group === 'deck' ? '新 Deck 页面' : '新 Buddy 页面',
+    route: rt,
+    accelerator: ''
+  }))
+  await persistTrayMenu()
+}
+// 删除菜单项
+async function removeTrayItem(groupKey, id) {
+  const g = trayMenuGroups.value[groupKey]
+  if (!g) return
+  confirm('确定删除菜单项「' + (g.items.find(i => i.id === id) || {}).label + '」吗？', '删除菜单项', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  })
+    .then(async () => {
+      trayMenu.value = trayMenu.value.filter(i => i.id !== id)
+      await persistTrayMenu()
+      message.success('已删除')
+    })
+    .catch(() => {})
+}
+// 恢复托盘菜单默认配置
+async function resetTrayMenu() {
+  const quick = window.electronAPI && window.electronAPI.quick
+  if (!quick || !quick.resetTrayMenu) return
+  const res = await quick.resetTrayMenu()
+  if (res && res.ok) {
+    trayMenu.value = (res.items || []).map(i => reactive(i))
+    message.success('托盘菜单已恢复默认')
+  }
+}
+function selectMode(mode) {
+  store.commit('SET_THEME', { mode })
+  applyTheme(themeMode.value, primaryColor.value)
+}
+// ===== Deck 视图 =====
+// 还原菜单排序：清除持久化排序，广播事件由 Sidebar 重建菜单
+function resetMenuOrder() {
+  confirm('确定要将菜单排序还原到初始状态吗？', '还原排序', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  })
+    .then(() => {
+      clearMenuOrder()
+      bus.emit('menu-order-reset')
+      message.success('排序已还原')
+    })
+    .catch(() => {})
+}
+// ===== 通知中心（类型 × 渠道矩阵 + Webhook 配置） =====
+async function loadNotify() {
+  const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
+  if (!api || !api.notify) return
+  try {
+    const cfg = await api.notify.config()
+    notifyCfg.value = {
+      enabled: cfg.enabled !== false,
+      url: (cfg.webhook && cfg.webhook.url) || '',
+      secret: '',
+      hasSecret: !!(cfg.webhook && cfg.webhook.hasSecret),
+      matrix: cfg.matrix || {},
+      types: cfg.types || []
+    }
+  } catch (e) { /* 忽略加载失败 */ }
+}
+function matrixHas(type, channel) {
+  return (notifyCfg.value.matrix[type] || []).indexOf(channel) >= 0
+}
+function notifyApi() {
+  const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
+  return (api && api.notify) || null
+}
+async function saveNotifyEnabled(v) {
+  const api = notifyApi()
+  if (!api) return
+  try {
+    const res = await api.update({ enabled: v })
+    if (res && res.ok === false) message.error(res.error || '保存失败')
+  } catch (e) { message.error('保存失败') }
+}
+// 矩阵开关：单类型单渠道增量保存（失败回滚视图状态）
+async function toggleMatrix(type, channel, v) {
+  const api = notifyApi()
+  if (!api) return
+  const cur = (notifyCfg.value.matrix[type] || []).slice()
+  const next = v ? cur.concat([channel]) : cur.filter(c => c !== channel)
+  notifyCfg.value.matrix[type] = next
+  try {
+    const res = await api.update({ matrix: { [type]: next } })
+    if (res && res.ok === false) {
+      message.error(res.error || '保存失败')
+      notifyCfg.value.matrix[type] = cur
+    }
+  } catch (e) {
+    message.error('保存失败')
+    notifyCfg.value.matrix[type] = cur
+  }
+}
+async function saveWebhookCfg() {
+  const api = notifyApi()
+  if (!api) return
+  notifySaving.value = true
+  try {
+    const res = await api.update({
+      webhook: { url: notifyCfg.value.url, secret: notifyCfg.value.secret }
+    })
+    if (res && res.ok === false) {
+      message.error(res.error || '保存失败')
+    } else {
+      // secret 只在本次提交携带：保存后清空输入，hasSecret 相应更新
+      if (notifyCfg.value.secret) notifyCfg.value.hasSecret = true
+      notifyCfg.value.secret = ''
+      message.success('Webhook 配置已保存')
+    }
+  } catch (e) {
+    message.error('保存失败：' + (e && e.message ? e.message : '未知错误'))
+  }
+  notifySaving.value = false
+}
+async function testNotify(channel) {
+  const api = notifyApi()
+  if (!api) return
+  notifyTesting.value = channel
+  try {
+    const r = await api.test(channel)
+    if (r && r.ok) {
+      message.success(channel === 'webhook' ? 'Webhook 投递成功' : '测试通知已发送')
+    } else {
+      message.error('投递失败：' + ((r && r.error) || '未知错误'))
+    }
+  } catch (e) {
+    message.error('投递失败：' + (e && e.message ? e.message : '未知错误'))
+  }
+  notifyTesting.value = ''
+}
+// 版本 / 反馈为应用级公共页：在哪个视图的设置里点开就在哪个视图打开
+//（Buddy → /omnibuddy/* 挂 BuddyLayout 页签内；Deck → /version、/feedback）
+function goVersion() {
+  const name = route.path.startsWith('/omnibuddy') ? 'OmniBuddyVersion' : 'Version'
+  if (route.name !== name) {
+    router.push({ name }).catch(() => {})
+  }
+}
+function goFeedback() {
+  const name = route.path.startsWith('/omnibuddy') ? 'OmniBuddyFeedback' : 'Feedback'
+  if (route.name !== name) {
+    router.push({ name }).catch(() => {})
+  }
+}
+function selectColor(color) {
+  store.commit('SET_THEME', { color })
+  applyTheme(themeMode.value, primaryColor.value)
+}
+// 切换工具卡片每行个数：更新全局状态并持久化
+function selectGridCols(cols) {
+  store.commit('SET_TOOL_GRID_COLS', cols)
+  setItem('toolGridCols', cols)
+}
+// 切换侧边栏默认状态：立即生效并持久化
+function selectSidebarDefault(val) {
+  store.commit('SET_SIDEBAR_DEFAULT', val)
+  setItem('sidebarDefault', val)
+}
+// 切换入口视图：二次确认后持久化并重启应用（启动时路由 redirect 消费）
+async function selectEntryView(val) {
+  if (val === entryView.value) return
+  const label = val === 'deck' ? 'Deck 视图' : 'Buddy 视图'
+  const yes = await confirm(
+    `入口视图将切换为「${label}」，修改需重启应用后生效。确定并立即重启吗？`,
+    '切换入口视图',
+    { confirmButtonText: '确定并重启', cancelButtonText: '取消', type: 'warning' }
+  ).then(() => true).catch(() => false)
+  if (!yes) return
+  await setItem('entryView', val)
+  message.success('入口视图已更新，正在重启应用')
+  // 稍候让提示渲染出来，再触发重启（非桌面端刷新页面兜底）
+  setTimeout(() => {
+    if (window.electronAPI && window.electronAPI.relaunchApp) {
+      window.electronAPI.relaunchApp()
+    } else {
+      location.reload()
+    }
+  }, 600)
+}
+// 切换分组默认展开状态（下次启动生效）
+function selectSidebarGroupsDefault(val) {
+  store.commit('SET_SIDEBAR_GROUPS_DEFAULT', val)
+  setItem('sidebarGroupsDefault', val)
+}
+// 切换减弱动态效果：写入 html 根类，全局 CSS 感知
+function selectReduceMotion(val) {
+  store.commit('SET_REDUCE_MOTION', val)
+  setItem('reduceMotion', val)
+  document.documentElement.classList.toggle('reduce-motion', val)
+}
+// ===== 背景壁纸 =====
+function isVideoWp(wp) {
+  return isVideoItem(wp)
+}
+// 生成缩略图地址：图片出 blob URL；视频优先封面（远程 URL 或本地封面 Blob，均带缓存），否则播放角标
+function wpThumbUrl(wp) {
+  if (!isVideoWp(wp)) {
+    if (!wp._thumb && wp.blob) {
+      try {
+        wp._thumb = URL.createObjectURL(wp.blob)
+      } catch (e) { /* 忽略 */ }
+    }
+    return wp._thumb || ''
+  }
+  if (wp.coverUrl) return wp.coverUrl
+  if (wp.coverBlob) {
+    if (!wp._coverThumb) {
+      try {
+        wp._coverThumb = URL.createObjectURL(wp.coverBlob)
+      } catch (e) { /* 忽略 */ }
+    }
+    return wp._coverThumb || ''
+  }
+  return ''
+}
+// 缩略 objectURL 加载失败兜底（如历史版本落盘的失效地址）：清缓存重造一次，
+// 仍失败则保持现状（计数防 img error 死循环）
+function onWpThumbError(wp) {
+  if (!wp) return
+  const tries = (wpThumbRetries.value[wp.id] || 0) + 1
+  wpThumbRetries.value[wp.id] = tries
+  if (tries > 1) return
+  if (wp._thumb) wp._thumb = ''
+  if (wp._coverThumb) wp._coverThumb = ''
+}
+// 总开关
+function toggleWallpaper(on) {
+  if (on && !wallpaperList.value.length) {
+    message({ message: '请先从壁纸市场选择壁纸', type: 'info' })
+    return
+  }
+  commitWpConfig({ enabled: !!on })
+}
+// 选中某张壁纸
+function selectWallpaper(wp) {
+  commitWpConfig({ selectedId: wp.id })
+}
+// 属性级修改（柔化/压暗/轮播）
+function setWpOption(key, value) {
+  commitWpConfig({ [key]: value })
+}
+function commitWpConfig(patch) {
+  const config = Object.assign({}, store.state.wallpaperConfig, patch)
+  store.commit('SET_WALLPAPER_CONFIG', config)
+  saveWallpaperConfig(config)
+  applyWallpaperDom(config)
+}
+async function deleteWallpaper(wp) {
+  const res = await removeWallpaper(wp.id)
+  store.commit('SET_WALLPAPER_LIST', res.list)
+  store.commit('SET_WALLPAPER_CONFIG', res.config)
+  applyWallpaperDom(res.config)
+}
+// ===== 壁纸市场（本地目录） =====
+// 选择壁纸文件（系统文件选择框，图片/视频多选）→ 入库 → 自动选中开启
+function pickWallpaperFiles() {
+  if (!wpFileInput) {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/gif,image/jpeg,image/png,image/webp,image/bmp,video/mp4,video/webm,video/quicktime,.gif,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.webm,.mov,.m4v'
+    input.multiple = true
+    input.style.display = 'none'
+    input.addEventListener('change', () => {
+      const files = Array.from(input.files || [])
+      addWallpapers(files)
+      input.value = ''
+    })
+    document.body.appendChild(input)
+    // 不 removeChild：保留隐藏节点复用（移除会使已选 File 句柄失效）
+    wpFileInput = input
+  }
+  wpFileInput.click()
+}
+async function addWallpapers(files) {
+  if (!files.length) return
+  let last = null
+  let count = 0
+  for (const f of files) {
+    // 视频壁纸：截取首帧自动生成封面（wp-gallery 列表缩略用）
+    let coverBlob = null
+    if (isVideoItem({ name: f.name, type: f.type })) {
+      coverBlob = await captureVideoPoster(f)
+      // 诊断：Console 可查看截帧结果（成功为 Blob 大小，失败为 null + 原因 warn）
+      console.log('[wp-poster]', f.name, coverBlob ? coverBlob.size + 'B' : 'null')
+    }
+    const res = await addWallpaperFile(f, coverBlob ? { coverBlob } : undefined)
+    if (res) {
+      last = res
+      count++
+      store.commit('SET_WALLPAPER_LIST', res.list)
+      store.commit('SET_WALLPAPER_CONFIG', res.config)
+    }
+  }
+  if (last) {
+    // 自动选中最后一张并开启总开关
+    const added = last.list[last.list.length - 1]
+    commitWpConfig({ enabled: true, selectedId: added ? added.id : last.config.selectedId })
+    message({ message: '已添加 ' + count + ' 张壁纸', type: 'success' })
+  } else {
+    message({ message: '不支持的文件类型', type: 'warning' })
+  }
+}
+// 选择目录并加载（open = true 时选完自动开抽屉）：原生 dialog → 磁盘扫描 → 磁盘条目列表
+async function chooseMarketDir(open) {
+  if (!wpMarketApi()) {
+    message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
+    return
+  }
+  try {
+    const dir = await pickWallpaperDirectory()
+    if (!dir) return // 用户取消
+    const res = await scanLocalWallpaperDir(dir)
+    marketDir.value = dir
+    saveWallpaperDir(dir) // 持久化，重启后自动恢复
+    applyScanResult(res, open)
+  } catch (e) {
+    message({ message: e.message || '选择目录失败', type: 'error' })
+  }
+}
+// 打开壁纸市场抽屉浏览：拉取中直接恢复进度；有目录则重新扫描展示；无目录开抽屉空态引导
+async function openMarketDrawer() {
+  if (wpPullActive.value) {
+    marketVisible.value = true
+    return
+  }
+  if (!wpMarketApi()) {
+    message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
+    return
+  }
+  if (marketDir.value) {
+    try {
+      const res = await scanLocalWallpaperDir(marketDir.value)
+      applyScanResult(res, true)
+    } catch (e) {
+      // 目录已失效（被删除/移动/无法访问）：清除记录并打开抽屉空态，
+      // 用户可经「从市场拉取」流程重新选择目录，避免打不开市场无法重新关联
+      marketDir.value = ''
+      saveWallpaperDir('')
+      marketRaw.value = []
+      marketItems.value = []
+      marketMissing.value = []
+      marketCat.value = 'all'
+      marketVisible.value = true
+      message({ message: ((e && e.message) || '目录扫描失败') + '，请重新选择壁纸目录', type: 'warning' })
+    }
+    return
+  }
+  // 未选过目录：直接打开抽屉（空态内有「从市场拉取」引导）
+  marketVisible.value = true
+}
+// 应用扫描结果到市场列表（chooseMarketDir / openMarketDrawer 共用；open = 开抽屉）
+function applyScanResult(res, open) {
+  marketMissing.value = res.missing || []
+  marketRaw.value = (res.items || []).map(f => reactive({
+    id: f.category + ':' + f.name,
+    name: f.name,
+    category: f.category,
+    size: f.size,
+    sizeLabel: fmtBytes(f.size),
+    resLabel: f.category === 'dynamic' ? '动态' : '静态',
+    file: null,               // 磁盘条目：按需读盘
+    diskPath: f.path,
+    coverPath: f.cover || '',
+    coverUrl: '',
+    marketId: 'local:' + f.path,
+    added: false
+  }))
+  marketCat.value = 'all'
+  marketPage.value = 0
+  syncMarketAdded()
+  marketItems.value = marketFiltered.value.slice(0, marketPageSize)
+  ensureThumbs()
+  if (open) marketVisible.value = true
+  nextTick(() => {
+    if (marketScroll.value) marketScroll.value.scrollTop = 0
+    fillMarketPageIfShort()
+  })
+}
+// 已渲染条目不足一屏时自动补页（首屏撑满触发滚动）
+function fillMarketPageIfShort() {
+  const el = marketScroll.value
+  if (el && el.scrollHeight <= el.clientHeight + 40 && marketHasMore.value) {
+    loadMoreMarket()
+  }
+}
+// 为当前页条目生成封面/缩略（磁盘条目读盘生成 objectURL，带缓存；动态无封面回退角标）
+function ensureThumbs() {
+  marketItems.value.forEach(it => {
+    if (it.coverUrl) return
+    const p = it.category === 'dynamic' ? it.coverPath : it.diskPath
+    if (!p) return
+    getDiskThumbUrl(p).then(url => {
+      if (url) it.coverUrl = url
+    })
+  })
+}
+// 切换分类：重置分页
+function selectMarketCat(id) {
+  if (marketCat.value === id) return
+  marketCat.value = id
+  marketPage.value = 0
+  marketItems.value = marketFiltered.value.slice(0, marketPageSize)
+  ensureThumbs()
+  nextTick(() => {
+    if (marketScroll.value) marketScroll.value.scrollTop = 0
+    fillMarketPageIfShort()
+  })
+}
+// 滚动触底：追加下一页
+function onMarketScroll() {
+  const el = marketScroll.value
+  if (!el || marketLoadingMore.value || !marketHasMore.value) return
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) loadMoreMarket()
+}
+function loadMoreMarket() {
+  if (marketLoadingMore.value || !marketHasMore.value) return
+  marketLoadingMore.value = true
+  marketPage.value += 1
+  const next = marketFiltered.value.slice(0, marketPage.value * marketPageSize)
+  // 一拍加载间隔，避免瞬间铺满失去滚动反馈
+  setTimeout(() => {
+    marketItems.value = next
+    ensureThumbs()
+    marketLoadingMore.value = false
+    fillMarketPageIfShort()
+  }, 200)
+}
+// 从壁纸市场拉取：远程清单 → 确认（含下载位置）→ 下载写盘（进度 + 实时并入列表）
+async function pullFromMarket() {
+  // 拉取进行中：点击仅重新打开抽屉恢复进度展示
+  if (wpPullActive.value) {
+    marketVisible.value = true
+    return
+  }
+  const api = wpMarketApi()
+  if (!api) {
+    message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
+    return
+  }
+  // 无下载目录：首次拉取前选择下载位置（原生目录选择，选完记录）
+  if (!marketDir.value) {
+    if (!wpMarketApi() || !wpMarketApi().pickDir) {
+      message({ message: '壁纸市场能力未加载，请完全退出应用后重新打开', type: 'warning' })
+      return
+    }
+    const dir = await pickWallpaperDirectory()
+    if (!dir) return // 用户取消
+    marketDir.value = dir
+    saveWallpaperDir(dir) // 记录下载位置，下次打开抽屉直接呈现该目录内容
+  }
+  // 拉远程清单
+  wpPullBusy.value = true
+  let res
+  try {
+    res = await api.manifest()
+  } catch (e) {
+    res = null
+  }
+  wpPullBusy.value = false
+  if (!res || !res.ok) {
+    message({ message: (res && res.error) || '市场清单获取失败', type: 'error' })
+    return
+  }
+  const items = (res.data && Array.isArray(res.data.items)) ? res.data.items : []
+  if (!items.length) {
+    message({ message: '壁纸市场暂无可用壁纸', type: 'info' })
+    return
+  }
+  const dyn = items.filter(i => i.type !== 'image').length
+  const sta = items.length - dyn
+  const size = items.reduce((s, i) => s + (i.size || 0), 0)
+  // 确认弹窗：明确展示下载到本地哪里
+  const yes = await confirm(
+    `将拉取 ${items.length} 个壁纸（动态 ${dyn} / 静态 ${sta}，约 ${fmtBytes(size)}）\n下载位置：${marketDir.value}\n（写入「动态壁纸 / 静态壁纸」子目录，相同文件自动跳过）`,
+    '从壁纸市场拉取',
+    { confirmButtonText: '开始拉取', cancelButtonText: '取消' }
+  ).then(() => true).catch(() => false)
+  if (!yes) return
+
+  marketVisible.value = true
+  marketCat.value = 'all'
+  // 订阅进度：更新进度条 + 完成的条目实时并入列表展示
+  const off = api.onProgress(p => {
+    wpPull.value = Object.assign({ active: true }, p)
+    if (p && p.entry) appendPulledEntry(p.entry)
+  })
+  wpPull.value = { active: true, done: 0, total: items.length, name: '' }
+  let pullRes
+  try {
+    pullRes = await api.pull({ dir: marketDir.value, ids: items.map(i => i.id) })
+  } catch (e) {
+    pullRes = null
+  }
+  off()
+  wpPull.value = null
+  if (!pullRes || !pullRes.ok) {
+    message({ message: (pullRes && pullRes.error) || '拉取失败', type: 'error' })
+    return
+  }
+  // 条目已在拉取过程中逐个并入；此处仅同步已装状态与汇总提示
+  syncMarketAdded()
+  message({
+    message: `已拉取 ${pullRes.pulled.length} 个壁纸${pullRes.skipped ? `（${pullRes.skipped} 个已存在跳过）` : ''}`,
+    type: 'success'
+  })
+}
+// 拉取条目实时并入列表（去重；当前分类匹配时立即上屏）
+function appendPulledEntry(f) {
+  const marketId = 'local:' + f.path
+  if (marketRaw.value.some(i => i.marketId === marketId)) return
+  const entry = reactive({
+    id: f.category + ':' + f.name,
+    name: f.name,
+    category: f.category,
+    size: f.size,
+    sizeLabel: fmtBytes(f.size),
+    resLabel: f.category === 'dynamic' ? '动态' : '静态',
+    file: null,
+    diskPath: f.path,
+    coverPath: f.coverPath || '',
+    coverUrl: f.remoteCoverUrl || '',
+    marketId,
+    added: false
+  })
+  marketRaw.value.push(entry)
+  // 当前分类为「全部」或与条目同类时追加到已渲染列表（实时可见）
+  if (marketCat.value === 'all' || marketCat.value === f.category) {
+    marketItems.value.push(entry)
+  }
+}
+// 同步「已添加」标记（按 marketId 对照本地壁纸列表）
+function syncMarketAdded() {
+  const list = wallpaperList.value
+  marketRaw.value.forEach(it => {
+    it.added = (list || []).some(w => w && w.marketId === it.marketId)
+  })
+  marketItems.value.forEach(it => {
+    it.added = (list || []).some(w => w && w.marketId === it.marketId)
+  })
+}
+// 使用市场壁纸：File（本地选择）或按需读盘（市场拉取）→ 入库（IndexedDB）→ 选中并开启
+async function applyMarketItem(item) {
+  if (marketReadingId.value || item.added) return
+  marketReadingId.value = item.id
+  try {
+    // 本地选择的条目直接持有 File；市场拉取的条目按需从磁盘读取
+    const file = item.file || (item.diskPath ? await readPulledFile(item.diskPath) : null)
+    if (!file) throw new Error('文件不可用')
+    // 封面：本地选择的封面 File / 拉取条目的磁盘封面
+    let coverBlob = item.category === 'dynamic' ? (item.coverFile || null) : null
+    if (!coverBlob && item.category === 'dynamic' && item.coverPath) {
+      try { coverBlob = await readPulledFile(item.coverPath) } catch (e) { /* 无封面时角标 */ }
+    }
+    const res = await addWallpaperFile(file, {
+      marketId: item.marketId,
+      // 视频壁纸附带头像封面 Blob（wp-gallery 列表缩略用；静态壁纸自身即图）
+      coverBlob
+    })
+    if (!res) throw new Error('入库失败（不支持的文件类型）')
+    store.commit('SET_WALLPAPER_LIST', res.list)
+    store.commit('SET_WALLPAPER_CONFIG', res.config)
+    // 选中新壁纸并确保总开关开启
+    const added = res.list[res.list.length - 1]
+    commitWpConfig({ enabled: true, selectedId: added ? added.id : res.config.selectedId })
+    syncMarketAdded()
+    message({ message: '壁纸已添加并应用', type: 'success' })
+  } catch (e) {
+    message({ message: e.message || '读取文件失败', type: 'error' })
+  } finally {
+    marketReadingId.value = ''
+  }
+}
+// ===== 安全：应用锁定 =====
+async function loadLockState() {
+  const api = window.electronAPI && window.electronAPI.appLock
+  // 恢复偏好设置
+  const saved = getItem('appLockSettings', null) || {}
+  lockSettings.value = {
+    autoLock: Number(saved.autoLock) || 0,
+    biometric: !!saved.biometric
+  }
+  if (api) {
+    hasPassword.value = await api.hasPassword()
+    biometricAvailable.value = await api.biometricSupported()
+  }
+}
+function persistLockSettings() {
+  setItem('appLockSettings', lockSettings.value)
+  // 通知 AppLock 组件即时应用新偏好
+  bus.emit('app-lock:settings-changed')
+}
+// 自动锁定时机
+function selectAutoLock(val) {
+  lockSettings.value.autoLock = val
+  persistLockSettings()
+}
+// 触控 ID 开关：关闭属敏感操作，需先二次验证身份（开启无需验证）
+async function selectBiometric(val) {
+  if (!val && lockSettings.value.biometric) {
+    if (!(await verifyIdentity())) return // 验证失败/取消：保持开启
+  }
+  lockSettings.value.biometric = val
+  persistLockSettings()
+}
+function openPwdDialog() {
+  pwdForm.value = { oldPwd: '', newPwd: '', confirmPwd: '' }
+  pwdDialogVisible.value = true
+}
+async function savePassword() {
+  const api = window.electronAPI && window.electronAPI.appLock
+  if (!api) {
+    message.error('当前环境不支持应用锁定')
+    return
+  }
+  const { oldPwd, newPwd, confirmPwd } = pwdForm.value
+  const target = hasPassword.value ? newPwd : oldPwd
+  if (!target || target.length < 4) {
+    message.warning('密码至少 4 位')
+    return
+  }
+  if (target !== confirmPwd) {
+    message.warning('两次输入的密码不一致')
+    return
+  }
+  // 修改时先校验旧密码
+  if (hasPassword.value) {
+    const check = await api.verify(oldPwd)
+    if (!check || !check.ok) {
+      message.error('当前密码不正确')
+      return
+    }
+  }
+  const res = await api.setPassword(target)
+  if (res && res.ok) {
+    hasPassword.value = true
+    pwdDialogVisible.value = false
+    message.success('应用密码已保存')
+    // 通知 AppLock 同步密码状态（锁定快捷键立即可用）
+    bus.emit('app-lock:settings-changed')
+  } else {
+    message.error('保存失败：系统加密存储不可用')
+  }
+}
+async function clearPassword() {
+  const api = window.electronAPI && window.electronAPI.appLock
+  if (!api) return
+  confirm('清除后应用将不再需要密码解锁，确定清除吗？', '清除密码', {
+    confirmButtonText: '清除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    // 敏感操作：先二次验证身份（触控 ID 优先，回退密码），防止他人清除
+    if (!(await verifyIdentity())) return
+    await api.clearPassword()
+    hasPassword.value = false
+    message.success('应用密码已清除')
+    // 通知 AppLock 同步密码状态
+    bus.emit('app-lock:settings-changed')
+  }).catch(() => {})
+}
+// 立即锁定：未设密码引导设置；preload 未加载提示重启
+function lockNow() {
+  const api = window.electronAPI && window.electronAPI.appLock
+  if (!api) {
+    message.warning('应用锁定能力未加载，请重启应用后重试（开发模式需重启 dev 进程使 preload 生效）')
+    return
+  }
+  if (!hasPassword.value) {
+    message.warning('请先设置应用密码，锁定后需凭密码解锁')
+    return
+  }
+  // 事件总线通知全局 AppLock 遮罩锁定
+  bus.emit('app-lock:lock-now')
+}
+// ===== 清除本地记录 =====
+// 通用身份二次验证：设置了应用密码（或开启指纹）才需要，否则直接通过
+// （清除密码 / 关闭触控 ID 等敏感操作共用）
+async function verifyIdentity() {
+  const api = window.electronAPI && window.electronAPI.appLock
+  if (!api || !hasPassword.value) return true
+  // 已开启触控 ID：优先指纹校验，取消/失败回退密码输入
+  if (biometricAvailable.value && lockSettings.value.biometric) {
+    try {
+      const bio = await api.biometricVerify()
+      if (bio && bio.ok) return true
+    } catch (e) { /* 回退密码输入 */ }
+  }
+  const { value } = await prompt('请输入应用密码以确认此操作', '身份校验', {
+    confirmButtonText: '确认',
+    cancelButtonText: '取消',
+    inputType: 'password',
+    inputPattern: /^.+$/,
+    inputErrorMessage: '请输入应用密码'
+  }).catch(() => ({ value: null }))
+  if (value === null) return false
+  const res = await api.verify(value)
+  if (!res || !res.ok) {
+    message.error('密码不正确')
+    return false
+  }
+  return true
+}
+
+// ===== 生命周期 =====
+onMounted(() => {
+  syncTabFromQuery()
+  loadLockState()
+  loadShortcuts()
+  loadTrayMenu()
+  loadHistoryState()
+  loadClipKeep()
+  loadBuddySessions()
+  loadNotify()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onRecordKeydown, true)
+  window.removeEventListener('keyup', onRecordKeyup, true)
+  document.removeEventListener('mousedown', onRecordBlur, true)
+})
+
 </script>
 
 <style lang="scss" scoped>

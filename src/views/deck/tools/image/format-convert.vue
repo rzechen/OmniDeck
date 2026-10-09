@@ -62,87 +62,81 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
 import { formatSize, loadImage, drawToCanvas, downloadDataUrl, baseName } from '@/utils/ui/image'
 
-export default {
-  name: 'ImageFormatConvert',
-  components: { ToolShell, ImageDrop },
-  data() {
-    return {
-      target: 'png',
-      formats: [
-        { label: 'PNG', value: 'png' },
-        { label: 'JPEG', value: 'jpeg' },
-        { label: 'WEBP', value: 'webp' }
-      ],
-      items: []
-    }
-  },
-  computed: {
-    doneCount() {
-      return this.items.filter(i => i.out).length
-    }
-  },
-  methods: {
-    formatSize,
-    onFiles(files) {
-      files.forEach(f => {
-        this.items.push({
-          file: f,
-          name: f.name,
-          size: f.size,
-          url: URL.createObjectURL(f),
-          out: '',
-          outSize: 0,
-          outExt: '',
-          error: ''
-        })
-      })
-    },
-    async convertAll() {
-      for (const item of this.items) {
-        if (item.out) continue
-        try {
-          const { img, url } = await loadImage(item.file)
-          const canvas = drawToCanvas(img)
-          const mime = 'image/' + this.target
-          // JPEG 需要白底（透明通道会变黑）
-          if (this.target === 'jpeg') {
-            const c2 = document.createElement('canvas')
-            c2.width = canvas.width
-            c2.height = canvas.height
-            const ctx = c2.getContext('2d')
-            ctx.fillStyle = '#fff'
-            ctx.fillRect(0, 0, c2.width, c2.height)
-            ctx.drawImage(canvas, 0, 0)
-            canvas.width = c2.width
-            canvas.getContext('2d').drawImage(c2, 0, 0)
-          }
-          item.out = canvas.toDataURL(mime, 0.92)
-          item.outSize = Math.round(item.out.length * 0.75)
-          item.outExt = '.' + this.target
-          URL.revokeObjectURL(url)
-        } catch (e) {
-          item.error = e.message
-        }
+defineOptions({ name: 'ImageFormatConvert' })
+
+const target = ref('png')
+const formats = [
+  { label: 'PNG', value: 'png' },
+  { label: 'JPEG', value: 'jpeg' },
+  { label: 'WEBP', value: 'webp' }
+]
+const items = ref([])
+
+const doneCount = computed(() => items.value.filter(i => i.out).length)
+
+function onFiles(files) {
+  files.forEach(f => {
+    items.value.push({
+      file: f,
+      name: f.name,
+      size: f.size,
+      url: URL.createObjectURL(f),
+      out: '',
+      outSize: 0,
+      outExt: '',
+      error: ''
+    })
+  })
+}
+
+async function convertAll() {
+  for (const item of items.value) {
+    if (item.out) continue
+    try {
+      const { img, url } = await loadImage(item.file)
+      const canvas = drawToCanvas(img)
+      const mime = 'image/' + target.value
+      // JPEG 需要白底（透明通道会变黑）
+      if (target.value === 'jpeg') {
+        const c2 = document.createElement('canvas')
+        c2.width = canvas.width
+        c2.height = canvas.height
+        const ctx = c2.getContext('2d')
+        ctx.fillStyle = '#fff'
+        ctx.fillRect(0, 0, c2.width, c2.height)
+        ctx.drawImage(canvas, 0, 0)
+        canvas.width = c2.width
+        canvas.getContext('2d').drawImage(c2, 0, 0)
       }
-    },
-    downloadOne(item) {
-      downloadDataUrl(baseName(item.name) + '.' + this.target, item.out)
-    },
-    downloadAll() {
-      this.items.filter(i => i.out).forEach((item, i) => {
-        setTimeout(() => this.downloadOne(item), i * 250)
-      })
-    },
-    removeItem(i) {
-      URL.revokeObjectURL(this.items[i].url)
-      this.items.splice(i, 1)
+      item.out = canvas.toDataURL(mime, 0.92)
+      item.outSize = Math.round(item.out.length * 0.75)
+      item.outExt = '.' + target.value
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      item.error = e.message
     }
   }
+}
+
+function downloadOne(item) {
+  downloadDataUrl(baseName(item.name) + '.' + target.value, item.out)
+}
+
+function downloadAll() {
+  items.value.filter(i => i.out).forEach((item, i) => {
+    setTimeout(() => downloadOne(item), i * 250)
+  })
+}
+
+function removeItem(i) {
+  URL.revokeObjectURL(items.value[i].url)
+  items.value.splice(i, 1)
 }
 </script>
 

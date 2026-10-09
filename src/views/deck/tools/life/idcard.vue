@@ -72,7 +72,8 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import areaCodes from '@/utils/data/idcard-area'
 
@@ -96,89 +97,81 @@ const CONSTELLATIONS = [
   { name: '射手座', start: [11, 23], end: [12, 21] }
 ]
 
-export default {
-  name: 'LifeIdcard',
-  components: { ToolShell },
-  data() {
-    return {
-      idNumber: '',
-      result: null
-    }
-  },
-  computed: {
-    checkDigit() {
-      return this.idNumber.slice(17, 18).toUpperCase()
-    }
-  },
-  methods: {
-    fillExample() {
-      // 合成的示例号（非真实号码，校验位按 GB 11643-1999 计算正确）
-      this.idNumber = '310101199003078619'
-      this.parse()
-    },
-    parse() {
-      const id = this.idNumber.trim().toUpperCase()
-      this.result = null
-      if (!id) return
-      if (!/^\d{17}[\dX]$/.test(id)) {
-        this.result = { valid: false, error: '格式不正确，应为 17 位数字 + 1 位校验码' }
-        return
-      }
-      // 校验位计算
-      const sum = id.slice(0, 17).split('').reduce((s, c, i) => s + Number(c) * WEIGHTS[i], 0)
-      const expected = CHECK_CODES[sum % 11]
-      if (id[17] !== expected) {
-        this.result = { valid: false, error: '校验位不匹配', expected }
-        return
-      }
-      // 出生日期
-      const year = +id.slice(6, 10)
-      const month = +id.slice(10, 12)
-      const day = +id.slice(12, 14)
-      const date = new Date(year, month - 1, day)
-      if (
-        date.getFullYear() !== year ||
-        date.getMonth() !== month - 1 ||
-        date.getDate() !== day ||
-        year < 1900 ||
-        date > new Date()
-      ) {
-        this.result = { valid: false, error: '出生日期无效' }
-        return
-      }
-      // 年龄
-      const now = new Date()
-      let age = now.getFullYear() - year
-      const mDiff = now.getMonth() - (month - 1)
-      if (mDiff < 0 || (mDiff === 0 && now.getDate() < day)) age--
-      // 归属地：前 6 位行政区划
-      const code6 = id.slice(0, 6)
-      const region =
-        areaCodes[code6] ||
-        areaCodes[code6.slice(0, 4) + '00'] ||
-        areaCodes[code6.slice(0, 2) + '0000'] ||
-        '未知地区'
-      this.result = {
-        valid: true,
-        birthday: `${year} 年 ${month} 月 ${day} 日`,
-        age,
-        sex: Number(id[16]) % 2 === 0 ? '女' : '男',
-        zodiac: ZODIAC[(year - 4) % 12],
-        constellation: this.getConstellation(month, day),
-        region
-      }
-    },
-    getConstellation(m, d) {
-      for (const c of CONSTELLATIONS) {
-        const [sm, sd] = c.start
-        const [em, ed] = c.end
-        if ((m === sm && d >= sd) || (m === em && d <= ed) || (m === sm && m === em)) {
-          return c.name
-        }
-      }
-      return '—'
+defineOptions({ name: 'LifeIdcard' })
+
+const idNumber = ref('')
+const result = ref(null)
+
+const checkDigit = computed(() => idNumber.value.slice(17, 18).toUpperCase())
+
+function fillExample() {
+  // 合成的示例号（非真实号码，校验位按 GB 11643-1999 计算正确）
+  idNumber.value = '310101199003078619'
+  parse()
+}
+
+function parse() {
+  const id = idNumber.value.trim().toUpperCase()
+  result.value = null
+  if (!id) return
+  if (!/^\d{17}[\dX]$/.test(id)) {
+    result.value = { valid: false, error: '格式不正确，应为 17 位数字 + 1 位校验码' }
+    return
+  }
+  // 校验位计算
+  const sum = id.slice(0, 17).split('').reduce((s, c, i) => s + Number(c) * WEIGHTS[i], 0)
+  const expected = CHECK_CODES[sum % 11]
+  if (id[17] !== expected) {
+    result.value = { valid: false, error: '校验位不匹配', expected }
+    return
+  }
+  // 出生日期
+  const year = +id.slice(6, 10)
+  const month = +id.slice(10, 12)
+  const day = +id.slice(12, 14)
+  const date = new Date(year, month - 1, day)
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    year < 1900 ||
+    date > new Date()
+  ) {
+    result.value = { valid: false, error: '出生日期无效' }
+    return
+  }
+  // 年龄
+  const now = new Date()
+  let age = now.getFullYear() - year
+  const mDiff = now.getMonth() - (month - 1)
+  if (mDiff < 0 || (mDiff === 0 && now.getDate() < day)) age--
+  // 归属地：前 6 位行政区划
+  const code6 = id.slice(0, 6)
+  const region =
+    areaCodes[code6] ||
+    areaCodes[code6.slice(0, 4) + '00'] ||
+    areaCodes[code6.slice(0, 2) + '0000'] ||
+    '未知地区'
+  result.value = {
+    valid: true,
+    birthday: `${year} 年 ${month} 月 ${day} 日`,
+    age,
+    sex: Number(id[16]) % 2 === 0 ? '女' : '男',
+    zodiac: ZODIAC[(year - 4) % 12],
+    constellation: getConstellation(month, day),
+    region
+  }
+}
+
+function getConstellation(m, d) {
+  for (const c of CONSTELLATIONS) {
+    const [sm, sd] = c.start
+    const [em, ed] = c.end
+    if ((m === sm && d >= sd) || (m === em && d <= ed) || (m === sm && m === em)) {
+      return c.name
     }
   }
+  return '—'
 }
 </script>
 

@@ -22,7 +22,7 @@
         <svg-icon icon-class="folder" />
         <em>所在文件夹</em>
       </span>
-      <span class="ob-preview-close" title="关闭预览" @click="$emit('close')">
+      <span class="ob-preview-close" title="关闭预览" @click="emit('close')">
         <svg-icon icon-class="close" />
       </span>
     </div>
@@ -71,13 +71,15 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 右栏预览面板：item 数据源两种——
 //   { kind:'code', lang, code }        代码块放大（内存内容，无磁盘路径）
 //   { path, name, format }             产物文件（经 files IPC 读取）
+import { ref, computed, watch } from 'vue'
 import { buddyApiSection } from '@/utils/buddy/buddy-api'
 import { fileIcon, modeOf } from '@/utils/ui/file-meta'
 import { renderMarkdown } from '@/utils/ui/markdown'
+import { useFeedback } from '@/composables/useFeedback'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 // 补充预览高频语言 mode（CodeEditor 自带 js/css/xml/yaml/sql/markdown）
 import 'codemirror/mode/python/python'
@@ -110,148 +112,148 @@ const LANG_MODE = {
   diff: 'text/x-diff', patch: 'text/x-diff'
 }
 
-export default {
-  name: 'ArtifactPreview',
-  components: { CodeEditor },
-  props: {
-    // 预览目标（结构见组件头注释）
-    item: {
-      type: Object,
-      required: true
-    }
-  },
-  data() {
-    return {
-      loading: false,
-      error: '',
-      content: '',
-      imageSrc: '',
-      size: 0
-    }
-  },
-  computed: {
-    // 预览类型：code（内存代码）> 按扩展名 html / markdown / image / 纯文本
-    type() {
-      if (this.item.kind === 'code') return 'code'
-      const f = String(this.item.format || '').toLowerCase() ||
-        (String(this.item.name || '').match(/\.([a-z0-9]+)$/i) || [])[1] || ''
-      if (HTML_EXTS.indexOf(f) >= 0) return 'html'
-      if (MD_EXTS.indexOf(f) >= 0) return 'markdown'
-      if (IMG_EXTS.indexOf(f) >= 0) return 'image'
-      return 'text'
-    },
-    // 展示名：产物名 > 代码块语言标识
-    name() {
-      if (this.item.name) return this.item.name
-      if (this.item.kind === 'code') return (this.item.lang || 'text') + ' 代码块'
-      return '预览'
-    },
-    // 元信息行：代码块显示语言 + 行数，文件显示类型 + 大小
-    metaText() {
-      if (this.item.kind === 'code') {
-        const lines = this.content ? this.content.split('\n').length : 0
-        return (this.item.lang || 'text') + ' · ' + lines + ' 行'
-      }
-      const parts = []
-      if (this.type !== 'text') parts.push({ html: '网页', markdown: 'Markdown', image: '图片' }[this.type])
-      if (this.size) parts.push(this.fmtSize(this.size))
-      return parts.join(' · ') || '文本'
-    },
-    htmlText() {
-      return renderMarkdown(this.content)
-    },
-    // CodeMirror mode：代码块按 fence 语言映射，文件按扩展名（file-meta 内置映射）
-    cmMode() {
-      if (this.item.kind === 'code') {
-        return LANG_MODE[String(this.item.lang || '').toLowerCase()] || 'text/plain'
-      }
-      return modeOf(this.item.name || '')
-    }
-  },
-  watch: {
-    // 目标变化（切换预览对象）即重新加载
-    item: {
-      immediate: true,
-      handler() {
-        this.load()
-      }
-    }
-  },
-  methods: {
-    fileIcon,
-    async load() {
-      this.error = ''
-      this.imageSrc = ''
-      this.size = 0
-      // 代码块：内容随 item 直接携带，无需读盘
-      if (this.item.kind === 'code') {
-        this.content = this.item.code || ''
-        return
-      }
-      if (!this.item.path) {
-        this.error = '缺少文件路径，无法预览'
-        return
-      }
-      const files = buddyApiSection('files')
-      if (!files) {
-        this.error = '当前环境不支持预览'
-        return
-      }
-      this.loading = true
-      if (this.type === 'image') {
-        const res = await files.readImage(this.item.path)
-        this.loading = false
-        if (res && res.ok) {
-          this.imageSrc = res.src
-          this.size = res.size || 0
-        } else {
-          this.error = (res && res.error) || '图片读取失败'
-        }
-        return
-      }
-      const res = await files.read(this.item.path)
-      this.loading = false
-      if (res && res.ok) {
-        this.content = res.content || ''
-        this.size = res.size || 0
-      } else if (res && (res.binary || res.tooLarge)) {
-        this.error = res.tooLarge ? '文件较大，建议用系统应用打开' : '该格式不支持内嵌预览'
-      } else {
-        this.error = (res && res.error) || '读取失败'
-      }
-    },
-    fmtSize(n) {
-      const v = Number(n) || 0
-      if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB'
-      if (v >= 1024) return (v / 1024).toFixed(1) + ' KB'
-      return v + ' B'
-    },
-    // 复制全部内容（代码块放大 / 文件预览通用）
-    async copyAll() {
-      const text = this.type === 'image' ? '' : this.content
-      if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return
-      try {
-        await navigator.clipboard.writeText(text)
-        this.$message.success('已复制')
-      } catch (e) {
-        this.$message.error('复制失败')
-      }
-    },
-    // 用系统默认应用打开源文件
-    async openFile() {
-      const files = buddyApiSection('files')
-      if (!files) return this.$message.warning('当前环境不支持该操作')
-      const res = await files.open(this.item.path)
-      if (res && res.ok === false) this.$message.error('打开失败：' + (res.error || '文件可能已被移动'))
-    },
-    // 在系统文件管理器中显示
-    async revealFile() {
-      const files = buddyApiSection('files')
-      if (!files) return this.$message.warning('当前环境不支持该操作')
-      const res = await files.reveal(this.item.path)
-      if (res && res.ok === false) this.$message.error('打开所在文件夹失败：' + (res.error || ''))
-    }
+defineOptions({ name: 'ArtifactPreview' })
+
+const props = defineProps({
+  // 预览目标（结构见组件头注释）
+  item: {
+    type: Object,
+    required: true
   }
+})
+
+const emit = defineEmits(['close'])
+
+const { message } = useFeedback()
+
+const loading = ref(false)
+const error = ref('')
+const content = ref('')
+const imageSrc = ref('')
+const size = ref(0)
+
+// 预览类型：code（内存代码）> 按扩展名 html / markdown / image / 纯文本
+const type = computed(() => {
+  if (props.item.kind === 'code') return 'code'
+  const f = String(props.item.format || '').toLowerCase() ||
+    (String(props.item.name || '').match(/\.([a-z0-9]+)$/i) || [])[1] || ''
+  if (HTML_EXTS.indexOf(f) >= 0) return 'html'
+  if (MD_EXTS.indexOf(f) >= 0) return 'markdown'
+  if (IMG_EXTS.indexOf(f) >= 0) return 'image'
+  return 'text'
+})
+
+// 展示名：产物名 > 代码块语言标识
+const name = computed(() => {
+  if (props.item.name) return props.item.name
+  if (props.item.kind === 'code') return (props.item.lang || 'text') + ' 代码块'
+  return '预览'
+})
+
+// 元信息行：代码块显示语言 + 行数，文件显示类型 + 大小
+const metaText = computed(() => {
+  if (props.item.kind === 'code') {
+    const lines = content.value ? content.value.split('\n').length : 0
+    return (props.item.lang || 'text') + ' · ' + lines + ' 行'
+  }
+  const parts = []
+  if (type.value !== 'text') parts.push({ html: '网页', markdown: 'Markdown', image: '图片' }[type.value])
+  if (size.value) parts.push(fmtSize(size.value))
+  return parts.join(' · ') || '文本'
+})
+
+const htmlText = computed(() => {
+  return renderMarkdown(content.value)
+})
+
+// CodeMirror mode：代码块按 fence 语言映射，文件按扩展名（file-meta 内置映射）
+const cmMode = computed(() => {
+  if (props.item.kind === 'code') {
+    return LANG_MODE[String(props.item.lang || '').toLowerCase()] || 'text/plain'
+  }
+  return modeOf(props.item.name || '')
+})
+
+async function load() {
+  error.value = ''
+  imageSrc.value = ''
+  size.value = 0
+  // 代码块：内容随 item 直接携带，无需读盘
+  if (props.item.kind === 'code') {
+    content.value = props.item.code || ''
+    return
+  }
+  if (!props.item.path) {
+    error.value = '缺少文件路径，无法预览'
+    return
+  }
+  const files = buddyApiSection('files')
+  if (!files) {
+    error.value = '当前环境不支持预览'
+    return
+  }
+  loading.value = true
+  if (type.value === 'image') {
+    const res = await files.readImage(props.item.path)
+    loading.value = false
+    if (res && res.ok) {
+      imageSrc.value = res.src
+      size.value = res.size || 0
+    } else {
+      error.value = (res && res.error) || '图片读取失败'
+    }
+    return
+  }
+  const res = await files.read(props.item.path)
+  loading.value = false
+  if (res && res.ok) {
+    content.value = res.content || ''
+    size.value = res.size || 0
+  } else if (res && (res.binary || res.tooLarge)) {
+    error.value = res.tooLarge ? '文件较大，建议用系统应用打开' : '该格式不支持内嵌预览'
+  } else {
+    error.value = (res && res.error) || '读取失败'
+  }
+}
+
+// 目标变化（切换预览对象）即重新加载
+watch(() => props.item, () => {
+  load()
+}, { immediate: true })
+
+function fmtSize(n) {
+  const v = Number(n) || 0
+  if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB'
+  if (v >= 1024) return (v / 1024).toFixed(1) + ' KB'
+  return v + ' B'
+}
+
+// 复制全部内容（代码块放大 / 文件预览通用）
+async function copyAll() {
+  const text = type.value === 'image' ? '' : content.value
+  if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success('已复制')
+  } catch (e) {
+    message.error('复制失败')
+  }
+}
+
+// 用系统默认应用打开源文件
+async function openFile() {
+  const files = buddyApiSection('files')
+  if (!files) return message.warning('当前环境不支持该操作')
+  const res = await files.open(props.item.path)
+  if (res && res.ok === false) message.error('打开失败：' + (res.error || '文件可能已被移动'))
+}
+
+// 在系统文件管理器中显示
+async function revealFile() {
+  const files = buddyApiSection('files')
+  if (!files) return message.warning('当前环境不支持该操作')
+  const res = await files.reveal(props.item.path)
+  if (res && res.ok === false) message.error('打开所在文件夹失败：' + (res.error || ''))
 }
 </script>
 

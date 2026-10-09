@@ -295,7 +295,9 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import AnimatedNumber from '@/components/deck/AnimatedNumber.vue'
 import {
@@ -304,419 +306,422 @@ import {
   calcMarketStatus, fmtQuoteDate, fmtQuoteTime
 } from '@/utils/finance/fund'
 import { getItem as dbGetItem, setItem as dbSetItem } from '@/utils/storage/db'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'FundPortfolio',
-  components: { ToolShell, AnimatedNumber },
-  data() {
+defineOptions({ name: 'FundPortfolio' })
+
+const router = useRouter()
+const { message, confirm } = useFeedback()
+
+const positions = ref([])
+const quotes = ref({})
+const errors = ref({})
+const loading = ref(false)
+const loadError = ref('')
+const updateTime = ref('')
+// 首次估值加载（骨架屏）
+const booting = ref(true)
+// 金额隐私模式：隐藏收益等金额数值（持久化，IndexedDB）
+// 旧 localStorage 值一次性迁移（onMounted 中处理）
+const hideAmount = ref(dbGetItem('fundHideAmount', false) === true)
+// 市场状态（每秒 tick 时更新）：{ label, type }
+const marketStatus = ref(calcMarketStatus())
+// 循环倒计时状态机：counting(倒数) → refreshing(刷新中) → success(成功2s) → counting
+const cdState = ref('counting')
+const cdSec = ref(59)
+// 涨跌闪烁方向：{ code: 'up' | 'down' }，估值变化时短暂点亮对应行
+const flashDir = ref({})
+// 搜索
+const searching = ref(false)
+// 持仓保存中（取估值 + 写入，防重复提交）
+const submitting = ref(false)
+// 弹窗
+const dialog = ref({
+  visible: false,
+  code: '',          // 编辑时的基金代码（添加为空）
+  keyword: '',
+  picked: null,      // 搜索选中的基金 {code,name,type}
+  mode: 'shares',    // shares=按份额 amount=按金额
+  inputVal: '',
+  costPrice: '',
+  nav: 0
+})
+
+// 定时器句柄（非响应式）
+let searchTimer = null
+let tickTimer = null
+let timer = null
+let successTimer = null
+let flashTimer = null
+// 搜索输入框
+const searchInput = ref(null)
+
+// 骨架屏行数（与持仓数一致，最多 6 行）
+const skRows = computed(() => Math.min(positions.value.length || 3, 6))
+// 列表行：持仓 + 估值 + 收益合并
+const rows = computed(() => {
+  return positions.value.map(pos => {
+    const quote = quotes.value[pos.code] || null
     return {
-      positions: [],
-      quotes: {},
-      errors: {},
-      loading: false,
-      loadError: '',
-      updateTime: '',
-      // 首次估值加载（骨架屏）
-      booting: true,
-      // 金额隐私模式：隐藏收益等金额数值（持久化，IndexedDB）
-      // 旧 localStorage 值一次性迁移（mounted 中处理）
-      hideAmount: dbGetItem('fundHideAmount', false) === true,
-      // 市场状态（每秒 tick 时更新）：{ label, type }
-      marketStatus: calcMarketStatus(),
-      // 循环倒计时状态机：counting(倒数) → refreshing(刷新中) → success(成功2s) → counting
-      cdState: 'counting',
-      cdSec: 59,
-      // 涨跌闪烁方向：{ code: 'up' | 'down' }，估值变化时短暂点亮对应行
-      flashDir: {},
-      // 搜索
-      searching: false,
-      searchTimer: null,
-      // 持仓保存中（取估值 + 写入，防重复提交）
-      submitting: false,
-      // 弹窗
-      dialog: {
-        visible: false,
-        code: '',          // 编辑时的基金代码（添加为空）
-        keyword: '',
-        picked: null,      // 搜索选中的基金 {code,name,type}
-        mode: 'shares',    // shares=按份额 amount=按金额
-        inputVal: '',
-        costPrice: '',
-        nav: 0
-      }
+      pos,
+      quote,
+      error: errors.value[pos.code] || '',
+      profit: quote
+        ? calcProfit(pos, quote)
+        : { price: 0, marketValue: 0, costAmount: pos.costAmount, profit: 0, profitRate: 0, todayProfit: 0, todayRate: 0 }
     }
-  },
-  computed: {
-    // 骨架屏行数（与持仓数一致，最多 6 行）
-    skRows() {
-      return Math.min(this.positions.length || 3, 6)
-    },
-    // 列表行：持仓 + 估值 + 收益合并
-    rows() {
-      return this.positions.map(pos => {
-        const quote = this.quotes[pos.code] || null
-        return {
-          pos,
-          quote,
-          error: this.errors[pos.code] || '',
-          profit: quote
-            ? calcProfit(pos, quote)
-            : { price: 0, marketValue: 0, costAmount: pos.costAmount, profit: 0, profitRate: 0, todayProfit: 0, todayRate: 0 }
-        }
-      })
-    },
-    // 汇总
-    total() {
-      let marketValue = 0
-      let cost = 0
-      let todayProfit = 0
-      let profit = 0
-      this.rows.forEach(r => {
-        marketValue += r.profit.marketValue
-        cost += r.pos.costAmount || 0
-        todayProfit += r.profit.todayProfit
-        profit += r.profit.profit
-      })
-      return {
-        marketValue,
-        cost,
-        todayProfit,
-        todayRate: cost > 0 ? (todayProfit / cost) * 100 : 0,
-        profit,
-        profitRate: cost > 0 ? (profit / cost) * 100 : 0
-      }
-    },
-    // 弹窗：投入成本预览
-    costPreview() {
-      const d = this.dialog
-      const val = Number(d.inputVal) || 0
-      const cp = Number(d.costPrice) || 0
-      if (d.mode === 'shares') return (val * cp).toFixed(2)
-      return val.toFixed(2)
-    },
-    // 弹窗：份额预览（按金额时）
-    sharesPreview() {
-      const d = this.dialog
-      if (d.mode !== 'amount') return 0
-      const val = Number(d.inputVal) || 0
-      const cp = Number(d.costPrice) || 0
-      return cp > 0 ? val / cp : 0
-    },
-    // 弹窗：可提交
-    canSubmit() {
-      const d = this.dialog
-      const inputOk = Number(d.inputVal) > 0 && Number(d.costPrice) > 0
-      return inputOk && (d.code || d.picked) && !this.submitting
-    },
-    /* ============ 倒计时按钮文案 ============ */
-    cdText() {
-      // 非交易时段：显示市场状态，不倒数
-      if (this.marketStatus.type !== 'open' && this.cdState === 'counting') {
-        return this.marketStatus.label
-      }
-      if (this.cdState === 'refreshing') return '刷新中...'
-      if (this.cdState === 'success') return '获取成功'
-      if (this.cdState === 'fail') return '获取失败'
-      return this.cdSec + 's'
-    },
-    cdTitle() {
-      if (!this.positions.length) return '添加持仓后开始获取估值'
-      if (this.cdState === 'refreshing') return '正在获取最新估值…'
-      if (this.cdState === 'success') return '估值已更新'
-      if (this.marketStatus.type !== 'open') return this.marketStatus.label + '，开盘后自动恢复刷新'
-      return '点击立即刷新 · ' + this.cdSec + 's 后自动刷新'
+  })
+})
+// 汇总
+const total = computed(() => {
+  let marketValue = 0
+  let cost = 0
+  let todayProfit = 0
+  let profit = 0
+  rows.value.forEach(r => {
+    marketValue += r.profit.marketValue
+    cost += r.pos.costAmount || 0
+    todayProfit += r.profit.todayProfit
+    profit += r.profit.profit
+  })
+  return {
+    marketValue,
+    cost,
+    todayProfit,
+    todayRate: cost > 0 ? (todayProfit / cost) * 100 : 0,
+    profit,
+    profitRate: cost > 0 ? (profit / cost) * 100 : 0
+  }
+})
+// 弹窗：投入成本预览
+const costPreview = computed(() => {
+  const d = dialog.value
+  const val = Number(d.inputVal) || 0
+  const cp = Number(d.costPrice) || 0
+  if (d.mode === 'shares') return (val * cp).toFixed(2)
+  return val.toFixed(2)
+})
+// 弹窗：份额预览（按金额时）
+const sharesPreview = computed(() => {
+  const d = dialog.value
+  if (d.mode !== 'amount') return 0
+  const val = Number(d.inputVal) || 0
+  const cp = Number(d.costPrice) || 0
+  return cp > 0 ? val / cp : 0
+})
+// 弹窗：可提交
+const canSubmit = computed(() => {
+  const d = dialog.value
+  const inputOk = Number(d.inputVal) > 0 && Number(d.costPrice) > 0
+  return inputOk && (d.code || d.picked) && !submitting.value
+})
+/* ============ 倒计时按钮文案 ============ */
+const cdText = computed(() => {
+  // 非交易时段：显示市场状态，不倒数
+  if (marketStatus.value.type !== 'open' && cdState.value === 'counting') {
+    return marketStatus.value.label
+  }
+  if (cdState.value === 'refreshing') return '刷新中...'
+  if (cdState.value === 'success') return '获取成功'
+  if (cdState.value === 'fail') return '获取失败'
+  return cdSec.value + 's'
+})
+const cdTitle = computed(() => {
+  if (!positions.value.length) return '添加持仓后开始获取估值'
+  if (cdState.value === 'refreshing') return '正在获取最新估值…'
+  if (cdState.value === 'success') return '估值已更新'
+  if (marketStatus.value.type !== 'open') return marketStatus.value.label + '，开盘后自动恢复刷新'
+  return '点击立即刷新 · ' + cdSec.value + 's 后自动刷新'
+})
+
+onMounted(() => {
+  migrateHideAmount()
+  positions.value = loadPositions()
+  refresh()
+  // 统一 1s tick 驱动倒计时状态机
+  tickTimer = setInterval(onTick, 1000)
+})
+
+onBeforeUnmount(() => {
+  clearInterval(tickTimer)
+  clearTimeout(timer)
+  clearTimeout(successTimer)
+  clearTimeout(flashTimer)
+})
+
+// 涨跌闪烁 class：无闪烁时返回空串
+function flashClass(code) {
+  return flashDir.value[code] ? 'is-flash-' + flashDir.value[code] : ''
+}
+// 估值变化时设置闪烁方向，短暂高亮后清除
+function setFlash(code, dir) {
+  flashDir.value[code] = dir
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => {
+    delete flashDir.value[code]
+  }, 900)
+}
+function numFmt(v) {
+  return (v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+}
+/* ============ 金额隐私 ============ */
+// 金额显示：隐私模式下统一遮罩为 ****
+function showMoney(v, signed) {
+  if (hideAmount.value) return '****'
+  return fmtMoney(v, signed)
+}
+// 数量显示（份额等）：隐私模式遮罩，保留原数字格式
+function hideNum(v) {
+  if (hideAmount.value) return '****'
+  return numFmt(v)
+}
+function toggleHide() {
+  hideAmount.value = !hideAmount.value
+  dbSetItem('fundHideAmount', hideAmount.value)
+}
+// 旧 localStorage 值一次性迁移到 IndexedDB（迁移后删除旧 key）
+function migrateHideAmount() {
+  try {
+    const legacy = localStorage.getItem('fundHideAmount')
+    if (legacy !== null) {
+      dbSetItem('fundHideAmount', legacy === '1')
+      localStorage.removeItem('fundHideAmount')
     }
-  },
-  mounted() {
-    this.migrateHideAmount()
-    this.positions = loadPositions()
-    this.refresh()
-    // 统一 1s tick 驱动倒计时状态机
-    this._tick = setInterval(this.onTick, 1000)
-  },
-  beforeUnmount() {
-    clearInterval(this._tick)
-    clearTimeout(this._timer)
-    clearTimeout(this._successTimer)
-    clearTimeout(this._flashTimer)
-  },
-  methods: {
-    riseColor, fmtMoney, fmtPct, fmtQuoteDate, fmtQuoteTime,
-    // 涨跌闪烁 class：无闪烁时返回空串
-    flashClass(code) {
-      return this.flashDir[code] ? 'is-flash-' + this.flashDir[code] : ''
-    },
-    // 估值变化时设置闪烁方向，短暂高亮后清除
-    setFlash(code, dir) {
-      this.flashDir[code] = dir
-      clearTimeout(this._flashTimer)
-      this._flashTimer = setTimeout(() => {
-        delete this.flashDir[code]
-      }, 900)
-    },
-    numFmt(v) {
-      return (v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-    },
-    /* ============ 金额隐私 ============ */
-    // 金额显示：隐私模式下统一遮罩为 ****
-    showMoney(v, signed) {
-      if (this.hideAmount) return '****'
-      return fmtMoney(v, signed)
-    },
-    // 数量显示（份额等）：隐私模式遮罩，保留原数字格式
-    hideNum(v) {
-      if (this.hideAmount) return '****'
-      return this.numFmt(v)
-    },
-    toggleHide() {
-      this.hideAmount = !this.hideAmount
-      dbSetItem('fundHideAmount', this.hideAmount)
-    },
-    // 旧 localStorage 值一次性迁移到 IndexedDB（迁移后删除旧 key）
-    migrateHideAmount() {
-      try {
-        const legacy = localStorage.getItem('fundHideAmount')
-        if (legacy !== null) {
-          dbSetItem('fundHideAmount', legacy === '1')
-          localStorage.removeItem('fundHideAmount')
-        }
-      } catch (e) { /* 忽略迁移失败 */ }
-    },
+  } catch (e) { /* 忽略迁移失败 */ }
+}
 
-    /* ============ 倒计时状态机 ============ */
-    onTick() {
-      // 每秒更新市场状态（跨时段边界时自动切换）
-      this.marketStatus = calcMarketStatus()
-      // 非交易时段（未开盘/午休/收盘/非交易日）：暂停倒数，开盘后从当前秒数继续
-      if (this.marketStatus.type !== 'open') return
-      if (this.cdState === 'counting') {
-        this.cdSec--
-        if (this.cdSec <= 0) {
-          if (this.positions.length) {
-            this.startRefresh()
-          } else {
-            // 无持仓：仅循环倒数，不发起刷新
-            this.cdSec = 59
-          }
-        }
-      }
-    },
-    // 触发一轮刷新（倒计时归零或手动点击）
-    startRefresh() {
-      if (this.cdState === 'refreshing') return
-      this.cdState = 'refreshing'
-      this.refresh(true).then(() => {
-        // 有失败显示失败态，否则成功态；均停留 2s 后回到倒数
-        this.cdState = this.loadError ? 'fail' : 'success'
-        clearTimeout(this._successTimer)
-        this._successTimer = setTimeout(() => {
-          this.cdState = 'counting'
-          this.cdSec = 59
-        }, 2000)
-      })
-    },
-    manualRefresh() {
-      if (!this.positions.length || this.cdState === 'refreshing') return
-      this.startRefresh()
-    },
-
-    /* ============ 估值刷新 ============ */
-    async refresh(force) {
-      if (!this.positions.length) {
-        this.booting = false
-        return
-      }
-      this.loading = true
-      this.loadError = ''
-      // 记录刷新前估值，用于涨跌闪烁方向判断
-      const prev = {}
-      this.positions.forEach(p => {
-        prev[p.code] = this.quotes[p.code] ? this.quotes[p.code].estimate : undefined
-      })
-      for (const pos of this.positions) {
-        try {
-          const q = await fetchQuote(pos.code, force)
-          // 估值变化 → 涨/跌闪烁（红涨绿跌）
-          if (prev[pos.code] !== undefined && q.estimate !== prev[pos.code]) {
-            this.setFlash(pos.code, q.estimate > prev[pos.code] ? 'up' : 'down')
-          }
-          this.quotes[pos.code] = q
-          this.errors[pos.code] = ''
-          this.updateTime = q.time ? '估值 ' + fmtQuoteDate(q.date) + ' ' + fmtQuoteTime(q.time) : ''
-        } catch (e) {
-          this.errors[pos.code] = e.message || '获取失败'
-          this.loadError = e.message || '部分基金估值获取失败'
-        }
-      }
-      this.loading = false
-      // 首轮刷新结束，骨架屏切换为真实内容
-      this.booting = false
-    },
-
-    /* ============ 排序 ============ */
-    // 移动持仓：offset=-i 为置顶，-1 上移，1 下移；成功后持久化
-    moveRow(i, offset) {
-      const j = i + offset
-      if (offset === 0 || j < 0 || j >= this.positions.length) return
-      const list = this.positions
-      const [moved] = list.splice(i, 1)
-      list.splice(j, 0, moved)
-      savePositions(list)
-    },
-
-    /* ============ 添加 / 编辑 ============ */
-    openAdd() {
-      this.dialog = {
-        visible: true, code: '', keyword: '', picked: null,
-        mode: 'shares', inputVal: '', costPrice: '', nav: 0
-      }
-      this.$nextTick(() => {
-        if (this.$refs.searchInput) this.$refs.searchInput.focus()
-      })
-    },
-    openEdit(i) {
-      const pos = this.positions[i]
-      const quote = this.quotes[pos.code]
-      this.dialog = {
-        visible: true,
-        code: pos.code,
-        keyword: '',
-        picked: { code: pos.code, name: pos.name, type: pos.type },
-        mode: 'shares',
-        inputVal: String(pos.shares),
-        costPrice: pos.costPrice.toFixed(4),
-        nav: quote ? quote.nav : 0,
-        editing: true
-      }
-    },
-    onSearchInput() {
-      clearTimeout(this.searchTimer)
-      // 重新输入视为放弃当前选中
-      this.dialog.picked = null
-      const kw = this.dialog.keyword.trim()
-      // 满足 6 位数字基金代码才发起查询
-      if (!/^\d{6}$/.test(kw)) {
-        this.searching = false
-        return
-      }
-      this.searching = true
-      this.searchTimer = setTimeout(async () => {
-        try {
-          const info = await fetchFundBasic(kw)
-          this.pickFund(info)
-        } catch (e) {
-          this.$message.error(e.message || '未找到该基金')
-        }
-        this.searching = false
-      }, 300)
-    },
-    clearKeyword() {
-      this.dialog.keyword = ''
-      this.dialog.picked = null
-    },
-    // 选中基金：带出名称并取最新净值作为默认成本
-    async pickFund(f) {
-      this.dialog.picked = f
-      try {
-        const q = await fetchQuote(f.code)
-        this.dialog.nav = q.nav || q.estimate
-        if (!this.dialog.costPrice) {
-          this.dialog.costPrice = String(this.dialog.nav || '')
-        }
-      } catch (e) {
-        // 净值获取失败不阻塞录入
-      }
-    },
-    submit() {
-      if (!this.canSubmit) return
-      const d = this.dialog
-      const code = d.code || d.picked.code
-      // 已持有该基金时二次确认是否覆盖
-      const exists = this.positions.findIndex(p => p.code === code)
-      if (exists > -1 && !d.editing) {
-        const pos = this.positions[exists]
-        this.$confirm(`「${pos.name}（${code}）」已添加，是否覆盖现有持仓？`, '基金已添加', {
-          type: 'warning',
-          confirmButtonText: '覆盖',
-          cancelButtonText: '取消'
-        }).then(() => this.doSubmit(exists)).catch(() => {})
-        return
-      }
-      this.doSubmit(exists)
-    },
-    async doSubmit(exists) {
-      if (this.submitting) return
-      const d = this.dialog
-      // 成本单价保留 4 位小数（基金净值精度惯例）
-      const cp = Math.round((Number(d.costPrice) + Number.EPSILON) * 10000) / 10000
-      let shares
-      let costAmount
-      if (d.mode === 'shares') {
-        shares = Number(d.inputVal)
-        costAmount = shares * cp
+/* ============ 倒计时状态机 ============ */
+function onTick() {
+  // 每秒更新市场状态（跨时段边界时自动切换）
+  marketStatus.value = calcMarketStatus()
+  // 非交易时段（未开盘/午休/收盘/非交易日）：暂停倒数，开盘后从当前秒数继续
+  if (marketStatus.value.type !== 'open') return
+  if (cdState.value === 'counting') {
+    cdSec.value--
+    if (cdSec.value <= 0) {
+      if (positions.value.length) {
+        startRefresh()
       } else {
-        costAmount = Number(d.inputVal)
-        shares = cp > 0 ? costAmount / cp : 0
+        // 无持仓：仅循环倒数，不发起刷新
+        cdSec.value = 59
       }
-      const code = d.code || d.picked.code
-      const entry = {
-        code,
-        name: d.picked.name,
-        type: d.picked.type || '',
-        shares,
-        costPrice: cp,
-        costAmount,
-        createdAt: exists > -1 ? this.positions[exists].createdAt : Date.now()
-      }
-      // 先取该基金估值（选择基金时通常已缓存，瞬时返回），与持仓一同写入，
-      // 避免汇总卡先出现「成本已加、市值未加」的中间态闪动
-      this.submitting = true
-      let q = null
-      try {
-        q = await fetchQuote(code)
-      } catch (e) { /* 估值获取失败不阻塞持仓保存，交给 refresh 重试 */ }
-      this.submitting = false
-      if (exists > -1) {
-        this.positions.splice(exists, 1, entry)
-      } else {
-        this.positions.push(entry)
-      }
-      if (q) {
-        this.quotes[code] = q
-        this.updateTime = q.time ? '估值 ' + fmtQuoteDate(q.date) + ' ' + fmtQuoteTime(q.time) : ''
-      }
-      savePositions(this.positions)
-      d.visible = false
-      // 立即拉取该基金估值
-      this.refresh()
-    },
-    // 成本单价输入：仅数字 + 小数点，最多 4 位小数
-    onCostInput(v) {
-      let s = String(v || '').replace(/[^\d.]/g, '')
-      const dot = s.indexOf('.')
-      if (dot > -1) {
-        s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, 4)
-      }
-      this.dialog.costPrice = s
-    },
-    removeRow(i) {
-      const pos = this.positions[i]
-      this.$confirm(`确定删除「${pos.name}」持仓？`, '提示', {
-        type: 'warning',
-        confirmButtonText: '删除',
-        cancelButtonText: '取消'
-      }).then(() => {
-        this.positions.splice(i, 1)
-        savePositions(this.positions)
-        delete this.quotes[pos.code]
-      }).catch(() => {})
-    },
-
-    /* ============ 导航 ============ */
-    goDetail(code) {
-      this.$router.push('/finance/fund/' + code)
     }
   }
+}
+// 触发一轮刷新（倒计时归零或手动点击）
+function startRefresh() {
+  if (cdState.value === 'refreshing') return
+  cdState.value = 'refreshing'
+  refresh(true).then(() => {
+    // 有失败显示失败态，否则成功态；均停留 2s 后回到倒数
+    cdState.value = loadError.value ? 'fail' : 'success'
+    clearTimeout(successTimer)
+    successTimer = setTimeout(() => {
+      cdState.value = 'counting'
+      cdSec.value = 59
+    }, 2000)
+  })
+}
+function manualRefresh() {
+  if (!positions.value.length || cdState.value === 'refreshing') return
+  startRefresh()
+}
+
+/* ============ 估值刷新 ============ */
+async function refresh(force) {
+  if (!positions.value.length) {
+    booting.value = false
+    return
+  }
+  loading.value = true
+  loadError.value = ''
+  // 记录刷新前估值，用于涨跌闪烁方向判断
+  const prev = {}
+  positions.value.forEach(p => {
+    prev[p.code] = quotes.value[p.code] ? quotes.value[p.code].estimate : undefined
+  })
+  for (const pos of positions.value) {
+    try {
+      const q = await fetchQuote(pos.code, force)
+      // 估值变化 → 涨/跌闪烁（红涨绿跌）
+      if (prev[pos.code] !== undefined && q.estimate !== prev[pos.code]) {
+        setFlash(pos.code, q.estimate > prev[pos.code] ? 'up' : 'down')
+      }
+      quotes.value[pos.code] = q
+      errors.value[pos.code] = ''
+      updateTime.value = q.time ? '估值 ' + fmtQuoteDate(q.date) + ' ' + fmtQuoteTime(q.time) : ''
+    } catch (e) {
+      errors.value[pos.code] = e.message || '获取失败'
+      loadError.value = e.message || '部分基金估值获取失败'
+    }
+  }
+  loading.value = false
+  // 首轮刷新结束，骨架屏切换为真实内容
+  booting.value = false
+}
+
+/* ============ 排序 ============ */
+// 移动持仓：offset=-i 为置顶，-1 上移，1 下移；成功后持久化
+function moveRow(i, offset) {
+  const j = i + offset
+  if (offset === 0 || j < 0 || j >= positions.value.length) return
+  const list = positions.value
+  const [moved] = list.splice(i, 1)
+  list.splice(j, 0, moved)
+  savePositions(list)
+}
+
+/* ============ 添加 / 编辑 ============ */
+function openAdd() {
+  dialog.value = {
+    visible: true, code: '', keyword: '', picked: null,
+    mode: 'shares', inputVal: '', costPrice: '', nav: 0
+  }
+  nextTick(() => {
+    if (searchInput.value) searchInput.value.focus()
+  })
+}
+function openEdit(i) {
+  const pos = positions.value[i]
+  const quote = quotes.value[pos.code]
+  dialog.value = {
+    visible: true,
+    code: pos.code,
+    keyword: '',
+    picked: { code: pos.code, name: pos.name, type: pos.type },
+    mode: 'shares',
+    inputVal: String(pos.shares),
+    costPrice: pos.costPrice.toFixed(4),
+    nav: quote ? quote.nav : 0,
+    editing: true
+  }
+}
+function onSearchInput() {
+  clearTimeout(searchTimer)
+  // 重新输入视为放弃当前选中
+  dialog.value.picked = null
+  const kw = dialog.value.keyword.trim()
+  // 满足 6 位数字基金代码才发起查询
+  if (!/^\d{6}$/.test(kw)) {
+    searching.value = false
+    return
+  }
+  searching.value = true
+  searchTimer = setTimeout(async () => {
+    try {
+      const info = await fetchFundBasic(kw)
+      pickFund(info)
+    } catch (e) {
+      message.error(e.message || '未找到该基金')
+    }
+    searching.value = false
+  }, 300)
+}
+function clearKeyword() {
+  dialog.value.keyword = ''
+  dialog.value.picked = null
+}
+// 选中基金：带出名称并取最新净值作为默认成本
+async function pickFund(f) {
+  dialog.value.picked = f
+  try {
+    const q = await fetchQuote(f.code)
+    dialog.value.nav = q.nav || q.estimate
+    if (!dialog.value.costPrice) {
+      dialog.value.costPrice = String(dialog.value.nav || '')
+    }
+  } catch (e) {
+    // 净值获取失败不阻塞录入
+  }
+}
+function submit() {
+  if (!canSubmit.value) return
+  const d = dialog.value
+  const code = d.code || d.picked.code
+  // 已持有该基金时二次确认是否覆盖
+  const exists = positions.value.findIndex(p => p.code === code)
+  if (exists > -1 && !d.editing) {
+    const pos = positions.value[exists]
+    confirm(`「${pos.name}（${code}）」已添加，是否覆盖现有持仓？`, '基金已添加', {
+      type: 'warning',
+      confirmButtonText: '覆盖',
+      cancelButtonText: '取消'
+    }).then(() => doSubmit(exists)).catch(() => {})
+    return
+  }
+  doSubmit(exists)
+}
+async function doSubmit(exists) {
+  if (submitting.value) return
+  const d = dialog.value
+  // 成本单价保留 4 位小数（基金净值精度惯例）
+  const cp = Math.round((Number(d.costPrice) + Number.EPSILON) * 10000) / 10000
+  let shares
+  let costAmount
+  if (d.mode === 'shares') {
+    shares = Number(d.inputVal)
+    costAmount = shares * cp
+  } else {
+    costAmount = Number(d.inputVal)
+    shares = cp > 0 ? costAmount / cp : 0
+  }
+  const code = d.code || d.picked.code
+  const entry = {
+    code,
+    name: d.picked.name,
+    type: d.picked.type || '',
+    shares,
+    costPrice: cp,
+    costAmount,
+    createdAt: exists > -1 ? positions.value[exists].createdAt : Date.now()
+  }
+  // 先取该基金估值（选择基金时通常已缓存，瞬时返回），与持仓一同写入，
+  // 避免汇总卡先出现「成本已加、市值未加」的中间态闪动
+  submitting.value = true
+  let q = null
+  try {
+    q = await fetchQuote(code)
+  } catch (e) { /* 估值获取失败不阻塞持仓保存，交给 refresh 重试 */ }
+  submitting.value = false
+  if (exists > -1) {
+    positions.value.splice(exists, 1, entry)
+  } else {
+    positions.value.push(entry)
+  }
+  if (q) {
+    quotes.value[code] = q
+    updateTime.value = q.time ? '估值 ' + fmtQuoteDate(q.date) + ' ' + fmtQuoteTime(q.time) : ''
+  }
+  savePositions(positions.value)
+  d.visible = false
+  // 立即拉取该基金估值
+  refresh()
+}
+// 成本单价输入：仅数字 + 小数点，最多 4 位小数
+function onCostInput(v) {
+  let s = String(v || '').replace(/[^\d.]/g, '')
+  const dot = s.indexOf('.')
+  if (dot > -1) {
+    s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, 4)
+  }
+  dialog.value.costPrice = s
+}
+function removeRow(i) {
+  const pos = positions.value[i]
+  confirm(`确定删除「${pos.name}」持仓？`, '提示', {
+    type: 'warning',
+    confirmButtonText: '删除',
+    cancelButtonText: '取消'
+  }).then(() => {
+    positions.value.splice(i, 1)
+    savePositions(positions.value)
+    delete quotes.value[pos.code]
+  }).catch(() => {})
+}
+
+/* ============ 导航 ============ */
+function goDetail(code) {
+  router.push('/finance/fund/' + code)
 }
 </script>
 

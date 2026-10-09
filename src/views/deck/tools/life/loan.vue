@@ -99,7 +99,8 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 
 // 千分位格式化
@@ -107,92 +108,86 @@ function fmt(n) {
   return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export default {
-  name: 'LifeLoan',
-  components: { ToolShell },
-  data() {
-    return {
-      amount: 100,
-      years: 30,
-      rate: 3.6,
-      mode: 'equal'
+defineOptions({ name: 'LifeLoan' })
+
+const amount = ref(100)
+const years = ref(30)
+const rate = ref(3.6)
+const mode = ref('equal')
+
+const months = computed(() => years.value * 12)
+
+// 完整还款计划
+const schedule = computed(() => {
+  if (!amount.value || !months.value || !rate.value) return null
+  const P = amount.value * 10000
+  const n = months.value
+  const r = rate.value / 100 / 12 // 月利率
+  const rows = []
+  let totalInterest = 0
+  if (mode.value === 'equal') {
+    // 等额本息：月供 = P·r·(1+r)^n / ((1+r)^n - 1)
+    const pow = (1 + r) ** n
+    const m = (P * r * pow) / (pow - 1)
+    let remain = P
+    for (let i = 1; i <= n; i++) {
+      const interest = remain * r
+      const principal = m - interest
+      remain -= principal
+      totalInterest += interest
+      rows.push({
+        index: i,
+        monthly: m,
+        principal,
+        interest,
+        remain: Math.max(remain, 0)
+      })
     }
-  },
-  computed: {
-    months() {
-      return this.years * 12
-    },
-    // 完整还款计划
-    schedule() {
-      if (!this.amount || !this.months || !this.rate) return null
-      const P = this.amount * 10000
-      const n = this.months
-      const r = this.rate / 100 / 12 // 月利率
-      const rows = []
-      let totalInterest = 0
-      if (this.mode === 'equal') {
-        // 等额本息：月供 = P·r·(1+r)^n / ((1+r)^n - 1)
-        const pow = (1 + r) ** n
-        const m = (P * r * pow) / (pow - 1)
-        let remain = P
-        for (let i = 1; i <= n; i++) {
-          const interest = remain * r
-          const principal = m - interest
-          remain -= principal
-          totalInterest += interest
-          rows.push({
-            index: i,
-            monthly: m,
-            principal,
-            interest,
-            remain: Math.max(remain, 0)
-          })
-        }
-      } else {
-        // 等额本金：每月本金 = P/n，利息 = 剩余·r
-        const base = P / n
-        let remain = P
-        for (let i = 1; i <= n; i++) {
-          const interest = remain * r
-          const monthly = base + interest
-          remain -= base
-          totalInterest += interest
-          rows.push({
-            index: i,
-            monthly,
-            principal: base,
-            interest,
-            remain: Math.max(remain, 0)
-          })
-        }
-      }
-      return { rows, totalInterest }
-    },
-    summary() {
-      if (!this.schedule) return null
-      const { rows, totalInterest } = this.schedule
-      const P = this.amount * 10000
-      return {
-        monthlyFirst: fmt(rows[0].monthly) + ' 元',
-        monthlyLast: fmt(rows[rows.length - 1].monthly) + ' 元',
-        decrease: fmt(rows[0].monthly - rows[1].monthly) + ' 元',
-        total: fmt(P + totalInterest) + ' 元',
-        interest: fmt(totalInterest) + ' 元'
-      }
-    },
-    // 每年首期（第 1、13、25... 期）
-    yearRows() {
-      if (!this.schedule) return []
-      return this.schedule.rows.filter(r => r.index === 1 || (r.index - 1) % 12 === 0).map(r => ({
-        index: r.index,
-        monthly: fmt(r.monthly),
-        principal: fmt(r.principal),
-        interest: fmt(r.interest),
-        remain: fmt(r.remain)
-      }))
+  } else {
+    // 等额本金：每月本金 = P/n，利息 = 剩余·r
+    const base = P / n
+    let remain = P
+    for (let i = 1; i <= n; i++) {
+      const interest = remain * r
+      const monthly = base + interest
+      remain -= base
+      totalInterest += interest
+      rows.push({
+        index: i,
+        monthly,
+        principal: base,
+        interest,
+        remain: Math.max(remain, 0)
+      })
     }
   }
-}
+  return { rows, totalInterest }
+})
+
+const summary = computed(() => {
+  if (!schedule.value) return null
+  const { rows, totalInterest } = schedule.value
+  const P = amount.value * 10000
+  return {
+    monthlyFirst: fmt(rows[0].monthly) + ' 元',
+    monthlyLast: fmt(rows[rows.length - 1].monthly) + ' 元',
+    decrease: fmt(rows[0].monthly - rows[1].monthly) + ' 元',
+    total: fmt(P + totalInterest) + ' 元',
+    interest: fmt(totalInterest) + ' 元'
+  }
+})
+
+// 每年首期（第 1、13、25... 期）
+const yearRows = computed(() => {
+  if (!schedule.value) return []
+  return schedule.value.rows.filter(r => r.index === 1 || (r.index - 1) % 12 === 0).map(r => ({
+    index: r.index,
+    monthly: fmt(r.monthly),
+    principal: fmt(r.principal),
+    interest: fmt(r.interest),
+    remain: fmt(r.remain)
+  }))
+})
 </script>
 
 <style lang="scss" scoped>

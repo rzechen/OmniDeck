@@ -73,90 +73,86 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, onMounted } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 
-export default {
-  name: 'ImageTextToImg',
-  components: { ToolShell },
-  data() {
-    return {
-      text: 'OmniDeck\n让工具触手可及',
-      fontSize: 32,
-      canvasWidth: 600,
-      lineHeight: 16,
-      bgMode: 'light',
-      bgOptions: [
-        { label: '白底黑字', value: 'light' },
-        { label: '黑底白字', value: 'dark' },
-        { label: '透明底', value: 'transparent' }
-      ]
+defineOptions({ name: 'ImageTextToImg' })
+
+const text = ref('OmniDeck\n让工具触手可及')
+const fontSize = ref(32)
+const canvasWidth = ref(600)
+const lineHeight = ref(16)
+const bgMode = ref('light')
+const bgOptions = [
+  { label: '白底黑字', value: 'light' },
+  { label: '黑底白字', value: 'dark' },
+  { label: '透明底', value: 'transparent' }
+]
+const canvas = ref(null)
+
+watch(fontSize, () => render())
+watch(canvasWidth, () => render())
+watch(lineHeight, () => render())
+watch(bgMode, () => render())
+
+onMounted(() => {
+  render()
+})
+
+function render() {
+  const c = canvas.value
+  if (!c) return
+  const dpr = window.devicePixelRatio || 1
+  const W = canvasWidth.value
+  const pad = 40
+  const font = `600 ${fontSize.value}px -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif`
+  // 先测量换行
+  const measure = c.getContext('2d')
+  measure.font = font
+  const lines = []
+  text.value.split('\n').forEach(par => {
+    if (!par) {
+      lines.push('')
+      return
     }
-  },
-  watch: {
-    fontSize() { this.render() },
-    canvasWidth() { this.render() },
-    lineHeight() { this.render() },
-    bgMode() { this.render() }
-  },
-  mounted() {
-    this.render()
-  },
-  methods: {
-    render() {
-      const canvas = this.$refs.canvas
-      if (!canvas) return
-      const dpr = window.devicePixelRatio || 1
-      const W = this.canvasWidth
-      const pad = 40
-      const font = `600 ${this.fontSize}px -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif`
-      // 先测量换行
-      const measure = canvas.getContext('2d')
-      measure.font = font
-      const lines = []
-      this.text.split('\n').forEach(par => {
-        if (!par) {
-          lines.push('')
-          return
-        }
-        let cur = ''
-        for (const ch of par) {
-          if (measure.measureText(cur + ch).width > W - pad * 2) {
-            lines.push(cur)
-            cur = ch
-          } else {
-            cur += ch
-          }
-        }
+    let cur = ''
+    for (const ch of par) {
+      if (measure.measureText(cur + ch).width > W - pad * 2) {
         lines.push(cur)
-      })
-      const lineH = this.fontSize * (this.lineHeight / 10)
-      const H = Math.max(lines.length * lineH + pad * 2, 100)
-      canvas.width = W * dpr
-      canvas.height = H * dpr
-      canvas.style.width = W + 'px'
-      canvas.style.height = H + 'px'
-      const ctx = canvas.getContext('2d')
-      ctx.scale(dpr, dpr)
-      if (this.bgMode !== 'transparent') {
-        ctx.fillStyle = this.bgMode === 'light' ? '#FFFFFF' : '#1D1D1F'
-        ctx.fillRect(0, 0, W, H)
+        cur = ch
+      } else {
+        cur += ch
       }
-      ctx.fillStyle = this.bgMode === 'light' ? '#1D1D1F' : '#F5F5F7'
-      ctx.font = font
-      ctx.textBaseline = 'top'
-      lines.forEach((line, i) => {
-        ctx.fillText(line, pad, pad + i * lineH)
-      })
-    },
-    exportImage() {
-      if (!this.$refs.canvas) return
-      const a = document.createElement('a')
-      a.href = this.$refs.canvas.toDataURL('image/png')
-      a.download = 'text-image.png'
-      a.click()
     }
+    lines.push(cur)
+  })
+  const lineH = fontSize.value * (lineHeight.value / 10)
+  const H = Math.max(lines.length * lineH + pad * 2, 100)
+  c.width = W * dpr
+  c.height = H * dpr
+  c.style.width = W + 'px'
+  c.style.height = H + 'px'
+  const ctx = c.getContext('2d')
+  ctx.scale(dpr, dpr)
+  if (bgMode.value !== 'transparent') {
+    ctx.fillStyle = bgMode.value === 'light' ? '#FFFFFF' : '#1D1D1F'
+    ctx.fillRect(0, 0, W, H)
   }
+  ctx.fillStyle = bgMode.value === 'light' ? '#1D1D1F' : '#F5F5F7'
+  ctx.font = font
+  ctx.textBaseline = 'top'
+  lines.forEach((line, i) => {
+    ctx.fillText(line, pad, pad + i * lineH)
+  })
+}
+
+function exportImage() {
+  if (!canvas.value) return
+  const a = document.createElement('a')
+  a.href = canvas.value.toDataURL('image/png')
+  a.download = 'text-image.png'
+  a.click()
 }
 </script>
 

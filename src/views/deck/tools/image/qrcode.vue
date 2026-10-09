@@ -77,64 +77,59 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, onMounted } from 'vue'
 import QRCode from 'qrcode'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 
-export default {
-  name: 'ImageQrcode',
-  components: { ToolShell, CodeEditor },
-  data() {
-    return {
-      text: 'https://omnideck.app',
-      size: 320,
-      margin: 2,
-      ecl: 'M',
-      dark: '#1D1D1F',
-      light: '#FFFFFF',
-      dataUrl: '',
-      qrError: ''
-    }
-  },
-  watch: {
-    text() { this.render() },
-    size() { this.render() },
-    margin() { this.render() },
-    ecl() { this.render() },
-    dark() { this.render() },
-    light() { this.render() }
-  },
-  mounted() {
-    this.render()
-  },
-  methods: {
-    async render() {
-      this.qrError = ''
-      if (!this.text.trim()) {
-        this.dataUrl = ''
-        return
-      }
-      try {
-        this.dataUrl = await QRCode.toDataURL(this.text, {
-          width: this.size,
-          margin: this.margin,
-          errorCorrectionLevel: this.ecl,
-          color: { dark: this.dark, light: this.light }
-        })
-      } catch (e) {
-        this.qrError = '生成失败：' + e.message
-        this.dataUrl = ''
-      }
-    },
-    download() {
-      if (!this.dataUrl) return
-      const a = document.createElement('a')
-      a.href = this.dataUrl
-      a.download = 'qrcode.png'
-      a.click()
-    }
+defineOptions({ name: 'ImageQrcode' })
+
+const text = ref('https://omnideck.app')
+const size = ref(320)
+const margin = ref(2)
+const ecl = ref('M')
+const dark = ref('#1D1D1F')
+const light = ref('#FFFFFF')
+const dataUrl = ref('')
+const qrError = ref('')
+
+watch(text, () => render())
+watch(size, () => render())
+watch(margin, () => render())
+watch(ecl, () => render())
+watch(dark, () => render())
+watch(light, () => render())
+
+onMounted(() => {
+  render()
+})
+
+async function render() {
+  qrError.value = ''
+  if (!text.value.trim()) {
+    dataUrl.value = ''
+    return
   }
+  try {
+    dataUrl.value = await QRCode.toDataURL(text.value, {
+      width: size.value,
+      margin: margin.value,
+      errorCorrectionLevel: ecl.value,
+      color: { dark: dark.value, light: light.value }
+    })
+  } catch (e) {
+    qrError.value = '生成失败：' + e.message
+    dataUrl.value = ''
+  }
+}
+
+function download() {
+  if (!dataUrl.value) return
+  const a = document.createElement('a')
+  a.href = dataUrl.value
+  a.download = 'qrcode.png'
+  a.click()
 }
 </script>
 

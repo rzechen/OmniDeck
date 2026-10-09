@@ -145,290 +145,282 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 首启引导装配（三步向导：斜分能力欢迎 → 后台装配进度 → 完成）。
 // 装配由主进程后台串行驱动（setup:start-install 触发）：页面切走不中断，
 // 快照经 omnibuddy:setup:progress 广播（引导页与主视图顶部横幅共用同一通道）；
 // 第 2 步可随时「先进入 OmniDeck」不阻塞，剩余装配在主视图顶部横幅继续展示。
 // setupStatus 为本地探测（不拉 manifest 秒回）。
+import { ref, computed, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
+import { useFeedback } from '@/composables/useFeedback'
 import TheaterCanvas from './TheaterCanvas.vue'
 
-export default {
-  name: 'SetupGuide',
-  components: { TheaterCanvas },
-  data() {
-    return {
-      step: 1, // 1 欢迎（含自动检查）/ 2 装配进度 / 3 完成
-      leaving: false, // 离场中：停剧场 rAF，避免切页争主线程
-      checking: true,
-      checkError: '', // 检查失败原因（IPC 异常等）
-      items: [], // 检查所得组件清单 [{ name, label, desc, state: ok|pending }]
-      session: null, // 主进程后台装配快照 { state, items, bytesDone, bytesTotal, etaSec, error }
-      offProgress: null,
-      // Windows 无边框窗口自绘控制（mac 用系统红绿灯）
-      isWindows: !!(window.electronAPI && window.electronAPI.platform === 'win32'),
-      winMaximized: false,
-      offMaximized: null,
-      // 斜分欢迎视图能力标签（图标走全局 svg 雪碧图命名空间；末位「更多…」示意还有大量能力）
-      deckChips: [
-        { icon: 'image', text: '图片处理' },
-        { icon: 'excel', text: '表格文书' },
-        { icon: 'code', text: '代码工具' },
-        { icon: 'qrcode', text: '二维码' },
-        { icon: 'encrypt', text: '加解密' },
-        { icon: 'finance', text: '财经行情' },
-        { icon: 'format', text: '格式转换' },
-        { icon: 'browser', text: '内置浏览器' },
-        { icon: 'clipboard', text: '剪贴板' },
-        { icon: 'todo', text: '待办清单' },
-        { icon: 'more', text: '更多能力' }
-      ],
-      buddyChips: [
-        { icon: 'llm', text: '多模型对话' },
-        { icon: 'skill', text: '技能编排' },
-        { icon: 'mcp', text: 'MCP 扩展' },
-        { icon: 'subagent', text: '子智能体' },
-        { icon: 'memory', text: '长期记忆' },
-        { icon: 'auto', text: '自动化任务' },
-        { icon: 'magic-stick', text: '智能体市场' },
-        { icon: 'search', text: '联网搜索' },
-        { icon: 'promotion', text: '工作流' },
-        { icon: 'document', text: '文档问答' },
-        { icon: 'storage', text: '知识空间' },
-        { icon: 'more', text: '更多能力' }
-      ]
-    }
-  },
-  computed: {
-    api() {
-      return (window.electronAPI && window.electronAPI.omnibuddy) || null
-    },
-    pendingItems() {
-      return this.items.filter(c => c.state === 'pending')
-    },
-    // 快照组件清单（无快照时回退本地检查清单，保底渲染）
-    sessionItems() {
-      return (this.session && this.session.items) || this.items
-    },
-    doneCount() {
-      return this.sessionItems.filter(c => c.state === 'ok').length
-    },
-    failedItems() {
-      return this.sessionItems.filter(c => c.state === 'error')
-    },
-    sessionFailed() {
-      return !!(this.session && this.session.state === 'failed')
-    },
-    // 装配完成态：留在本页呈现 100% + 完成按钮（不自动跳「一切就绪」页）
-    sessionDone() {
-      return !!(this.session && this.session.state === 'done')
-    },
-    h2Text() {
-      if (this.sessionFailed) return '装配遇到问题'
-      if (this.sessionDone) return '装配完成'
-      return '正在装配运行环境'
-    },
-    currentItem() {
-      return this.sessionItems.find(c => c.state === 'installing') || null
-    },
-    checkFailed() {
-      return !!this.checkError
-    },
-    mainBtnText() {
-      if (this.checking) return '正在检查环境…'
-      if (this.checkFailed) return '重新检查'
-      if (this.pendingItems.length) return '开始探索'
-      return '立即进入'
-    },
-    // 整体进度（字节口径优先；无字节时按项数）；完成态精确 100%
-    overallPct() {
-      if (this.sessionDone) return 100
-      const total = this.sessionItems.length
-      if (!total) return 0
-      const s = this.session
-      if (s && s.bytesTotal > 0 && !this.sessionFailed) {
-        return Math.min(99, Math.floor((s.bytesDone || 0) / s.bytesTotal * 100))
-      }
-      let acc = this.doneCount
-      if (this.currentItem) acc += this.itemWeight(this.currentItem)
-      return Math.min(100, Math.floor(acc / total * 100))
-    },
-    etaText() {
-      const s = this.session
-      if (!s || s.state !== 'installing' || !s.etaSec) return ''
-      return this.formatEta(s.etaSec)
-    },
-    bytesText() {
-      const s = this.session
-      if (!s || !s.bytesTotal) return ''
-      // 全部已就绪（无实装下载）时字节口径无意义，不展示
-      if (this.sessionItems.length && this.sessionItems.every(c => c.skipped)) return ''
-      return '已下载 ' + this.formatSize(s.bytesDone || 0) + ' / 约 ' + this.formatSize(s.bytesTotal)
-    }
-  },
-  watch: {
-    // 快照驱动已由 computed 呈现（完成态留在第 2 步），无需自动切步
-  },
-  created() {
-    this.bindProgress()
-    this.bindWinControl()
-    this.check()
-    this.syncSnapshot()
-  },
-  beforeUnmount() {
-    if (this.offProgress) this.offProgress()
-    if (this.offMaximized) this.offMaximized()
-  },
-  methods: {
-    // Windows 窗口控制：初始最大化态同步 + 变化监听（切还原/最大化图标）
-    bindWinControl() {
-      const wc = window.electronAPI && window.electronAPI.winControl
-      if (!this.isWindows || !wc) return
-      wc.isMaximized().then(v => { this.winMaximized = v })
-      this.offMaximized = wc.onMaximizedChanged(v => { this.winMaximized = v })
-    },
-    winCall(fn) {
-      const wc = window.electronAPI && window.electronAPI.winControl
-      if (wc && wc[fn]) wc[fn]()
-    },
-    // 组件净化文案（能力导向，不暴露实现细节；未命中回退主进程 label）
-    niceMeta(name, label) {
-      const META = {
-        'python-env': ['Python 执行环境', '运行代码与数据分析'],
-        'node': ['Node.js 运行时', '工具与脚本的运行底座'],
-        'node-tools': ['文档处理工具库', '图片与 Office 文档处理'],
-        'chrome-headless-shell': ['浏览器引擎', '网页访问与信息检索'],
-        'ffmpeg': ['音视频编解码器', '音视频转换与处理'],
-        'pandoc': ['文档格式转换', 'Office 与 Markdown 互转'],
-        'winldd': ['Windows 运行库', 'Windows 平台依赖组件'],
-        'mingit': ['Git 工具', '插件市场与仓库同步']
-      }
-      return META[name] || [label, '']
-    },
-    formatSize(bytes) {
-      if (!bytes) return '0 B'
-      if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB'
-      if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
-      if (bytes >= 1024) return Math.round(bytes / 1024) + ' KB'
-      return bytes + ' B'
-    },
-    formatEta(sec) {
-      if (sec >= 3600) return Math.floor(sec / 3600) + ' 小时 ' + Math.round((sec % 3600) / 60) + ' 分'
-      if (sec >= 60) return Math.ceil(sec / 60) + ' 分钟'
-      return sec + ' 秒'
-    },
-    // 进行中项的阶段权重：下载按百分比（上限 90%），校验 / 解压接近收尾
-    itemWeight(c) {
-      const p = c._phase || 'download'
-      if (p === 'download') return Math.min(0.9, this.itemPercent(c) / 100)
-      if (p === 'verify') return 0.93
-      if (p === 'extract') return 0.97
-      return 0
-    },
-    itemPercent(c) {
-      if (!c.size || !c._received) return 0
-      return Math.min(99, Math.floor(c._received / c.size * 100))
-    },
-    itemPctText(c) {
-      const p = c._phase || 'download'
-      if (p === 'verify') return '校验中'
-      if (p === 'extract') return '装配中'
-      return this.itemPercent(c) + '%'
-    },
-    stateText(state, skipped) {
-      const map = { ok: '已就绪', pending: '等待中', error: '失败' }
-      if (state === 'ok' && skipped) return '已就绪 · 跳过'
-      return map[state] || state
-    },
-    // 快照通道：后台装配进度广播（主进程直推，含 ETA / 字节 / 逐项态）
-    bindProgress() {
-      const api = this.api
-      if (!api || !api.onSetupProgress) return
-      this.offProgress = api.onSetupProgress(s => {
-        if (s && s.items) this.session = s
-      })
-    },
-    // 进入时同步既有快照（HMR / 刷新场景后台装配已在跑）
-    async syncSnapshot() {
-      const api = this.api
-      if (!api || !api.setupSnapshot) return
-      try {
-        const s = await api.setupSnapshot()
-        if (s && s.items) {
-          this.session = s
-          // 会话进行中/已完成（刷新恢复）→ 停留在装配页
-          if (this.step === 1 && s.state === 'installing') this.step = 2
-        }
-      } catch (e) { /* 快照失败不阻断 */ }
-    },
-    // 进入引导页自动检查：本地探测（setupStatus 秒回）拿必需/缺失清单
-    async check() {
-      const api = this.api
-      this.checking = true
-      this.checkError = ''
-      if (!api || !api.setupStatus) {
-        // 非 Electron 环境：视为就绪（守卫已拦，此处兜底防死锁）
-        this.checking = false
-        return
-      }
-      try {
-        const st = await api.setupStatus()
-        const required = (st && st.required) || []
-        const missing = (st && st.missing) || []
-        const missSet = {}
-        missing.forEach(n => { missSet[n] = 1 })
-        this.items = required.map(name => {
-          const nice = this.niceMeta(name, name)
-          return {
-            name,
-            label: nice[0],
-            desc: nice[1],
-            state: missSet[name] ? 'pending' : 'ok'
-          }
-        })
-      } catch (e) {
-        this.checkError = '环境检查异常'
-      }
-      this.checking = false
-    },
-    // 开始探索：触发主进程后台装配（串行逐组件，页面切走不中断）并进入进度页。
-    // 不 await 装配完成——快照经 onSetupProgress 推回驱动本页 UI，用户可随时「先进入」
-    async begin() {
-      if (this.checkFailed) return this.check()
-      if (!this.pendingItems.length) return this.enter()
-      const api = this.api
-      if (!api || !api.setupStartInstall) return this.enter()
-      this.step = 2
-      api.setupStartInstall().catch(() => {})
-    },
-    // 失败重试：重触发后台装配（主进程会重新检查缺失清单）
-    retry() {
-      this.begin()
-    },
-    // 完成 / 跳过 → 主视图：写放行标记 + 清守卫缓存，经 '/' 交由既有 redirect（entryView）。
-    // 不 await IPC：标记写入与窗口恢复放后台，导航先行，避免「先进入」卡在装配页
-    async enter() {
-      if (this.leaving) return
-      this.leaving = true // 离场：停两侧剧场 rAF + og-fade/blur 不再参与首屏合成
-      const api = this.api
-      if (api && api.setupComplete) {
-        api.setupComplete().catch(() => {})
-      }
-      this.$router.setupNeeded = false
-      this.$router.push('/')
-    },
-    // 离线逃生门：确认后写标记放行（装配仍在后台跑；设置页「运行时」+ 顶部横幅可续装）
-    async skip() {
-      const yes = await this.$confirm(
-        '跳过装配后，代码执行、文档转换等能力暂不可用；可稍后在「设置 → 运行时」继续装配。',
-        '稍后装配',
-        { confirmButtonText: '仍要跳过', cancelButtonText: '返回装配', type: 'warning' }
-      ).then(() => true).catch(() => false)
-      if (!yes) return
-      await this.enter()
-    }
+defineOptions({ name: 'SetupGuide' })
+
+const router = useRouter()
+const { confirm } = useFeedback()
+
+const step = ref(1) // 1 欢迎（含自动检查）/ 2 装配进度 / 3 完成
+const leaving = ref(false) // 离场中：停剧场 rAF，避免切页争主线程
+const checking = ref(true)
+const checkError = ref('') // 检查失败原因（IPC 异常等）
+const items = ref([]) // 检查所得组件清单 [{ name, label, desc, state: ok|pending }]
+const session = ref(null) // 主进程后台装配快照 { state, items, bytesDone, bytesTotal, etaSec, error }
+// Windows 无边框窗口自绘控制（mac 用系统红绿灯）
+const isWindows = !!(window.electronAPI && window.electronAPI.platform === 'win32')
+const winMaximized = ref(false)
+let offProgress = null
+let offMaximized = null
+// 斜分欢迎视图能力标签（图标走全局 svg 雪碧图命名空间；末位「更多…」示意还有大量能力）
+const deckChips = [
+  { icon: 'image', text: '图片处理' },
+  { icon: 'excel', text: '表格文书' },
+  { icon: 'code', text: '代码工具' },
+  { icon: 'qrcode', text: '二维码' },
+  { icon: 'encrypt', text: '加解密' },
+  { icon: 'finance', text: '财经行情' },
+  { icon: 'format', text: '格式转换' },
+  { icon: 'browser', text: '内置浏览器' },
+  { icon: 'clipboard', text: '剪贴板' },
+  { icon: 'todo', text: '待办清单' },
+  { icon: 'more', text: '更多能力' }
+]
+const buddyChips = [
+  { icon: 'llm', text: '多模型对话' },
+  { icon: 'skill', text: '技能编排' },
+  { icon: 'mcp', text: 'MCP 扩展' },
+  { icon: 'subagent', text: '子智能体' },
+  { icon: 'memory', text: '长期记忆' },
+  { icon: 'auto', text: '自动化任务' },
+  { icon: 'magic-stick', text: '智能体市场' },
+  { icon: 'search', text: '联网搜索' },
+  { icon: 'promotion', text: '工作流' },
+  { icon: 'document', text: '文档问答' },
+  { icon: 'storage', text: '知识空间' },
+  { icon: 'more', text: '更多能力' }
+]
+
+const api = computed(() => (window.electronAPI && window.electronAPI.omnibuddy) || null)
+const pendingItems = computed(() => items.value.filter(c => c.state === 'pending'))
+// 快照组件清单（无快照时回退本地检查清单，保底渲染）
+const sessionItems = computed(() => (session.value && session.value.items) || items.value)
+const doneCount = computed(() => sessionItems.value.filter(c => c.state === 'ok').length)
+const failedItems = computed(() => sessionItems.value.filter(c => c.state === 'error'))
+const sessionFailed = computed(() => !!(session.value && session.value.state === 'failed'))
+// 装配完成态：留在本页呈现 100% + 完成按钮（不自动跳「一切就绪」页）
+const sessionDone = computed(() => !!(session.value && session.value.state === 'done'))
+const h2Text = computed(() => {
+  if (sessionFailed.value) return '装配遇到问题'
+  if (sessionDone.value) return '装配完成'
+  return '正在装配运行环境'
+})
+const currentItem = computed(() => sessionItems.value.find(c => c.state === 'installing') || null)
+const checkFailed = computed(() => !!checkError.value)
+const mainBtnText = computed(() => {
+  if (checking.value) return '正在检查环境…'
+  if (checkFailed.value) return '重新检查'
+  if (pendingItems.value.length) return '开始探索'
+  return '立即进入'
+})
+// 整体进度（字节口径优先；无字节时按项数）；完成态精确 100%
+const overallPct = computed(() => {
+  if (sessionDone.value) return 100
+  const total = sessionItems.value.length
+  if (!total) return 0
+  const s = session.value
+  if (s && s.bytesTotal > 0 && !sessionFailed.value) {
+    return Math.min(99, Math.floor((s.bytesDone || 0) / s.bytesTotal * 100))
   }
+  let acc = doneCount.value
+  if (currentItem.value) acc += itemWeight(currentItem.value)
+  return Math.min(100, Math.floor(acc / total * 100))
+})
+const etaText = computed(() => {
+  const s = session.value
+  if (!s || s.state !== 'installing' || !s.etaSec) return ''
+  return formatEta(s.etaSec)
+})
+const bytesText = computed(() => {
+  const s = session.value
+  if (!s || !s.bytesTotal) return ''
+  // 全部已就绪（无实装下载）时字节口径无意义，不展示
+  if (sessionItems.value.length && sessionItems.value.every(c => c.skipped)) return ''
+  return '已下载 ' + formatSize(s.bytesDone || 0) + ' / 约 ' + formatSize(s.bytesTotal)
+})
+
+// Windows 窗口控制：初始最大化态同步 + 变化监听（切还原/最大化图标）
+function bindWinControl() {
+  const wc = window.electronAPI && window.electronAPI.winControl
+  if (!isWindows || !wc) return
+  wc.isMaximized().then(v => { winMaximized.value = v })
+  offMaximized = wc.onMaximizedChanged(v => { winMaximized.value = v })
 }
+
+function winCall(fn) {
+  const wc = window.electronAPI && window.electronAPI.winControl
+  if (wc && wc[fn]) wc[fn]()
+}
+
+// 组件净化文案（能力导向，不暴露实现细节；未命中回退主进程 label）
+function niceMeta(name, label) {
+  const META = {
+    'python-env': ['Python 执行环境', '运行代码与数据分析'],
+    'node': ['Node.js 运行时', '工具与脚本的运行底座'],
+    'node-tools': ['文档处理工具库', '图片与 Office 文档处理'],
+    'chrome-headless-shell': ['浏览器引擎', '网页访问与信息检索'],
+    'ffmpeg': ['音视频编解码器', '音视频转换与处理'],
+    'pandoc': ['文档格式转换', 'Office 与 Markdown 互转'],
+    'winldd': ['Windows 运行库', 'Windows 平台依赖组件'],
+    'mingit': ['Git 工具', '插件市场与仓库同步']
+  }
+  return META[name] || [label, '']
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '0 B'
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+  if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+  if (bytes >= 1024) return Math.round(bytes / 1024) + ' KB'
+  return bytes + ' B'
+}
+
+function formatEta(sec) {
+  if (sec >= 3600) return Math.floor(sec / 3600) + ' 小时 ' + Math.round((sec % 3600) / 60) + ' 分'
+  if (sec >= 60) return Math.ceil(sec / 60) + ' 分钟'
+  return sec + ' 秒'
+}
+
+// 进行中项的阶段权重：下载按百分比（上限 90%），校验 / 解压接近收尾
+function itemWeight(c) {
+  const p = c._phase || 'download'
+  if (p === 'download') return Math.min(0.9, itemPercent(c) / 100)
+  if (p === 'verify') return 0.93
+  if (p === 'extract') return 0.97
+  return 0
+}
+
+function itemPercent(c) {
+  if (!c.size || !c._received) return 0
+  return Math.min(99, Math.floor(c._received / c.size * 100))
+}
+
+function itemPctText(c) {
+  const p = c._phase || 'download'
+  if (p === 'verify') return '校验中'
+  if (p === 'extract') return '装配中'
+  return itemPercent(c) + '%'
+}
+
+function stateText(state, skipped) {
+  const map = { ok: '已就绪', pending: '等待中', error: '失败' }
+  if (state === 'ok' && skipped) return '已就绪 · 跳过'
+  return map[state] || state
+}
+
+// 快照通道：后台装配进度广播（主进程直推，含 ETA / 字节 / 逐项态）
+function bindProgress() {
+  const a = api.value
+  if (!a || !a.onSetupProgress) return
+  offProgress = a.onSetupProgress(s => {
+    if (s && s.items) session.value = s
+  })
+}
+
+// 进入时同步既有快照（HMR / 刷新场景后台装配已在跑）
+async function syncSnapshot() {
+  const a = api.value
+  if (!a || !a.setupSnapshot) return
+  try {
+    const s = await a.setupSnapshot()
+    if (s && s.items) {
+      session.value = s
+      // 会话进行中/已完成（刷新恢复）→ 停留在装配页
+      if (step.value === 1 && s.state === 'installing') step.value = 2
+    }
+  } catch (e) { /* 快照失败不阻断 */ }
+}
+
+// 进入引导页自动检查：本地探测（setupStatus 秒回）拿必需/缺失清单
+async function check() {
+  const a = api.value
+  checking.value = true
+  checkError.value = ''
+  if (!a || !a.setupStatus) {
+    // 非 Electron 环境：视为就绪（守卫已拦，此处兜底防死锁）
+    checking.value = false
+    return
+  }
+  try {
+    const st = await a.setupStatus()
+    const required = (st && st.required) || []
+    const missing = (st && st.missing) || []
+    const missSet = {}
+    missing.forEach(n => { missSet[n] = 1 })
+    items.value = required.map(name => {
+      const nice = niceMeta(name, name)
+      return {
+        name,
+        label: nice[0],
+        desc: nice[1],
+        state: missSet[name] ? 'pending' : 'ok'
+      }
+    })
+  } catch (e) {
+    checkError.value = '环境检查异常'
+  }
+  checking.value = false
+}
+
+// 开始探索：触发主进程后台装配（串行逐组件，页面切走不中断）并进入进度页。
+// 不 await 装配完成——快照经 onSetupProgress 推回驱动本页 UI，用户可随时「先进入」
+async function begin() {
+  if (checkFailed.value) return check()
+  if (!pendingItems.value.length) return enter()
+  const a = api.value
+  if (!a || !a.setupStartInstall) return enter()
+  step.value = 2
+  a.setupStartInstall().catch(() => {})
+}
+
+// 失败重试：重触发后台装配（主进程会重新检查缺失清单）
+function retry() {
+  begin()
+}
+
+// 完成 / 跳过 → 主视图：写放行标记 + 清守卫缓存，经 '/' 交由既有 redirect（entryView）。
+// 不 await IPC：标记写入与窗口恢复放后台，导航先行，避免「先进入」卡在装配页
+async function enter() {
+  if (leaving.value) return
+  leaving.value = true // 离场：停两侧剧场 rAF + og-fade/blur 不再参与首屏合成
+  const a = api.value
+  if (a && a.setupComplete) {
+    a.setupComplete().catch(() => {})
+  }
+  router.setupNeeded = false
+  router.push('/')
+}
+
+// 离线逃生门：确认后写标记放行（装配仍在后台跑；设置页「运行时」+ 顶部横幅可续装）
+async function skip() {
+  const yes = await confirm(
+    '跳过装配后，代码执行、文档转换等能力暂不可用；可稍后在「设置 → 运行时」继续装配。',
+    '稍后装配',
+    { confirmButtonText: '仍要跳过', cancelButtonText: '返回装配', type: 'warning' }
+  ).then(() => true).catch(() => false)
+  if (!yes) return
+  await enter()
+}
+
+bindProgress()
+bindWinControl()
+check()
+syncSnapshot()
+
+onBeforeUnmount(() => {
+  if (offProgress) offProgress()
+  if (offMaximized) offMaximized()
+})
 </script>
 
 <style lang="scss" scoped>

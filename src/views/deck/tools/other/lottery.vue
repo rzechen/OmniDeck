@@ -92,7 +92,7 @@
           抽奖人员（{{ userList.length }}）
           <span class="lot-section-actions">
             <button class="tool-btn" @click="downloadTemplate"><svg-icon icon-class="download" />模板</button>
-            <button class="tool-btn" @click="$refs.fileInput.click()"><svg-icon icon-class="upload2" />导入</button>
+            <button class="tool-btn" @click="fileInput.click()"><svg-icon icon-class="upload2" />导入</button>
           </span>
         </div>
         <input ref="fileInput" type="file" accept=".txt,.csv" style="display: none" @change="handleFileChange" />
@@ -136,9 +136,11 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import { getItem, setItem } from '@/utils/storage/db'
+import { useFeedback } from '@/composables/useFeedback'
 
 const DEFAULT_PRIZES = [
   { level: '一等奖', count: 1, gift: '' },
@@ -151,217 +153,224 @@ const DEFAULT_USERS = [
   '吴刚', '郑芳', '马超', '胡雪', '林峰', '何静', '高翔', '郭晶'
 ].map((name, i) => ({ name, phone: String(13800000000 + i + 1) }))
 
-export default {
-  name: 'OtherLottery',
-  components: { ToolShell },
-  data() {
-    return {
-      rolling: false,
-      timer: null,
-      rollIndex: 0,
-      drawerVisible: false,
-      isFullscreen: false,
-      currentUser: {},
-      currentPrize: null,
-      customTitle: '',
-      userList: [],
-      newUser: { name: '', phone: '' },
-      prizeConfig: JSON.parse(JSON.stringify(DEFAULT_PRIZES)),
-      winners: [],
-      userPage: 1
+defineOptions({ name: 'OtherLottery' })
+
+const { message, confirm } = useFeedback()
+
+const rolling = ref(false)
+let timer = null
+const rollIndex = ref(0)
+const drawerVisible = ref(false)
+const isFullscreen = ref(false)
+const currentUser = ref({})
+const currentPrize = ref(null)
+const customTitle = ref('')
+const userList = ref([])
+const newUser = ref({ name: '', phone: '' })
+const prizeConfig = ref(JSON.parse(JSON.stringify(DEFAULT_PRIZES)))
+const winners = ref([])
+const userPage = ref(1)
+const fileInput = ref(null)
+
+// 未中奖人员（按手机号/工号去重判断）
+const availableUsers = computed(() => {
+  const won = new Set(winners.value.map(w => w.phone))
+  return userList.value.filter(u => !won.has(u.phone))
+})
+const pagedUsers = computed(() => {
+  const start = (userPage.value - 1) * 50
+  return userList.value.slice(start, start + 50)
+})
+const currentPrizeText = computed(() => {
+  const next = prizeConfig.value.find(p => p.count > 0)
+  return next ? `下一奖项：${next.level}（剩 ${next.count} 名）` : '所有奖项已抽完'
+})
+
+// 配置变更即时持久化
+watch(customTitle, () => { persist('lottery_title', customTitle.value) })
+watch(prizeConfig, () => { persist('lottery_prizes', prizeConfig.value) }, { deep: true })
+watch(userList, () => { persist('lottery_users', userList.value) }, { deep: true })
+watch(winners, () => { persist('lottery_winners', winners.value) }, { deep: true })
+
+loadAll()
+window.addEventListener('keydown', onKeydown)
+
+onBeforeUnmount(() => {
+  clearInterval(timer)
+  window.removeEventListener('keydown', onKeydown)
+})
+
+// ---- 持久化（IndexedDB，经 db 工具的内存缓存） ----
+function persist(key, value) {
+  setItem(key, value)
+}
+
+function loadAll() {
+  const title = getItem('lottery_title')
+  const prizes = getItem('lottery_prizes')
+  const users = getItem('lottery_users')
+  const winners = getItem('lottery_winners')
+  if (typeof title === 'string') customTitle.value = title
+  if (Array.isArray(prizes) && prizes.length) prizeConfig.value = prizes
+  userList.value = Array.isArray(users) && users.length ? users : JSON.parse(JSON.stringify(DEFAULT_USERS))
+  winners.value = Array.isArray(winners) ? winners : []
+  if (!Array.isArray(users) || !users.length) persist('lottery_users', userList.value)
+}
+
+// ---- 奖项管理 ----
+function addPrize() {
+  prizeConfig.value.push({ level: '', count: 1, gift: '' })
+}
+
+function removePrize(i) {
+  if (prizeConfig.value.length <= 1) {
+    message.warning('至少保留一个奖项')
+    return
+  }
+  prizeConfig.value.splice(i, 1)
+}
+
+// ---- 人员管理 ----
+function addUser() {
+  const { name, phone } = newUser.value
+  if (!name.trim()) {
+    message.warning('请输入姓名')
+    return
+  }
+  if (!phone.trim()) {
+    message.warning('请输入手机号或工号')
+    return
+  }
+  if (userList.value.some(u => u.phone === phone.trim())) {
+    message.error('该手机号/工号已存在')
+    return
+  }
+  userList.value.push({ name: name.trim(), phone: phone.trim() })
+  newUser.value = { name: '', phone: '' }
+  message.success('添加成功')
+}
+
+function removeUser(index) {
+  userList.value.splice(index, 1)
+}
+
+function downloadTemplate() {
+  const content = '姓名,手机号\n张伟,13800138001\n李娜,13800138002'
+  const blob = new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = '抽奖人员模板.csv'
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+function handleFileChange(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = ev => {
+    const lines = String(ev.target.result)
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean)
+    if (lines.length < 2) {
+      message.error('文件内容为空或格式不正确')
+      return
     }
-  },
-  computed: {
-    // 未中奖人员（按手机号/工号去重判断）
-    availableUsers() {
-      const won = new Set(this.winners.map(w => w.phone))
-      return this.userList.filter(u => !won.has(u.phone))
-    },
-    pagedUsers() {
-      const start = (this.userPage - 1) * 50
-      return this.userList.slice(start, start + 50)
-    },
-    currentPrizeText() {
-      const next = this.prizeConfig.find(p => p.count > 0)
-      return next ? `下一奖项：${next.level}（剩 ${next.count} 名）` : '所有奖项已抽完'
+    // 跳过表头（含"姓名"字样的行）
+    const dataLines = lines[0].includes('姓名') ? lines.slice(1) : lines
+    const added = []
+    const existPhones = new Set(userList.value.map(u => u.phone))
+    for (const line of dataLines) {
+      const parts = line.split(/[,，\t]/).map(s => s.trim())
+      if (parts.length >= 2 && parts[0] && parts[1] && !existPhones.has(parts[1])) {
+        added.push({ name: parts[0], phone: parts[1] })
+        existPhones.add(parts[1])
+      }
     }
-  },
-  watch: {
-    // 配置变更即时持久化
-    customTitle() { this.persist('lottery_title', this.customTitle) },
-    prizeConfig: { deep: true, handler() { this.persist('lottery_prizes', this.prizeConfig) } },
-    userList: { deep: true, handler() { this.persist('lottery_users', this.userList) } },
-    winners: { deep: true, handler() { this.persist('lottery_winners', this.winners) } }
-  },
-  created() {
-    this.loadAll()
-    window.addEventListener('keydown', this.onKeydown)
-  },
-  beforeUnmount() {
-    clearInterval(this.timer)
-    window.removeEventListener('keydown', this.onKeydown)
-  },
-  methods: {
-    // ---- 持久化（IndexedDB，经 db 工具的内存缓存） ----
-    persist(key, value) {
-      setItem(key, value)
-    },
-    loadAll() {
-      const title = getItem('lottery_title')
-      const prizes = getItem('lottery_prizes')
-      const users = getItem('lottery_users')
-      const winners = getItem('lottery_winners')
-      if (typeof title === 'string') this.customTitle = title
-      if (Array.isArray(prizes) && prizes.length) this.prizeConfig = prizes
-      this.userList = Array.isArray(users) && users.length ? users : JSON.parse(JSON.stringify(DEFAULT_USERS))
-      this.winners = Array.isArray(winners) ? winners : []
-      if (!Array.isArray(users) || !users.length) this.persist('lottery_users', this.userList)
-    },
-    // ---- 奖项管理 ----
-    addPrize() {
-      this.prizeConfig.push({ level: '', count: 1, gift: '' })
-    },
-    removePrize(i) {
-      if (this.prizeConfig.length <= 1) {
-        this.$message.warning('至少保留一个奖项')
-        return
-      }
-      this.prizeConfig.splice(i, 1)
-    },
-    // ---- 人员管理 ----
-    addUser() {
-      const { name, phone } = this.newUser
-      if (!name.trim()) {
-        this.$message.warning('请输入姓名')
-        return
-      }
-      if (!phone.trim()) {
-        this.$message.warning('请输入手机号或工号')
-        return
-      }
-      if (this.userList.some(u => u.phone === phone.trim())) {
-        this.$message.error('该手机号/工号已存在')
-        return
-      }
-      this.userList.push({ name: name.trim(), phone: phone.trim() })
-      this.newUser = { name: '', phone: '' }
-      this.$message.success('添加成功')
-    },
-    removeUser(index) {
-      this.userList.splice(index, 1)
-    },
-    downloadTemplate() {
-      const content = '姓名,手机号\n张伟,13800138001\n李娜,13800138002'
-      const blob = new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' })
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = '抽奖人员模板.csv'
-      link.click()
-      URL.revokeObjectURL(link.href)
-    },
-    handleFileChange(e) {
-      const file = e.target.files[0]
-      if (!file) return
-      const reader = new FileReader()
-      reader.onload = ev => {
-        const lines = String(ev.target.result)
-          .split(/\r?\n/)
-          .map(l => l.trim())
-          .filter(Boolean)
-        if (lines.length < 2) {
-          this.$message.error('文件内容为空或格式不正确')
-          return
-        }
-        // 跳过表头（含"姓名"字样的行）
-        const dataLines = lines[0].includes('姓名') ? lines.slice(1) : lines
-        const added = []
-        const existPhones = new Set(this.userList.map(u => u.phone))
-        for (const line of dataLines) {
-          const parts = line.split(/[,，\t]/).map(s => s.trim())
-          if (parts.length >= 2 && parts[0] && parts[1] && !existPhones.has(parts[1])) {
-            added.push({ name: parts[0], phone: parts[1] })
-            existPhones.add(parts[1])
-          }
-        }
-        if (added.length) {
-          this.userList = [...this.userList, ...added]
-          this.$message.success(`成功导入 ${added.length} 人`)
-        } else {
-          this.$message.warning('没有可导入的有效数据')
-        }
-      }
-      reader.readAsText(file, 'utf-8')
-      e.target.value = ''
-    },
-    // ---- 抽奖流程 ----
-    toggleDraw() {
-      this.rolling ? this.stopDraw() : this.startDraw()
-    },
-    startDraw() {
-      const pool = this.availableUsers
-      if (!pool.length) {
-        this.$message.warning('所有人都已中奖')
-        return
-      }
-      const prize = this.prizeConfig.find(p => p.count > 0)
-      if (!prize) {
-        this.$message.warning('所有奖项已抽完，可在设置中重置')
-        return
-      }
-      this.currentPrize = prize
-      this.rolling = true
-      this.rollIndex = 0
-      this.timer = setInterval(() => {
-        this.currentUser = pool[this.rollIndex % pool.length]
-        this.rollIndex++
-      }, 70)
-    },
-    stopDraw() {
-      clearInterval(this.timer)
-      this.timer = null
-      this.rolling = false
-      const pool = this.availableUsers
-      if (!pool.length || !this.currentPrize) return
-      // crypto 公平随机
-      const idx = new Uint32Array(1)
-      crypto.getRandomValues(idx)
-      const winner = pool[idx[0] % pool.length]
-      this.currentUser = winner
-      this.winners.push({ ...winner, prize: this.currentPrize.level })
-      this.currentPrize.count--
-      this.$message.success(`🎉 恭喜 ${winner.name} 获得${this.currentPrize.level}`)
-      if (!this.prizeConfig.find(p => p.count > 0)) {
-        this.currentPrize = null
-      }
-    },
-    // ---- 全屏（CSS 覆盖窗口） ----
-    toggleFullscreen() {
-      this.isFullscreen = !this.isFullscreen
-    },
-    onKeydown(e) {
-      if (e.key === 'Escape' && this.isFullscreen) {
-        this.isFullscreen = false
-      }
-    },
-    resetAllData() {
-      this.$confirm('将清空中奖记录并恢复默认奖项与人员名单，是否继续？', '重置所有数据', {
-        confirmButtonText: '重置',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(() => {
-        clearInterval(this.timer)
-        this.timer = null
-        this.rolling = false
-        this.currentUser = {}
-        this.currentPrize = null
-        this.customTitle = ''
-        this.prizeConfig = JSON.parse(JSON.stringify(DEFAULT_PRIZES))
-        this.userList = JSON.parse(JSON.stringify(DEFAULT_USERS))
-        this.winners = []
-        this.$message.success('数据已重置')
-      }).catch(() => {})
+    if (added.length) {
+      userList.value = [...userList.value, ...added]
+      message.success(`成功导入 ${added.length} 人`)
+    } else {
+      message.warning('没有可导入的有效数据')
     }
   }
+  reader.readAsText(file, 'utf-8')
+  e.target.value = ''
+}
+
+// ---- 抽奖流程 ----
+function toggleDraw() {
+  rolling.value ? stopDraw() : startDraw()
+}
+
+function startDraw() {
+  const pool = availableUsers.value
+  if (!pool.length) {
+    message.warning('所有人都已中奖')
+    return
+  }
+  const prize = prizeConfig.value.find(p => p.count > 0)
+  if (!prize) {
+    message.warning('所有奖项已抽完，可在设置中重置')
+    return
+  }
+  currentPrize.value = prize
+  rolling.value = true
+  rollIndex.value = 0
+  timer = setInterval(() => {
+    currentUser.value = pool[rollIndex.value % pool.length]
+    rollIndex.value++
+  }, 70)
+}
+
+function stopDraw() {
+  clearInterval(timer)
+  timer = null
+  rolling.value = false
+  const pool = availableUsers.value
+  if (!pool.length || !currentPrize.value) return
+  // crypto 公平随机
+  const idx = new Uint32Array(1)
+  crypto.getRandomValues(idx)
+  const winner = pool[idx[0] % pool.length]
+  currentUser.value = winner
+  winners.value.push({ ...winner, prize: currentPrize.value.level })
+  currentPrize.value.count--
+  message.success(`🎉 恭喜 ${winner.name} 获得${currentPrize.value.level}`)
+  if (!prizeConfig.value.find(p => p.count > 0)) {
+    currentPrize.value = null
+  }
+}
+
+// ---- 全屏（CSS 覆盖窗口） ----
+function toggleFullscreen() {
+  isFullscreen.value = !isFullscreen.value
+}
+
+function onKeydown(e) {
+  if (e.key === 'Escape' && isFullscreen.value) {
+    isFullscreen.value = false
+  }
+}
+
+function resetAllData() {
+  confirm('将清空中奖记录并恢复默认奖项与人员名单，是否继续？', '重置所有数据', {
+    confirmButtonText: '重置',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    clearInterval(timer)
+    timer = null
+    rolling.value = false
+    currentUser.value = {}
+    currentPrize.value = null
+    customTitle.value = ''
+    prizeConfig.value = JSON.parse(JSON.stringify(DEFAULT_PRIZES))
+    userList.value = JSON.parse(JSON.stringify(DEFAULT_USERS))
+    winners.value = []
+    message.success('数据已重置')
+  }).catch(() => {})
 }
 </script>
 

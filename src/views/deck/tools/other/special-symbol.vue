@@ -38,84 +38,76 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OtherSpecialSymbol',
-  components: { ToolShell },
-  data() {
-    return {
-      keyword: '',
-      groups: [
-        {
-          name: '数学符号',
-          symbols: ['±', '×', '÷', '≠', '≤', '≥', '≈', '≡', '∞', '∝', '√', '∑', '∏', '∮', '∫', '∵', '∴', '∈', '∉', '⊂', '⊃', '⊆', '⊇', '∩', '∪', '∠', '⊥', '∥', '⊕', '⊗', '⊿']
-        },
-        {
-          name: '箭头符号',
-          symbols: ['←', '→', '↑', '↓', '↔', '↕', '↖', '↗', '↘', '↙', '⇐', '⇒', '⇑', '⇓', '⇔', '⇕', '➜', '➤', '⤴', '⤵']
-        },
-        {
-          name: '希腊字母',
-          symbols: ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω', 'Γ', 'Δ', 'Θ', 'Λ', 'Ξ', 'Π', 'Σ', 'Φ', 'Ψ', 'Ω']
-        },
-        {
-          name: '单位符号',
-          symbols: ['°', '℃', '℉', '′', '″', '＃', '＆', '＠', '‰', '㎡', '㎥', '℃', '¤', '€', '£', '¥', '¢', '№']
-        },
-        {
-          name: '序号符号',
-          symbols: ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳', '⑴', '⑵', '⑶', '⒈', '⒉', '⒊', '⒋', '⒌', '❶', '❷', '❸', '❹', '❺', '❻', '❼', '❽', '❾', '❿']
-        },
-        {
-          name: '标点符号',
-          symbols: ['，', '。', '、', '；', '：', '？', '！', '…', '—', '～', '·', '『', '』', '「', '」', '【', '】', '（', '）', '《', '》', '〈', '〉', '〖', '〗', '［', '］', '｛', '｝']
-        },
-        {
-          name: '心形 & 星形',
-          symbols: ['♥', '❤', '♡', '❥', '❣', '❦', '❧', '★', '☆', '✦', '✧', '✩', '✪', '✫', '✬', '✭', '✮', '✯', '⭐', '🌟', '💫', '⭐️']
-        },
-        {
-          name: '勾叉符号',
-          symbols: ['√', '×', '✓', '✔', '✗', '✘', '☑', '☒', 'POSITI', '☰', '☱', '☲', '☳', '☴', '☵', '☶', '☷']
-        },
-        {
-          name: '音乐符号',
-          symbols: ['♩', '♪', '♫', '♬', '♭', '♮', '♯', ' 𝄞', ' 𝄢']
-        },
-        {
-          name: '法律符号',
-          symbols: ['©', '®', '™', '§', '¶', '※', '〒']
-        }
-      ]
-    }
+defineOptions({ name: 'OtherSpecialSymbol' })
+
+const { message } = useFeedback()
+
+const keyword = ref('')
+const groups = [
+  {
+    name: '数学符号',
+    symbols: ['±', '×', '÷', '≠', '≤', '≥', '≈', '≡', '∞', '∝', '√', '∑', '∏', '∮', '∫', '∵', '∴', '∈', '∉', '⊂', '⊃', '⊆', '⊇', '∩', '∪', '∠', '⊥', '∥', '⊕', '⊗', '⊿']
   },
-  computed: {
-    visibleGroups() {
-      const k = this.keyword.trim()
-      if (!k) return this.groups
-      return this.groups
-        .map(g => ({
-          name: g.name,
-          symbols: g.symbols.filter(s => s.includes(k))
-        }))
-        .filter(g => g.symbols.length)
-    },
-    matchCount() {
-      return this.visibleGroups.reduce((s, g) => s + g.symbols.length, 0)
-    },
-    total() {
-      return this.groups.reduce((s, g) => s + g.symbols.length, 0)
-    }
+  {
+    name: '箭头符号',
+    symbols: ['←', '→', '↑', '↓', '↔', '↕', '↖', '↗', '↘', '↙', '⇐', '⇒', '⇑', '⇓', '⇔', '⇕', '➜', '➤', '⤴', '⤵']
   },
-  methods: {
-    copy(s) {
-      navigator.clipboard.writeText(s).then(() => {
-        this.$message({ message: `已复制 ${s}`, type: 'success', duration: 1000 })
-      })
-    }
+  {
+    name: '希腊字母',
+    symbols: ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω', 'Γ', 'Δ', 'Θ', 'Λ', 'Ξ', 'Π', 'Σ', 'Φ', 'Ψ', 'Ω']
+  },
+  {
+    name: '单位符号',
+    symbols: ['°', '℃', '℉', '′', '″', '＃', '＆', '＠', '‰', '㎡', '㎥', '℃', '¤', '€', '£', '¥', '¢', '№']
+  },
+  {
+    name: '序号符号',
+    symbols: ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳', '⑴', '⑵', '⑶', '⒈', '⒉', '⒊', '⒋', '⒌', '❶', '❷', '❸', '❹', '❺', '❻', '❼', '❽', '❾', '❿']
+  },
+  {
+    name: '标点符号',
+    symbols: ['，', '。', '、', '；', '：', '？', '！', '…', '—', '～', '·', '『', '』', '「', '」', '【', '】', '（', '）', '《', '》', '〈', '〉', '〖', '〗', '［', '］', '｛', '｝']
+  },
+  {
+    name: '心形 & 星形',
+    symbols: ['♥', '❤', '♡', '❥', '❣', '❦', '❧', '★', '☆', '✦', '✧', '✩', '✪', '✫', '✬', '✭', '✮', '✯', '⭐', '🌟', '💫', '⭐️']
+  },
+  {
+    name: '勾叉符号',
+    symbols: ['√', '×', '✓', '✔', '✗', '✘', '☑', '☒', 'POSITI', '☰', '☱', '☲', '☳', '☴', '☵', '☶', '☷']
+  },
+  {
+    name: '音乐符号',
+    symbols: ['♩', '♪', '♫', '♬', '♭', '♮', '♯', ' 𝄞', ' 𝄢']
+  },
+  {
+    name: '法律符号',
+    symbols: ['©', '®', '™', '§', '¶', '※', '〒']
   }
+]
+
+const visibleGroups = computed(() => {
+  const k = keyword.value.trim()
+  if (!k) return groups
+  return groups
+    .map(g => ({
+      name: g.name,
+      symbols: g.symbols.filter(s => s.includes(k))
+    }))
+    .filter(g => g.symbols.length)
+})
+const matchCount = computed(() => visibleGroups.value.reduce((s, g) => s + g.symbols.length, 0))
+const total = computed(() => groups.reduce((s, g) => s + g.symbols.length, 0))
+
+function copy(s) {
+  navigator.clipboard.writeText(s).then(() => {
+    message({ message: `已复制 ${s}`, type: 'success', duration: 1000 })
+  })
 }
 </script>
 

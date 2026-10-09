@@ -9,23 +9,21 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // JS 事件速查：数据迁移自旧项目 jsEvents 模块（分类展平为列表）
-export default {
-  name: 'OtherJsEvents',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherJsEvents' })
+
+const columns = [
         { key: 'event', title: '事件', mono: true, tag: true },
         { key: 'category', title: '分类' },
         { key: 'support', title: '浏览器支持' },
         { key: 'description', title: '说明' }
-      ],
-      rows: [
+]
+
+const rows = [
         { category: '一般事件', event: 'onclick', support: 'IE3、N2', description: '鼠标点击时触发此事件' },
         { category: '一般事件', event: 'ondblclick', support: 'IE4、N4', description: '鼠标双击时触发此事件' },
         { category: '一般事件', event: 'onmousedown', support: 'IE4、N4', description: '按下鼠标时触发此事件' },
@@ -85,9 +83,6 @@ export default {
         { category: '外部事件', event: 'onfilterchange', support: 'IE4、N', description: '当某个对象的滤镜效果发生变化时触发的事件' },
         { category: '外部事件', event: 'onhelp', support: 'IE4、N', description: '当浏览者按下 F1 或者浏览器的帮助选择时触发此事件' },
         { category: '外部事件', event: 'onpropertychange', support: 'IE5、N', description: '当对象的属性之一发生变化时触发此事件' },
-        { category: '外部事件', event: 'onreadystatechange', support: 'IE4、N', description: '当对象的初始化属性值发生变化时触发此事件' },
-      ]
-    }
-  }
-}
+        { category: '外部事件', event: 'onreadystatechange', support: 'IE4、N', description: '当对象的初始化属性值发生变化时触发此事件' }
+]
 </script>

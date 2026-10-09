@@ -61,49 +61,50 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
 import { formatSize, downloadDataUrl, baseName } from '@/utils/ui/image'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'ImageToBase64',
-  components: { ToolShell, ImageDrop },
-  data() {
-    return { file: null, objectUrl: '', result: '', imgInfo: '' }
-  },
-  methods: {
-    formatSize,
-    downloadDataUrl,
-    baseName,
-    onFile(file) {
-      this.file = file
-      this.objectUrl = URL.createObjectURL(file)
-      const img = new Image()
-      img.onload = () => {
-        this.imgInfo = `${img.naturalWidth} × ${img.naturalHeight}`
-      }
-      img.src = this.objectUrl
-      const reader = new FileReader()
-      reader.onload = () => {
-        this.result = reader.result
-      }
-      reader.readAsDataURL(file)
-    },
-    copyResult() {
-      if (!this.result) return
-      navigator.clipboard.writeText(this.result).then(() => {
-        this.$message.success('Base64 已复制')
-      })
-    },
-    reset() {
-      if (this.objectUrl) URL.revokeObjectURL(this.objectUrl)
-      this.file = null
-      this.objectUrl = ''
-      this.result = ''
-      this.imgInfo = ''
-    }
+defineOptions({ name: 'ImageToBase64' })
+
+const { message } = useFeedback()
+
+const file = ref(null)
+const objectUrl = ref('')
+const result = ref('')
+const imgInfo = ref('')
+
+function onFile(f) {
+  file.value = f
+  objectUrl.value = URL.createObjectURL(f)
+  const img = new Image()
+  img.onload = () => {
+    imgInfo.value = `${img.naturalWidth} × ${img.naturalHeight}`
   }
+  img.src = objectUrl.value
+  const reader = new FileReader()
+  reader.onload = () => {
+    result.value = reader.result
+  }
+  reader.readAsDataURL(f)
+}
+
+function copyResult() {
+  if (!result.value) return
+  navigator.clipboard.writeText(result.value).then(() => {
+    message.success('Base64 已复制')
+  })
+}
+
+function reset() {
+  if (objectUrl.value) URL.revokeObjectURL(objectUrl.value)
+  file.value = null
+  objectUrl.value = ''
+  result.value = ''
+  imgInfo.value = ''
 }
 </script>
 

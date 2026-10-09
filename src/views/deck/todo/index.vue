@@ -276,9 +276,16 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
 import solarlunar from 'solarlunar'
 import { getItem, setItem } from '@/utils/storage/db'
+
+// 我的代办：月历 + 日代办列表（Mac 风格），IndexedDB 本地持久化
+defineOptions({ name: 'TodoPage' })
+
+const { message, confirm } = useFeedback()
 
 let todoUid = Date.now()
 
@@ -414,319 +421,333 @@ function lunarInfoOf(y, m, d) {
   return { sl, isOff, isWork, term, festival, lunarLabel }
 }
 
-// 我的代办：月历 + 日代办列表（Mac 风格），IndexedDB 本地持久化
-export default {
-  name: 'TodoPage',
-  data() {
-    const now = new Date()
-    return {
-      todos: [],
-      // 月历视图年月
-      viewYear: now.getFullYear(),
-      viewMonth: now.getMonth(),
-      // 选中日期（YYYY-MM-DD），默认今天
-      selectedDate: fmtKey(now),
-      // 状态筛选：all / pending / done
-      filter: 'all',
-      filters: [
-        { label: '全部', value: 'all' },
-        { label: '待办', value: 'pending' },
-        { label: '已完成', value: 'done' }
-      ],
-      weekdays: WEEK_LABELS,
-      // 弹窗表单
-      dialogVisible: false,
-      editingId: null,
-      form: { title: '', desc: '', date: '', remind: 15, files: [] },
-      // 必填字段失焦校验的错误提示
-      errors: { title: '', desc: '' },
-      // 提醒时机候选
-      remindOptions: REMIND_OPTIONS
+const fileInput = ref(null)
+
+const now = new Date()
+const todos = ref([])
+// 月历视图年月
+const viewYear = ref(now.getFullYear())
+const viewMonth = ref(now.getMonth())
+// 选中日期（YYYY-MM-DD），默认今天
+const selectedDate = ref(fmtKey(now))
+// 状态筛选：all / pending / done
+const filter = ref('all')
+const filters = [
+  { label: '全部', value: 'all' },
+  { label: '待办', value: 'pending' },
+  { label: '已完成', value: 'done' }
+]
+const weekdays = WEEK_LABELS
+// 弹窗表单
+const dialogVisible = ref(false)
+const editingId = ref(null)
+const form = ref({ title: '', desc: '', date: '', remind: 15, files: [] })
+// 必填字段失焦校验的错误提示
+const errors = ref({ title: '', desc: '' })
+// 提醒时机候选
+const remindOptions = REMIND_OPTIONS
+
+const pendingCount = computed(() => todos.value.filter(t => !t.done).length)
+const todayKey = computed(() => fmtKey(new Date()))
+const hasHolidayData = computed(() => !!HOLIDAYS[viewYear.value])
+
+// 按日期分组索引（兼容旧数据纯日期与新数据完整时间，取日期部分）
+const todosByDate = computed(() => {
+  const map = {}
+  todos.value.forEach(t => {
+    const key = (t.date || '').slice(0, 10)
+    if (!map[key]) map[key] = []
+    map[key].push(t)
+  })
+  return map
+})
+
+// 月历 6×7 单元格（周日起始），带农历/节日/休班标注
+const monthCells = computed(() => {
+  const first = new Date(viewYear.value, viewMonth.value, 1)
+  const cursor = new Date(viewYear.value, viewMonth.value, 1 - first.getDay())
+  const cells = []
+  for (let i = 0; i < 42; i++) {
+    const key = fmtKey(cursor)
+    const y = cursor.getFullYear()
+    const m = cursor.getMonth() + 1
+    const d = cursor.getDate()
+    const info = lunarInfoOf(y, m, d)
+    const tips = []
+    if (info) {
+      if (info.festival) tips.push(info.festival)
+      if (info.term) tips.push(info.term + '（节气）')
+      tips.push('农历 ' + info.sl.monthCn + info.sl.dayCn + ' · ' + info.sl.gzDay + '日')
+      if (info.isOff) tips.push('法定节假日放假')
+      if (info.isWork) tips.push('调休上班')
     }
-  },
-  computed: {
-    pendingCount() {
-      return this.todos.filter(t => !t.done).length
-    },
-    todayKey() {
-      return fmtKey(new Date())
-    },
-    hasHolidayData() {
-      return !!HOLIDAYS[this.viewYear]
-    },
-    // 月历 6×7 单元格（周日起始），带农历/节日/休班标注
-    monthCells() {
-      const first = new Date(this.viewYear, this.viewMonth, 1)
-      const cursor = new Date(this.viewYear, this.viewMonth, 1 - first.getDay())
-      const cells = []
-      for (let i = 0; i < 42; i++) {
-        const key = fmtKey(cursor)
-        const y = cursor.getFullYear()
-        const m = cursor.getMonth() + 1
-        const d = cursor.getDate()
-        const info = lunarInfoOf(y, m, d)
-        const tips = []
-        if (info) {
-          if (info.festival) tips.push(info.festival)
-          if (info.term) tips.push(info.term + '（节气）')
-          tips.push('农历 ' + info.sl.monthCn + info.sl.dayCn + ' · ' + info.sl.gzDay + '日')
-          if (info.isOff) tips.push('法定节假日放假')
-          if (info.isWork) tips.push('调休上班')
-        }
-        cells.push({
-          key,
-          day: d,
-          inMonth: cursor.getMonth() === this.viewMonth,
-          isToday: key === this.todayKey,
-          isWeekend: cursor.getDay() === 0 || cursor.getDay() === 6,
-          isOff: info ? info.isOff : false,
-          isWork: info ? info.isWork : false,
-          term: info ? info.term : '',
-          festival: info ? info.festival : '',
-          lunarLabel: info ? info.lunarLabel : '',
-          todos: this.todosByDate[key] || [],
-          tip: tips.join(' · ')
-        })
-        cursor.setDate(cursor.getDate() + 1)
-      }
-      return cells
-    },
-    // 按日期分组索引（兼容旧数据纯日期与新数据完整时间，取日期部分）
-    todosByDate() {
-      const map = {}
-      this.todos.forEach(t => {
-        const key = (t.date || '').slice(0, 10)
-        if (!map[key]) map[key] = []
-        map[key].push(t)
-      })
-      return map
-    },
-    // 选中日的代办（完成的沉底，其余按时间先后）
-    selectedTodos() {
-      const list = this.todosByDate[this.selectedDate] || []
-      return [...list].sort((a, b) => {
-        if (a.done !== b.done) return a.done ? 1 : -1
-        return (a.date || '').localeCompare(b.date || '') || a.createdAt - b.createdAt
-      })
-    },
-    filteredTodos() {
-      if (this.filter === 'pending') return this.selectedTodos.filter(t => !t.done)
-      if (this.filter === 'done') return this.selectedTodos.filter(t => t.done)
-      return this.selectedTodos
-    },
-    filterLabel() {
-      const f = this.filters.find(x => x.value === this.filter)
-      return f ? f.label : ''
-    },
-    // 右侧标题：X月X日 星期X
-    dayLabel() {
-      const [y, m, d] = this.selectedDate.split('-').map(Number)
-      const date = new Date(y, m - 1, d)
-      return m + '月' + d + '日 星期' + WEEK_LABELS[date.getDay()] + (this.selectedDate === this.todayKey ? ' · 今天' : '')
-    },
-    // 当日黄历：农历/干支/生肖/值神/冲煞/宜忌
-    almanac() {
-      const [y, m, d] = this.selectedDate.split('-').map(Number)
-      const info = lunarInfoOf(y, m, d)
-      if (!info) return null
-      const sl = info.sl
-      const dayBranch = branchOf(sl.gzDay)
-      return {
-        lunarText: (sl.isLeap ? '闰' : '') + sl.monthCn + sl.dayCn,
-        gzText: sl.gzYear + '年 ' + sl.gzMonth + '月 ' + sl.gzDay + '日',
-        animal: sl.animal,
-        term: info.term,
-        festival: info.festival,
-        isOff: info.isOff,
-        isWork: info.isWork,
-        star: starOf(sl),
-        clashAnimal: BRANCH_ANIMALS[BRANCH_CLASH[dayBranch]],
-        shaDir: SHA_DIR[dayBranch]
-      }
+    cells.push({
+      key,
+      day: d,
+      inMonth: cursor.getMonth() === viewMonth.value,
+      isToday: key === todayKey.value,
+      isWeekend: cursor.getDay() === 0 || cursor.getDay() === 6,
+      isOff: info ? info.isOff : false,
+      isWork: info ? info.isWork : false,
+      term: info ? info.term : '',
+      festival: info ? info.festival : '',
+      lunarLabel: info ? info.lunarLabel : '',
+      todos: todosByDate.value[key] || [],
+      tip: tips.join(' · ')
+    })
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return cells
+})
+
+// 选中日的代办（完成的沉底，其余按时间先后）
+const selectedTodos = computed(() => {
+  const list = todosByDate.value[selectedDate.value] || []
+  return [...list].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1
+    return (a.date || '').localeCompare(b.date || '') || a.createdAt - b.createdAt
+  })
+})
+
+const filteredTodos = computed(() => {
+  if (filter.value === 'pending') return selectedTodos.value.filter(t => !t.done)
+  if (filter.value === 'done') return selectedTodos.value.filter(t => t.done)
+  return selectedTodos.value
+})
+
+const filterLabel = computed(() => {
+  const f = filters.find(x => x.value === filter.value)
+  return f ? f.label : ''
+})
+
+// 右侧标题：X月X日 星期X
+const dayLabel = computed(() => {
+  const [y, m, d] = selectedDate.value.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  return m + '月' + d + '日 星期' + WEEK_LABELS[date.getDay()] + (selectedDate.value === todayKey.value ? ' · 今天' : '')
+})
+
+// 当日黄历：农历/干支/生肖/值神/冲煞/宜忌
+const almanac = computed(() => {
+  const [y, m, d] = selectedDate.value.split('-').map(Number)
+  const info = lunarInfoOf(y, m, d)
+  if (!info) return null
+  const sl = info.sl
+  const dayBranch = branchOf(sl.gzDay)
+  return {
+    lunarText: (sl.isLeap ? '闰' : '') + sl.monthCn + sl.dayCn,
+    gzText: sl.gzYear + '年 ' + sl.gzMonth + '月 ' + sl.gzDay + '日',
+    animal: sl.animal,
+    term: info.term,
+    festival: info.festival,
+    isOff: info.isOff,
+    isWork: info.isWork,
+    star: starOf(sl),
+    clashAnimal: BRANCH_ANIMALS[BRANCH_CLASH[dayBranch]],
+    shaDir: SHA_DIR[dayBranch]
+  }
+})
+
+// created：恢复本地数据
+{
+  const saved = getItem('todoItems', [])
+  todos.value = Array.isArray(saved) ? saved : []
+}
+
+function persist() {
+  setItem('todoItems', todos.value)
+}
+
+// ===== 月历导航 =====
+function shiftMonth(delta) {
+  const d = new Date(viewYear.value, viewMonth.value + delta, 1)
+  viewYear.value = d.getFullYear()
+  viewMonth.value = d.getMonth()
+}
+
+function goToday() {
+  const now = new Date()
+  viewYear.value = now.getFullYear()
+  viewMonth.value = now.getMonth()
+  selectedDate.value = todayKey.value
+}
+
+// ===== 代办 CRUD =====
+function openCreate() {
+  editingId.value = null
+  form.value = { title: '', desc: '', date: fmtDateTime(new Date()), remind: 15, files: [] }
+  resetErrors()
+  dialogVisible.value = true
+}
+
+function openEdit(t) {
+  editingId.value = t.id
+  // 兼容旧数据纯日期（补零点时间）；附件数组复制，取消编辑不影响原数据
+  form.value = {
+    title: t.title,
+    desc: t.desc || '',
+    date: (t.date || '').length === 10 ? t.date + ' 00:00:00' : t.date,
+    remind: t.remind == null ? -1 : t.remind,
+    files: (t.files || []).slice()
+  }
+  resetErrors()
+  dialogVisible.value = true
+}
+
+function closeDialog() {
+  dialogVisible.value = false
+}
+
+// ===== 必填字段失焦校验 =====
+function resetErrors() {
+  errors.value.title = ''
+  errors.value.desc = ''
+}
+
+function validateTodoField(field) {
+  const val = (form.value[field] || '').trim()
+  if (!val) {
+    errors.value[field] = field === 'title' ? '请输入标题' : '请输入描述'
+    return false
+  }
+  errors.value[field] = ''
+  return true
+}
+
+// 重新输入时清除错误提示（失焦时再校验）
+function clearTodoFieldError(field) {
+  if (errors.value[field]) errors.value[field] = ''
+}
+
+// 列表项时间（HH:mm），旧数据纯日期不显示
+function timeOf(t) {
+  return (t.date || '').length > 10 ? t.date.slice(11, 16) : ''
+}
+
+// ===== 附件 =====
+function pickFiles() {
+  if (fileInput.value) fileInput.value.click()
+}
+
+// 选择文件：读入内存（ArrayBuffer），随代办一起持久化到 IndexedDB
+async function onFilesPicked(e) {
+  const files = Array.from((e.target.files || []))
+  e.target.value = '' // 允许重复选择同一文件
+  const MAX = 20 * 1024 * 1024
+  for (const file of files) {
+    if (file.size > MAX) {
+      message.warning('「' + file.name + '」超过 20MB，已跳过')
+      continue
     }
-  },
-  created() {
-    const saved = getItem('todoItems', [])
-    this.todos = Array.isArray(saved) ? saved : []
-  },
-  methods: {
-    persist() {
-      setItem('todoItems', this.todos)
-    },
-    // ===== 月历导航 =====
-    shiftMonth(delta) {
-      const d = new Date(this.viewYear, this.viewMonth + delta, 1)
-      this.viewYear = d.getFullYear()
-      this.viewMonth = d.getMonth()
-    },
-    goToday() {
-      const now = new Date()
-      this.viewYear = now.getFullYear()
-      this.viewMonth = now.getMonth()
-      this.selectedDate = this.todayKey
-    },
-    // ===== 代办 CRUD =====
-    openCreate() {
-      this.editingId = null
-      this.form = { title: '', desc: '', date: fmtDateTime(new Date()), remind: 15, files: [] }
-      this.resetErrors()
-      this.dialogVisible = true
-    },
-    openEdit(t) {
-      this.editingId = t.id
-      // 兼容旧数据纯日期（补零点时间）；附件数组复制，取消编辑不影响原数据
-      this.form = {
-        title: t.title,
-        desc: t.desc || '',
-        date: (t.date || '').length === 10 ? t.date + ' 00:00:00' : t.date,
-        remind: t.remind == null ? -1 : t.remind,
-        files: (t.files || []).slice()
-      }
-      this.resetErrors()
-      this.dialogVisible = true
-    },
-    closeDialog() {
-      this.dialogVisible = false
-    },
-    // ===== 必填字段失焦校验 =====
-    resetErrors() {
-      this.errors.title = ''
-      this.errors.desc = ''
-    },
-    validateTodoField(field) {
-      const val = (this.form[field] || '').trim()
-      if (!val) {
-        this.errors[field] = field === 'title' ? '请输入标题' : '请输入描述'
-        return false
-      }
-      this.errors[field] = ''
-      return true
-    },
-    // 重新输入时清除错误提示（失焦时再校验）
-    clearTodoFieldError(field) {
-      if (this.errors[field]) this.errors[field] = ''
-    },
-    // 列表项时间（HH:mm），旧数据纯日期不显示
-    timeOf(t) {
-      return (t.date || '').length > 10 ? t.date.slice(11, 16) : ''
-    },
-    // ===== 附件 =====
-    pickFiles() {
-      if (this.$refs.fileInput) this.$refs.fileInput.click()
-    },
-    // 选择文件：读入内存（ArrayBuffer），随代办一起持久化到 IndexedDB
-    async onFilesPicked(e) {
-      const files = Array.from((e.target.files || []))
-      e.target.value = '' // 允许重复选择同一文件
-      const MAX = 20 * 1024 * 1024
-      for (const file of files) {
-        if (file.size > MAX) {
-          this.$message.warning('「' + file.name + '」超过 20MB，已跳过')
-          continue
-        }
-        const data = await file.arrayBuffer()
-        this.form.files.push({ name: file.name, size: file.size, type: file.type || '', data })
-      }
-    },
-    removeFile(index) {
-      this.form.files.splice(index, 1)
-    },
-    fmtFileSize(n) {
-      if (n == null) return ''
-      if (n < 1024) return n + ' B'
-      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
-      return (n / 1024 / 1024).toFixed(1) + ' MB'
-    },
-    // 下载附件（从存储的 ArrayBuffer 还原文件）
-    downloadFile(t, i) {
-      const f = (t.files || [])[i]
-      if (!f || !f.data) return
-      const blob = new Blob([f.data], { type: f.type || 'application/octet-stream' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = f.name
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
-    },
-    // 计算提醒时间戳（不提醒返回 null）
-    computeRemindAt(dateStr, remind) {
-      if (remind == null || remind < 0) return null
-      const due = new Date(String(dateStr).replace(/-/g, '/')).getTime()
-      if (isNaN(due)) return null
-      return due - remind * 60 * 1000
-    },
-    saveTodo() {
-      const validTitle = this.validateTodoField('title')
-      const validDesc = this.validateTodoField('desc')
-      if (!validTitle || !validDesc) return
-      const title = this.form.title.trim()
-      const desc = this.form.desc.trim()
-      const date = this.form.date // 完整时间 YYYY-MM-DD HH:mm:ss
-      const dayKey = date.slice(0, 10)
-      const remindAt = this.computeRemindAt(date, this.form.remind)
-      if (this.editingId) {
-        const t = this.todos.find(x => x.id === this.editingId)
-        if (t) {
-          t.title = title
-          t.desc = desc
-          t.date = date
-          t.remind = this.form.remind
-          t.remindAt = remindAt
-          t.notified = false
-          t.files = this.form.files
-        }
-      } else {
-        this.todos.push({
-          id: 'td' + (todoUid++),
-          title,
-          desc,
-          date,
-          remind: this.form.remind,
-          remindAt,
-          notified: false,
-          files: this.form.files,
-          done: false,
-          createdAt: Date.now(),
-          doneAt: null
-        })
-      }
-      // 跟随弹窗选择的日期展示
-      this.selectedDate = dayKey
-      this.syncViewToDate(dayKey)
-      this.persist()
-      this.closeDialog()
-      this.$message.success(this.editingId ? '代办已更新' : '代办已创建')
-    },
-    // 切换完成状态（恢复待办时若提醒仍在未来，重新允许提醒）
-    toggleDone(t) {
-      t.done = !t.done
-      t.doneAt = t.done ? Date.now() : null
-      if (!t.done && t.notified && t.remindAt && t.remindAt > Date.now()) {
-        t.notified = false
-      }
-      this.persist()
-    },
-    // 删除（二次确认）
-    removeTodo(t) {
-      this.$confirm('确定删除代办「' + t.title + '」吗？', '删除代办', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(() => {
-        this.todos = this.todos.filter(x => x.id !== t.id)
-        this.persist()
-        this.$message.success('已删除')
-      }).catch(() => {})
-    },
-    // 日期联动月历视图（编辑跨月日期时月历跟随跳转）
-    syncViewToDate(key) {
-      const [y, m] = key.split('-').map(Number)
-      if (y !== this.viewYear || m - 1 !== this.viewMonth) {
-        this.viewYear = y
-        this.viewMonth = m - 1
-      }
+    const data = await file.arrayBuffer()
+    form.value.files.push({ name: file.name, size: file.size, type: file.type || '', data })
+  }
+}
+
+function removeFile(index) {
+  form.value.files.splice(index, 1)
+}
+
+function fmtFileSize(n) {
+  if (n == null) return ''
+  if (n < 1024) return n + ' B'
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+  return (n / 1024 / 1024).toFixed(1) + ' MB'
+}
+
+// 下载附件（从存储的 ArrayBuffer 还原文件）
+function downloadFile(t, i) {
+  const f = (t.files || [])[i]
+  if (!f || !f.data) return
+  const blob = new Blob([f.data], { type: f.type || 'application/octet-stream' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = f.name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// 计算提醒时间戳（不提醒返回 null）
+function computeRemindAt(dateStr, remind) {
+  if (remind == null || remind < 0) return null
+  const due = new Date(String(dateStr).replace(/-/g, '/')).getTime()
+  if (isNaN(due)) return null
+  return due - remind * 60 * 1000
+}
+
+function saveTodo() {
+  const validTitle = validateTodoField('title')
+  const validDesc = validateTodoField('desc')
+  if (!validTitle || !validDesc) return
+  const title = form.value.title.trim()
+  const desc = form.value.desc.trim()
+  const date = form.value.date // 完整时间 YYYY-MM-DD HH:mm:ss
+  const dayKey = date.slice(0, 10)
+  const remindAt = computeRemindAt(date, form.value.remind)
+  if (editingId.value) {
+    const t = todos.value.find(x => x.id === editingId.value)
+    if (t) {
+      t.title = title
+      t.desc = desc
+      t.date = date
+      t.remind = form.value.remind
+      t.remindAt = remindAt
+      t.notified = false
+      t.files = form.value.files
     }
+  } else {
+    todos.value.push({
+      id: 'td' + (todoUid++),
+      title,
+      desc,
+      date,
+      remind: form.value.remind,
+      remindAt,
+      notified: false,
+      files: form.value.files,
+      done: false,
+      createdAt: Date.now(),
+      doneAt: null
+    })
+  }
+  // 跟随弹窗选择的日期展示
+  selectedDate.value = dayKey
+  syncViewToDate(dayKey)
+  persist()
+  closeDialog()
+  message.success(editingId.value ? '代办已更新' : '代办已创建')
+}
+
+// 切换完成状态（恢复待办时若提醒仍在未来，重新允许提醒）
+function toggleDone(t) {
+  t.done = !t.done
+  t.doneAt = t.done ? Date.now() : null
+  if (!t.done && t.notified && t.remindAt && t.remindAt > Date.now()) {
+    t.notified = false
+  }
+  persist()
+}
+
+// 删除（二次确认）
+function removeTodo(t) {
+  confirm('确定删除代办「' + t.title + '」吗？', '删除代办', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    todos.value = todos.value.filter(x => x.id !== t.id)
+    persist()
+    message.success('已删除')
+  }).catch(() => {})
+}
+
+// 日期联动月历视图（编辑跨月日期时月历跟随跳转）
+function syncViewToDate(key) {
+  const [y, m] = key.split('-').map(Number)
+  if (y !== viewYear.value || m - 1 !== viewMonth.value) {
+    viewYear.value = y
+    viewMonth.value = m - 1
   }
 }
 </script>
@@ -1623,8 +1644,8 @@ export default {
   }
 
   // 校验失败：输入框/文本域红框
-  &.error ::v-deep .el-input__inner,
-  &.error ::v-deep .el-textarea__inner {
+  &.error :deep(.el-input__inner),
+  &.error :deep(.el-textarea__inner) {
     border-color: #F5222D;
 
     &:focus {

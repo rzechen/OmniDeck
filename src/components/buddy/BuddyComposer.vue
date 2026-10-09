@@ -14,7 +14,7 @@
           <div class="bc-quote-label">引用</div>
           <div class="bc-quote-text" :title="quote">{{ quote }}</div>
         </div>
-        <button class="bc-quote-close" title="移除引用" @click="$emit('remove-quote')">
+        <button class="bc-quote-close" title="移除引用" @click="emit('remove-quote')">
           <svg-icon icon-class="close" />
         </button>
       </div>
@@ -27,7 +27,7 @@
             <svg-icon :icon-class="f.kind === 'pdf' ? 'doc' : 'document'" class="bc-file-ico" />
             <span class="bc-file-name" :title="f.name">{{ f.name }}</span>
           </template>
-          <button class="bc-attachment-remove" title="移除" @click="$emit('remove-file', i)">
+          <button class="bc-attachment-remove" title="移除" @click="emit('remove-file', i)">
             <svg-icon icon-class="close" />
           </button>
         </div>
@@ -59,7 +59,7 @@
             v-if="attachEnabled"
             class="bc-tool-btn"
             title="添加附件（图片 / 文本 / PDF，支持拖入）"
-            @click="$emit('pick')"
+            @click="emit('pick')"
           >
             <svg-icon icon-class="circle-plus-outline" />
           </button>
@@ -79,7 +79,7 @@
           v-else
           class="bc-send bc-stop"
           title="停止生成"
-          @click="$emit('stop')"
+          @click="emit('stop')"
         >
           <svg-icon icon-class="stop" />
         </button>
@@ -88,149 +88,150 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 对话输入框：豆包风格（大圆角气泡 + 左工具 + 右下圆形发送）
-export default {
-  name: 'BuddyComposer',
-  props: {
-    modelValue: {
-      type: String,
-      default: ''
-    },
-    placeholder: {
-      type: String,
-      default: '有什么可以帮您？（Enter 发送，Shift+Enter 换行）'
-    },
-    // 流式生成中：发送按钮切换为停止按钮
-    streaming: {
-      type: Boolean,
-      default: false
-    },
-    // 附加可发送条件（如已有附件时无文本也允许发送）
-    extraSendable: {
-      type: Boolean,
-      default: false
-    },
-    // 待发送文件附件（[{id,name,size,kind,thumb}]）：图片缩略图 + 文本/PDF 文件胶囊
-    files: {
-      type: Array,
-      default: null
-    },
-    // 是否展示"+"附件按钮（快捷面板等场景可关闭）
-    attachEnabled: {
-      type: Boolean,
-      default: true
-    },
-    // 划选追问引用的原文（非空时在输入框顶部展示引用条，随消息一并发送）
-    quote: {
-      type: String,
-      default: ''
-    }
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'BuddyComposer' })
+
+const props = defineProps({
+  modelValue: {
+    type: String,
+    default: ''
   },
-  data() {
-    return {
-      isFocus: false,
-      isDrag: false,
-      // 中文输入法组合中（组合态回车 = 确认候选词，不触发发送）
-      isComposing: false
-    }
+  placeholder: {
+    type: String,
+    default: '有什么可以帮您？（Enter 发送，Shift+Enter 换行）'
   },
-  computed: {
-    canSend() {
-      return !!(this.modelValue && this.modelValue.trim()) || this.extraSendable
-    },
-    // 流式生成中锁定输入（placeholder 同步提示，避免误以为可继续提问）
-    actualPlaceholder() {
-      return this.streaming ? '回答生成中，可点击右下角停止…' : this.placeholder
-    }
+  // 流式生成中：发送按钮切换为停止按钮
+  streaming: {
+    type: Boolean,
+    default: false
   },
-  watch: {
-    // 内容变化后自适应高度
-    modelValue() {
-      this.$nextTick(this.autoResize)
-    }
+  // 附加可发送条件（如已有附件时无文本也允许发送）
+  extraSendable: {
+    type: Boolean,
+    default: false
   },
-  mounted() {
-    this.autoResize()
+  // 待发送文件附件（[{id,name,size,kind,thumb}]）：图片缩略图 + 文本/PDF 文件胶囊
+  files: {
+    type: Array,
+    default: null
   },
-  methods: {
-    onInput(e) {
-      this.$emit('update:modelValue', e.target.value)
-    },
-    // 回车发送：输入法组合中（确认候选词的回车）不发送。
-    // Chrome 下确认候选词时 keydown 先于 compositionend 触发且 isComposing 仍为 true，
-    // 自维护标志与事件原生 isComposing 双重判定兜底（Safari 时序差异）
-    onEnter(e) {
-      if (this.isComposing || e.isComposing) return
-      this.onSend()
-    },
-    // 粘贴含文件时转为附件：拦截默认行为，交主进程落盘
-    onPaste(e) {
-      const items = e.clipboardData && e.clipboardData.items
-      if (!items) return
-      let hasFile = false
-      for (const it of items) {
-        if (it.kind === 'file') hasFile = true
-      }
-      if (!hasFile) return // 纯文本粘贴走默认行为
-      e.preventDefault()
-      const buddy = window.electronAPI && window.electronAPI.omnibuddy
-      // 非图片文件（文本/PDF）走附件管道
-      if (buddy && buddy.importAttachment) {
-        for (const it of items) {
-          if (it.kind !== 'file' || it.type.startsWith('image/')) continue
-          const f = it.getAsFile()
-          if (!f) continue
-          this.emitImportFile(f)
-        }
-      }
-    },
-    // ===== 拖拽导入：Electron 32+ File.path 已移除，须经 webUtils 取真实路径 =====
-    onDragOver(e) {
-      if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return
-      this.isDrag = true
-    },
-    onDragLeave() {
-      this.isDrag = false
-    },
-    onDrop(e) {
-      this.isDrag = false
-      const files = e.dataTransfer && e.dataTransfer.files
-      if (!files || !files.length) return
-      for (const f of files) this.emitImportFile(f)
-    },
-    // 取拖拽/粘贴文件的真实路径，交主进程导入（emit import-file）
-    emitImportFile(f) {
-      const api = window.electronAPI
-      if (!api || !api.getPathForFile) {
-        this.$message.info('附件导入需要 OmniDeck 桌面端')
-        return
-      }
-      let p = ''
-      try { p = api.getPathForFile(f) } catch (err) { p = '' }
-      if (p) this.$emit('import-file', p)
-    },
-    onSend() {
-      if (!this.canSend) return
-      this.$emit('send', this.modelValue)
-    },
-    // 聚焦输入框（划选追问引用后调用，直接续问）
-    focus() {
-      const ta = this.$refs.ta
-      if (!ta) return
-      ta.focus()
-      const len = ta.value.length
-      try { ta.setSelectionRange(len, len) } catch (e) { /* 忽略 */ }
-    },
-    // 高度自适应：清零后按 scrollHeight 恢复，封顶 220px
-    autoResize() {
-      const ta = this.$refs.ta
-      if (!ta) return
-      ta.style.height = 'auto'
-      ta.style.height = Math.max(68, Math.min(ta.scrollHeight, 220)) + 'px'
+  // 是否展示"+"附件按钮（快捷面板等场景可关闭）
+  attachEnabled: {
+    type: Boolean,
+    default: true
+  },
+  // 划选追问引用的原文（非空时在输入框顶部展示引用条，随消息一并发送）
+  quote: {
+    type: String,
+    default: ''
+  }
+})
+
+const emit = defineEmits(['update:modelValue', 'send', 'stop', 'pick', 'import-file', 'remove-quote', 'remove-file'])
+
+const { message } = useFeedback()
+
+const isFocus = ref(false)
+const isDrag = ref(false)
+// 中文输入法组合中（组合态回车 = 确认候选词，不触发发送）
+const isComposing = ref(false)
+const ta = ref(null)
+
+const canSend = computed(() => !!(props.modelValue && props.modelValue.trim()) || props.extraSendable)
+// 流式生成中锁定输入（placeholder 同步提示，避免误以为可继续提问）
+const actualPlaceholder = computed(() => props.streaming ? '回答生成中，可点击右下角停止…' : props.placeholder)
+
+// 内容变化后自适应高度
+watch(() => props.modelValue, () => {
+  nextTick(autoResize)
+})
+
+onMounted(() => {
+  autoResize()
+})
+
+function onInput(e) {
+  emit('update:modelValue', e.target.value)
+}
+// 回车发送：输入法组合中（确认候选词的回车）不发送。
+// Chrome 下确认候选词时 keydown 先于 compositionend 触发且 isComposing 仍为 true，
+// 自维护标志与事件原生 isComposing 双重判定兜底（Safari 时序差异）
+function onEnter(e) {
+  if (isComposing.value || e.isComposing) return
+  onSend()
+}
+// 粘贴含文件时转为附件：拦截默认行为，交主进程落盘
+function onPaste(e) {
+  const items = e.clipboardData && e.clipboardData.items
+  if (!items) return
+  let hasFile = false
+  for (const it of items) {
+    if (it.kind === 'file') hasFile = true
+  }
+  if (!hasFile) return // 纯文本粘贴走默认行为
+  e.preventDefault()
+  const buddy = window.electronAPI && window.electronAPI.omnibuddy
+  // 非图片文件（文本/PDF）走附件管道
+  if (buddy && buddy.importAttachment) {
+    for (const it of items) {
+      if (it.kind !== 'file' || it.type.startsWith('image/')) continue
+      const f = it.getAsFile()
+      if (!f) continue
+      emitImportFile(f)
     }
   }
 }
+// ===== 拖拽导入：Electron 32+ File.path 已移除，须经 webUtils 取真实路径 =====
+function onDragOver(e) {
+  if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return
+  isDrag.value = true
+}
+function onDragLeave() {
+  isDrag.value = false
+}
+function onDrop(e) {
+  isDrag.value = false
+  const files = e.dataTransfer && e.dataTransfer.files
+  if (!files || !files.length) return
+  for (const f of files) emitImportFile(f)
+}
+// 取拖拽/粘贴文件的真实路径，交主进程导入（emit import-file）
+function emitImportFile(f) {
+  const api = window.electronAPI
+  if (!api || !api.getPathForFile) {
+    message.info('附件导入需要 OmniDeck 桌面端')
+    return
+  }
+  let p = ''
+  try { p = api.getPathForFile(f) } catch (err) { p = '' }
+  if (p) emit('import-file', p)
+}
+function onSend() {
+  if (!canSend.value) return
+  emit('send', props.modelValue)
+}
+// 聚焦输入框（划选追问引用后调用，直接续问）
+function focus() {
+  const el = ta.value
+  if (!el) return
+  el.focus()
+  const len = el.value.length
+  try { el.setSelectionRange(len, len) } catch (e) { /* 忽略 */ }
+}
+// 高度自适应：清零后按 scrollHeight 恢复，封顶 220px
+function autoResize() {
+  const el = ta.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.max(68, Math.min(el.scrollHeight, 220)) + 'px'
+}
+
+// 父层经 ref 调用 focus 聚焦输入框
+defineExpose({ focus })
 </script>
 
 <style lang="scss" scoped>

@@ -14,25 +14,23 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 任务用量 TOP5 榜单：纯展示，榜单数据由页面 summary.top5 传入
-export default {
-  name: 'TopSessions',
-  props: {
-    // TOP 任务数组（[{ id, title, deleted, input, output }]，deleted = 任务已删除）
-    sessions: {
-      type: Array,
-      default: () => []
-    }
-  },
-  methods: {
-    fmtTokens(n) {
-      const v = Number(n) || 0
-      if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M'
-      if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k'
-      return String(v)
-    }
+defineOptions({ name: 'TopSessions' })
+
+defineProps({
+  // TOP 任务数组（[{ id, title, deleted, input, output }]，deleted = 任务已删除）
+  sessions: {
+    type: Array,
+    default: () => []
   }
+})
+
+function fmtTokens(n) {
+  const v = Number(n) || 0
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M'
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k'
+  return String(v)
 }
 </script>
 

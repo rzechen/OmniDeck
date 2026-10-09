@@ -148,7 +148,8 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { getItem, setItem } from '@/utils/storage/db'
 
 const ENGINE_KEY = 'browser:engineConfig'
@@ -170,330 +171,325 @@ const LANGS = {
 
 // 浏览器（Deck 一级入口）：<webview> 内嵌网页（DOM 参与者，弹层可覆盖）；
 // 工具栏 UI + 导航/缩放/弹窗策略直接驱动 webview，翻译经主进程特性注入双语对照
-export default {
-  name: 'DeckBrowser',
-  data() {
-    return {
-      input: '',
-      addrFocused: false,
-      state: {
-        url: '',
-        title: '',
-        isLoading: false,
-        canGoBack: false,
-        canGoForward: false
-      },
-      translating: false,
-      engine: 'google',
-      providerId: '',
-      targetLang: 'zh-CN',
-      detectedName: '',
-      providers: [],
-      progress: { total: 0, done: 0, failed: 0 },
-      lastError: '',
-      notice: { text: '', type: 'info' },
-      noticeTimer: null,
-      // 当前展开的下拉：'' | 'lang' | 'engine'
-      menu: '',
-      zoom: { ui: 100, web: 100 },
-      // preload browser API（mounted 时解析）
-      browser: null,
-      offProgress: null,
-      offZoom: null
-    }
-  },
-  computed: {
-    // 目标语言列表（模块级常量桥接模板作用域）
-    LANGS() {
-      return LANGS
-    },
-    isHttps() {
-      return /^https:/i.test(this.state.url)
-    },
-    // "检测语言 → 目标语言" 流向文案（Google 引擎在翻译后回填检测语言）
-    langFlow() {
-      if (!this.detectedName) return ''
-      return this.detectedName + ' → ' + (LANGS[this.targetLang] || this.targetLang)
-    },
-    langFlowTitle() {
-      return '页面语言：' + this.detectedName + '，正在翻译为 ' + (LANGS[this.targetLang] || this.targetLang)
-    },
-    // 引擎按钮文案
-    engineLabel() {
-      if (this.engine === 'google') return 'Google 翻译'
-      const p = this.findProvider()
-      return p ? (p.displayName || p.name) + ' · 模型' : '模型翻译'
-    },
-    // 缩放徽标文案："125%" / "网页 150%" / "界面 110% · 网页 150%"
-    zoomBadges() {
-      const parts = []
-      if (this.zoom.ui !== 100) parts.push('界面 ' + this.zoom.ui + '%')
-      if (this.zoom.web !== 100) parts.push('网页 ' + this.zoom.web + '%')
-      return parts.join(' · ')
-    },
-    zoomTitle() {
-      return '当前缩放：界面 ' + this.zoom.ui + '%，网页 ' + this.zoom.web + '%（点击恢复 100%）'
-    },
-    progressText() {
-      const p = this.progress
-      if (!p || (!p.total && !p.error)) return ''
-      if (p.error) return '翻译失败'
-      return '已译 ' + p.done + '/' + p.total + ' 段'
-    },
-    progressTitle() {
-      const p = this.progress
-      if (p && p.error) return p.error
-      return ''
-    }
-  },
-  watch: {
-    // 导航后同步地址栏（用户正在输入时不打断）
-    'state.url'(v) {
-      if (!this.addrFocused) this.input = v
-    },
-    // 目标语言切换：回灌主进程（变更自动重译）+ 持久化
-    targetLang() {
-      this.applyEngine()
-    }
-  },
-  mounted() {
-    const browser = window.electronAPI && window.electronAPI.browser
-    // 点击面板外关闭下拉（DOM 方案，无需指令）
-    document.addEventListener('click', this.onDocClick)
-    if (browser) this.browser = browser
+defineOptions({ name: 'DeckBrowser' })
 
-    // 恢复引擎配置 + 供应商列表（IndexedDB）；仅文本生成模型（图像模型不参与对话）
-    this.providers = (getItem('aiProviderList', []) || []).filter(p => p && p.type !== 'image')
-    const saved = getItem(ENGINE_KEY, null)
-    if (saved && saved.engine) {
-      this.engine = saved.engine
-      this.providerId = saved.providerId || ''
-    }
-    if (saved && saved.target && LANGS[saved.target]) this.targetLang = saved.target
-    // 选了模型翻译但供应商缺失：回退默认供应商 / Google
-    if (this.engine === 'llm' && !this.findProvider()) {
-      const def = this.providers.find(p => p.isDefault) || this.providers[0]
-      if (def) {
-        this.providerId = def.id
-      } else {
-        this.engine = 'google'
-        this.providerId = ''
-      }
-    }
+const input = ref('')
+const addrFocused = ref(false)
+const state = reactive({
+  url: '',
+  title: '',
+  isLoading: false,
+  canGoBack: false,
+  canGoForward: false
+})
+const translating = ref(false)
+const engine = ref('google')
+const providerId = ref('')
+const targetLang = ref('zh-CN')
+const detectedName = ref('')
+const providers = ref([])
+const progress = reactive({ total: 0, done: 0, failed: 0 })
+const lastError = ref('')
+const notice = ref({ text: '', type: 'info' })
+// 当前展开的下拉：'' | 'lang' | 'engine'
+const menu = ref('')
+const zoom = reactive({ ui: 100, web: 100 })
 
-    // 翻译进度回推（引擎级错误提示切换）
-    if (browser) {
-      this.offProgress = browser.onProgress(p => {
-        if (!p) return
-        if (p.error) {
-          if (p.error !== this.lastError) {
-            this.lastError = p.error
-            const hint = this.engine === 'google' ? '，建议切换为模型翻译' : '，请检查模型配置或改用 Google 翻译'
-            this.notify('error', '翻译失败：' + p.error + hint)
-          }
-          this.progress = Object.assign({}, this.progress, { error: p.error })
-          return
-        }
-        this.lastError = ''
-        this.progress = p
-      })
-      // 缩放回推（Cmd+± 界面/网页双值）；旧 preload 无此 API 时静默跳过
-      if (typeof browser.onZoom === 'function') {
-        this.offZoom = browser.onZoom(z => {
-          if (z && typeof z.ui === 'number') this.zoom = z
-        })
-      }
-    }
+// 模板 ref
+const addr = ref(null)
+const langMenu = ref(null)
+const engineMenu = ref(null)
+const webview = ref(null)
 
-    // webview 就绪经模板 @dom-ready 事件（onDomReady），无需 addEventListener
-    this.applyEngine()
-  },
-  beforeUnmount() {
-    document.removeEventListener('click', this.onDocClick)
-    if (this.offProgress) this.offProgress()
-    if (this.offZoom) this.offZoom()
-    if (this.noticeTimer) clearTimeout(this.noticeTimer)
-  },
-  methods: {
-    // 徽标点击：恢复全部 100%（UI + 网页）
-    onZoomBadge() {
-      if (this.browser) this.browser.resetZoom('ui')
-      if (this.browser) this.browser.resetZoom('web')
-    },
-    // 页内提示条（8s 自动消失）
-    notify(type, text) {
-      this.notice = { type, text }
-      if (this.noticeTimer) clearTimeout(this.noticeTimer)
-      this.noticeTimer = setTimeout(() => {
-        this.notice = { text: '', type: 'info' }
-      }, 8000)
-    },
-    // ===== webview 生命周期 =====
-    wvReady() {
-      return this.$refs.webview || null
-    },
-    // webview 首次就绪：初始状态 + 主进程翻译注入通道（每次 dom-ready 都可能触发，
-    // 如进程恢复；attachWebview/pageLoaded 幂等）
-    onDomReady() {
-      const wv = this.wvReady()
-      if (!wv) return
-      this.syncFromWebview()
-      if (this.browser) {
-        this.browser.attachWebview()
-        // 翻译开启中：新页面重新注入
-        if (this.translating) this.browser.pageLoaded()
-      }
-    },
-    // 从 webview 同步导航状态（事件驱动）；未 dom-ready 前页面方法不可调
-    syncFromWebview() {
-      const wv = this.wvReady()
-      if (!wv) return
-      let url = ''
-      try { url = wv.getURL() } catch (err) { return }
-      this.state = Object.assign({}, this.state, {
-        url: url,
-        title: wv.getTitle(),
-        isLoading: wv.isLoading(),
-        canGoBack: wv.canGoBack(),
-        canGoForward: wv.canGoForward()
-      })
-      this.detectZoom()
-    },
-    // webview DOM 事件统一入口（loading/navigate/title 等）
-    onStateEvent() {
-      this.syncFromWebview()
-    },
-    // 页面加载完成：注入翻译（经主进程，幂等）
-    onLoaded() {
-      this.syncFromWebview()
-      if (this.translating && this.browser) this.browser.pageLoaded()
-    },
-    // 主帧加载失败：页内提示
-    onFailLoad(e) {
-      const code = e && e.errorCode
-      if (code === -3) return // ERR_ABORTED：主动跳转中断，非错误
-      this.syncFromWebview()
-      this.notify('error', '页面加载失败：' + ((e && e.errorDescription) || code || '未知错误'))
-    },
-    // 网页侧缩放值探测（webview.getZoomFactor）
-    detectZoom() {
-      const wv = this.wvReady()
-      if (!wv || !wv.getZoomFactor) return
-      try {
-        const web = Math.round((wv.getZoomFactor() || 1) * 100)
-        if (web !== this.zoom.web) this.zoom = Object.assign({}, this.zoom, { web })
-      } catch (err) { /* webview 未就绪 */ }
-    },
-    // webview 是否已就绪（dom-ready 后页面方法才可安全调用）
-    wvIsReady() {
-      const wv = this.wvReady()
-      if (!wv) return false
-      try { wv.getURL(); return true } catch (err) { return false }
-    },
-    // ===== DOM 下拉面板（与按钮天然对齐，无坐标换算） =====
-    toggleMenu(which) {
-      this.menu = this.menu === which ? '' : which
-    },
-    closeMenus() {
-      this.menu = ''
-    },
-    onDocClick(e) {
-      if (!this.menu) return
-      const inLang = this.$refs.langMenu && this.$refs.langMenu.contains(e.target)
-      const inEngine = this.$refs.engineMenu && this.$refs.engineMenu.contains(e.target)
-      if (!inLang && !inEngine) this.closeMenus()
-    },
-    pickLang(code) {
-      this.targetLang = code
-      this.closeMenus()
-    },
-    pickEngine(val) {
-      if (val === 'google') {
-        this.engine = 'google'
-        this.providerId = ''
-      } else {
-        this.engine = 'llm'
-        this.providerId = val.slice(4)
-      }
-      this.applyEngine()
-      this.closeMenus()
-    },
-    onBack() {
-      const wv = this.wvReady()
-      if (wv && wv.canGoBack()) this.navCmd('goBack')
-    },
-    onForward() {
-      const wv = this.wvReady()
-      if (wv && wv.canGoForward()) this.navCmd('goForward')
-    },
-    onReload() {
-      const wv = this.wvReady()
-      if (wv) this.navCmd('reload')
-    },
-    onStop() {
-      const wv = this.wvReady()
-      if (wv) this.navCmd('stop')
-    },
-    // 导航命令统一走主进程（browser:navigate）：渲染层直调 webview.loadURL 等
-    // 走 Electron 内部 GUEST_VIEW_MANAGER_CALL，导航被重定向/新导航取代时 reject
-    // ERR_ABORTED(-3) 且主进程必打报错日志；preload 未就绪时兜底直调并 catch
-    navCmd(cmd, url) {
-      if (this.browser) {
-        this.browser.navigate(cmd, url).catch(() => {})
-        return
-      }
-      const wv = this.wvReady()
-      if (!wv) return
-      try {
-        const r = cmd === 'loadURL' ? wv.loadURL(url) : wv[cmd]()
-        if (r && typeof r.catch === 'function') r.catch(() => {})
-      } catch (err) { /* webview 未 attach：静默 */ }
-    },
-    // 地址归一化：无协议补 https，localhost/IP 补 http
-    normalizeUrl(input) {
-      const s = String(input || '').trim()
-      if (!s) return ''
-      if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return s
-      if (/^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#]|$)/i.test(s)) return 'http://' + s
-      return 'https://' + s
-    },
-    onGo() {
-      const wv = this.wvReady()
-      if (!wv) return
-      const url = this.normalizeUrl(this.input)
-      if (!/^https?:/i.test(url)) {
-        this.notify('warning', '仅支持 http/https 网页地址')
-        return
-      }
-      this.navCmd('loadURL', url)
-      this.$refs.addr && this.$refs.addr.blur()
-    },
-    toggleTranslate() {
-      this.translating = !this.translating
-      this.applyTranslate()
-    },
-    applyTranslate() {
-      if (this.browser) this.browser.setTranslate(this.translating)
-    },
-    findProvider() {
-      return this.providers.find(p => p.id === this.providerId) || null
-    },
-    // 引擎/目标语言切换：回灌主进程 + 持久化（引擎切换后重新点「翻译」按新引擎重译；
-    // 目标语言变更时主进程自动重译当前页面）
-    applyEngine() {
-      const provider = this.findProvider()
-      if (this.browser) {
-        this.browser.setEngine({
-          engine: this.engine,
-          target: this.targetLang,
-          provider: provider
-            ? { baseUrl: provider.baseUrl, apiKey: provider.apiKey, model: provider.model }
-            : null
-        })
-      }
-      setItem(ENGINE_KEY, { engine: this.engine, providerId: this.providerId, target: this.targetLang })
+// preload browser API（mounted 时解析）与事件卸载/提示定时器（非响应式）
+let browser = null
+let offProgress = null
+let offZoom = null
+let noticeTimer = null
+
+const isHttps = computed(() => /^https:/i.test(state.url))
+// "检测语言 → 目标语言" 流向文案（Google 引擎在翻译后回填检测语言）
+const langFlow = computed(() => {
+  if (!detectedName.value) return ''
+  return detectedName.value + ' → ' + (LANGS[targetLang.value] || targetLang.value)
+})
+const langFlowTitle = computed(() => {
+  return '页面语言：' + detectedName.value + '，正在翻译为 ' + (LANGS[targetLang.value] || targetLang.value)
+})
+// 引擎按钮文案
+const engineLabel = computed(() => {
+  if (engine.value === 'google') return 'Google 翻译'
+  const p = findProvider()
+  return p ? (p.displayName || p.name) + ' · 模型' : '模型翻译'
+})
+// 缩放徽标文案："125%" / "网页 150%" / "界面 110% · 网页 150%"
+const zoomBadges = computed(() => {
+  const parts = []
+  if (zoom.ui !== 100) parts.push('界面 ' + zoom.ui + '%')
+  if (zoom.web !== 100) parts.push('网页 ' + zoom.web + '%')
+  return parts.join(' · ')
+})
+const zoomTitle = computed(() => {
+  return '当前缩放：界面 ' + zoom.ui + '%，网页 ' + zoom.web + '%（点击恢复 100%）'
+})
+const progressText = computed(() => {
+  const p = progress
+  if (!p || (!p.total && !p.error)) return ''
+  if (p.error) return '翻译失败'
+  return '已译 ' + p.done + '/' + p.total + ' 段'
+})
+const progressTitle = computed(() => {
+  const p = progress
+  if (p && p.error) return p.error
+  return ''
+})
+
+// 导航后同步地址栏（用户正在输入时不打断）
+watch(() => state.url, v => {
+  if (!addrFocused.value) input.value = v
+})
+// 目标语言切换：回灌主进程（变更自动重译）+ 持久化
+watch(targetLang, () => {
+  applyEngine()
+})
+
+onMounted(() => {
+  const api = window.electronAPI && window.electronAPI.browser
+  // 点击面板外关闭下拉（DOM 方案，无需指令）
+  document.addEventListener('click', onDocClick)
+  if (api) browser = api
+
+  // 恢复引擎配置 + 供应商列表（IndexedDB）；仅文本生成模型（图像模型不参与对话）
+  providers.value = (getItem('aiProviderList', []) || []).filter(p => p && p.type !== 'image')
+  const saved = getItem(ENGINE_KEY, null)
+  if (saved && saved.engine) {
+    engine.value = saved.engine
+    providerId.value = saved.providerId || ''
+  }
+  if (saved && saved.target && LANGS[saved.target]) targetLang.value = saved.target
+  // 选了模型翻译但供应商缺失：回退默认供应商 / Google
+  if (engine.value === 'llm' && !findProvider()) {
+    const def = providers.value.find(p => p.isDefault) || providers.value[0]
+    if (def) {
+      providerId.value = def.id
+    } else {
+      engine.value = 'google'
+      providerId.value = ''
     }
   }
+
+  // 翻译进度回推（引擎级错误提示切换）
+  if (api) {
+    offProgress = api.onProgress(p => {
+      if (!p) return
+      if (p.error) {
+        if (p.error !== lastError.value) {
+          lastError.value = p.error
+          const hint = engine.value === 'google' ? '，建议切换为模型翻译' : '，请检查模型配置或改用 Google 翻译'
+          notify('error', '翻译失败：' + p.error + hint)
+        }
+        Object.assign(progress, { error: p.error })
+        return
+      }
+      lastError.value = ''
+      Object.assign(progress, p)
+    })
+    // 缩放回推（Cmd+± 界面/网页双值）；旧 preload 无此 API 时静默跳过
+    if (typeof api.onZoom === 'function') {
+      offZoom = api.onZoom(z => {
+        if (z && typeof z.ui === 'number') Object.assign(zoom, z)
+      })
+    }
+  }
+
+  // webview 就绪经模板 @dom-ready 事件（onDomReady），无需 addEventListener
+  applyEngine()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick)
+  if (offProgress) offProgress()
+  if (offZoom) offZoom()
+  if (noticeTimer) clearTimeout(noticeTimer)
+})
+
+// 徽标点击：恢复全部 100%（UI + 网页）
+function onZoomBadge() {
+  if (browser) browser.resetZoom('ui')
+  if (browser) browser.resetZoom('web')
+}
+// 页内提示条（8s 自动消失）
+function notify(type, text) {
+  notice.value = { type, text }
+  if (noticeTimer) clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => {
+    notice.value = { text: '', type: 'info' }
+  }, 8000)
+}
+// ===== webview 生命周期 =====
+function wvReady() {
+  return webview.value || null
+}
+// webview 首次就绪：初始状态 + 主进程翻译注入通道（每次 dom-ready 都可能触发，
+// 如进程恢复；attachWebview/pageLoaded 幂等）
+function onDomReady() {
+  const wv = wvReady()
+  if (!wv) return
+  syncFromWebview()
+  if (browser) {
+    browser.attachWebview()
+    // 翻译开启中：新页面重新注入
+    if (translating.value) browser.pageLoaded()
+  }
+}
+// 从 webview 同步导航状态（事件驱动）；未 dom-ready 前页面方法不可调
+function syncFromWebview() {
+  const wv = wvReady()
+  if (!wv) return
+  let url = ''
+  try { url = wv.getURL() } catch (err) { return }
+  Object.assign(state, {
+    url: url,
+    title: wv.getTitle(),
+    isLoading: wv.isLoading(),
+    canGoBack: wv.canGoBack(),
+    canGoForward: wv.canGoForward()
+  })
+  detectZoom()
+}
+// webview DOM 事件统一入口（loading/navigate/title 等）
+function onStateEvent() {
+  syncFromWebview()
+}
+// 页面加载完成：注入翻译（经主进程，幂等）
+function onLoaded() {
+  syncFromWebview()
+  if (translating.value && browser) browser.pageLoaded()
+}
+// 主帧加载失败：页内提示
+function onFailLoad(e) {
+  const code = e && e.errorCode
+  if (code === -3) return // ERR_ABORTED：主动跳转中断，非错误
+  syncFromWebview()
+  notify('error', '页面加载失败：' + ((e && e.errorDescription) || code || '未知错误'))
+}
+// 网页侧缩放值探测（webview.getZoomFactor）
+function detectZoom() {
+  const wv = wvReady()
+  if (!wv || !wv.getZoomFactor) return
+  try {
+    const web = Math.round((wv.getZoomFactor() || 1) * 100)
+    if (web !== zoom.web) Object.assign(zoom, { web })
+  } catch (err) { /* webview 未就绪 */ }
+}
+// webview 是否已就绪（dom-ready 后页面方法才可安全调用）
+function wvIsReady() {
+  const wv = wvReady()
+  if (!wv) return false
+  try { wv.getURL(); return true } catch (err) { return false }
+}
+// ===== DOM 下拉面板（与按钮天然对齐，无坐标换算） =====
+function toggleMenu(which) {
+  menu.value = menu.value === which ? '' : which
+}
+function closeMenus() {
+  menu.value = ''
+}
+function onDocClick(e) {
+  if (!menu.value) return
+  const inLang = langMenu.value && langMenu.value.contains(e.target)
+  const inEngine = engineMenu.value && engineMenu.value.contains(e.target)
+  if (!inLang && !inEngine) closeMenus()
+}
+function pickLang(code) {
+  targetLang.value = code
+  closeMenus()
+}
+function pickEngine(val) {
+  if (val === 'google') {
+    engine.value = 'google'
+    providerId.value = ''
+  } else {
+    engine.value = 'llm'
+    providerId.value = val.slice(4)
+  }
+  applyEngine()
+  closeMenus()
+}
+function onBack() {
+  const wv = wvReady()
+  if (wv && wv.canGoBack()) navCmd('goBack')
+}
+function onForward() {
+  const wv = wvReady()
+  if (wv && wv.canGoForward()) navCmd('goForward')
+}
+function onReload() {
+  const wv = wvReady()
+  if (wv) navCmd('reload')
+}
+function onStop() {
+  const wv = wvReady()
+  if (wv) navCmd('stop')
+}
+// 导航命令统一走主进程（browser:navigate）：渲染层直调 webview.loadURL 等
+// 走 Electron 内部 GUEST_VIEW_MANAGER_CALL，导航被重定向/新导航取代时 reject
+// ERR_ABORTED(-3) 且主进程必打报错日志；preload 未就绪时兜底直调并 catch
+function navCmd(cmd, url) {
+  if (browser) {
+    browser.navigate(cmd, url).catch(() => {})
+    return
+  }
+  const wv = wvReady()
+  if (!wv) return
+  try {
+    const r = cmd === 'loadURL' ? wv.loadURL(url) : wv[cmd]()
+    if (r && typeof r.catch === 'function') r.catch(() => {})
+  } catch (err) { /* webview 未 attach：静默 */ }
+}
+// 地址归一化：无协议补 https，localhost/IP 补 http
+function normalizeUrl(input) {
+  const s = String(input || '').trim()
+  if (!s) return ''
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return s
+  if (/^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#]|$)/i.test(s)) return 'http://' + s
+  return 'https://' + s
+}
+function onGo() {
+  const wv = wvReady()
+  if (!wv) return
+  const url = normalizeUrl(input.value)
+  if (!/^https?:/i.test(url)) {
+    notify('warning', '仅支持 http/https 网页地址')
+    return
+  }
+  navCmd('loadURL', url)
+  addr.value && addr.value.blur()
+}
+function toggleTranslate() {
+  translating.value = !translating.value
+  applyTranslate()
+}
+function applyTranslate() {
+  if (browser) browser.setTranslate(translating.value)
+}
+function findProvider() {
+  return providers.value.find(p => p.id === providerId.value) || null
+}
+// 引擎/目标语言切换：回灌主进程 + 持久化（引擎切换后重新点「翻译」按新引擎重译；
+// 目标语言变更时主进程自动重译当前页面）
+function applyEngine() {
+  const provider = findProvider()
+  if (browser) {
+    browser.setEngine({
+      engine: engine.value,
+      target: targetLang.value,
+      provider: provider
+        ? { baseUrl: provider.baseUrl, apiKey: provider.apiKey, model: provider.model }
+        : null
+    })
+  }
+  setItem(ENGINE_KEY, { engine: engine.value, providerId: providerId.value, target: targetLang.value })
 }
 </script>
 

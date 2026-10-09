@@ -234,7 +234,7 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 权限策略编辑页（分组视图，全宽单栏）：工具目录与权限管控合并
 // 呈现——工具组 / 特殊面组（path / external_directory* / mcp / skill / 兜底）/
 // 自定义规则组三段式；运行时状态（禁用态 / 预装依赖）随工具行呈现。
@@ -242,468 +242,490 @@
 // authorizerChain 固定指向 OmniBuddy 确认卡片桥接，不在本页暴露；
 // 恢复系统默认走「重置默认」（服务端 permissionReset 整份重写 defaultConfig）
 // 分组元数据来自 categories.js（一处定义，主进程新增分组自动出现）
+import { ref, reactive, computed } from 'vue'
 import { CAPABILITY_CATEGORIES } from '../capabilities/categories'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddyPermissions',
-  components: { BuddySkeleton },
-  data() {
-    return {
-      loading: false,
-      loaded: false,
-      saving: false,
-      resetting: false,
-      // 分组视图模型：工具组（同构）+ 特殊面组 + 自定义组
-      viewGroups: [],
-      specialRows: [],
-      customRows: [],
-      savedJson: '',
-      // 目录索引（能力清单下发）：name → { key, label, description, perm }
-      catalogIndex: {},
-      // 特殊面索引：name → 元数据
-      specialIndex: {},
-      // 自定义行对象下拉选项（工具名 + 特殊面），支持 allow-create 手动输入
-      surfaceOptions: [],
-      // 预装依赖弹窗（原能力清单承接）：当前查看的运行时工具及其依赖分组
-      deps: {
-        visible: false,
-        software: '',
-        source: '',
-        sourceLabel: '',
-        installed: 0,
-        modules: [],
-        groups: [],
-        tools: []
-      }
-    }
-  },
-  computed: {
-    // 深层模型（action/patterns/customRows）为 reactive，computed 直接建立
-    // 深层依赖，任何编辑自动重算；loaded 前恒非脏（loading 期禁点保存）
-    isDirty() {
-      return !!this.loaded && this.snapshotJson() !== this.savedJson
-    },
-    // 规则总数（展平口径：每工具默认动作 1 条 + 细则 + 自定义行）
-    ruleCount() {
-      const perm = this.serializePermission()
-      let n = 0
-      Object.keys(perm).forEach(surface => {
-        const v = perm[surface]
-        n += (v && typeof v === 'object') ? Object.keys(v).length : 1
-      })
-      return n
-    },
-    // 当前全局兜底动作的中文标签（继承兜底角标提示用）
-    fallbackLabel() {
-      const a = (this.specialRows.find(r => r.name === '*') || {}).action || 'ask'
-      return { allow: '允许', ask: '每次确认', deny: '禁用' }[a] || '每次确认'
-    }
-  },
-  created() {
-    this.load()
-  },
-  methods: {
-    api() {
-      return (window.electronAPI && window.electronAPI.omnibuddy) || null
-    },
-    async load() {
-      const api = this.api()
-      if (!api || !api.permissionConfig) return
-      this.loading = true
-      try {
-        // 先载能力清单（目录索引 + 自定义行下拉），再载配置展平归类
-        await this.loadCatalog()
-        const res = await api.permissionConfig()
-        const config = (res && res.config) || {}
-        this.applyFlat(this.flattenPermission(config.permission, (res && res.notes) || {}))
-        this.loaded = true
-      } finally {
-        this.loading = false
-      }
-    },
-    // 能力清单 → 目录索引 + 自定义行下拉选项 + 特殊面索引
-    async loadCatalog() {
-      const api = this.api()
-      if (!api || !api.capabilityList) return
-      try {
-        const res = await api.capabilityList()
-        if (!res || !res.ok) return
-        const groups = res.groups || {}
-        const special = res.specialSurfaces || []
-        this.specialIndex = {}
-        special.forEach(s => { this.specialIndex[s.name] = s })
-        // 目录索引 + 分组骨架（asSurface === false 的组不进权限视图，如连接器）
-        const metaOf = key => CAPABILITY_CATEGORIES.find(c => c.key === key) || null
-        this.catalogIndex = {}
-        this.viewGroups = []
-        Object.keys(groups).forEach(k => {
-          const meta = metaOf(k)
-          if (meta && meta.asSurface === false) return
-          const items = Array.isArray(groups[k]) ? groups[k] : []
-          if (!items.length) return
-          const group = {
-            key: k,
-            label: (meta && meta.label) || k,
-            icon: (meta && meta.icon) || 'tool',
-            desc: (meta && meta.desc) || '',
-            items: []
-          }
-          items.forEach(t => {
-            this.catalogIndex[t.name] = {
-              key: k, label: t.label, description: t.description, perm: t.perm,
-              // 运行时状态（原能力清单承接）：禁用态标识 + 预装依赖弹窗数据
-              disabled: !!t.disabled,
-              runtime: t.runtime || null,
-              // 系统默认项（静态工具 / 内置连接器）= true；自建连接器动态条目 = false
-              systemDefault: t.systemDefault !== false
-            }
-          })
-          this.viewGroups.push(group)
-        })
-        // 特殊面组骨架
-        this.specialRows = special.map(s => ({
-          name: s.name, label: s.label, description: s.description,
-          action: 'ask', patterns: [], expanded: false
-        }))
-        // 自定义行下拉：全部工具 + 特殊面（手输兜底保留）
-        const map = t => ({ value: t.name, desc: t.label || t.description || '', label: t.name })
-        const out = this.viewGroups.map(g => ({ label: g.label, items: (groups[g.key] || []).map(map) }))
-        if (special.length) out.push({ label: '特殊面', items: special.map(map) })
-        this.surfaceOptions = out
-      } catch (e) { /* 目录不可用时保留手输能力 */ }
-    },
-    // permission 对象（标量/嵌套混合）展平为规则行（读取配置与预设共用）
-    flattenPermission(perm, notes) {
-      const rows = []
-      const n = notes || {}
-      Object.keys(perm || {}).forEach(surface => {
-        const v = perm[surface]
-        const desc = pattern => n[surface + '|' + pattern] || ''
-        if (typeof v === 'string') {
-          rows.push({ surface, pattern: '*', action: v, desc: desc('*') })
-        } else if (v && typeof v === 'object') {
-          Object.keys(v).forEach(pattern => {
-            rows.push({ surface, pattern, action: v[pattern], desc: desc(pattern) })
-          })
-        }
-      })
-      return rows
-    },
-    // 展平规则行 → 分组视图模型（归类：目录命中 → 工具组；特殊面命中 → 特殊面组；
-    // mcp__ 前缀目录外键 → MCP 组附加行；其余 → 自定义组）
-    applyFlat(flatRows) {
-      // 组行初始化：目录全部条目（无配置键的行回落目录 perm / 兜底，保持与
-      // 能力清单条目一一对应——目录有 45 项工具，本页工具组即 45 行）
-      const fallback = this.flatActionOf(flatRows, '*') || 'ask'
-      this.viewGroups.forEach(g => {
-        const items = []
-        const names = Object.keys(this.catalogIndex).filter(n => this.catalogIndex[n].key === g.key)
-        names.forEach(name => {
-          const meta = this.catalogIndex[name]
-          items.push({
-            name,
-            label: meta.label,
-            description: meta.description,
-            disabled: meta.disabled,
-            runtime: meta.runtime,
-            systemDefault: meta.systemDefault !== false,
-            // 自建连接器初始无专属规则：动作与兜底等价时标记「继承兜底」，
-            // 被显式配置命中或用户手动调整后取消（与序列化「等价兜底不落键」
-            // 口径一致）
-            inherited: meta.systemDefault === false && this.permDefault(meta.perm, fallback) === fallback,
-            action: this.permDefault(meta.perm, fallback),
-            patterns: [],
-            expanded: false
-          })
-        })
-        g.items = items
-      })
-      this.specialRows.forEach(r => { r.action = fallback; r.patterns = []; r.expanded = false })
-      this.customRows = []
-      const rowOf = name => {
-        for (const g of this.viewGroups) {
-          const hit = g.items.find(r => r.name === name)
-          if (hit) return hit
-        }
-        return null
-      }
-      flatRows.forEach(f => {
-        const special = this.specialIndex[f.surface]
-        if (special) {
-          const hit = this.specialRows.find(r => r.name === f.surface)
-          if (!hit) return
-          if (f.pattern === '*') hit.action = f.action
-          else hit.patterns.push({ pattern: f.pattern, action: f.action, desc: f.desc })
-          return
-        }
-        if (this.catalogIndex[f.surface]) {
-          const hit = rowOf(f.surface)
-          if (!hit) return
-          // 配置中存在该面的显式规则 → 不再是继承兜底态
-          hit.inherited = false
-          if (f.pattern === '*') hit.action = f.action
-          else hit.patterns.push({ pattern: f.pattern, action: f.action, desc: f.desc })
-          return
-        }
-        // MCP 具体工具键（mcp__服务器__工具，目录只登记通配条目）→ MCP 组附加行
-        if (f.surface.indexOf('mcp__') === 0) {
-          const g = this.viewGroups.find(x => x.key === 'mcpBuiltin')
-          if (g) {
-            let row = g.items.find(r => r.name === f.surface)
-            if (!row) {
-              row = {
-                name: f.surface,
-                label: f.surface,
-                description: '使用中追加的 MCP 工具规则（目录未逐工具登记）',
-                action: 'ask',
-                patterns: [],
-                expanded: false,
-                appended: true
-              }
-              g.items.push(row)
-            }
-            if (f.pattern === '*') row.action = f.action
-            else row.patterns.push({ pattern: f.pattern, action: f.action, desc: f.desc })
-            return
-          }
-        }
-        // 其余目录外键 → 自定义组
-        this.customRows.push({ surface: f.surface, desc: f.desc, pattern: f.pattern, action: f.action })
-      })
-      this.savedJson = this.snapshotJson()
-    },
-    // 展平行中 '*' 兜底面的动作（预设/配置缺项时的回落值）
-    flatActionOf(flatRows, surface) {
-      const hit = flatRows.find(r => r.surface === surface && r.pattern === '*')
-      return hit ? hit.action : ''
-    },
-    // 目录 perm 字段（标量或 pattern 对象）→ 行默认动作
-    permDefault(perm, fallback) {
-      if (perm === undefined) return fallback
-      if (typeof perm === 'string') return perm
-      if (perm && typeof perm === 'object' && typeof perm['*'] === 'string') return perm['*']
-      return fallback
-    },
-    // 分组视图模型 → permission 对象（同 surface 单 * 规则为标量，多行为对象）
-    serializePermission() {
-      const perm = {}
-      const write = (name, action, patterns) => {
-        const a = ['allow', 'ask', 'deny'].indexOf(action) >= 0 ? action : 'ask'
-        const valid = (patterns || []).filter(p => p.pattern)
-        if (!valid.length) {
-          perm[name] = a
-        } else {
-          const obj = { '*': a }
-          valid.forEach(p => { obj[p.pattern] = ['allow', 'ask', 'deny'].indexOf(p.action) >= 0 ? p.action : 'ask' })
-          perm[name] = obj
-        }
-      }
-      // 当前编辑态兜底动作（特殊面 '*' 行）：非系统默认条目动作与其等价时
-      // 不落显式键（回落兜底即可），避免保存 / 重置后自建连接器 ask 键成为
-      // 既看不见差异、又清不掉的冗余配置
-      const fallbackAction = (this.specialRows.find(r => r.name === '*') || {}).action || 'ask'
-      this.viewGroups.forEach(g => g.items.forEach(r => {
-        const hasPatterns = (r.patterns || []).some(p => p.pattern)
-        if (r.systemDefault === false && !hasPatterns && r.action === fallbackAction) return
-        write(r.name, r.action, r.patterns)
-      }))
-      this.specialRows.forEach(r => write(r.name, r.action, r.patterns))
-      // 自定义行：按 surface 聚合（单 '*' 标量 / 多条对象）
-      const bySurface = {}
-      this.customRows.forEach(r => {
-        if (!r.surface) return
-        if (!bySurface[r.surface]) bySurface[r.surface] = []
-        bySurface[r.surface].push({ pattern: r.pattern || '*', action: r.action })
-      })
-      Object.keys(bySurface).forEach(surface => {
-        const list = bySurface[surface]
-        if (list.length === 1 && list[0].pattern === '*') {
-          perm[surface] = list[0].action
-        } else {
-          const obj = {}
-          list.forEach(it => { obj[it.pattern] = it.action })
-          perm[surface] = obj
-        }
-      })
-      return perm
-    },
-    // 规则说明 sidecar：细则行 + 自定义行（目录行说明由目录维护，不落盘）
-    collectNotes() {
-      const notes = {}
-      const walk = r => (r.patterns || []).forEach(p => {
-        if (p.pattern && p.desc) notes[r.name + '|' + p.pattern] = p.desc
-      })
-      this.viewGroups.forEach(g => g.items.forEach(walk))
-      this.specialRows.forEach(walk)
-      this.customRows.forEach(r => {
-        if (r.surface && r.desc) notes[r.surface + '|' + (r.pattern || '*')] = r.desc
-      })
-      return notes
-    },
-    snapshotJson() {
-      return JSON.stringify({ permission: this.serializePermission(), notes: this.collectNotes() })
-    },
-    async save() {
-      const api = this.api()
-      if (!api || !api.savePermissionConfig) return
-      // 校验：自定义行空对象 / 空说明阻断；细则空 pattern 阻断（"" 键是无效规则）
-      const emptySurface = this.customRows.findIndex(r => !r.surface)
-      if (emptySurface >= 0) {
-        this.$message.error('自定义规则第 ' + (emptySurface + 1) + ' 行未选择/输入对象，请补全或删除该行')
-        return
-      }
-      const emptyDesc = this.customRows.findIndex(r => !r.desc)
-      if (emptyDesc >= 0) {
-        this.$message.error('自定义规则第 ' + (emptyDesc + 1) + ' 行缺少说明，请填写一句话用途描述')
-        return
-      }
-      let badPattern = ''
-      this.viewGroups.concat([{ items: this.specialRows }]).forEach(g =>
-        g.items.forEach(r => (r.patterns || []).forEach(p => { if (!p.pattern && !badPattern) badPattern = r.name }))
-      )
-      if (badPattern) {
-        this.$message.error('「' + badPattern + '」存在空匹配模式的细则，请补全或删除')
-        return
-      }
-      this.saving = true
-      try {
-        const res = await api.savePermissionConfig({
-          config: {
-            yoloMode: false,
-            authorizerChain: ['omnibuddy-ui'],
-            permission: this.serializePermission()
-          },
-          notes: this.collectNotes()
-        })
-        if (res && res.ok) {
-          this.savedJson = this.snapshotJson()
-          this.$message.success('已保存，新对话生效')
-        } else {
-          this.$message.error((res && res.error) || '保存失败')
-        }
-      } finally {
-        this.saving = false
-      }
-    },
-    // 重置为系统默认策略：清空全部自建规则与说明，二次确认防误触
-    async resetDefault() {
-      const api = this.api()
-      if (!api || !api.permissionReset) return
-      let confirmed = false
-      try {
-        await this.$confirm(
-          '将清空全部自定义规则与说明，恢复为系统默认策略。此操作不可撤销，确定继续？',
-          '重置权限策略',
-          { confirmButtonText: '重置', cancelButtonText: '取消', type: 'warning' }
-        )
-        confirmed = true
-      } catch (e) { /* 取消 */ }
-      if (!confirmed) return
-      this.resetting = true
-      try {
-        const res = await api.permissionReset()
-        if (res && res.ok) {
-          await this.load()
-          this.$message.success('已恢复默认策略')
-        } else {
-          this.$message.error((res && res.error) || '重置失败')
-        }
-      } finally {
-        this.resetting = false
-      }
-    },
-    // ===== 行内编辑动作 =====
-    toggleDetail(row) {
-      row.expanded = !row.expanded
-    },
-    // 已落位依赖数（依赖按钮「n / m」，原能力清单承接）
-    installedCount(rt) {
-      return (rt.modules || []).filter(m => m.installed).length
-    },
-    // 打开预装依赖弹窗：按 group 归并模块清单（原能力清单承接）
-    openDeps(row) {
-      const rt = row.runtime
-      const groups = []
-      ;(rt.modules || []).forEach(m => {
-        let g = groups.find(x => x.title === m.group)
-        if (!g) {
-          g = { title: m.group, items: [] }
-          groups.push(g)
-        }
-        g.items.push(m)
-      })
-      this.deps = {
-        visible: true,
-        software: rt.software,
-        source: rt.source,
-        sourceLabel: rt.sourceLabel,
-        installed: this.installedCount(rt),
-        modules: rt.modules || [],
-        groups,
-        tools: rt.tools || []
-      }
-    },
-    addPattern(row) {
-      row.patterns.push({ pattern: '', action: 'ask', desc: '' })
-      row.expanded = true
-      // 添加细则即显式意图：立即脱离继承兜底态
-      if (row.systemDefault === false) row.inherited = false
-      this.markDirty()
-    },
-    removePattern(row, i) {
-      row.patterns.splice(i, 1)
-      this.refreshInherited(row)
-      this.markDirty()
-    },
-    // 细则 pattern 输入：填入有效 pattern → 脱离继承态；全部清空 → 重算
-    onPatternInput(row) {
-      this.refreshInherited(row)
-      this.markDirty()
-    },
-    // 工具行三态切换：自建连接器切回与全局兜底等价且无细则时恢复继承态
-    onRowActionChange(row) {
-      this.refreshInherited(row)
-      this.markDirty()
-    },
-    // 特殊面动作变更：兜底 '*' 变化会改变所有自建连接器行的「等价」判定，
-    // 需统一重算继承态（如兜底改 allow 后，ask 的连接器行即成为显式规则）
-    onSpecialActionChange(row) {
-      if (row.name === '*') {
-        this.viewGroups.forEach(g => g.items.forEach(r => this.refreshInherited(r)))
-      }
-      this.markDirty()
-    },
-    // 重算自建连接器行的继承态：无有效细则且动作 == 兜底动作 → 继承
-    refreshInherited(row) {
-      if (!row || row.systemDefault !== false) return
-      const fb = (this.specialRows.find(r => r.name === '*') || {}).action || 'ask'
-      const hasPatterns = (row.patterns || []).some(p => p.pattern)
-      row.inherited = !hasPatterns && row.action === fb
-    },
-    addCustomRow() {
-      this.customRows.push({ surface: '', desc: '', pattern: '*', action: 'ask' })
-      this.markDirty()
-    },
-    removeCustomRow(i) {
-      this.customRows.splice(i, 1)
-      this.markDirty()
-    },
-    // 自定义行对象选中：能力清单命中的自动带出说明（用户已写的不覆盖）
-    onSurfaceChange(i) {
-      const r = this.customRows[i]
-      if (r && r.surface && !r.desc) {
-        const hit = this.surfaceOptions.reduce((acc, g) => acc || g.items.find(o => o.value === r.surface), null)
-        if (hit && hit.desc) r.desc = hit.desc
-      }
-      this.markDirty()
-    },
-    // dirty 检测依赖 Vue3 深层响应（serializePermission 访问全部 action /
-    // patterns / customRows，任何编辑自动重算 isDirty / ruleCount），此处保留
-    // 空钩子维持模板事件绑定，不做额外状态维护
-    markDirty() {}
+defineOptions({ name: 'OmniBuddyPermissions' })
+
+const { message, confirm } = useFeedback()
+
+const loading = ref(false)
+const loaded = ref(false)
+const saving = ref(false)
+const resetting = ref(false)
+// 分组视图模型：工具组（同构）+ 特殊面组 + 自定义组
+const viewGroups = ref([])
+const specialRows = ref([])
+const customRows = ref([])
+const savedJson = ref('')
+// 目录索引（能力清单下发）：name → { key, label, description, perm }
+const catalogIndex = ref({})
+// 特殊面索引：name → 元数据
+const specialIndex = ref({})
+// 自定义行对象下拉选项（工具名 + 特殊面），支持 allow-create 手动输入
+const surfaceOptions = ref([])
+// 预装依赖弹窗（原能力清单承接）：当前查看的运行时工具及其依赖分组
+const deps = reactive({
+  visible: false,
+  software: '',
+  source: '',
+  sourceLabel: '',
+  installed: 0,
+  modules: [],
+  groups: [],
+  tools: []
+})
+
+// 深层模型（action/patterns/customRows）为 reactive，computed 直接建立
+// 深层依赖，任何编辑自动重算；loaded 前恒非脏（loading 期禁点保存）
+const isDirty = computed(() => {
+  return !!loaded.value && snapshotJson() !== savedJson.value
+})
+
+// 规则总数（展平口径：每工具默认动作 1 条 + 细则 + 自定义行）
+const ruleCount = computed(() => {
+  const perm = serializePermission()
+  let n = 0
+  Object.keys(perm).forEach(surface => {
+    const v = perm[surface]
+    n += (v && typeof v === 'object') ? Object.keys(v).length : 1
+  })
+  return n
+})
+
+// 当前全局兜底动作的中文标签（继承兜底角标提示用）
+const fallbackLabel = computed(() => {
+  const a = (specialRows.value.find(r => r.name === '*') || {}).action || 'ask'
+  return { allow: '允许', ask: '每次确认', deny: '禁用' }[a] || '每次确认'
+})
+
+function api() {
+  return (window.electronAPI && window.electronAPI.omnibuddy) || null
+}
+
+async function load() {
+  const a = api()
+  if (!a || !a.permissionConfig) return
+  loading.value = true
+  try {
+    // 先载能力清单（目录索引 + 自定义行下拉），再载配置展平归类
+    await loadCatalog()
+    const res = await a.permissionConfig()
+    const config = (res && res.config) || {}
+    applyFlat(flattenPermission(config.permission, (res && res.notes) || {}))
+    loaded.value = true
+  } finally {
+    loading.value = false
   }
 }
+
+// 能力清单 → 目录索引 + 自定义行下拉选项 + 特殊面索引
+async function loadCatalog() {
+  const a = api()
+  if (!a || !a.capabilityList) return
+  try {
+    const res = await a.capabilityList()
+    if (!res || !res.ok) return
+    const groups = res.groups || {}
+    const special = res.specialSurfaces || []
+    specialIndex.value = {}
+    special.forEach(s => { specialIndex.value[s.name] = s })
+    // 目录索引 + 分组骨架（asSurface === false 的组不进权限视图，如连接器）
+    const metaOf = key => CAPABILITY_CATEGORIES.find(c => c.key === key) || null
+    catalogIndex.value = {}
+    viewGroups.value = []
+    Object.keys(groups).forEach(k => {
+      const meta = metaOf(k)
+      if (meta && meta.asSurface === false) return
+      const items = Array.isArray(groups[k]) ? groups[k] : []
+      if (!items.length) return
+      const group = {
+        key: k,
+        label: (meta && meta.label) || k,
+        icon: (meta && meta.icon) || 'tool',
+        desc: (meta && meta.desc) || '',
+        items: []
+      }
+      items.forEach(t => {
+        catalogIndex.value[t.name] = {
+          key: k, label: t.label, description: t.description, perm: t.perm,
+          // 运行时状态（原能力清单承接）：禁用态标识 + 预装依赖弹窗数据
+          disabled: !!t.disabled,
+          runtime: t.runtime || null,
+          // 系统默认项（静态工具 / 内置连接器）= true；自建连接器动态条目 = false
+          systemDefault: t.systemDefault !== false
+        }
+      })
+      viewGroups.value.push(group)
+    })
+    // 特殊面组骨架
+    specialRows.value = special.map(s => ({
+      name: s.name, label: s.label, description: s.description,
+      action: 'ask', patterns: [], expanded: false
+    }))
+    // 自定义行下拉：全部工具 + 特殊面（手输兜底保留）
+    const map = t => ({ value: t.name, desc: t.label || t.description || '', label: t.name })
+    const out = viewGroups.value.map(g => ({ label: g.label, items: (groups[g.key] || []).map(map) }))
+    if (special.length) out.push({ label: '特殊面', items: special.map(map) })
+    surfaceOptions.value = out
+  } catch (e) { /* 目录不可用时保留手输能力 */ }
+}
+
+// permission 对象（标量/嵌套混合）展平为规则行（读取配置与预设共用）
+function flattenPermission(perm, notes) {
+  const rows = []
+  const n = notes || {}
+  Object.keys(perm || {}).forEach(surface => {
+    const v = perm[surface]
+    const desc = pattern => n[surface + '|' + pattern] || ''
+    if (typeof v === 'string') {
+      rows.push({ surface, pattern: '*', action: v, desc: desc('*') })
+    } else if (v && typeof v === 'object') {
+      Object.keys(v).forEach(pattern => {
+        rows.push({ surface, pattern, action: v[pattern], desc: desc(pattern) })
+      })
+    }
+  })
+  return rows
+}
+
+// 展平规则行 → 分组视图模型（归类：目录命中 → 工具组；特殊面命中 → 特殊面组；
+// mcp__ 前缀目录外键 → MCP 组附加行；其余 → 自定义组）
+function applyFlat(flatRows) {
+  // 组行初始化：目录全部条目（无配置键的行回落目录 perm / 兜底，保持与
+  // 能力清单条目一一对应——目录有 45 项工具，本页工具组即 45 行）
+  const fallback = flatActionOf(flatRows, '*') || 'ask'
+  viewGroups.value.forEach(g => {
+    const items = []
+    const names = Object.keys(catalogIndex.value).filter(n => catalogIndex.value[n].key === g.key)
+    names.forEach(name => {
+      const meta = catalogIndex.value[name]
+      items.push({
+        name,
+        label: meta.label,
+        description: meta.description,
+        disabled: meta.disabled,
+        runtime: meta.runtime,
+        systemDefault: meta.systemDefault !== false,
+        // 自建连接器初始无专属规则：动作与兜底等价时标记「继承兜底」，
+        // 被显式配置命中或用户手动调整后取消（与序列化「等价兜底不落键」
+        // 口径一致）
+        inherited: meta.systemDefault === false && permDefault(meta.perm, fallback) === fallback,
+        action: permDefault(meta.perm, fallback),
+        patterns: [],
+        expanded: false
+      })
+    })
+    g.items = items
+  })
+  specialRows.value.forEach(r => { r.action = fallback; r.patterns = []; r.expanded = false })
+  customRows.value = []
+  const rowOf = name => {
+    for (const g of viewGroups.value) {
+      const hit = g.items.find(r => r.name === name)
+      if (hit) return hit
+    }
+    return null
+  }
+  flatRows.forEach(f => {
+    const special = specialIndex.value[f.surface]
+    if (special) {
+      const hit = specialRows.value.find(r => r.name === f.surface)
+      if (!hit) return
+      if (f.pattern === '*') hit.action = f.action
+      else hit.patterns.push({ pattern: f.pattern, action: f.action, desc: f.desc })
+      return
+    }
+    if (catalogIndex.value[f.surface]) {
+      const hit = rowOf(f.surface)
+      if (!hit) return
+      // 配置中存在该面的显式规则 → 不再是继承兜底态
+      hit.inherited = false
+      if (f.pattern === '*') hit.action = f.action
+      else hit.patterns.push({ pattern: f.pattern, action: f.action, desc: f.desc })
+      return
+    }
+    // MCP 具体工具键（mcp__服务器__工具，目录只登记通配条目）→ MCP 组附加行
+    if (f.surface.indexOf('mcp__') === 0) {
+      const g = viewGroups.value.find(x => x.key === 'mcpBuiltin')
+      if (g) {
+        let row = g.items.find(r => r.name === f.surface)
+        if (!row) {
+          row = {
+            name: f.surface,
+            label: f.surface,
+            description: '使用中追加的 MCP 工具规则（目录未逐工具登记）',
+            action: 'ask',
+            patterns: [],
+            expanded: false,
+            appended: true
+          }
+          g.items.push(row)
+        }
+        if (f.pattern === '*') row.action = f.action
+        else row.patterns.push({ pattern: f.pattern, action: f.action, desc: f.desc })
+        return
+      }
+    }
+    // 其余目录外键 → 自定义组
+    customRows.value.push({ surface: f.surface, desc: f.desc, pattern: f.pattern, action: f.action })
+  })
+  savedJson.value = snapshotJson()
+}
+
+// 展平行中 '*' 兜底面的动作（预设/配置缺项时的回落值）
+function flatActionOf(flatRows, surface) {
+  const hit = flatRows.find(r => r.surface === surface && r.pattern === '*')
+  return hit ? hit.action : ''
+}
+
+// 目录 perm 字段（标量或 pattern 对象）→ 行默认动作
+function permDefault(perm, fallback) {
+  if (perm === undefined) return fallback
+  if (typeof perm === 'string') return perm
+  if (perm && typeof perm === 'object' && typeof perm['*'] === 'string') return perm['*']
+  return fallback
+}
+
+// 分组视图模型 → permission 对象（同 surface 单 * 规则为标量，多行为对象）
+function serializePermission() {
+  const perm = {}
+  const write = (name, action, patterns) => {
+    const a = ['allow', 'ask', 'deny'].indexOf(action) >= 0 ? action : 'ask'
+    const valid = (patterns || []).filter(p => p.pattern)
+    if (!valid.length) {
+      perm[name] = a
+    } else {
+      const obj = { '*': a }
+      valid.forEach(p => { obj[p.pattern] = ['allow', 'ask', 'deny'].indexOf(p.action) >= 0 ? p.action : 'ask' })
+      perm[name] = obj
+    }
+  }
+  // 当前编辑态兜底动作（特殊面 '*' 行）：非系统默认条目动作与其等价时
+  // 不落显式键（回落兜底即可），避免保存 / 重置后自建连接器 ask 键成为
+  // 既看不见差异、又清不掉的冗余配置
+  const fallbackAction = (specialRows.value.find(r => r.name === '*') || {}).action || 'ask'
+  viewGroups.value.forEach(g => g.items.forEach(r => {
+    const hasPatterns = (r.patterns || []).some(p => p.pattern)
+    if (r.systemDefault === false && !hasPatterns && r.action === fallbackAction) return
+    write(r.name, r.action, r.patterns)
+  }))
+  specialRows.value.forEach(r => write(r.name, r.action, r.patterns))
+  // 自定义行：按 surface 聚合（单 '*' 标量 / 多条对象）
+  const bySurface = {}
+  customRows.value.forEach(r => {
+    if (!r.surface) return
+    if (!bySurface[r.surface]) bySurface[r.surface] = []
+    bySurface[r.surface].push({ pattern: r.pattern || '*', action: r.action })
+  })
+  Object.keys(bySurface).forEach(surface => {
+    const list = bySurface[surface]
+    if (list.length === 1 && list[0].pattern === '*') {
+      perm[surface] = list[0].action
+    } else {
+      const obj = {}
+      list.forEach(it => { obj[it.pattern] = it.action })
+      perm[surface] = obj
+    }
+  })
+  return perm
+}
+
+// 规则说明 sidecar：细则行 + 自定义行（目录行说明由目录维护，不落盘）
+function collectNotes() {
+  const notes = {}
+  const walk = r => (r.patterns || []).forEach(p => {
+    if (p.pattern && p.desc) notes[r.name + '|' + p.pattern] = p.desc
+  })
+  viewGroups.value.forEach(g => g.items.forEach(walk))
+  specialRows.value.forEach(walk)
+  customRows.value.forEach(r => {
+    if (r.surface && r.desc) notes[r.surface + '|' + (r.pattern || '*')] = r.desc
+  })
+  return notes
+}
+
+function snapshotJson() {
+  return JSON.stringify({ permission: serializePermission(), notes: collectNotes() })
+}
+
+async function save() {
+  const a = api()
+  if (!a || !a.savePermissionConfig) return
+  // 校验：自定义行空对象 / 空说明阻断；细则空 pattern 阻断（"" 键是无效规则）
+  const emptySurface = customRows.value.findIndex(r => !r.surface)
+  if (emptySurface >= 0) {
+    message.error('自定义规则第 ' + (emptySurface + 1) + ' 行未选择/输入对象，请补全或删除该行')
+    return
+  }
+  const emptyDesc = customRows.value.findIndex(r => !r.desc)
+  if (emptyDesc >= 0) {
+    message.error('自定义规则第 ' + (emptyDesc + 1) + ' 行缺少说明，请填写一句话用途描述')
+    return
+  }
+  let badPattern = ''
+  viewGroups.value.concat([{ items: specialRows.value }]).forEach(g =>
+    g.items.forEach(r => (r.patterns || []).forEach(p => { if (!p.pattern && !badPattern) badPattern = r.name }))
+  )
+  if (badPattern) {
+    message.error('「' + badPattern + '」存在空匹配模式的细则，请补全或删除')
+    return
+  }
+  saving.value = true
+  try {
+    const res = await a.savePermissionConfig({
+      config: {
+        yoloMode: false,
+        authorizerChain: ['omnibuddy-ui'],
+        permission: serializePermission()
+      },
+      notes: collectNotes()
+    })
+    if (res && res.ok) {
+      savedJson.value = snapshotJson()
+      message.success('已保存，新对话生效')
+    } else {
+      message.error((res && res.error) || '保存失败')
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+// 重置为系统默认策略：清空全部自建规则与说明，二次确认防误触
+async function resetDefault() {
+  const a = api()
+  if (!a || !a.permissionReset) return
+  let confirmed = false
+  try {
+    await confirm(
+      '将清空全部自定义规则与说明，恢复为系统默认策略。此操作不可撤销，确定继续？',
+      '重置权限策略',
+      { confirmButtonText: '重置', cancelButtonText: '取消', type: 'warning' }
+    )
+    confirmed = true
+  } catch (e) { /* 取消 */ }
+  if (!confirmed) return
+  resetting.value = true
+  try {
+    const res = await a.permissionReset()
+    if (res && res.ok) {
+      await load()
+      message.success('已恢复默认策略')
+    } else {
+      message.error((res && res.error) || '重置失败')
+    }
+  } finally {
+    resetting.value = false
+  }
+}
+
+// ===== 行内编辑动作 =====
+function toggleDetail(row) {
+  row.expanded = !row.expanded
+}
+
+// 已落位依赖数（依赖按钮「n / m」，原能力清单承接）
+function installedCount(rt) {
+  return (rt.modules || []).filter(m => m.installed).length
+}
+
+// 打开预装依赖弹窗：按 group 归并模块清单（原能力清单承接）
+function openDeps(row) {
+  const rt = row.runtime
+  const groups = []
+  ;(rt.modules || []).forEach(m => {
+    let g = groups.find(x => x.title === m.group)
+    if (!g) {
+      g = { title: m.group, items: [] }
+      groups.push(g)
+    }
+    g.items.push(m)
+  })
+  Object.assign(deps, {
+    visible: true,
+    software: rt.software,
+    source: rt.source,
+    sourceLabel: rt.sourceLabel,
+    installed: installedCount(rt),
+    modules: rt.modules || [],
+    groups,
+    tools: rt.tools || []
+  })
+}
+
+function addPattern(row) {
+  row.patterns.push({ pattern: '', action: 'ask', desc: '' })
+  row.expanded = true
+  // 添加细则即显式意图：立即脱离继承兜底态
+  if (row.systemDefault === false) row.inherited = false
+  markDirty()
+}
+
+function removePattern(row, i) {
+  row.patterns.splice(i, 1)
+  refreshInherited(row)
+  markDirty()
+}
+
+// 细则 pattern 输入：填入有效 pattern → 脱离继承态；全部清空 → 重算
+function onPatternInput(row) {
+  refreshInherited(row)
+  markDirty()
+}
+
+// 工具行三态切换：自建连接器切回与全局兜底等价且无细则时恢复继承态
+function onRowActionChange(row) {
+  refreshInherited(row)
+  markDirty()
+}
+
+// 特殊面动作变更：兜底 '*' 变化会改变所有自建连接器行的「等价」判定，
+// 需统一重算继承态（如兜底改 allow 后，ask 的连接器行即成为显式规则）
+function onSpecialActionChange(row) {
+  if (row.name === '*') {
+    viewGroups.value.forEach(g => g.items.forEach(r => refreshInherited(r)))
+  }
+  markDirty()
+}
+
+// 重算自建连接器行的继承态：无有效细则且动作 == 兜底动作 → 继承
+function refreshInherited(row) {
+  if (!row || row.systemDefault !== false) return
+  const fb = (specialRows.value.find(r => r.name === '*') || {}).action || 'ask'
+  const hasPatterns = (row.patterns || []).some(p => p.pattern)
+  row.inherited = !hasPatterns && row.action === fb
+}
+
+function addCustomRow() {
+  customRows.value.push({ surface: '', desc: '', pattern: '*', action: 'ask' })
+  markDirty()
+}
+
+function removeCustomRow(i) {
+  customRows.value.splice(i, 1)
+  markDirty()
+}
+
+// 自定义行对象选中：能力清单命中的自动带出说明（用户已写的不覆盖）
+function onSurfaceChange(i) {
+  const r = customRows.value[i]
+  if (r && r.surface && !r.desc) {
+    const hit = surfaceOptions.value.reduce((acc, g) => acc || g.items.find(o => o.value === r.surface), null)
+    if (hit && hit.desc) r.desc = hit.desc
+  }
+  markDirty()
+}
+
+// dirty 检测依赖 Vue3 深层响应（serializePermission 访问全部 action /
+// patterns / customRows，任何编辑自动重算 isDirty / ruleCount），此处保留
+// 空钩子维持模板事件绑定，不做额外状态维护
+function markDirty() {}
+
+// created：进入页面即拉取配置
+load()
 </script>
 
 <style lang="scss" scoped>
@@ -929,7 +951,7 @@ export default {
 .ob-action-group {
   flex-shrink: 0;
 
-  ::v-deep(.el-radio-button__inner) {
+  :deep(.el-radio-button__inner) {
     padding: 5px 10px;
     font-size: 11px;
   }

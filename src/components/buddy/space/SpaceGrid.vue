@@ -7,41 +7,41 @@
       class="sp-card"
       :class="{ selected: selected.includes(en.name), hidden: en.hidden }"
       :title="en.name + (en.isDir ? '' : ' · ' + formatSize(en.size)) + ' · ' + formatTime(en.mtime)"
-      @click="$emit('select', en.name, $event)"
-      @dblclick="$emit('open', en)"
-      @contextmenu.prevent="$emit('menu', $event, en)"
+      @click="emit('select', en.name, $event)"
+      @dblclick="emit('open', en)"
+      @contextmenu.prevent="emit('menu', $event, en)"
     >
       <div class="sp-card-icon">
         <img :src="iconOf(en)" class="sp-card-img" alt="" />
         <span v-if="en.hidden" class="sp-card-dot" title="隐藏项目"></span>
       </div>
       <div class="sp-card-name">{{ en.name }}</div>
-      <button class="sp-card-more" title="更多操作" @click.stop="$emit('menu', $event, en)">
+      <button class="sp-card-more" title="更多操作" @click.stop="emit('menu', $event, en)">
         <svg-icon icon-class="more" />
       </button>
     </div>
   </div>
 </template>
 
-<script>
+<script setup>
 // 空间页网格视图
 import { iconOf, formatSize, formatTime } from '@/utils/ui/file-meta'
 
-export default {
-  name: 'SpaceGrid',
-  props: {
-    entries: {
-      type: Array,
-      default: () => []
-    },
-    // 当前选中项名集合（多选，高亮）
-    selected: {
-      type: Array,
-      default: () => []
-    }
+defineOptions({ name: 'SpaceGrid' })
+
+defineProps({
+  entries: {
+    type: Array,
+    default: () => []
   },
-  methods: { iconOf, formatSize, formatTime }
-}
+  // 当前选中项名集合（多选，高亮）
+  selected: {
+    type: Array,
+    default: () => []
+  }
+})
+
+const emit = defineEmits(['select', 'open', 'menu'])
 </script>
 
 <style lang="scss" scoped>

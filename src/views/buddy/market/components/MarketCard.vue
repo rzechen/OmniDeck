@@ -1,6 +1,6 @@
 <template>
   <!-- 市场项卡片：分组展示模式与单类网格模式共用（合并原页面两段重复标记） -->
-  <div class="ob-market-card" @click="$emit('click', item)">
+  <div class="ob-market-card" @click="emit('click', item)">
     <div class="ob-market-card-head">
       <!-- 图标：v4 索引内联 base64 优先；缺省回落类型图标 -->
       <div class="ob-market-logo" :class="logoClass(item)">
@@ -64,7 +64,7 @@
           class="ob-action-btn"
           :loading="busyId === item.id"
           :disabled="!!busyId && busyId !== item.id"
-          @click.stop="$emit('update', item)"
+          @click.stop="emit('update', item)"
         >更新</el-button>
         <el-button
           v-else
@@ -75,67 +75,71 @@
           class="ob-action-btn"
           :loading="busyId === item.id"
           :disabled="!!busyId && busyId !== item.id"
-          @click.stop="$emit('install', item)"
+          @click.stop="emit('install', item)"
         >{{ item.installed ? '重新安装' : '安装' }}</el-button>
       </div>
     </div>
   </div>
 </template>
 
-<script>
+<script setup>
+import { computed } from 'vue'
+
 // 市场项卡片（纯展示组件）：
 // 点击整卡 / 安装 / 更新动作均通过事件上抛，业务逻辑（IPC、状态回写）保留在页面
-export default {
-  name: 'MarketCard',
-  // 声明自定义事件：阻止父级 @click fallthrough 到根元素，
-  // 避免原生 click 与 $emit('click', item) 双触发（openDetail 先收到原生 Event）
-  emits: ['click', 'install', 'update'],
-  props: {
-    // 市场项（含 installed / installedVersion / hasUpdate 等本地状态字段）
-    item: { type: Object, required: true },
-    // 安装/更新中的项 id（控制按钮 loading 态与互斥禁用）
-    busyId: { type: String, default: '' }
-  },
-  computed: {
-    // v4 图标：iconBase64 内联 data URL（避免外链依赖）；旧索引无图标回落类型图标
-    iconSrc() {
-      if (!this.item.iconBase64) return ''
-      const mime = this.item.iconMime || 'image/png'
-      return `data:${mime};base64,${this.item.iconBase64}`
-    }
-  },
-  methods: {
-    // ---------- 展示辅助（与页面原实现保持一致） ----------
-    marketType(it) {
-      const t = it.type || 'skill'
-      if (t === 'workflow' || t === 'skill') return 'skill'
-      if (t === 'connector' || t === 'mcp') return 'connector'
-      return t
-    },
-    typeIcon(type) {
-      if (type === 'connector' || type === 'mcp') return 'mcp'
-      if (type === 'agent') return 'subagent'
-      return 'skill'
-    },
-    logoClass(it) {
-      const t = this.marketType(it)
-      return 'logo-' + (t === 'connector' ? 'connector' : t === 'agent' ? 'agent' : 'skill')
-    },
-    formatDate(v) {
-      if (!v) return ''
-      const d = new Date(v)
-      if (isNaN(d.getTime())) return String(v)
-      const pad = n => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-    },
-    // 数量缩写：1.8 万式中文展示（≥1 万缩写，其余原样）
-    formatCount(n) {
-      const num = Number(n) || 0
-      if (num >= 100000000) return (num / 100000000).toFixed(1).replace(/\.0$/, '') + ' 亿'
-      if (num >= 10000) return (num / 10000).toFixed(1).replace(/\.0$/, '') + ' 万'
-      return String(num)
-    }
-  }
+defineOptions({ name: 'MarketCard' })
+
+// 声明自定义事件：阻止父级 @click fallthrough 到根元素，
+// 避免原生 click 与 $emit('click', item) 双触发（openDetail 先收到原生 Event）
+const emit = defineEmits(['click', 'install', 'update'])
+
+const props = defineProps({
+  // 市场项（含 installed / installedVersion / hasUpdate 等本地状态字段）
+  item: { type: Object, required: true },
+  // 安装/更新中的项 id（控制按钮 loading 态与互斥禁用）
+  busyId: { type: String, default: '' }
+})
+
+// v4 图标：iconBase64 内联 data URL（避免外链依赖）；旧索引无图标回落类型图标
+const iconSrc = computed(() => {
+  if (!props.item.iconBase64) return ''
+  const mime = props.item.iconMime || 'image/png'
+  return `data:${mime};base64,${props.item.iconBase64}`
+})
+
+// ---------- 展示辅助（与页面原实现保持一致） ----------
+function marketType(it) {
+  const t = it.type || 'skill'
+  if (t === 'workflow' || t === 'skill') return 'skill'
+  if (t === 'connector' || t === 'mcp') return 'connector'
+  return t
+}
+
+function typeIcon(type) {
+  if (type === 'connector' || type === 'mcp') return 'mcp'
+  if (type === 'agent') return 'subagent'
+  return 'skill'
+}
+
+function logoClass(it) {
+  const t = marketType(it)
+  return 'logo-' + (t === 'connector' ? 'connector' : t === 'agent' ? 'agent' : 'skill')
+}
+
+function formatDate(v) {
+  if (!v) return ''
+  const d = new Date(v)
+  if (isNaN(d.getTime())) return String(v)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+// 数量缩写：1.8 万式中文展示（≥1 万缩写，其余原样）
+function formatCount(n) {
+  const num = Number(n) || 0
+  if (num >= 100000000) return (num / 100000000).toFixed(1).replace(/\.0$/, '') + ' 亿'
+  if (num >= 10000) return (num / 10000).toFixed(1).replace(/\.0$/, '') + ' 万'
+  return String(num)
 }
 </script>
 

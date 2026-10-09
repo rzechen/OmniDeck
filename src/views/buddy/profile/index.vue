@@ -173,163 +173,171 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 我的资料：tabs（基本信息 / 我的凭据 / 全局规则）
 // - 基本信息与自定义条目 → profile.json，systemPrompt 确定性注入
 // - 我的凭据 → safeStorage 加密存储，对话中 credential_get 按名取用（默认 ask）
 // - 全局规则 → AGENTS.md（pi 原生装载），保存即销毁 pi 会话（主进程内置）
 // - 工作空间规则入口在工作空间页工具栏（SpaceToolbar「空间规则」按钮）
+import { ref, reactive, computed } from 'vue'
 import { downloadText } from '@/utils/ui/download'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import RuleEditor from '@/components/buddy/RuleEditor.vue'
 import AiCredentialDialog from '@/components/buddy/AiCredentialDialog.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddyProfile',
-  components: { BuddySkeleton, RuleEditor, AiCredentialDialog },
-  data() {
-    return {
-      loading: false,
-      saving: false,
-      activeTab: 'basic',
-      presets: [],
-      fields: {},
-      customs: [],
-      // 全局规则折叠区
-      ruleOpen: false,
-      globalRuleContent: '',
-      globalRule: { hasRule: false },
-      // 我的凭据（统一管理：技能绑定 + AI 取用）
-      creds: [],
-      credDialog: { visible: false, item: null }
-    }
-  },
-  computed: {
-    tabs() {
-      return [
-        { key: 'basic', label: '基本信息', icon: 'user' },
-        { key: 'cred', label: '我的凭据', icon: 'key' },
-        { key: 'rule', label: '全局规则', icon: 'rules' }
-      ]
-    },
-    filledCount() {
-      const n = Object.keys(this.fields).filter(k => (this.fields[k] || '').trim()).length
-      return n + this.customs.filter(c => (c.value || '').trim()).length
-    },
-    rulePlaceholder() {
-      return [
-        '# 输出风格',
-        '回答使用中文，先给结论再给解释',
-        '',
-        '# 输出约定',
-        '- 表格一律用 Markdown 输出',
-        '- 交付文档前先列出大纲供确认'
-      ].join('\n')
-    }
-  },
-  created() {
-    this.load()
-  },
-  methods: {
-    api() {
-      return (window.electronAPI && window.electronAPI.omnibuddy) || null
-    },
-    async load() {
-      const api = this.api()
-      if (!api || !api.profileGet) return
-      this.loading = true
-      try {
-        const res = await api.profileGet()
-        this.presets = (res && res.presets) || []
-        this.fields = Object.assign({}, (res && res.fields) || {})
-        this.customs = ((res && res.customs) || []).map(c => Object.assign({}, c))
-        // 全局规则状态（与资料同页展示）
-        const targets = await api.rulesTargets()
-        const g = (targets || []).find(t => t.kind === 'global')
-        this.globalRule = g || { hasRule: false }
-        // 凭据（统一管理：技能绑定 + AI 取用）
-        await this.loadCreds()
-      } catch (e) {
-        /* 静默：保持空表单 */
-      }
-      this.loading = false
-    },
-    // 凭据列表（全量，含连接器类以外的所有条目；用途徽标由字段区分）
-    async loadCreds() {
-      const api = this.api()
-      if (!api || !api.credentials) return
-      try {
-        const list = await api.credentials.list()
-        // 连接器凭据（baseUrl/command 绑定 MCP）仍归连接器页管理，此处不重复展示
-        this.creds = (list || []).filter(c => c.type !== 'connector')
-      } catch (e) {
-        /* 静默 */
-      }
-    },
-    openCred(item) {
-      this.credDialog.item = item
-      this.credDialog.visible = true
-    },
-    refresh() {
-      this.load()
-    },
-    addCustom() {
-      this.customs.push({ id: 'c' + Date.now(), key: '', value: '' })
-    },
-    async save() {
-      // hero 统一保存入口：规则 tab 转发给 RuleEditor，其余 tab 保存 profile
-      if (this.activeTab === 'rule') {
-        if (this.ruleOpen && this.$refs.ruleEditor) {
-          await this.$refs.ruleEditor.save()
-        }
-        return
-      }
-      const api = this.api()
-      if (!api || !api.profileSave) return
-      this.saving = true
-      try {
-        const res = await api.profileSave({ fields: this.fields, customs: this.customs })
-        if (res && res.ok) {
-          this.customs = (res.data.customs || []).map(c => Object.assign({}, c))
-          this.$message.success('已保存，新对话生效')
-        } else {
-          this.$message.error((res && res.error) || '保存失败')
-        }
-      } finally {
-        this.saving = false
-      }
-    },
-    async openRule() {
-      // 打开编辑器前先读取已存内容（否则空内容打开、误存即删）
-      const api = this.api()
-      if (!api || !api.getRule) return
-      const res = await api.getRule('global')
-      this.globalRuleContent = (res && res.ok && res.content) || ''
-      this.ruleOpen = true
-    },
-    async onRuleSaved() {
-      // 规则保存成功：刷新全局规则徽标（保存动作由 RuleEditor 自主完成）
-      const api = this.api()
-      if (!api || !api.rulesTargets) return
-      const targets = await api.rulesTargets()
-      this.globalRule = (targets || []).find(t => t.kind === 'global') || { hasRule: false }
-    },
-    async exportGlobalRule() {
-      const api = this.api()
-      if (!api || !api.getRule) return
-      const res = await api.getRule('global')
-      if (!res || !res.ok) {
-        this.$message.error((res && res.error) || '读取规则失败')
-        return
-      }
-      if (!res.exists || !(res.content || '').trim()) {
-        this.$message.warning('该规则暂无内容可导出')
-        return
-      }
-      downloadText('全局规则.md', res.content, 'text/markdown;charset=utf-8')
-    }
+defineOptions({ name: 'OmniBuddyProfile' })
+
+const { message } = useFeedback()
+
+const loading = ref(false)
+const saving = ref(false)
+const activeTab = ref('basic')
+const presets = ref([])
+const fields = ref({})
+const customs = ref([])
+// 全局规则折叠区
+const ruleOpen = ref(false)
+const globalRuleContent = ref('')
+const globalRule = ref({ hasRule: false })
+// 我的凭据（统一管理：技能绑定 + AI 取用）
+const creds = ref([])
+const credDialog = reactive({ visible: false, item: null })
+const ruleEditor = ref(null)
+
+const tabs = computed(() => {
+  return [
+    { key: 'basic', label: '基本信息', icon: 'user' },
+    { key: 'cred', label: '我的凭据', icon: 'key' },
+    { key: 'rule', label: '全局规则', icon: 'rules' }
+  ]
+})
+
+const filledCount = computed(() => {
+  const n = Object.keys(fields.value).filter(k => (fields.value[k] || '').trim()).length
+  return n + customs.value.filter(c => (c.value || '').trim()).length
+})
+
+const rulePlaceholder = computed(() => {
+  return [
+    '# 输出风格',
+    '回答使用中文，先给结论再给解释',
+    '',
+    '# 输出约定',
+    '- 表格一律用 Markdown 输出',
+    '- 交付文档前先列出大纲供确认'
+  ].join('\n')
+})
+
+function api() {
+  return (window.electronAPI && window.electronAPI.omnibuddy) || null
+}
+
+async function load() {
+  const a = api()
+  if (!a || !a.profileGet) return
+  loading.value = true
+  try {
+    const res = await a.profileGet()
+    presets.value = (res && res.presets) || []
+    fields.value = Object.assign({}, (res && res.fields) || {})
+    customs.value = ((res && res.customs) || []).map(c => Object.assign({}, c))
+    // 全局规则状态（与资料同页展示）
+    const targets = await a.rulesTargets()
+    const g = (targets || []).find(t => t.kind === 'global')
+    globalRule.value = g || { hasRule: false }
+    // 凭据（统一管理：技能绑定 + AI 取用）
+    await loadCreds()
+  } catch (e) {
+    /* 静默：保持空表单 */
+  }
+  loading.value = false
+}
+
+// 凭据列表（全量，含连接器类以外的所有条目；用途徽标由字段区分）
+async function loadCreds() {
+  const a = api()
+  if (!a || !a.credentials) return
+  try {
+    const list = await a.credentials.list()
+    // 连接器凭据（baseUrl/command 绑定 MCP）仍归连接器页管理，此处不重复展示
+    creds.value = (list || []).filter(c => c.type !== 'connector')
+  } catch (e) {
+    /* 静默 */
   }
 }
+
+function openCred(item) {
+  credDialog.item = item
+  credDialog.visible = true
+}
+
+function refresh() {
+  load()
+}
+
+function addCustom() {
+  customs.value.push({ id: 'c' + Date.now(), key: '', value: '' })
+}
+
+async function save() {
+  // hero 统一保存入口：规则 tab 转发给 RuleEditor，其余 tab 保存 profile
+  if (activeTab.value === 'rule') {
+    if (ruleOpen.value && ruleEditor.value) {
+      await ruleEditor.value.save()
+    }
+    return
+  }
+  const a = api()
+  if (!a || !a.profileSave) return
+  saving.value = true
+  try {
+    const res = await a.profileSave({ fields: fields.value, customs: customs.value })
+    if (res && res.ok) {
+      customs.value = (res.data.customs || []).map(c => Object.assign({}, c))
+      message.success('已保存，新对话生效')
+    } else {
+      message.error((res && res.error) || '保存失败')
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+async function openRule() {
+  // 打开编辑器前先读取已存内容（否则空内容打开、误存即删）
+  const a = api()
+  if (!a || !a.getRule) return
+  const res = await a.getRule('global')
+  globalRuleContent.value = (res && res.ok && res.content) || ''
+  ruleOpen.value = true
+}
+
+async function onRuleSaved() {
+  // 规则保存成功：刷新全局规则徽标（保存动作由 RuleEditor 自主完成）
+  const a = api()
+  if (!a || !a.rulesTargets) return
+  const targets = await a.rulesTargets()
+  globalRule.value = (targets || []).find(t => t.kind === 'global') || { hasRule: false }
+}
+
+async function exportGlobalRule() {
+  const a = api()
+  if (!a || !a.getRule) return
+  const res = await a.getRule('global')
+  if (!res || !res.ok) {
+    message.error((res && res.error) || '读取规则失败')
+    return
+  }
+  if (!res.exists || !(res.content || '').trim()) {
+    message.warning('该规则暂无内容可导出')
+    return
+  }
+  downloadText('全局规则.md', res.content, 'text/markdown;charset=utf-8')
+}
+
+// created：进入页面即拉取数据
+load()
 </script>
 
 <style lang="scss" scoped>

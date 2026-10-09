@@ -94,152 +94,155 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { format as formatSql } from 'sql-formatter'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/ui/download'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'FormatSql' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/format/sql'
 
 const EXAMPLE = `SELECT d.deptno, d.dname, d.loc, COUNT(e.empno) AS mycount, NVL(AVG(e.sal), 0) AS myavg FROM dept d, emp e WHERE d.deptno = e.deptno(+) GROUP BY d.deptno, d.dname, d.loc HAVING AVG(sal) > 2000`
 
-export default {
-  name: 'FormatSql',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      rawInput: EXAMPLE,
-      formattedOutput: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH,
-      dialect: 'sql',
-      dialects: [
-        { label: '标准 SQL', value: 'sql' },
-        { label: 'MySQL', value: 'mysql' },
-        { label: 'PostgreSQL', value: 'postgresql' },
-        { label: 'SQLite', value: 'sqlite' },
-        { label: 'MariaDB', value: 'mariadb' },
-        { label: 'Oracle PL/SQL', value: 'plsql' },
-        { label: 'SQL Server', value: 'transactsql' },
-        { label: 'Spark', value: 'spark' },
-        { label: 'Hive', value: 'hive' },
-        { label: 'BigQuery', value: 'bigquery' },
-        { label: 'Snowflake', value: 'snowflake' },
-        { label: 'Trino', value: 'trino' }
-      ]
-    }
-  },
-  computed: {
-    lineCount() {
-      return this.rawInput ? this.rawInput.split('\n').length : 0
-    },
-    dialectLabel() {
-      const d = this.dialects.find(x => x.value === this.dialect)
-      return d ? d.label : '标准 SQL'
-    }
-  },
-  watch: {
-    rawInput() {
-      clearTimeout(this._timer)
-      this._timer = setTimeout(() => this.formatContent(), 250)
-    }
-  },
-  mounted() {
-    this.formatContent()
-  },
-  beforeUnmount() {
-    clearTimeout(this._timer)
-  },
-  methods: {
-    formatContent() {
-      if (!this.rawInput.trim()) {
-        this.formattedOutput = ''
-        return
-      }
-      try {
-        this.formattedOutput = formatSql(this.rawInput, {
-          language: this.dialect,
-          tabWidth: 2
-        })
-        // 仅按钮触发记录（防抖自动格式化与方言切换不记录）
-        if (this._manual) {
-          this._manual = false
-          record(TOOL_PATH, {
-            input: this.rawInput,
-            output: this.formattedOutput,
-            options: { action: 'format', dialect: this.dialect }
-          })
-        }
-      } catch (e) {
-        this.formattedOutput = this.rawInput
-        this.$message.error('格式化失败：' + e.message)
-      }
-    },
-    minifyContent() {
-      if (!this.rawInput.trim()) return
-      this.formattedOutput = this.rawInput
-        .replace(/\s+/g, ' ')
-        .replace(/\s*,\s*/g, ', ')
-        .replace(/\s*\(\s*/g, ' (')
-        .replace(/\s*\)\s*/g, ') ')
-        .replace(/\s+/g, ' ')
-        .trim()
+const rawInput = ref(EXAMPLE)
+const formattedOutput = ref('')
+const historyVisible = ref(false)
+const dialect = ref('sql')
+const dialects = [
+  { label: '标准 SQL', value: 'sql' },
+  { label: 'MySQL', value: 'mysql' },
+  { label: 'PostgreSQL', value: 'postgresql' },
+  { label: 'SQLite', value: 'sqlite' },
+  { label: 'MariaDB', value: 'mariadb' },
+  { label: 'Oracle PL/SQL', value: 'plsql' },
+  { label: 'SQL Server', value: 'transactsql' },
+  { label: 'Spark', value: 'spark' },
+  { label: 'Hive', value: 'hive' },
+  { label: 'BigQuery', value: 'bigquery' },
+  { label: 'Snowflake', value: 'snowflake' },
+  { label: 'Trino', value: 'trino' }
+]
+const inputEditor = ref(null)
+
+// 防抖定时器 / 手动格式化标记（非响应式）
+let timer = null
+let manual = false
+
+const lineCount = computed(() => (rawInput.value ? rawInput.value.split('\n').length : 0))
+const dialectLabel = computed(() => {
+  const d = dialects.find(x => x.value === dialect.value)
+  return d ? d.label : '标准 SQL'
+})
+
+function formatContent() {
+  if (!rawInput.value.trim()) {
+    formattedOutput.value = ''
+    return
+  }
+  try {
+    formattedOutput.value = formatSql(rawInput.value, {
+      language: dialect.value,
+      tabWidth: 2
+    })
+    // 仅按钮触发记录（防抖自动格式化与方言切换不记录）
+    if (manual) {
+      manual = false
       record(TOOL_PATH, {
-        input: this.rawInput,
-        output: this.formattedOutput,
-        options: { action: 'minify', dialect: this.dialect }
+        input: rawInput.value,
+        output: formattedOutput.value,
+        options: { action: 'format', dialect: dialect.value }
       })
-    },
-    copyOutput() {
-      if (!this.formattedOutput.trim()) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.formattedOutput).then(() => {
-        this.$message.success('复制成功')
-        record(TOOL_PATH, {
-          input: this.rawInput,
-          output: this.formattedOutput,
-          options: { action: 'copy', dialect: this.dialect }
-        })
-      })
-    },
-    // 手动点击「格式化」按钮（区别于防抖自动触发）
-    onFormatClick() {
-      this._manual = true
-      this.formatContent()
-    },
-    // 从历史恢复：回填输入并触发格式化
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.rawInput = full.input || ''
-      if (full.options && full.options.dialect) this.dialect = full.options.dialect
-      this.$nextTick(() => {
-        this.formatContent()
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    exportOutput() {
-      if (!this.formattedOutput.trim()) {
-        this.$message.warning('没有可下载的内容')
-        return
-      }
-      downloadText('export.sql', this.formattedOutput, 'text/plain;charset=utf-8')
-    },
-    clearAll() {
-      this.rawInput = ''
-      this.formattedOutput = ''
-      this.$refs.inputEditor.focus()
     }
+  } catch (e) {
+    formattedOutput.value = rawInput.value
+    message.error('格式化失败：' + e.message)
   }
 }
+
+function minifyContent() {
+  if (!rawInput.value.trim()) return
+  formattedOutput.value = rawInput.value
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s*\(\s*/g, ' (')
+    .replace(/\s*\)\s*/g, ') ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  record(TOOL_PATH, {
+    input: rawInput.value,
+    output: formattedOutput.value,
+    options: { action: 'minify', dialect: dialect.value }
+  })
+}
+
+function copyOutput() {
+  if (!formattedOutput.value.trim()) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(formattedOutput.value).then(() => {
+    message.success('复制成功')
+    record(TOOL_PATH, {
+      input: rawInput.value,
+      output: formattedOutput.value,
+      options: { action: 'copy', dialect: dialect.value }
+    })
+  })
+}
+
+// 手动点击「格式化」按钮（区别于防抖自动触发）
+function onFormatClick() {
+  manual = true
+  formatContent()
+}
+
+// 从历史恢复：回填输入并触发格式化
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  rawInput.value = full.input || ''
+  if (full.options && full.options.dialect) dialect.value = full.options.dialect
+  await nextTick()
+  formatContent()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function exportOutput() {
+  if (!formattedOutput.value.trim()) {
+    message.warning('没有可下载的内容')
+    return
+  }
+  downloadText('export.sql', formattedOutput.value, 'text/plain;charset=utf-8')
+}
+
+function clearAll() {
+  rawInput.value = ''
+  formattedOutput.value = ''
+  inputEditor.value.focus()
+}
+
+watch(rawInput, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => formatContent(), 250)
+})
+
+onMounted(() => {
+  formatContent()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
 </script>

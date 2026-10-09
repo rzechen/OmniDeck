@@ -184,8 +184,10 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { appVersion, changelog } from '@/config/app'
+import { useFeedback } from '@/composables/useFeedback'
 
 const INIT_UPDATE_STATE = {
   checking: false,
@@ -208,140 +210,136 @@ const INIT_DL_STATE = {
   bytesPerSecond: 0
 }
 
-export default {
-  name: 'Version',
-  data() {
-    return {
-      appVersion,
-      changelog,
-      updateState: { ...INIT_UPDATE_STATE },
-      dlState: { ...INIT_DL_STATE },
-      dlStarting: false,
-      offDownloadState: null
-    }
-  },
-  computed: {
-    // Release 发布日期（ISO → 年-月-日，无数据返回空）
-    releaseDateText() {
-      const t = this.updateState.release && this.updateState.release.createdAt
-      if (!t) return ''
-      const d = new Date(t)
-      if (isNaN(d.getTime())) return ''
-      const pad = n => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-    },
-    // Release body → 更新说明行数组（空行/标题符清理）
-    updateNotes() {
-      const r = this.updateState.release
-      if (!r || !r.notes) return []
-      return String(r.notes)
-        .split(/\r?\n/)
-        .map(l => l.replace(/^#{1,6}\s*/, '').replace(/^[-*+]\s+/, '').trim())
-        .filter(Boolean)
-        .slice(0, 30)
-    },
-    // 下载速度文案（MB/s）
-    dlSpeedText() {
-      const bps = this.dlState.bytesPerSecond || 0
-      if (!bps) return ''
-      return (bps / 1024 / 1024).toFixed(1) + ' MB/s'
-    }
-  },
-  mounted() {
-    // 进入页面先展示最近一次结果缓存，再自动刷新一次
-    this.restoreLastResult()
-    this.checkUpdate(true)
-    // N5：恢复下载状态 + 订阅进度推送
-    this.restoreDownloadState()
-    this.offDownloadState = window.electronAPI && window.electronAPI.updater
-      ? window.electronAPI.updater.onDownloadState(st => { this.dlState = { ...st } })
-      : null
-  },
-  beforeUnmount() {
-    if (this.offDownloadState) this.offDownloadState()
-  },
-  methods: {
-    restoreLastResult() {
-      if (!window.electronAPI || !window.electronAPI.updater) return
-      window.electronAPI.updater.lastResult().then(res => {
-        if (res && res.ok && !this.updateState.checking) this.applyResult(res)
-      }).catch(() => {})
-    },
-    checkUpdate(silent) {
-      if (!window.electronAPI || !window.electronAPI.updater) {
-        this.updateState.error = '当前环境不支持更新检查'
-        return
-      }
-      this.updateState.checking = true
-      this.updateState.error = ''
-      window.electronAPI.updater.check().then(res => {
-        this.updateState.checking = false
-        if (!res || !res.ok) {
-          this.updateState.error = (res && res.error) || '未知错误'
-          this.updateState.noRelease = !!(res && res.noRelease)
-          return
-        }
-        this.applyResult(res)
-        // 静默进入且无更新时不提示；手动检查给出结果反馈
-        if (!silent) {
-          this.$message({
-            type: res.hasUpdate ? 'success' : 'info',
-            message: res.hasUpdate ? `发现新版本 v${res.release.tag}` : '已是最新版本',
-            duration: 2000
-          })
-        }
-      }).catch(() => {
-        this.updateState.checking = false
-        this.updateState.error = '检查请求异常'
-      })
-    },
-    applyResult(res) {
-      this.updateState.checked = true
-      this.updateState.hasUpdate = res.hasUpdate
-      this.updateState.noRelease = !!res.noRelease
-      this.updateState.skipped = !!res.skipped
-      this.updateState.release = res.release || null
-      this.updateState.fullAuto = !!res.fullAuto
-    },
-    // N5：进入页面恢复下载状态（切页回来进度条不断档）
-    restoreDownloadState() {
-      if (!window.electronAPI || !window.electronAPI.updater || !window.electronAPI.updater.downloadState) return
-      window.electronAPI.updater.downloadState().then(st => {
-        if (st) this.dlState = { ...st }
-      }).catch(() => {})
-    },
-    // N5：开始自动下载（fullAuto 通道）
-    startDownload() {
-      const u = window.electronAPI && window.electronAPI.updater
-      if (!u || !u.download) return
-      this.dlStarting = true
-      u.download().then(res => {
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '下载启动失败')
-        }
-      }).catch(() => {
-        this.$message.error('下载请求异常')
-      }).finally(() => {
-        this.dlStarting = false
-      })
-    },
-    // N5：重启并安装（下载完成后）
-    installUpdate() {
-      const u = window.electronAPI && window.electronAPI.updater
-      if (!u || !u.install) return
-      u.install()
-    },
-    goDownload() {
-      const r = this.updateState.release
-      window.electronAPI.updater.openDownload(r && r.url)
-    },
-    skipUpdate() {
-      const r = this.updateState.release
-      if (!r) return
-      window.electronAPI.updater.skip(r.tag)
-      this.updateState.skipped = true
-    }
+defineOptions({ name: 'Version' })
+
+const { message } = useFeedback()
+
+const updateState = reactive({ ...INIT_UPDATE_STATE })
+const dlState = ref({ ...INIT_DL_STATE })
+const dlStarting = ref(false)
+// 下载状态订阅卸载句柄（非响应式）
+let offDownloadState = null
+
+// Release 发布日期（ISO → 年-月-日，无数据返回空）
+const releaseDateText = computed(() => {
+  const t = updateState.release && updateState.release.createdAt
+  if (!t) return ''
+  const d = new Date(t)
+  if (isNaN(d.getTime())) return ''
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+})
+// Release body → 更新说明行数组（空行/标题符清理）
+const updateNotes = computed(() => {
+  const r = updateState.release
+  if (!r || !r.notes) return []
+  return String(r.notes)
+    .split(/\r?\n/)
+    .map(l => l.replace(/^#{1,6}\s*/, '').replace(/^[-*+]\s+/, '').trim())
+    .filter(Boolean)
+    .slice(0, 30)
+})
+// 下载速度文案（MB/s）
+const dlSpeedText = computed(() => {
+  const bps = dlState.value.bytesPerSecond || 0
+  if (!bps) return ''
+  return (bps / 1024 / 1024).toFixed(1) + ' MB/s'
+})
+
+onMounted(() => {
+  // 进入页面先展示最近一次结果缓存，再自动刷新一次
+  restoreLastResult()
+  checkUpdate(true)
+  // N5：恢复下载状态 + 订阅进度推送
+  restoreDownloadState()
+  offDownloadState = window.electronAPI && window.electronAPI.updater
+    ? window.electronAPI.updater.onDownloadState(st => { dlState.value = { ...st } })
+    : null
+})
+
+onBeforeUnmount(() => {
+  if (offDownloadState) offDownloadState()
+})
+
+function restoreLastResult() {
+  if (!window.electronAPI || !window.electronAPI.updater) return
+  window.electronAPI.updater.lastResult().then(res => {
+    if (res && res.ok && !updateState.checking) applyResult(res)
+  }).catch(() => {})
+}
+function checkUpdate(silent) {
+  if (!window.electronAPI || !window.electronAPI.updater) {
+    updateState.error = '当前环境不支持更新检查'
+    return
   }
+  updateState.checking = true
+  updateState.error = ''
+  window.electronAPI.updater.check().then(res => {
+    updateState.checking = false
+    if (!res || !res.ok) {
+      updateState.error = (res && res.error) || '未知错误'
+      updateState.noRelease = !!(res && res.noRelease)
+      return
+    }
+    applyResult(res)
+    // 静默进入且无更新时不提示；手动检查给出结果反馈
+    if (!silent) {
+      message({
+        type: res.hasUpdate ? 'success' : 'info',
+        message: res.hasUpdate ? `发现新版本 v${res.release.tag}` : '已是最新版本',
+        duration: 2000
+      })
+    }
+  }).catch(() => {
+    updateState.checking = false
+    updateState.error = '检查请求异常'
+  })
+}
+function applyResult(res) {
+  updateState.checked = true
+  updateState.hasUpdate = res.hasUpdate
+  updateState.noRelease = !!res.noRelease
+  updateState.skipped = !!res.skipped
+  updateState.release = res.release || null
+  updateState.fullAuto = !!res.fullAuto
+}
+// N5：进入页面恢复下载状态（切页回来进度条不断档）
+function restoreDownloadState() {
+  if (!window.electronAPI || !window.electronAPI.updater || !window.electronAPI.updater.downloadState) return
+  window.electronAPI.updater.downloadState().then(st => {
+    if (st) dlState.value = { ...st }
+  }).catch(() => {})
+}
+// N5：开始自动下载（fullAuto 通道）
+function startDownload() {
+  const u = window.electronAPI && window.electronAPI.updater
+  if (!u || !u.download) return
+  dlStarting.value = true
+  u.download().then(res => {
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '下载启动失败')
+    }
+  }).catch(() => {
+    message.error('下载请求异常')
+  }).finally(() => {
+    dlStarting.value = false
+  })
+}
+// N5：重启并安装（下载完成后）
+function installUpdate() {
+  const u = window.electronAPI && window.electronAPI.updater
+  if (!u || !u.install) return
+  u.install()
+}
+function goDownload() {
+  const r = updateState.release
+  window.electronAPI.updater.openDownload(r && r.url)
+}
+function skipUpdate() {
+  const r = updateState.release
+  if (!r) return
+  window.electronAPI.updater.skip(r.tag)
+  updateState.skipped = true
 }
 </script>
 

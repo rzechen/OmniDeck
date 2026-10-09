@@ -86,139 +86,149 @@
   </header>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import { searchItems, toolCategories } from '@/config/tools'
 import { getShortcut, matchesShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/ui/shortcuts'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 
-export default {
-  name: 'Topbar',
-  components: { GlobalTopbarActions },
-  data() {
-    return {
-      showSearch: false,
-      searchQuery: '',
-      activeIndex: 0,
-      allItems: searchItems,
-      // Windows 无边框窗口控制
-      isWindows: !!(window.electronAPI && window.electronAPI.platform === 'win32'),
-      winMaximized: false,
-      // 快捷键版本号（设置页改键后 bump，刷新提示文案）
-      shortcutVersion: 0
-    }
-  },
-  computed: {
-    // 搜索快捷键提示（⌘OK / Ctrl+O+K，随设置实时变化）
-    searchShortcutText() {
-      // 依赖版本号：改键后重新计算
-      void this.shortcutVersion
-      return formatAccelerator(getShortcut('search'))
-    },
-    // 所有分类下的具体工具（展平，用于搜索命中）
-    toolItems() {
-      const out = []
-      toolCategories.forEach(cat => {
-        cat.children.forEach(t => {
-          out.push({ path: t.path, title: t.name, iconSvg: t.icon })
-        })
-      })
-      return out
-    },
-    filteredItems() {
-      if (!this.searchQuery) return this.allItems
-      const q = this.searchQuery.toLowerCase()
-      // 命中的分组在前，具体工具在后
-      const groups = this.allItems.filter(item =>
-        item.title.toLowerCase().includes(q)
-      )
-      const tools = this.toolItems.filter(item =>
-        item.title.toLowerCase().includes(q)
-      )
-      return [...groups, ...tools]
-    }
-  },
-  watch: {
-    showSearch(val) {
-      if (val) {
-        this.activeIndex = 0
-        this.$nextTick(() => {
-          if (this.$refs.searchInput) {
-            this.$refs.searchInput.focus()
-          }
-        })
-      } else {
-        this.searchQuery = ''
+defineOptions({ name: 'Topbar' })
+
+const router = useRouter()
+
+const showSearch = ref(false)
+const searchQuery = ref('')
+const activeIndex = ref(0)
+const allItems = searchItems
+// Windows 无边框窗口控制
+const isWindows = !!(window.electronAPI && window.electronAPI.platform === 'win32')
+const winMaximized = ref(false)
+// 快捷键版本号（设置页改键后 bump，刷新提示文案）
+const shortcutVersion = ref(0)
+
+const searchInput = ref(null)
+const resultsWrap = ref(null)
+let offMaximized = null
+let offShortcutsChanged = null
+
+// 搜索快捷键提示（⌘OK / Ctrl+O+K，随设置实时变化）
+const searchShortcutText = computed(() => {
+  // 依赖版本号：改键后重新计算
+  void shortcutVersion.value
+  return formatAccelerator(getShortcut('search'))
+})
+
+// 所有分类下的具体工具（展平，用于搜索命中）
+const toolItems = computed(() => {
+  const out = []
+  toolCategories.forEach(cat => {
+    cat.children.forEach(t => {
+      out.push({ path: t.path, title: t.name, iconSvg: t.icon })
+    })
+  })
+  return out
+})
+
+const filteredItems = computed(() => {
+  if (!searchQuery.value) return allItems
+  const q = searchQuery.value.toLowerCase()
+  // 命中的分组在前，具体工具在后
+  const groups = allItems.filter(item =>
+    item.title.toLowerCase().includes(q)
+  )
+  const tools = toolItems.value.filter(item =>
+    item.title.toLowerCase().includes(q)
+  )
+  return [...groups, ...tools]
+})
+
+watch(showSearch, val => {
+  if (val) {
+    activeIndex.value = 0
+    nextTick(() => {
+      if (searchInput.value) {
+        searchInput.value.focus()
       }
-    },
-    // 输入变化后选中项回到第一个
-    searchQuery() {
-      this.activeIndex = 0
-    }
-  },
-  mounted() {
-    document.addEventListener('keydown', this.handleKeydown)
-    // 设置页改键后刷新快捷键提示文案
-    this.offShortcutsChanged = onShortcutsChanged(() => { this.shortcutVersion++ })
-    // Windows：同步初始最大化状态 + 监听变化切换按钮图标
-    if (this.isWindows && window.electronAPI.winControl) {
-      window.electronAPI.winControl.isMaximized().then(v => {
-        this.winMaximized = v
-      })
-      this.offMaximized = window.electronAPI.winControl.onMaximizedChanged(v => {
-        this.winMaximized = v
-      })
-    }
-  },
-  beforeUnmount() {
-    document.removeEventListener('keydown', this.handleKeydown)
-    if (this.offMaximized) this.offMaximized()
-    if (this.offShortcutsChanged) this.offShortcutsChanged()
-  },
-  methods: {
-    // Windows 窗口控制
-    winMinimize() {
-      window.electronAPI.winControl.minimize()
-    },
-    winToggleMax() {
-      window.electronAPI.winControl.toggleMaximize()
-    },
-    winClose() {
-      window.electronAPI.winControl.close()
-    },
-    handleKeydown(e) {
-      // 全局搜索快捷键：可配置（默认 ⌘⌥K / Ctrl+Alt+K），设置页可改键
-      if (matchesShortcut(e, getShortcut('search'))) {
-        e.preventDefault()
-        this.showSearch = !this.showSearch
-      }
-    },
-    // 键盘上下移动选中项（首尾循环）
-    move(dir) {
-      const len = this.filteredItems.length
-      if (!len) return
-      this.activeIndex = (this.activeIndex + dir + len) % len
-      this.scrollToActive()
-    },
-    selectActive() {
-      if (this.filteredItems.length) {
-        this.goTo(this.filteredItems[this.activeIndex])
-      }
-    },
-    // 选中项滚动到可视区
-    scrollToActive() {
-      this.$nextTick(() => {
-        const wrap = this.$refs.resultsWrap
-        if (!wrap) return
-        const el = wrap.querySelector(`[data-index="${this.activeIndex}"]`)
-        if (el) el.scrollIntoView({ block: 'nearest' })
-      })
-    },
-    goTo(item) {
-      this.showSearch = false
-      this.$router.push(item.path)
-    }
+    })
+  } else {
+    searchQuery.value = ''
+  }
+})
+
+// 输入变化后选中项回到第一个
+watch(searchQuery, () => {
+  activeIndex.value = 0
+})
+
+// Windows 窗口控制
+function winMinimize() {
+  window.electronAPI.winControl.minimize()
+}
+function winToggleMax() {
+  window.electronAPI.winControl.toggleMaximize()
+}
+function winClose() {
+  window.electronAPI.winControl.close()
+}
+
+function handleKeydown(e) {
+  // 全局搜索快捷键：可配置（默认 ⌘⌥K / Ctrl+Alt+K），设置页可改键
+  if (matchesShortcut(e, getShortcut('search'))) {
+    e.preventDefault()
+    showSearch.value = !showSearch.value
   }
 }
+
+// 键盘上下移动选中项（首尾循环）
+function move(dir) {
+  const len = filteredItems.value.length
+  if (!len) return
+  activeIndex.value = (activeIndex.value + dir + len) % len
+  scrollToActive()
+}
+
+function selectActive() {
+  if (filteredItems.value.length) {
+    goTo(filteredItems.value[activeIndex.value])
+  }
+}
+
+// 选中项滚动到可视区
+function scrollToActive() {
+  nextTick(() => {
+    const wrap = resultsWrap.value
+    if (!wrap) return
+    const el = wrap.querySelector(`[data-index="${activeIndex.value}"]`)
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function goTo(item) {
+  showSearch.value = false
+  router.push(item.path)
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown)
+  // 设置页改键后刷新快捷键提示文案
+  offShortcutsChanged = onShortcutsChanged(() => { shortcutVersion.value++ })
+  // Windows：同步初始最大化状态 + 监听变化切换按钮图标
+  if (isWindows && window.electronAPI.winControl) {
+    window.electronAPI.winControl.isMaximized().then(v => {
+      winMaximized.value = v
+    })
+    offMaximized = window.electronAPI.winControl.onMaximizedChanged(v => {
+      winMaximized.value = v
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleKeydown)
+  if (offMaximized) offMaximized()
+  if (offShortcutsChanged) offShortcutsChanged()
+})
 </script>
 
 <style lang="scss" scoped>

@@ -52,85 +52,78 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
 import { loadImage, formatSize } from '@/utils/ui/image'
 
-export default {
-  name: 'ImageFlip',
-  components: { ToolShell, ImageDrop },
-  data() {
-    return {
-      file: null,
-      angle: 0,
-      flipH: false,
-      flipV: false,
-      info: ''
-    }
-  },
-  watch: {
-    angle() {
-      this.render()
-    },
-    flipH() {
-      this.render()
-    },
-    flipV() {
-      this.render()
-    }
-  },
-  methods: {
-    formatSize,
-    async onFile(file) {
-      this.file = file
-      const { img } = await loadImage(file)
-      this._img = img
-      this.info = `${img.naturalWidth} × ${img.naturalHeight} · ${formatSize(file.size)}`
-      this.$nextTick(() => this.render())
-    },
-    rotate(delta) {
-      this.angle = (this.angle + delta + 360) % 360
-    },
-    render() {
-      if (!this._img) return
-      const img = this._img
-      const canvas = this.$refs.canvas
-      if (!canvas) return
-      const rad = (this.angle * Math.PI) / 180
-      const cos = Math.abs(Math.cos(rad))
-      const sin = Math.abs(Math.sin(rad))
-      // 旋转后外接矩形尺寸
-      const w = img.naturalWidth * cos + img.naturalHeight * sin
-      const h = img.naturalWidth * sin + img.naturalHeight * cos
-      // 限制预览尺寸
-      const scale = Math.min(1, 900 / Math.max(w, h))
-      canvas.width = w * scale
-      canvas.height = h * scale
-      const ctx = canvas.getContext('2d')
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.save()
-      ctx.translate(canvas.width / 2, canvas.height / 2)
-      ctx.rotate(rad)
-      ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1)
-      ctx.drawImage(img, -img.naturalWidth * scale / 2, -img.naturalHeight * scale / 2, img.naturalWidth * scale, img.naturalHeight * scale)
-      ctx.restore()
-    },
-    exportImage() {
-      if (!this.$refs.canvas) return
-      const a = document.createElement('a')
-      a.href = this.$refs.canvas.toDataURL('image/png')
-      a.download = 'rotated.png'
-      a.click()
-    },
-    reset() {
-      this.file = null
-      this._img = null
-      this.angle = 0
-      this.flipH = false
-      this.flipV = false
-    }
-  }
+defineOptions({ name: 'ImageFlip' })
+
+const file = ref(null)
+const angle = ref(0)
+const flipH = ref(false)
+const flipV = ref(false)
+const info = ref('')
+const canvas = ref(null)
+
+// 加载后的图片对象（非响应式）
+let img = null
+
+watch(angle, () => render())
+watch(flipH, () => render())
+watch(flipV, () => render())
+
+async function onFile(f) {
+  file.value = f
+  const { img: loaded } = await loadImage(f)
+  img = loaded
+  info.value = `${img.naturalWidth} × ${img.naturalHeight} · ${formatSize(f.size)}`
+  nextTick(() => render())
+}
+
+function rotate(delta) {
+  angle.value = (angle.value + delta + 360) % 360
+}
+
+function render() {
+  if (!img) return
+  const c = canvas.value
+  if (!c) return
+  const rad = (angle.value * Math.PI) / 180
+  const cos = Math.abs(Math.cos(rad))
+  const sin = Math.abs(Math.sin(rad))
+  // 旋转后外接矩形尺寸
+  const w = img.naturalWidth * cos + img.naturalHeight * sin
+  const h = img.naturalWidth * sin + img.naturalHeight * cos
+  // 限制预览尺寸
+  const scale = Math.min(1, 900 / Math.max(w, h))
+  c.width = w * scale
+  c.height = h * scale
+  const ctx = c.getContext('2d')
+  ctx.clearRect(0, 0, c.width, c.height)
+  ctx.save()
+  ctx.translate(c.width / 2, c.height / 2)
+  ctx.rotate(rad)
+  ctx.scale(flipH.value ? -1 : 1, flipV.value ? -1 : 1)
+  ctx.drawImage(img, -img.naturalWidth * scale / 2, -img.naturalHeight * scale / 2, img.naturalWidth * scale, img.naturalHeight * scale)
+  ctx.restore()
+}
+
+function exportImage() {
+  if (!canvas.value) return
+  const a = document.createElement('a')
+  a.href = canvas.value.toDataURL('image/png')
+  a.download = 'rotated.png'
+  a.click()
+}
+
+function reset() {
+  file.value = null
+  img = null
+  angle.value = 0
+  flipH.value = false
+  flipV.value = false
 }
 </script>
 

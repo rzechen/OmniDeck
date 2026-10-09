@@ -101,7 +101,8 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import yaml from 'js-yaml'
 import { html as beautifyHtml } from 'js-beautify'
 import ToolShell from '@/components/tool/ToolShell.vue'
@@ -109,6 +110,11 @@ import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/ui/download'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'FormatYaml' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/format/yaml'
 
@@ -128,167 +134,165 @@ function validateXml(str) {
   return !doc.querySelector('parsererror')
 }
 
-export default {
-  name: 'FormatYaml',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      formatType: 'yaml',
-      rawInput: YAML_EXAMPLE,
-      formattedOutput: '',
-      valid: true,
-      errMsg: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  computed: {
-    lineCount() {
-      return this.rawInput ? this.rawInput.split('\n').length : 0
-    },
-    errBrief() {
-      return this.errMsg.length > 80 ? this.errMsg.slice(0, 80) + '…' : this.errMsg
-    }
-  },
-  watch: {
-    rawInput() {
-      clearTimeout(this._timer)
-      this._timer = setTimeout(() => this.formatContent(), 250)
-    }
-  },
-  mounted() {
-    this.formatContent()
-  },
-  beforeUnmount() {
-    clearTimeout(this._timer)
-  },
-  methods: {
-    setType(t) {
-      if (this.formatType === t) return
-      this.formatType = t
-      // 切换格式：内容为空或仍为内置示例时替换为对应示例
-      if (!this.rawInput.trim()) {
-        this.rawInput = t === 'yaml' ? YAML_EXAMPLE : XML_EXAMPLE
+const formatType = ref('yaml')
+const rawInput = ref(YAML_EXAMPLE)
+const formattedOutput = ref('')
+const valid = ref(true)
+const errMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+// 防抖定时器 / 手动格式化标记（非响应式）
+let timer = null
+let manual = false
+
+const lineCount = computed(() => (rawInput.value ? rawInput.value.split('\n').length : 0))
+const errBrief = computed(() =>
+  errMsg.value.length > 80 ? errMsg.value.slice(0, 80) + '…' : errMsg.value
+)
+
+function setType(t) {
+  if (formatType.value === t) return
+  formatType.value = t
+  // 切换格式：内容为空或仍为内置示例时替换为对应示例
+  if (!rawInput.value.trim()) {
+    rawInput.value = t === 'yaml' ? YAML_EXAMPLE : XML_EXAMPLE
+  }
+  formatContent()
+}
+
+function formatContent() {
+  if (!rawInput.value.trim()) {
+    formattedOutput.value = ''
+    valid.value = true
+    errMsg.value = ''
+    return
+  }
+  try {
+    if (formatType.value === 'yaml') {
+      const parsed = yaml.load(rawInput.value)
+      formattedOutput.value = yaml.dump(parsed, { indent: 2, lineWidth: 120 })
+      valid.value = true
+      errMsg.value = ''
+    } else {
+      if (!validateXml(rawInput.value)) {
+        throw new Error('XML 语法错误，标签未闭合或格式不正确')
       }
-      this.formatContent()
-    },
-    formatContent() {
-      if (!this.rawInput.trim()) {
-        this.formattedOutput = ''
-        this.valid = true
-        this.errMsg = ''
-        return
-      }
-      try {
-        if (this.formatType === 'yaml') {
-          const parsed = yaml.load(this.rawInput)
-          this.formattedOutput = yaml.dump(parsed, { indent: 2, lineWidth: 120 })
-          this.valid = true
-          this.errMsg = ''
-        } else {
-          if (!validateXml(this.rawInput)) {
-            throw new Error('XML 语法错误，标签未闭合或格式不正确')
-          }
-          this.formattedOutput = beautifyHtml(this.rawInput, {
-            indent_size: 2,
-            preserve_newlines: false,
-            wrap_line_length: 0,
-            end_with_newline: false
-          })
-          this.valid = true
-          this.errMsg = ''
-        }
-        // 仅按钮触发记录（防抖自动格式化与切换类型不记录）
-        if (this._manual) {
-          this._manual = false
-          record(TOOL_PATH, {
-            input: this.rawInput,
-            output: this.formattedOutput,
-            options: { action: 'format', type: this.formatType }
-          })
-        }
-      } catch (e) {
-        this.valid = false
-        this.errMsg = e.message
-        this.formattedOutput = this.rawInput
-      }
-    },
-    minifyContent() {
-      if (!this.rawInput.trim()) return
-      try {
-        if (this.formatType === 'yaml') {
-          const parsed = yaml.load(this.rawInput)
-          this.formattedOutput = yaml.dump(parsed, { indent: 0, flowLevel: 0, lineWidth: -1 })
-          this.valid = true
-        } else {
-          if (!validateXml(this.rawInput)) {
-            throw new Error('XML 语法错误')
-          }
-          this.formattedOutput = this.rawInput
-            .replace(/>\s+</g, '><')
-            .replace(/\s{2,}/g, ' ')
-            .trim()
-          this.valid = true
-        }
-        this.errMsg = ''
-        record(TOOL_PATH, {
-          input: this.rawInput,
-          output: this.formattedOutput,
-          options: { action: 'minify', type: this.formatType }
-        })
-      } catch (e) {
-        this.valid = false
-        this.errMsg = e.message
-        this.$message.error('压缩失败：' + e.message)
-      }
-    },
-    copyOutput() {
-      if (!this.formattedOutput.trim()) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.formattedOutput).then(() => {
-        this.$message.success('复制成功')
-        record(TOOL_PATH, {
-          input: this.rawInput,
-          output: this.formattedOutput,
-          options: { action: 'copy', type: this.formatType }
-        })
+      formattedOutput.value = beautifyHtml(rawInput.value, {
+        indent_size: 2,
+        preserve_newlines: false,
+        wrap_line_length: 0,
+        end_with_newline: false
       })
-    },
-    // 手动点击「格式化」按钮（区别于防抖自动触发）
-    onFormatClick() {
-      this._manual = true
-      this.formatContent()
-    },
-    // 从历史恢复：回填输入（含格式类型）并触发格式化
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      if (full.options && full.options.type) this.formatType = full.options.type
-      this.rawInput = full.input || ''
-      this.$nextTick(() => {
-        this.formatContent()
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    exportOutput() {
-      if (!this.formattedOutput.trim()) {
-        this.$message.warning('没有可下载的内容')
-        return
-      }
-      downloadText(`export.${this.formatType}`, this.formattedOutput)
-    },
-    clearAll() {
-      this.rawInput = ''
-      this.formattedOutput = ''
-      this.$refs.inputEditor.focus()
+      valid.value = true
+      errMsg.value = ''
     }
+    // 仅按钮触发记录（防抖自动格式化与切换类型不记录）
+    if (manual) {
+      manual = false
+      record(TOOL_PATH, {
+        input: rawInput.value,
+        output: formattedOutput.value,
+        options: { action: 'format', type: formatType.value }
+      })
+    }
+  } catch (e) {
+    valid.value = false
+    errMsg.value = e.message
+    formattedOutput.value = rawInput.value
   }
 }
+
+function minifyContent() {
+  if (!rawInput.value.trim()) return
+  try {
+    if (formatType.value === 'yaml') {
+      const parsed = yaml.load(rawInput.value)
+      formattedOutput.value = yaml.dump(parsed, { indent: 0, flowLevel: 0, lineWidth: -1 })
+      valid.value = true
+    } else {
+      if (!validateXml(rawInput.value)) {
+        throw new Error('XML 语法错误')
+      }
+      formattedOutput.value = rawInput.value
+        .replace(/>\s+</g, '><')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+      valid.value = true
+    }
+    errMsg.value = ''
+    record(TOOL_PATH, {
+      input: rawInput.value,
+      output: formattedOutput.value,
+      options: { action: 'minify', type: formatType.value }
+    })
+  } catch (e) {
+    valid.value = false
+    errMsg.value = e.message
+    message.error('压缩失败：' + e.message)
+  }
+}
+
+function copyOutput() {
+  if (!formattedOutput.value.trim()) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(formattedOutput.value).then(() => {
+    message.success('复制成功')
+    record(TOOL_PATH, {
+      input: rawInput.value,
+      output: formattedOutput.value,
+      options: { action: 'copy', type: formatType.value }
+    })
+  })
+}
+
+// 手动点击「格式化」按钮（区别于防抖自动触发）
+function onFormatClick() {
+  manual = true
+  formatContent()
+}
+
+// 从历史恢复：回填输入（含格式类型）并触发格式化
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  if (full.options && full.options.type) formatType.value = full.options.type
+  rawInput.value = full.input || ''
+  await nextTick()
+  formatContent()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function exportOutput() {
+  if (!formattedOutput.value.trim()) {
+    message.warning('没有可下载的内容')
+    return
+  }
+  downloadText(`export.${formatType.value}`, formattedOutput.value)
+}
+
+function clearAll() {
+  rawInput.value = ''
+  formattedOutput.value = ''
+  inputEditor.value.focus()
+}
+
+watch(rawInput, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => formatContent(), 250)
+})
+
+onMounted(() => {
+  formatContent()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
 </script>

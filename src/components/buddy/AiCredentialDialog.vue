@@ -12,7 +12,7 @@
             <h3 class="ob-dialog-title">{{ isEdit ? '编辑凭据' : '新增凭据' }}</h3>
             <span v-if="isEdit && item" class="ac-badge ok">已加密存储</span>
           </div>
-          <svg-icon icon-class="close" class="ob-dialog-close" @click="$emit('close')" />
+          <svg-icon icon-class="close" class="ob-dialog-close" @click="emit('close')" />
         </header>
 
         <div class="ob-drawer-body ac-body">
@@ -73,7 +73,7 @@
             <el-button v-if="isEdit" size="small" round type="danger" plain @click="removeItem">删除</el-button>
           </div>
           <div class="ac-foot-right">
-            <el-button size="small" round @click="$emit('close')">取消</el-button>
+            <el-button size="small" round @click="emit('close')">取消</el-button>
             <el-button size="small" round type="primary" :loading="saving" @click="save">保存</el-button>
           </div>
         </footer>
@@ -82,182 +82,181 @@
   </transition>
 </template>
 
-<script>
+<script setup>
 // 凭据弹窗（统一凭据管理）：技能绑定（skillNames）注入执行环境；
 // AI 取用不做开关——配置即生效，统一由权限策略（credential_get）管控。
 // 编辑态明文回显（resolve 按需单条拉取），值留空 = 保持原值（credentials.update 语义）
-export default {
-  name: 'AiCredentialDialog',
-  props: {
-    visible: {
-      type: Boolean,
-      default: false
-    },
-    // 编辑目标（null = 新增）：脱敏视图 { id, name, description, envKeys, skillNames, ... }
-    item: {
-      type: Object,
-      default: null
-    }
+import { reactive, ref, computed, watch } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'AiCredentialDialog' })
+
+const props = defineProps({
+  visible: {
+    type: Boolean,
+    default: false
   },
-  data() {
-    return {
-      form: { name: '', description: '', bindSkill: false, skillNames: [] },
-      rows: [],
-      skills: [],
-      saving: false
+  // 编辑目标（null = 新增）：脱敏视图 { id, name, description, envKeys, skillNames, ... }
+  item: {
+    type: Object,
+    default: null
+  }
+})
+
+const emit = defineEmits(['close', 'saved'])
+
+const { message, confirm } = useFeedback()
+
+const form = reactive({ name: '', description: '', bindSkill: false, skillNames: [] })
+const rows = ref([])
+const skills = ref([])
+const saving = ref(false)
+
+const isEdit = computed(() => !!(props.item && props.item.id))
+// 所选技能声明的变量名（env-keys + 正文扫描）中尚未录入的：提示补齐
+// 行数据键做字符串容错（el-input 中文输入法组合期间可能触发非字符串中间态）
+const suggestedKeys = computed(() => {
+  const have = new Set(rows.value.map(r => String((r && r.key) || '').trim()).filter(Boolean))
+  const keys = []
+  ;(form.skillNames || []).forEach(n => {
+    const s = skills.value.find(x => x.name === n)
+    ;((s && s.envKeys) || []).forEach(k => {
+      if (!have.has(k) && !keys.includes(k)) keys.push(k)
+    })
+  })
+  return keys
+})
+
+watch(() => props.visible, v => {
+  if (!v) return
+  Object.assign(form, {
+    name: (props.item && props.item.name) || '',
+    description: (props.item && props.item.description) || '',
+    bindSkill: !!((props.item && props.item.skillNames) || []).length,
+    skillNames: (((props.item && props.item.skillNames) || []).slice())
+  })
+  // 行骨架先按脱敏视图键名搭好，值等明文拉回后填充（resolve 明文仅弹窗内使用）
+  const keys = (props.item && props.item.envKeys) || []
+  rows.value = keys.map((k, i) => ({ id: 'r' + i, key: k, value: '' }))
+  loadSkills()
+  if (isEdit.value) loadValues()
+})
+
+// credentials 命名空间（resolve 挂在这里）
+function credApi() {
+  return (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.credentials) || null
+}
+function buddyApi() {
+  return window.electronAPI && window.electronAPI.omnibuddy
+}
+// 编辑回显：单条拉取明文 env，按行填充（键在两边的以回显为准）
+async function loadValues() {
+  const api = credApi()
+  if (!api || !api.resolve) return
+  try {
+    const res = await api.resolve(props.item.id)
+    const env = (res && res.secret && res.secret.env) || {}
+    // 后到的明文只填充值，不覆盖用户已开始输入的内容
+    rows.value.forEach(r => {
+      if (!r.value && env[r.key] !== undefined) r.value = env[r.key]
+    })
+  } catch (e) { /* 拉取失败保持空值：留空仍为「保持原值」语义 */ }
+}
+// 技能清单（供绑定多选）：主进程 skills:list 直接返回数组
+async function loadSkills() {
+  const api = buddyApi()
+  if (!api || !api.listSkills) return
+  try {
+    const res = await api.listSkills()
+    skills.value = Array.isArray(res) ? res : []
+  } catch (e) {
+    skills.value = []
+  }
+}
+function addRow(presetKey) {
+  // 仅接受字符串预置键（事件对象等一律视为空）
+  const key = typeof presetKey === 'string' ? presetKey : ''
+  rows.value.push({ id: 'r' + Date.now(), key, value: '' })
+}
+function envOf() {
+  // 组装 env：有值的行才参与（编辑时空值 = 保持原值，交由 update 语义处理）
+  const env = {}
+  rows.value.forEach(r => {
+    const k = String((r && r.key) || '').trim()
+    if (k && String((r && r.value) || '').trim()) env[k] = String(r.value).trim()
+  })
+  return env
+}
+async function save() {
+  if (!(form.name || '').trim()) {
+    message.error('请输入凭据名称')
+    return
+  }
+  const api = credApi()
+  if (!api) {
+    message.error('凭据管理仅桌面端可用')
+    return
+  }
+  const payload = {
+    name: form.name.trim(),
+    description: (form.description || '').trim(),
+    skillNames: form.bindSkill ? form.skillNames.slice() : []
+  }
+  const env = envOf()
+  if (!isEdit.value) {
+    if (!Object.keys(env).length) {
+      message.error('请至少填写一个字段（键与值都不能为空）')
+      return
     }
-  },
-  computed: {
-    isEdit() {
-      return !!(this.item && this.item.id)
-    },
-    // 所选技能声明的变量名（env-keys + 正文扫描）中尚未录入的：提示补齐
-    // 行数据键做字符串容错（el-input 中文输入法组合期间可能触发非字符串中间态）
-    suggestedKeys() {
-      const have = new Set(this.rows.map(r => String((r && r.key) || '').trim()).filter(Boolean))
-      const keys = []
-      ;(this.form.skillNames || []).forEach(n => {
-        const s = this.skills.find(x => x.name === n)
-        ;((s && s.envKeys) || []).forEach(k => {
-          if (!have.has(k) && !keys.includes(k)) keys.push(k)
-        })
-      })
-      return keys
+    payload.type = 'credential'
+    payload.env = env
+  } else if (Object.keys(env).length) {
+    payload.env = env
+  }
+  saving.value = true
+  try {
+    const cred = credApi()
+    const res = isEdit.value ? await cred.update(Object.assign({ id: props.item.id }, payload)) : await cred.create(payload)
+    if (res && res.ok) {
+      // 清单注入发生在会话创建时：保存后销毁 pi 会话，新对话生效
+      if (cred.disposeSessions) {
+        try { await cred.disposeSessions() } catch (e) { /* 忽略 */ }
+      }
+      message.success(isEdit.value ? '凭据已更新，新对话生效' : '凭据已保存，新对话生效')
+      emit('saved')
+      emit('close')
+    } else {
+      message.error((res && res.error) || '保存失败')
     }
-  },
-  watch: {
-    visible(v) {
-      if (!v) return
-      this.form = {
-        name: (this.item && this.item.name) || '',
-        description: (this.item && this.item.description) || '',
-        bindSkill: !!((this.item && this.item.skillNames) || []).length,
-        skillNames: (((this.item && this.item.skillNames) || []).slice())
-      }
-      // 行骨架先按脱敏视图键名搭好，值等明文拉回后填充（resolve 明文仅弹窗内使用）
-      const keys = (this.item && this.item.envKeys) || []
-      this.rows = keys.map((k, i) => ({ id: 'r' + i, key: k, value: '' }))
-      this.loadSkills()
-      if (this.isEdit) this.loadValues()
+  } catch (e) {
+    message.error('保存异常')
+  }
+  saving.value = false
+}
+// 删除（带确认）
+async function removeItem() {
+  const api = credApi()
+  if (!api) return
+  try {
+    await confirm('确定删除凭据「' + form.name + '」吗？绑定的技能与 AI 取用将同时失效。', '删除凭据', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch (e) {
+    return
+  }
+  const res = await api.remove(props.item.id)
+  if (res && res.ok) {
+    // 同 save：销毁 pi 会话，让删除立即在新对话生效
+    if (api.disposeSessions) {
+      try { await api.disposeSessions() } catch (e) { /* 忽略 */ }
     }
-  },
-  methods: {
-    api() {
-      return (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.credentials) || null
-    },
-    buddyApi() {
-      return window.electronAPI && window.electronAPI.omnibuddy
-    },
-    // 编辑回显：单条拉取明文 env，按行填充（键在两边的以回显为准）
-    async loadValues() {
-      const api = this.api() // credentials 命名空间（resolve 挂在这里）
-      if (!api || !api.resolve) return
-      try {
-        const res = await api.resolve(this.item.id)
-        const env = (res && res.secret && res.secret.env) || {}
-        // 后到的明文只填充值，不覆盖用户已开始输入的内容
-        this.rows.forEach(r => {
-          if (!r.value && env[r.key] !== undefined) r.value = env[r.key]
-        })
-      } catch (e) { /* 拉取失败保持空值：留空仍为「保持原值」语义 */ }
-    },
-    // 技能清单（供绑定多选）：主进程 skills:list 直接返回数组
-    async loadSkills() {
-      const api = this.buddyApi()
-      if (!api || !api.listSkills) return
-      try {
-        const res = await api.listSkills()
-        this.skills = Array.isArray(res) ? res : []
-      } catch (e) {
-        this.skills = []
-      }
-    },
-    addRow(presetKey) {
-      // 仅接受字符串预置键（事件对象等一律视为空）
-      const key = typeof presetKey === 'string' ? presetKey : ''
-      this.rows.push({ id: 'r' + Date.now(), key, value: '' })
-    },
-    envOf() {
-      // 组装 env：有值的行才参与（编辑时空值 = 保持原值，交由 update 语义处理）
-      const env = {}
-      this.rows.forEach(r => {
-        const k = String((r && r.key) || '').trim()
-        if (k && String((r && r.value) || '').trim()) env[k] = String(r.value).trim()
-      })
-      return env
-    },
-    async save() {
-      if (!(this.form.name || '').trim()) {
-        this.$message.error('请输入凭据名称')
-        return
-      }
-      const api = this.api()
-      if (!api) {
-        this.$message.error('凭据管理仅桌面端可用')
-        return
-      }
-      const payload = {
-        name: this.form.name.trim(),
-        description: (this.form.description || '').trim(),
-        skillNames: this.form.bindSkill ? this.form.skillNames.slice() : []
-      }
-      const env = this.envOf()
-      if (!this.isEdit) {
-        if (!Object.keys(env).length) {
-          this.$message.error('请至少填写一个字段（键与值都不能为空）')
-          return
-        }
-        payload.type = 'credential'
-        payload.env = env
-      } else if (Object.keys(env).length) {
-        payload.env = env
-      }
-      this.saving = true
-      try {
-        const cred = this.api()
-        const res = this.isEdit ? await cred.update(Object.assign({ id: this.item.id }, payload)) : await cred.create(payload)
-        if (res && res.ok) {
-          // 清单注入发生在会话创建时：保存后销毁 pi 会话，新对话生效
-          if (cred.disposeSessions) {
-            try { await cred.disposeSessions() } catch (e) { /* 忽略 */ }
-          }
-          this.$message.success(this.isEdit ? '凭据已更新，新对话生效' : '凭据已保存，新对话生效')
-          this.$emit('saved')
-          this.$emit('close')
-        } else {
-          this.$message.error((res && res.error) || '保存失败')
-        }
-      } catch (e) {
-        this.$message.error('保存异常')
-      }
-      this.saving = false
-    },
-    // 删除（带确认）
-    async removeItem() {
-      const api = this.api()
-      if (!api) return
-      try {
-        await this.$confirm('确定删除凭据「' + this.form.name + '」吗？绑定的技能与 AI 取用将同时失效。', '删除凭据', {
-          type: 'warning',
-          confirmButtonText: '删除',
-          cancelButtonText: '取消'
-        })
-      } catch (e) {
-        return
-      }
-      const res = await api.remove(this.item.id)
-      if (res && res.ok) {
-        // 同 save：销毁 pi 会话，让删除立即在新对话生效
-        if (api.disposeSessions) {
-          try { await api.disposeSessions() } catch (e) { /* 忽略 */ }
-        }
-        this.$message.success('凭据已删除')
-        this.$emit('saved')
-        this.$emit('close')
-      } else {
-        this.$message.error((res && res.error) || '删除失败')
-      }
-    }
+    message.success('凭据已删除')
+    emit('saved')
+    emit('close')
+  } else {
+    message.error((res && res.error) || '删除失败')
   }
 }
 </script>

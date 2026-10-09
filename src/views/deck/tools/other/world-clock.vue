@@ -102,7 +102,8 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import draggable from 'vuedraggable'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import { getItem, setItem } from '@/utils/storage/db'
@@ -139,132 +140,134 @@ const ZONES = [
   { value: 'Africa/Johannesburg', label: '约翰内斯堡' }
 ]
 
-export default {
-  name: 'OtherWorldClock',
-  components: { ToolShell, draggable },
-  data() {
-    return {
-      now: new Date(),
-      newCity: '',
-      // 默认展示城市
-      cities: ['Asia/Shanghai', 'Asia/Tokyo', 'Europe/London', 'America/New_York']
-    }
-  },
-  computed: {
-    zones() {
-      return ZONES
-    },
-    availableZones() {
-      return ZONES.filter(z => !this.cities.includes(z.value))
-    },
-    localTime() {
-      return this.fmt(this.now, 'HH:mm', undefined)
-    }
-  },
-  mounted() {
-    this._timer = setInterval(() => {
-      this.now = new Date()
-    }, 1000)
-    this.loadPersisted()
-  },
-  beforeUnmount() {
-    clearInterval(this._timer)
-  },
-  methods: {
-    // Intl 格式化
-    fmt(date, opt, zone) {
-      const map = { HH: '2-digit', mm: '2-digit' }
-      const cfg = opt === 'HH:mm'
-        ? { hour: map.HH, minute: map.mm, hour12: false, timeZone: zone }
-        : opt === 'date'
-          ? { month: 'long', day: 'numeric', weekday: 'short', timeZone: zone }
-          : { timeZone: zone }
-      return new Intl.DateTimeFormat('zh-CN', cfg).format(date)
-    },
-    timeOf(zone) {
-      return this.fmt(this.now, 'HH:mm', zone)
-    },
-    // 秒数（两位）：驱动数字秒跳变动画
-    secOf(zone) {
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: zone,
-        hour12: false,
-        second: '2-digit'
-      }).formatToParts(this.now)
-      const p = parts.find(x => x.type === 'second')
-      return p ? p.value : '00'
-    },
-    dateOf(zone) {
-      return this.fmt(this.now, 'date', zone)
-    },
-    offsetOf(zone) {
-      // 计算与本地时差
-      const local = -this.now.getTimezoneOffset() / 60
-      const target = this.zoneOffset(zone)
-      const diff = target - local
-      if (diff === 0) return '同时区'
-      return (diff > 0 ? '+' : '') + diff + 'h'
-    },
-    // 表盘指针角度（时/分/秒）
-    clockOf(zone) {
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: zone,
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      }).formatToParts(this.now)
-      const get = t => Number(parts.find(p => p.type === t).value)
-      const h = get('hour') % 24
-      const m = get('minute')
-      const s = get('second')
-      return {
-        hourAngle: (h % 12 + m / 60 + s / 3600) * 30,
-        minAngle: (m + s / 60) * 6,
-        secAngle: s * 6
-      }
-    },
-    zoneOffset(zone) {
-      try {
-        const dtf = new Intl.DateTimeFormat('en-US', { timeZone: zone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
-        const parts = dtf.formatToParts(this.now)
-        const get = t => Number(parts.find(p => p.type === t).value)
-        const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'))
-        return Math.round((asUtc - this.now.getTime()) / 3600000)
-      } catch (e) {
-        return 0
-      }
-    },
-    isDay(zone) {
-      const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: '2-digit', hour12: false }).format(this.now)) % 24
-      return h >= 6 && h < 18
-    },
-    label(zone) {
-      const z = ZONES.find(x => x.value === zone)
-      return z ? z.label : zone
-    },
-    addCity(zone) {
-      if (zone && !this.cities.includes(zone)) {
-        this.cities.push(zone)
-        this.persist()
-      }
-      this.$nextTick(() => {
-        this.newCity = ''
-      })
-    },
-    removeCity(zone) {
-      this.cities = this.cities.filter(c => c !== zone)
-      this.persist()
-    },
-    // IndexedDB 持久化
-    persist() {
-      setItem('worldClockCities', this.cities)
-    },
-    loadPersisted() {
-      const saved = getItem('worldClockCities')
-      if (Array.isArray(saved) && saved.length) this.cities = saved
-    }
+defineOptions({ name: 'OtherWorldClock' })
+
+const now = ref(new Date())
+const newCity = ref('')
+// 默认展示城市
+const cities = ref(['Asia/Shanghai', 'Asia/Tokyo', 'Europe/London', 'America/New_York'])
+
+const zones = computed(() => ZONES)
+const availableZones = computed(() => ZONES.filter(z => !cities.value.includes(z.value)))
+const localTime = computed(() => fmt(now.value, 'HH:mm', undefined))
+
+let timer = null
+
+onMounted(() => {
+  timer = setInterval(() => {
+    now.value = new Date()
+  }, 1000)
+  loadPersisted()
+})
+
+onBeforeUnmount(() => {
+  clearInterval(timer)
+})
+
+// Intl 格式化
+function fmt(date, opt, zone) {
+  const map = { HH: '2-digit', mm: '2-digit' }
+  const cfg = opt === 'HH:mm'
+    ? { hour: map.HH, minute: map.mm, hour12: false, timeZone: zone }
+    : opt === 'date'
+      ? { month: 'long', day: 'numeric', weekday: 'short', timeZone: zone }
+      : { timeZone: zone }
+  return new Intl.DateTimeFormat('zh-CN', cfg).format(date)
+}
+
+function timeOf(zone) {
+  return fmt(now.value, 'HH:mm', zone)
+}
+
+// 秒数（两位）：驱动数字秒跳变动画
+function secOf(zone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    hour12: false,
+    second: '2-digit'
+  }).formatToParts(now.value)
+  const p = parts.find(x => x.type === 'second')
+  return p ? p.value : '00'
+}
+
+function dateOf(zone) {
+  return fmt(now.value, 'date', zone)
+}
+
+function offsetOf(zone) {
+  // 计算与本地时差
+  const local = -now.value.getTimezoneOffset() / 60
+  const target = zoneOffset(zone)
+  const diff = target - local
+  if (diff === 0) return '同时区'
+  return (diff > 0 ? '+' : '') + diff + 'h'
+}
+
+// 表盘指针角度（时/分/秒）
+function clockOf(zone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).formatToParts(now.value)
+  const get = t => Number(parts.find(p => p.type === t).value)
+  const h = get('hour') % 24
+  const m = get('minute')
+  const s = get('second')
+  return {
+    hourAngle: (h % 12 + m / 60 + s / 3600) * 30,
+    minAngle: (m + s / 60) * 6,
+    secAngle: s * 6
   }
+}
+
+function zoneOffset(zone) {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', { timeZone: zone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    const parts = dtf.formatToParts(now.value)
+    const get = t => Number(parts.find(p => p.type === t).value)
+    const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'))
+    return Math.round((asUtc - now.value.getTime()) / 3600000)
+  } catch (e) {
+    return 0
+  }
+}
+
+function isDay(zone) {
+  const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: '2-digit', hour12: false }).format(now.value)) % 24
+  return h >= 6 && h < 18
+}
+
+function label(zone) {
+  const z = ZONES.find(x => x.value === zone)
+  return z ? z.label : zone
+}
+
+function addCity(zone) {
+  if (zone && !cities.value.includes(zone)) {
+    cities.value.push(zone)
+    persist()
+  }
+  nextTick(() => {
+    newCity.value = ''
+  })
+}
+
+function removeCity(zone) {
+  cities.value = cities.value.filter(c => c !== zone)
+  persist()
+}
+
+// IndexedDB 持久化
+function persist() {
+  setItem('worldClockCities', cities.value)
+}
+
+function loadPersisted() {
+  const saved = getItem('worldClockCities')
+  if (Array.isArray(saved) && saved.length) cities.value = saved
 }
 </script>
 

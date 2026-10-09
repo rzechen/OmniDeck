@@ -16,8 +16,14 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { useStore } from 'vuex'
 import { dimLevels, carouselIntervals, isVideoItem } from '@/utils/wallpaper/wallpaper'
+
+defineOptions({ name: 'AppWallpaper' })
+
+const store = useStore()
 
 // Blob → ObjectURL 缓存（按壁纸 id，切换时释放旧 URL）
 const urlCache = {}
@@ -34,134 +40,95 @@ function getUrl(item) {
   return urlCache[item.id]
 }
 
-export default {
-  name: 'AppWallpaper',
-  data() {
-    return {
-      // 双层状态：over 为当前显示层
-      overId: '',
-      underId: '',
-      fadeTimer: null,
-      carouselTimer: null
-    }
-  },
-  computed: {
-    config() {
-      return this.$store.state.wallpaperConfig
-    },
-    list() {
-      return this.$store.state.wallpaperList
-    },
-    visible() {
-      return this.config.enabled && this.list.length > 0 && !!this.overId
-    },
-    overItem() {
-      return this.list.find(w => w && w.id === this.overId) || null
-    },
-    underItem() {
-      return this.list.find(w => w && w.id === this.underId) || null
-    },
-    overUrl() {
-      return getUrl(this.overItem)
-    },
-    underUrl() {
-      return getUrl(this.underItem)
-    },
-    overIsVideo() {
-      return isVideoItem(this.overItem)
-    },
-    underIsVideo() {
-      return isVideoItem(this.underItem)
-    },
-    // 柔化：壁纸自身模糊 + 轻微放大遮住模糊边缘；常规模式微增饱和/对比，画面更清晰鲜明
-    layerFilter() {
-      return this.config.soft ? 'blur(18px) saturate(1.1)' : 'saturate(1.06) contrast(1.04)'
-    },
-    layerScale() {
-      return this.config.soft ? 'scale(1.06)' : 'none'
-    },
-    overStyle() {
-      return { filter: this.layerFilter, transform: this.layerScale }
-    },
-    underStyle() {
-      return { filter: this.layerFilter, transform: this.layerScale }
-    },
-    dimStyle() {
-      const v = dimLevels[this.config.dim] || 0
-      return { background: 'rgba(0, 0, 0, ' + v + ')' }
-    }
-  },
-  watch: {
-    // 选中项变化：旧壁纸放到底层，新壁纸在上层淡入（约 0.7s 交叉过渡）
-    'config.selectedId': {
-      immediate: true,
-      handler(id) {
-        if (!id || !this.list.some(w => w && w.id === id)) {
-          this.underId = this.overId
-          this.overId = ''
-          return
-        }
-        if (id === this.overId) return
-        this.underId = this.overId
-        this.overId = id
-      }
-    },
-    // 轮播间隔变化：重建定时器
-    'config.carousel': {
-      immediate: true,
-      handler() {
-        this.setupCarousel()
-      }
-    },
-    // 总开关/列表变化：关闭时释放资源
-    'config.enabled': {
-      handler(on) {
-        if (!on) this.teardown()
-        else this.setupCarousel()
-      }
-    },
-    list: {
-      handler() {
-        if (!this.config.enabled) return
-        // 列表变动后校验当前选中是否仍存在
-        const cur = this.config.selectedId
-        if (cur && !this.list.some(w => w && w.id === cur)) {
-          this.overId = this.list.length ? this.list[0].id : ''
-          this.underId = ''
-        }
-        this.setupCarousel()
-      }
-    }
-  },
-  beforeUnmount() {
-    this.teardown()
-  },
-  methods: {
-    setupCarousel() {
-      clearTimeout(this.carouselTimer)
-      const ms = carouselIntervals[this.config.carousel] || 0
-      if (!this.config.enabled || !ms || this.list.length < 2) return
-      const tick = () => {
-        this.nextWallpaper()
-        this.carouselTimer = setTimeout(tick, ms)
-      }
-      this.carouselTimer = setTimeout(tick, ms)
-    },
-    nextWallpaper() {
-      const list = this.list
-      if (!list.length) return
-      const i = list.findIndex(w => w && w.id === this.overId)
-      const next = list[(i + 1 + list.length) % list.length]
-      if (next && next.id !== this.overId) {
-        this.$store.commit('SET_WALLPAPER_CONFIG', { selectedId: next.id })
-      }
-    },
-    teardown() {
-      clearTimeout(this.carouselTimer)
-      clearTimeout(this.fadeTimer)
-    }
+// 双层状态：over 为当前显示层
+const overId = ref('')
+const underId = ref('')
+let fadeTimer = null
+let carouselTimer = null
+
+const config = computed(() => store.state.wallpaperConfig)
+const list = computed(() => store.state.wallpaperList)
+const visible = computed(() => config.value.enabled && list.value.length > 0 && !!overId.value)
+const overItem = computed(() => list.value.find(w => w && w.id === overId.value) || null)
+const underItem = computed(() => list.value.find(w => w && w.id === underId.value) || null)
+const overUrl = computed(() => getUrl(overItem.value))
+const underUrl = computed(() => getUrl(underItem.value))
+const overIsVideo = computed(() => isVideoItem(overItem.value))
+const underIsVideo = computed(() => isVideoItem(underItem.value))
+
+// 柔化：壁纸自身模糊 + 轻微放大遮住模糊边缘；常规模式微增饱和/对比，画面更清晰鲜明
+const layerFilter = computed(() => (config.value.soft ? 'blur(18px) saturate(1.1)' : 'saturate(1.06) contrast(1.04)'))
+const layerScale = computed(() => (config.value.soft ? 'scale(1.06)' : 'none'))
+const overStyle = computed(() => ({ filter: layerFilter.value, transform: layerScale.value }))
+const underStyle = computed(() => ({ filter: layerFilter.value, transform: layerScale.value }))
+const dimStyle = computed(() => {
+  const v = dimLevels[config.value.dim] || 0
+  return { background: 'rgba(0, 0, 0, ' + v + ')' }
+})
+
+// 选中项变化：旧壁纸放到底层，新壁纸在上层淡入（约 0.7s 交叉过渡）
+watch(() => config.value.selectedId, id => {
+  if (!id || !list.value.some(w => w && w.id === id)) {
+    underId.value = overId.value
+    overId.value = ''
+    return
+  }
+  if (id === overId.value) return
+  underId.value = overId.value
+  overId.value = id
+}, { immediate: true })
+
+// 轮播间隔变化：重建定时器
+watch(() => config.value.carousel, () => {
+  setupCarousel()
+}, { immediate: true })
+
+// 总开关/列表变化：关闭时释放资源
+watch(() => config.value.enabled, on => {
+  if (!on) teardown()
+  else setupCarousel()
+})
+
+watch(list, () => {
+  if (!config.value.enabled) return
+  // 列表变动后校验当前选中是否仍存在
+  const cur = config.value.selectedId
+  if (cur && !list.value.some(w => w && w.id === cur)) {
+    overId.value = list.value.length ? list.value[0].id : ''
+    underId.value = ''
+  }
+  setupCarousel()
+})
+
+function setupCarousel() {
+  clearTimeout(carouselTimer)
+  const ms = carouselIntervals[config.value.carousel] || 0
+  if (!config.value.enabled || !ms || list.value.length < 2) return
+  const tick = () => {
+    nextWallpaper()
+    carouselTimer = setTimeout(tick, ms)
+  }
+  carouselTimer = setTimeout(tick, ms)
+}
+
+function nextWallpaper() {
+  const l = list.value
+  if (!l.length) return
+  const i = l.findIndex(w => w && w.id === overId.value)
+  const next = l[(i + 1 + l.length) % l.length]
+  if (next && next.id !== overId.value) {
+    store.commit('SET_WALLPAPER_CONFIG', { selectedId: next.id })
   }
 }
+
+function teardown() {
+  clearTimeout(carouselTimer)
+  clearTimeout(fadeTimer)
+}
+
+onBeforeUnmount(() => {
+  teardown()
+})
 </script>
 
 <style lang="scss" scoped>

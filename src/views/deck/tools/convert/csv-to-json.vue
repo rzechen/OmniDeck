@@ -96,12 +96,18 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/ui/download'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'ConvertCsvToJson' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/convert/csv-to-json'
 
@@ -109,185 +115,180 @@ const EXAMPLE = `name,category,version,downloads
 OmniDeck,desktop,1.0.0,12800
 wisfire,web,0.9.5,9600`
 
-export default {
-  name: 'ConvertCsvToJson',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      csvInput: EXAMPLE,
-      outputMode: 'array',
-      autoType: true,
-      separator: 'auto',
-      jsonOutput: '',
-      errorMsg: '',
-      rowCount: 0,
-      colCount: 0,
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  watch: {
-    csvInput() {
-      clearTimeout(this._timer)
-      this._timer = setTimeout(() => this.convert(), 250)
-    },
-    outputMode() {
-      this.convert()
-    },
-    autoType() {
-      this.convert()
-    }
-  },
-  mounted() {
-    this.convert()
-  },
-  beforeUnmount() {
-    clearTimeout(this._timer)
-  },
-  methods: {
-    // 解析一行 CSV（引号感知：a,"b,c","d""e" → ['a','b,c','d"e']）
-    parseLine(line, sep) {
-      const out = []
-      let cur = ''
-      let inStr = false
-      for (let i = 0; i < line.length; i++) {
-        const c = line[i]
-        if (inStr) {
-          if (c === '"') {
-            if (line[i + 1] === '"') {
-              cur += '"'
-              i++
-            } else {
-              inStr = false
-            }
-          } else {
-            cur += c
-          }
-        } else if (c === '"') {
-          inStr = true
-        } else if (c === sep) {
-          out.push(cur)
-          cur = ''
+const csvInput = ref(EXAMPLE)
+const outputMode = ref('array')
+const autoType = ref(true)
+const separator = ref('auto')
+const jsonOutput = ref('')
+const errorMsg = ref('')
+const rowCount = ref(0)
+const colCount = ref(0)
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+// 防抖定时器（非响应式）
+let timer = null
+
+// 解析一行 CSV（引号感知：a,"b,c","d""e" → ['a','b,c','d"e']）
+function parseLine(line, sep) {
+  const out = []
+  let cur = ''
+  let inStr = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (inStr) {
+      if (c === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"'
+          i++
         } else {
-          cur += c
+          inStr = false
         }
+      } else {
+        cur += c
       }
+    } else if (c === '"') {
+      inStr = true
+    } else if (c === sep) {
       out.push(cur)
-      return out.map(s => s.trim())
-    },
-    autoConvert(v) {
-      if (!this.autoType) return v
-      if (v === 'true') return true
-      if (v === 'false') return false
-      if (v !== '' && !isNaN(Number(v))) return Number(v)
-      return v
-    },
-    convert() {
-      this.errorMsg = ''
-      this.jsonOutput = ''
-      if (!this.csvInput.trim()) {
-        this.rowCount = 0
-        this.colCount = 0
-        return
-      }
-      try {
-        const lines = this.csvInput.trim().split(/\r?\n/)
-        let sep = this.separator
-        if (sep === 'auto') {
-          const head = lines[0]
-          const counts = [
-            [',', (head.match(/,/g) || []).length],
-            ['\t', (head.match(/\t/g) || []).length],
-            [';', (head.match(/;/g) || []).length],
-            ['|', (head.match(/\|/g) || []).length]
-          ]
-          counts.sort((a, b) => b[1] - a[1])
-          sep = counts[0][1] > 0 ? counts[0][0] : ','
-        }
-        if (sep === '\\t') sep = '\t'
-
-        const headers = this.parseLine(lines[0], sep)
-        this.colCount = headers.length
-        const dataLines = lines.slice(1)
-        this.rowCount = dataLines.length
-
-        let result
-        if (this.outputMode === 'array') {
-          result = dataLines.map(line => {
-            const values = this.parseLine(line, sep)
-            const obj = {}
-            headers.forEach((h, i) => {
-              obj[h] = this.autoConvert(values[i] ?? '')
-            })
-            return obj
-          })
-        } else {
-          // 键值对象：首列为 key，次列为 value
-          result = {}
-          dataLines.forEach(line => {
-            const values = this.parseLine(line, sep)
-            result[values[0]] = this.autoConvert(values[1] ?? '')
-          })
-        }
-        this.jsonOutput = JSON.stringify(result, null, 2)
-      } catch (e) {
-        this.errorMsg = e.message
-      }
-    },
-    copyOutput() {
-      if (!this.jsonOutput) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.jsonOutput).then(() => {
-        this.$message.success('已复制 JSON')
-        // 仅按钮触发记录（防抖自动转换不记录）
-        record(TOOL_PATH, {
-          input: this.csvInput,
-          output: this.jsonOutput,
-          options: { action: 'copy', mode: this.outputMode, autoType: this.autoType, separator: this.separator }
-        })
-      })
-    },
-    downloadOutput() {
-      if (!this.jsonOutput) {
-        this.$message.warning('没有可下载的内容')
-        return
-      }
-      downloadText('export.json', this.jsonOutput, 'application/json')
-      record(TOOL_PATH, {
-        input: this.csvInput,
-        output: this.jsonOutput,
-        options: { action: 'download', mode: this.outputMode, autoType: this.autoType, separator: this.separator }
-      })
-    },
-    // 从历史恢复：回填输入（含选项）并触发转换
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      if (full.options) {
-        if (full.options.mode) this.outputMode = full.options.mode
-        if (typeof full.options.autoType === 'boolean') this.autoType = full.options.autoType
-        if (full.options.separator) this.separator = full.options.separator
-      }
-      this.csvInput = full.input || ''
-      this.$nextTick(() => {
-        this.convert()
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.csvInput = ''
-      this.jsonOutput = ''
-      this.$refs.inputEditor.focus()
+      cur = ''
+    } else {
+      cur += c
     }
   }
+  out.push(cur)
+  return out.map(s => s.trim())
 }
+
+function autoConvert(v) {
+  if (!autoType.value) return v
+  if (v === 'true') return true
+  if (v === 'false') return false
+  if (v !== '' && !isNaN(Number(v))) return Number(v)
+  return v
+}
+
+function convert() {
+  errorMsg.value = ''
+  jsonOutput.value = ''
+  if (!csvInput.value.trim()) {
+    rowCount.value = 0
+    colCount.value = 0
+    return
+  }
+  try {
+    const lines = csvInput.value.trim().split(/\r?\n/)
+    let sep = separator.value
+    if (sep === 'auto') {
+      const head = lines[0]
+      const counts = [
+        [',', (head.match(/,/g) || []).length],
+        ['\t', (head.match(/\t/g) || []).length],
+        [';', (head.match(/;/g) || []).length],
+        ['|', (head.match(/\|/g) || []).length]
+      ]
+      counts.sort((a, b) => b[1] - a[1])
+      sep = counts[0][1] > 0 ? counts[0][0] : ','
+    }
+    if (sep === '\\t') sep = '\t'
+
+    const headers = parseLine(lines[0], sep)
+    colCount.value = headers.length
+    const dataLines = lines.slice(1)
+    rowCount.value = dataLines.length
+
+    let result
+    if (outputMode.value === 'array') {
+      result = dataLines.map(line => {
+        const values = parseLine(line, sep)
+        const obj = {}
+        headers.forEach((h, i) => {
+          obj[h] = autoConvert(values[i] ?? '')
+        })
+        return obj
+      })
+    } else {
+      // 键值对象：首列为 key，次列为 value
+      result = {}
+      dataLines.forEach(line => {
+        const values = parseLine(line, sep)
+        result[values[0]] = autoConvert(values[1] ?? '')
+      })
+    }
+    jsonOutput.value = JSON.stringify(result, null, 2)
+  } catch (e) {
+    errorMsg.value = e.message
+  }
+}
+
+function copyOutput() {
+  if (!jsonOutput.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(jsonOutput.value).then(() => {
+    message.success('已复制 JSON')
+    // 仅按钮触发记录（防抖自动转换不记录）
+    record(TOOL_PATH, {
+      input: csvInput.value,
+      output: jsonOutput.value,
+      options: { action: 'copy', mode: outputMode.value, autoType: autoType.value, separator: separator.value }
+    })
+  })
+}
+
+function downloadOutput() {
+  if (!jsonOutput.value) {
+    message.warning('没有可下载的内容')
+    return
+  }
+  downloadText('export.json', jsonOutput.value, 'application/json')
+  record(TOOL_PATH, {
+    input: csvInput.value,
+    output: jsonOutput.value,
+    options: { action: 'download', mode: outputMode.value, autoType: autoType.value, separator: separator.value }
+  })
+}
+
+// 从历史恢复：回填输入（含选项）并触发转换
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  if (full.options) {
+    if (full.options.mode) outputMode.value = full.options.mode
+    if (typeof full.options.autoType === 'boolean') autoType.value = full.options.autoType
+    if (full.options.separator) separator.value = full.options.separator
+  }
+  csvInput.value = full.input || ''
+  await nextTick()
+  convert()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  csvInput.value = ''
+  jsonOutput.value = ''
+  inputEditor.value.focus()
+}
+
+watch(csvInput, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => convert(), 250)
+})
+watch(outputMode, () => convert())
+watch(autoType, () => convert())
+
+onMounted(() => {
+  convert()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
 </script>
 
 <style lang="scss" scoped>

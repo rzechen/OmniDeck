@@ -1,7 +1,7 @@
 import { createApp, h } from 'vue'
 import ElementPlus, { ElDialog, ElDrawer, ElMessage, ElMessageBox } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import mitt from 'mitt'
+import bus from './utils/ui/bus'
 import 'element-plus/dist/index.css'
 import App from './App.vue'
 import router, { prefetchToolChunks } from './router'
@@ -23,8 +23,9 @@ app.use(router)
 app.use(store)
 app.component('svg-icon', SvgIcon)
 
-// 事件总线（Vue 3 移除了 $root.$on/$off/$emit，以此实现跨组件通信）
-app.config.globalProperties.$bus = mitt()
+// 事件总线（Vue 3 移除了 $root.$on/$off/$emit，以此实现跨组件通信）：
+// 实例来自 utils/ui/bus（script setup 组件直接 import 同一实例）
+app.config.globalProperties.$bus = bus
 
 // <webview> 为 Electron 自定义元素（翻译浏览器内嵌网页），Vue 不接管其渲染
 app.config.compilerOptions.isCustomElement = tag => tag === 'webview'

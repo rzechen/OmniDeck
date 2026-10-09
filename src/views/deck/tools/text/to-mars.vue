@@ -73,78 +73,78 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
 import { simplifiedToTraditionalMap, simplifiedToMarsMap } from '@/utils/data/mars-maps'
+import { useFeedback } from '@/composables/useFeedback'
 
 // 繁→简反向映射（首次惰性构建）
 let traditionalToSimplifiedMap = null
 
 const TOOL_PATH = '/tools/text/to-mars'
 
-export default {
-  name: 'TextToMars',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      input: '今天天气真不错，我们一起去公园玩吧',
-      output: '',
-      historyVisible: false,
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  methods: {
-    convert(direction) {
-      if (!this.input) {
-        this.$message.warning('请输入内容')
-        return
-      }
-      if (direction === 's2t') {
-        this.output = [...this.input].map(c => simplifiedToTraditionalMap[c] || c).join('')
-      } else if (direction === 's2m') {
-        this.output = [...this.input].map(c => simplifiedToMarsMap[c] || c).join('')
-      } else {
-        if (!traditionalToSimplifiedMap) {
-          traditionalToSimplifiedMap = {}
-          Object.entries(simplifiedToTraditionalMap).forEach(([s, t]) => {
-            if (!(t in traditionalToSimplifiedMap)) traditionalToSimplifiedMap[t] = s
-          })
-        }
-        this.output = [...this.input].map(c => traditionalToSimplifiedMap[c] || c).join('')
-      }
-      record(TOOL_PATH, {
-        input: this.input,
-        output: this.output,
-        options: { action: 'convert', direction: direction }
-      })
-    },
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.input = full.input || ''
-      this.output = full.output || ''
-      this.$nextTick(() => {
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    copyOutput() {
-      if (!this.output) return
-      navigator.clipboard.writeText(this.output).then(() => {
-        this.$message.success('复制成功')
-      })
-    },
-    clearAll() {
-      this.input = ''
-      this.output = ''
-      this.$refs.inputEditor.focus()
-    }
+defineOptions({ name: 'TextToMars' })
+
+const { message } = useFeedback()
+
+const input = ref('今天天气真不错，我们一起去公园玩吧')
+const output = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+function convert(direction) {
+  if (!input.value) {
+    message.warning('请输入内容')
+    return
   }
+  if (direction === 's2t') {
+    output.value = [...input.value].map(c => simplifiedToTraditionalMap[c] || c).join('')
+  } else if (direction === 's2m') {
+    output.value = [...input.value].map(c => simplifiedToMarsMap[c] || c).join('')
+  } else {
+    if (!traditionalToSimplifiedMap) {
+      traditionalToSimplifiedMap = {}
+      Object.entries(simplifiedToTraditionalMap).forEach(([s, t]) => {
+        if (!(t in traditionalToSimplifiedMap)) traditionalToSimplifiedMap[t] = s
+      })
+    }
+    output.value = [...input.value].map(c => traditionalToSimplifiedMap[c] || c).join('')
+  }
+  record(TOOL_PATH, {
+    input: input.value,
+    output: output.value,
+    options: { action: 'convert', direction: direction }
+  })
+}
+
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  input.value = full.input || ''
+  output.value = full.output || ''
+  nextTick(() => {
+    inputEditor.value && inputEditor.value.focus()
+  })
+  message.success('已从历史恢复')
+}
+
+function copyOutput() {
+  if (!output.value) return
+  navigator.clipboard.writeText(output.value).then(() => {
+    message.success('复制成功')
+  })
+}
+
+function clearAll() {
+  input.value = ''
+  output.value = ''
+  inputEditor.value.focus()
 }
 </script>

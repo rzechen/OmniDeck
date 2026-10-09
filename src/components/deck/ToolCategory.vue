@@ -42,7 +42,7 @@
           :class="{ 'is-favorited': isFavorite(tool) }"
           :style="{ animationDelay: Math.min(idx, 17) * 30 + 'ms' }"
           :title="tool.desc"
-          @click="$router.push(tool.path)"
+          @click="router.push(tool.path)"
         >
           <div class="tile-avatar" :style="avatarStyle">
             <svg-icon v-if="tool.icon" :icon-class="tool.icon" class="tile-svg" />
@@ -72,78 +72,74 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 import { setItem } from '@/utils/storage/db'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'ToolCategory',
-  props: {
-    category: { type: Object, required: true }
-  },
-  data() {
-    return {
-      keyword: ''
-    }
-  },
-  computed: {
-    tools() {
-      return this.category.children || []
-    },
-    filteredTools() {
-      if (!this.keyword) return this.tools
-      const q = this.keyword.toLowerCase()
-      return this.tools.filter(
-        t =>
-          t.name.toLowerCase().includes(q) ||
-          (t.desc || '').toLowerCase().includes(q)
-      )
-    },
-    // 每行卡片数：全局设置（设置-通用），'auto' 按容器宽度自适应
-    gridCols() {
-      return this.$store.state.toolGridCols
-    },
-    // 网格列样式：固定列数时覆盖 auto-fill 布局
-    gridStyle() {
-      return typeof this.gridCols === 'number'
-        ? { gridTemplateColumns: `repeat(${this.gridCols}, minmax(0, 1fr))` }
-        : {}
-    },
-    color() {
-      return this.category.color || '#3366FF'
-    },
-    // Hero 渐变背景：分类主色的低透明度渐变（明暗主题下均自然）
-    heroStyle() {
-      const c = this.color
-      return {
-        background: `linear-gradient(115deg, ${c}24 0%, ${c}0D 60%, transparent 100%)`,
-        borderColor: `${c}33`
-      }
-    },
-    // 字母头像：分类主色浅底 + 主色文字
-    avatarStyle() {
-      const c = this.color
-      return {
-        background: `${c}1A`,
-        color: c
-      }
-    }
-  },
-  methods: {
-    isFavorite(tool) {
-      return this.$store.state.toolFavorites.includes(tool.path)
-    },
-    // 收藏/取消收藏：更新 store 并持久化到 IndexedDB
-    toggleFavorite(tool) {
-      this.$store.commit('TOGGLE_TOOL_FAVORITE', tool.path)
-      setItem('toolFavorites', this.$store.state.toolFavorites)
-      const fav = this.$store.state.toolFavorites.includes(tool.path)
-      this.$message({
-        message: fav ? `已收藏「${tool.name}」` : `已取消收藏「${tool.name}」`,
-        type: 'success',
-        duration: 1500
-      })
-    }
+defineOptions({ name: 'ToolCategory' })
+
+const props = defineProps({
+  category: { type: Object, required: true }
+})
+
+const router = useRouter()
+const store = useStore()
+const { message } = useFeedback()
+
+const keyword = ref('')
+
+const tools = computed(() => props.category.children || [])
+const filteredTools = computed(() => {
+  if (!keyword.value) return tools.value
+  const q = keyword.value.toLowerCase()
+  return tools.value.filter(
+    t =>
+      t.name.toLowerCase().includes(q) ||
+      (t.desc || '').toLowerCase().includes(q)
+  )
+})
+// 每行卡片数：全局设置（设置-通用），'auto' 按容器宽度自适应
+const gridCols = computed(() => store.state.toolGridCols)
+// 网格列样式：固定列数时覆盖 auto-fill 布局
+const gridStyle = computed(() => {
+  return typeof gridCols.value === 'number'
+    ? { gridTemplateColumns: `repeat(${gridCols.value}, minmax(0, 1fr))` }
+    : {}
+})
+const color = computed(() => props.category.color || '#3366FF')
+// Hero 渐变背景：分类主色的低透明度渐变（明暗主题下均自然）
+const heroStyle = computed(() => {
+  const c = color.value
+  return {
+    background: `linear-gradient(115deg, ${c}24 0%, ${c}0D 60%, transparent 100%)`,
+    borderColor: `${c}33`
   }
+})
+// 字母头像：分类主色浅底 + 主色文字
+const avatarStyle = computed(() => {
+  const c = color.value
+  return {
+    background: `${c}1A`,
+    color: c
+  }
+})
+
+function isFavorite(tool) {
+  return store.state.toolFavorites.includes(tool.path)
+}
+// 收藏/取消收藏：更新 store 并持久化到 IndexedDB
+function toggleFavorite(tool) {
+  store.commit('TOGGLE_TOOL_FAVORITE', tool.path)
+  setItem('toolFavorites', store.state.toolFavorites)
+  const fav = store.state.toolFavorites.includes(tool.path)
+  message({
+    message: fav ? `已收藏「${tool.name}」` : `已取消收藏「${tool.name}」`,
+    type: 'success',
+    duration: 1500
+  })
 }
 </script>
 

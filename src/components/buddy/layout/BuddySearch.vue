@@ -28,7 +28,7 @@
             v-for="r in results"
             :key="r.id"
             class="buddy-search-item"
-            @mousedown.prevent="$emit('select', r.id)"
+            @mousedown.prevent="emit('select', r.id)"
           >
             <svg-icon icon-class="chat-dot-round" />
             <span class="buddy-search-item-name">{{ r.name }}</span>
@@ -44,61 +44,61 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 顶栏搜索框（跨会话搜索：标题 + 内容）
 // 搜索由主进程执行；结果缓存随会话列表变化由父层清空（sessions-changed 时调 clearCache）
-export default {
-  name: 'BuddySearch',
-  data() {
-    return {
-      query: '',
-      focus: false,
-      // query -> 结果缓存
-      cache: {},
-      timer: null
-    }
-  },
-  computed: {
-    results() {
-      const q = this.query.trim()
-      if (!q) return []
-      return this.cache[q] || []
-    }
-  },
-  watch: {
-    query(q) {
-      this.runSearch(q)
-    }
-  },
-  beforeUnmount() {
-    clearTimeout(this.timer)
-  },
-  methods: {
-    buddyApi() {
-      return (window.electronAPI && window.electronAPI.omnibuddy) || null
-    },
-    // 防抖 + 简易缓存（同 query 不重复请求）
-    runSearch(q) {
-      const api = this.buddyApi()
-      if (!api) return
-      const query = q.trim()
-      if (!query) return
-      if (this.cache[query] !== undefined) return
-      clearTimeout(this.timer)
-      this.timer = setTimeout(async () => {
-        const results = await api.searchSessions(query)
-        this.cache[query] = results.map(r => ({ id: r.id, name: r.name, snippet: r.snippet }))
-      }, 200)
-    },
-    // 会话列表变化后由父层调用：清空结果缓存
-    clearCache() {
-      this.cache = {}
-    },
-    onBlur() {
-      this.focus = false
-    }
-  }
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
+
+defineOptions({ name: 'BuddySearch' })
+
+const emit = defineEmits(['select'])
+
+const query = ref('')
+const focus = ref(false)
+// query -> 结果缓存
+const cache = ref({})
+let timer = null
+
+const results = computed(() => {
+  const q = query.value.trim()
+  if (!q) return []
+  return cache.value[q] || []
+})
+
+watch(query, q => {
+  runSearch(q)
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
+
+function buddyApi() {
+  return (window.electronAPI && window.electronAPI.omnibuddy) || null
 }
+// 防抖 + 简易缓存（同 query 不重复请求）
+function runSearch(q) {
+  const api = buddyApi()
+  if (!api) return
+  const query = q.trim()
+  if (!query) return
+  if (cache.value[query] !== undefined) return
+  clearTimeout(timer)
+  timer = setTimeout(async () => {
+    const results = await api.searchSessions(query)
+    cache.value[query] = results.map(r => ({ id: r.id, name: r.name, snippet: r.snippet }))
+  }, 200)
+}
+// 会话列表变化后由父层调用：清空结果缓存
+function clearCache() {
+  cache.value = {}
+}
+function onBlur() {
+  focus.value = false
+}
+
+// 供父层经 ref 调用（sessions-changed 时清缓存）
+defineExpose({ clearCache })
 </script>
 
 <style lang="scss" scoped>

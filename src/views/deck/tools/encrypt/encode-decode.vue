@@ -73,79 +73,80 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'EncryptUrlCodec' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/encrypt/encode-decode'
 
-export default {
-  name: 'EncryptUrlCodec',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      inputText: 'https://omnideck.app/search?q=格式化 工具&lang=zh',
-      outputText: '',
-      errorMsg: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  methods: {
-    encode() {
-      this.errorMsg = ''
-      if (!this.inputText) return
-      const before = this.inputText
-      this.outputText = encodeURIComponent(this.inputText)
-      record(TOOL_PATH, { input: before, output: this.outputText, options: { action: 'encode' } })
-    },
-    decode() {
-      this.errorMsg = ''
-      if (!this.inputText) return
-      const before = this.inputText
-      try {
-        this.outputText = decodeURIComponent(this.inputText)
-        record(TOOL_PATH, { input: before, output: this.outputText, options: { action: 'decode' } })
-      } catch (e) {
-        this.errorMsg = '解码失败：不是合法的 URL 编码'
-        this.outputText = ''
-      }
-    },
-    copyOutput() {
-      if (!this.outputText) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.outputText).then(() => {
-        this.$message.success('复制成功')
-        record(TOOL_PATH, {
-          input: this.inputText,
-          output: this.outputText,
-          options: { action: 'copy' }
-        })
-      })
-    },
-    // 从历史恢复：回填输入输出
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.inputText = full.input || ''
-      this.outputText = full.output || ''
-      this.errorMsg = ''
-      this.$nextTick(() => this.$refs.inputEditor && this.$refs.inputEditor.focus())
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.inputText = ''
-      this.outputText = ''
-      this.$refs.inputEditor.focus()
-    }
+const inputText = ref('https://omnideck.app/search?q=格式化 工具&lang=zh')
+const outputText = ref('')
+const errorMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+function encode() {
+  errorMsg.value = ''
+  if (!inputText.value) return
+  const before = inputText.value
+  outputText.value = encodeURIComponent(inputText.value)
+  record(TOOL_PATH, { input: before, output: outputText.value, options: { action: 'encode' } })
+}
+
+function decode() {
+  errorMsg.value = ''
+  if (!inputText.value) return
+  const before = inputText.value
+  try {
+    outputText.value = decodeURIComponent(inputText.value)
+    record(TOOL_PATH, { input: before, output: outputText.value, options: { action: 'decode' } })
+  } catch (e) {
+    errorMsg.value = '解码失败：不是合法的 URL 编码'
+    outputText.value = ''
   }
+}
+
+function copyOutput() {
+  if (!outputText.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(outputText.value).then(() => {
+    message.success('复制成功')
+    record(TOOL_PATH, {
+      input: inputText.value,
+      output: outputText.value,
+      options: { action: 'copy' }
+    })
+  })
+}
+
+// 从历史恢复：回填输入输出
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  inputText.value = full.input || ''
+  outputText.value = full.output || ''
+  errorMsg.value = ''
+  await nextTick()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  inputText.value = ''
+  outputText.value = ''
+  inputEditor.value.focus()
 }
 </script>

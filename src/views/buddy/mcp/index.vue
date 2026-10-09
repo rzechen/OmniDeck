@@ -122,251 +122,263 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 连接器页：官方连接器（一键接入）+ 自定义 MCP Server（stdio / Streamable HTTP）
 // 卡片与新增/编辑弹窗已拆分至 ./components/（McpCard / McpFormDialog）
+import { ref, reactive, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import McpCard from './components/McpCard.vue'
 import McpFormDialog from './components/McpFormDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApi, buddyApiSection } from '@/utils/buddy/buddy-api'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddyMcp',
-  components: { McpCard, McpFormDialog, BuddySkeleton },
-  data() {
-    return {
-      mcpServers: [],
-      mcpLoading: false,
-      // 登录向导当前打开的站点（空 = 未开）：login_wizard 事件实时驱动
-      wizardHost: '',
-      // 新增/编辑弹窗显隐与编辑对象（null 表示新增）
-      mcpModalVisible: false,
-      mcpEditing: null,
-      // 官方连接器（分区已移除，保留空实现避免残留引用报错）
-      connectors: [],
-      connectorLoading: false,
-      connectDialog: {
-        visible: false,
-        id: '',
-        name: '',
-        label: '',
-        hint: '',
-        // 鉴权结构（主进程 credentialSpec 返回）
-        envKey: '',
-        headerKey: '',
-        headerPrefix: '',
-        token: '',
-        busy: false
-      }
-    }
-  },
-  created() {
-    this.loadMcp()
-  },
-  mounted() {
-    // 登录向导开/关由主进程广播实时驱动（徽标翻转 + 成功提示）；
-    // 撞墙引导入口已收敛到聊天思考区工具卡片内嵌按钮，本页不再展示站点登记表
-    const api = buddyApi()
-    if (api && api.onEvent) {
-      this._unsubPw = api.onEvent(e => {
-        if (e && e.type === 'login_wizard') {
-          this.wizardHost = e.phase === 'open' ? e.host : ''
-          if (e.phase === 'success') this.$message.success('「' + e.host + '」登录成功，登录态已保存')
-        }
+defineOptions({ name: 'OmniBuddyMcp' })
+
+const { message, confirm } = useFeedback()
+
+const mcpServers = ref([])
+const mcpLoading = ref(false)
+// 登录向导当前打开的站点（空 = 未开）：login_wizard 事件实时驱动
+const wizardHost = ref('')
+// 新增/编辑弹窗显隐与编辑对象（null 表示新增）
+const mcpModalVisible = ref(false)
+const mcpEditing = ref(null)
+// 官方连接器（分区已移除，保留空实现避免残留引用报错）
+const connectors = ref([])
+const connectorLoading = ref(false)
+const connectDialog = reactive({
+  visible: false,
+  id: '',
+  name: '',
+  label: '',
+  hint: '',
+  // 鉴权结构（主进程 credentialSpec 返回）
+  envKey: '',
+  headerKey: '',
+  headerPrefix: '',
+  token: '',
+  busy: false
+})
+let unsubPw = null
+
+// 连接器 IPC 桥（官方分区已移除，凭证弹窗仍走该桥）
+function api() {
+  return buddyApiSection('connectors')
+}
+
+function loadConnectors() {
+  /* 官方连接器分区已移除，保留空实现避免 preload 兼容问题 */
+}
+
+function openDoc(c) {
+  const a = api()
+  if (c.docUrl && a) a.openDoc(c.docUrl)
+}
+
+// 需鉴权连接器：拉取凭证引导信息并弹窗；免鉴权连接器直接接入
+async function openConnectDialog(c) {
+  if (!c.needsCredential) {
+    doConnect(c.id, null)
+    return
+  }
+  const a = api()
+  const spec = await a.credentialSpec(c.id)
+  if (!spec) {
+    doConnect(c.id, null)
+    return
+  }
+  Object.assign(connectDialog, {
+    visible: true,
+    id: c.id,
+    name: c.name,
+    label: spec.label,
+    hint: spec.hint,
+    envKey: spec.envKey,
+    headerKey: spec.headerKey,
+    headerPrefix: spec.headerPrefix,
+    token: '',
+    busy: false
+  })
+}
+
+// 组装凭证并接入：env 型（Lark/Notion）或 header 型（GitHub）；
+// Notion 需将 token 包成 JSON 头（OPENAPI_MCP_HEADERS 约定）
+async function confirmConnect() {
+  const d = connectDialog
+  const token = d.token.trim()
+  if (!token) {
+    message.error('请输入 ' + d.label)
+    return
+  }
+  d.busy = true
+  const omnibuddy = buddyApi()
+  // 凭证 secret 结构
+  let headers = {}
+  let env = {}
+  if (d.id === 'notion') {
+    // Notion 官方约定：headers JSON 字符串注入环境变量
+    env = {
+      OPENAPI_MCP_HEADERS: JSON.stringify({
+        Authorization: 'Bearer ' + token,
+        'Notion-Version': '2022-06-28'
       })
     }
-  },
-  beforeUnmount() {
-    if (this._unsubPw) {
-      this._unsubPw()
-      this._unsubPw = null
+  } else if (d.headerKey) {
+    headers = { [d.headerKey]: d.headerPrefix + token }
+  } else if (d.envKey) {
+    env = { [d.envKey]: token }
+  }
+  try {
+    const credRes = await omnibuddy.credentials.create({
+      name: '连接器 · ' + d.name,
+      type: 'connector',
+      description: d.label,
+      headers,
+      env
+    })
+    if (!credRes || !credRes.ok) {
+      d.busy = false
+      message.error((credRes && credRes.error) || '凭证保存失败')
+      return
     }
-  },
-  methods: {
-    // 连接器 IPC 桥（官方分区已移除，凭证弹窗仍走该桥）
-    api() {
-      return buddyApiSection('connectors')
-    },
-    loadConnectors() {
-      /* 官方连接器分区已移除，保留空实现避免 preload 兼容问题 */
-    },
-    openDoc(c) {
-      const api = this.api()
-      if (c.docUrl && api) api.openDoc(c.docUrl)
-    },
-    // 需鉴权连接器：拉取凭证引导信息并弹窗；免鉴权连接器直接接入
-    async openConnectDialog(c) {
-      if (!c.needsCredential) {
-        this.doConnect(c.id, null)
-        return
-      }
-      const api = this.api()
-      const spec = await api.credentialSpec(c.id)
-      if (!spec) {
-        this.doConnect(c.id, null)
-        return
-      }
-      this.connectDialog = {
-        visible: true,
-        id: c.id,
-        name: c.name,
-        label: spec.label,
-        hint: spec.hint,
-        envKey: spec.envKey,
-        headerKey: spec.headerKey,
-        headerPrefix: spec.headerPrefix,
-        token: '',
-        busy: false
-      }
-    },
-    // 组装凭证并接入：env 型（Lark/Notion）或 header 型（GitHub）；
-    // Notion 需将 token 包成 JSON 头（OPENAPI_MCP_HEADERS 约定）
-    async confirmConnect() {
-      const d = this.connectDialog
-      const token = d.token.trim()
-      if (!token) {
-        this.$message.error('请输入 ' + d.label)
-        return
-      }
-      d.busy = true
-      const omnibuddy = buddyApi()
-      // 凭证 secret 结构
-      let headers = {}
-      let env = {}
-      if (d.id === 'notion') {
-        // Notion 官方约定：headers JSON 字符串注入环境变量
-        env = {
-          OPENAPI_MCP_HEADERS: JSON.stringify({
-            Authorization: 'Bearer ' + token,
-            'Notion-Version': '2022-06-28'
-          })
-        }
-      } else if (d.headerKey) {
-        headers = { [d.headerKey]: d.headerPrefix + token }
-      } else if (d.envKey) {
-        env = { [d.envKey]: token }
-      }
-      try {
-        const credRes = await omnibuddy.credentials.create({
-          name: '连接器 · ' + d.name,
-          type: 'connector',
-          description: d.label,
-          headers,
-          env
-        })
-        if (!credRes || !credRes.ok) {
-          d.busy = false
-          this.$message.error((credRes && credRes.error) || '凭证保存失败')
-          return
-        }
-        this.doConnect(d.id, credRes.credential.id)
-      } catch (e) {
-        d.busy = false
-        this.$message.error('凭证保存异常')
-      }
-    },
-    async doConnect(id, credentialId) {
-      const api = this.api()
-      try {
-        const res = await api.connect(id, credentialId ? { credentialId } : {})
-        if (!res || !res.ok) {
-          this.connectDialog.busy = false
-          this.$message.error((res && res.error) || '接入失败')
-          return
-        }
-        this.connectDialog.visible = false
-        this.connectDialog.busy = false
-        this.$message.success('连接器已接入，新会话生效')
-        this.loadConnectors()
-      } catch (e) {
-        this.connectDialog.busy = false
-        this.$message.error('接入请求异常')
-      }
-    },
-    disconnectConnector(c) {
-      const api = this.api()
-      this.$confirm(`断开「${c.name}」连接器？对应 MCP Server 配置将被移除。`, '断开确认', {
-        confirmButtonText: '断开',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(async () => {
-        try {
-          const res = await api.disconnect(c.id)
-          if (!res || !res.ok) {
-            this.$message.error((res && res.error) || '断开失败')
-            return
-          }
-          this.$message.success('已断开')
-          this.loadConnectors()
-        } catch (e) {
-          this.$message.error('断开请求异常')
-        }
-      }).catch(() => { /* 取消 */ })
-    },
-    async loadMcp() {
-      const api = buddyApi()
-      const mcp = api && api.mcp
-      this.mcpLoading = true
-      try {
-        if (mcp) {
-          const servers = await mcp.list()
-          this.mcpServers = Array.isArray(servers) ? servers : []
-        } else {
-          this.mcpServers = []
-        }
-      } catch (e) {
-        this.mcpServers = []
-      }
-      this.mcpLoading = false
-    },
-    openMcpAdd() {
-      this.mcpEditing = null
-      this.mcpModalVisible = true
-    },
-    openMcpEdit(s) {
-      this.mcpEditing = s
-      this.mcpModalVisible = true
-    },
-    // 全量保存连接器列表（开关切换 / 删除共用；弹窗保存走子组件内部实现）
-    async saveMcpServers(servers) {
-      const api = buddyApi()
-      const mcp = api && api.mcp
-      if (!mcp) {
-        this.$message.error('连接器管理仅桌面端可用')
-        return false
-      }
-      try {
-        const res = await mcp.save(servers)
-        if (res && res.ok === false) {
-          this.$message.error(res.error || '保存失败')
-          return false
-        }
-        this.loadMcp()
-        return true
-      } catch (e) {
-        this.$message.error('保存失败：' + (e && e.message ? e.message : '未知错误'))
-        return false
-      }
-    },
-    // 启用开关：v-model 已更新状态，此处全量保存；失败回滚
-    async toggleMcpEnabled(s) {
-      const ok = await this.saveMcpServers(this.mcpServers)
-      if (!ok) {
-        this.$nextTick(() => { s.enabled = !s.enabled })
-      }
-    },
-    removeMcpItem(s) {
-      this.$confirm('确定删除连接器「' + s.name + '」吗？', '删除连接器', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(async () => {
-        const ok = await this.saveMcpServers(this.mcpServers.filter(x => x.name !== s.name))
-        if (ok) this.$message.success('已删除')
-      }).catch(() => {})
-    }
+    doConnect(d.id, credRes.credential.id)
+  } catch (e) {
+    d.busy = false
+    message.error('凭证保存异常')
   }
 }
+
+async function doConnect(id, credentialId) {
+  const a = api()
+  try {
+    const res = await a.connect(id, credentialId ? { credentialId } : {})
+    if (!res || !res.ok) {
+      connectDialog.busy = false
+      message.error((res && res.error) || '接入失败')
+      return
+    }
+    connectDialog.visible = false
+    connectDialog.busy = false
+    message.success('连接器已接入，新会话生效')
+    loadConnectors()
+  } catch (e) {
+    connectDialog.busy = false
+    message.error('接入请求异常')
+  }
+}
+
+function disconnectConnector(c) {
+  const a = api()
+  confirm(`断开「${c.name}」连接器？对应 MCP Server 配置将被移除。`, '断开确认', {
+    confirmButtonText: '断开',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    try {
+      const res = await a.disconnect(c.id)
+      if (!res || !res.ok) {
+        message.error((res && res.error) || '断开失败')
+        return
+      }
+      message.success('已断开')
+      loadConnectors()
+    } catch (e) {
+      message.error('断开请求异常')
+    }
+  }).catch(() => { /* 取消 */ })
+}
+
+async function loadMcp() {
+  const omnibuddy = buddyApi()
+  const mcp = omnibuddy && omnibuddy.mcp
+  mcpLoading.value = true
+  try {
+    if (mcp) {
+      const servers = await mcp.list()
+      mcpServers.value = Array.isArray(servers) ? servers : []
+    } else {
+      mcpServers.value = []
+    }
+  } catch (e) {
+    mcpServers.value = []
+  }
+  mcpLoading.value = false
+}
+
+function openMcpAdd() {
+  mcpEditing.value = null
+  mcpModalVisible.value = true
+}
+
+function openMcpEdit(s) {
+  mcpEditing.value = s
+  mcpModalVisible.value = true
+}
+
+// 全量保存连接器列表（开关切换 / 删除共用；弹窗保存走子组件内部实现）
+async function saveMcpServers(servers) {
+  const omnibuddy = buddyApi()
+  const mcp = omnibuddy && omnibuddy.mcp
+  if (!mcp) {
+    message.error('连接器管理仅桌面端可用')
+    return false
+  }
+  try {
+    const res = await mcp.save(servers)
+    if (res && res.ok === false) {
+      message.error(res.error || '保存失败')
+      return false
+    }
+    loadMcp()
+    return true
+  } catch (e) {
+    message.error('保存失败：' + (e && e.message ? e.message : '未知错误'))
+    return false
+  }
+}
+
+// 启用开关：v-model 已更新状态，此处全量保存；失败回滚
+async function toggleMcpEnabled(s) {
+  const ok = await saveMcpServers(mcpServers.value)
+  if (!ok) {
+    nextTick(() => { s.enabled = !s.enabled })
+  }
+}
+
+function removeMcpItem(s) {
+  confirm('确定删除连接器「' + s.name + '」吗？', '删除连接器', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    const ok = await saveMcpServers(mcpServers.value.filter(x => x.name !== s.name))
+    if (ok) message.success('已删除')
+  }).catch(() => {})
+}
+
+// created：进入页面即拉取连接器列表
+loadMcp()
+
+onMounted(() => {
+  // 登录向导开/关由主进程广播实时驱动（徽标翻转 + 成功提示）；
+  // 撞墙引导入口已收敛到聊天思考区工具卡片内嵌按钮，本页不再展示站点登记表
+  const omnibuddy = buddyApi()
+  if (omnibuddy && omnibuddy.onEvent) {
+    unsubPw = omnibuddy.onEvent(e => {
+      if (e && e.type === 'login_wizard') {
+        wizardHost.value = e.phase === 'open' ? e.host : ''
+        if (e.phase === 'success') message.success('「' + e.host + '」登录成功，登录态已保存')
+      }
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  if (unsubPw) {
+    unsubPw()
+    unsubPw = null
+  }
+})
 </script>
 
 <style lang="scss" scoped>

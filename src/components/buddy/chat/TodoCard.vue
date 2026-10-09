@@ -25,55 +25,51 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch } from 'vue'
+
 // OmniBuddy 任务清单卡片（Agent 执行计划实时展示）
-export default {
-  name: 'TodoCard',
-  props: {
-    todos: {
-      type: Array,
-      default: () => []
-    },
-    // 会话是否流式进行中：结束后 in_progress 不再转圈（停止/完成都视为结束）
-    streaming: {
-      type: Boolean,
-      default: false
-    }
+defineOptions({ name: 'TodoCard' })
+
+const props = defineProps({
+  todos: {
+    type: Array,
+    default: () => []
   },
-  data() {
-    return {
-      // 流式进行中默认展开（实时看进度）；回答结束/进入历史对话默认收起
-      collapsed: !this.streaming
-    }
-  },
-  watch: {
-    // 回答结束（streaming true→false）：自动收起（此后用户可自由展开，不再干预）
-    streaming(v) {
-      if (!v) this.collapsed = true
-    }
-  },
-  computed: {
-    // 进度摘要：已完成 x / 总数 y
-    summaryText() {
-      if (!this.todos.length) return ''
-      const done = this.todos.filter(t => t.status === 'completed').length
-      return done + '/' + this.todos.length
-    }
-  },
-  methods: {
-    // 展示状态：会话已结束（非流式）时 in_progress 回落为 pending（不转圈、不带标签）
-    displayStatus(t) {
-      return t.status === 'in_progress' && !this.streaming ? 'pending' : t.status
-    },
-    todoIcon(t) {
-      const map = {
-        pending: 'clock',
-        in_progress: 'loading',
-        completed: 'check'
-      }
-      return map[this.displayStatus(t)] || 'clock'
-    }
+  // 会话是否流式进行中：结束后 in_progress 不再转圈（停止/完成都视为结束）
+  streaming: {
+    type: Boolean,
+    default: false
   }
+})
+
+// 流式进行中默认展开（实时看进度）；回答结束/进入历史对话默认收起
+const collapsed = ref(!props.streaming)
+
+// 回答结束（streaming true→false）：自动收起（此后用户可自由展开，不再干预）
+watch(() => props.streaming, (v) => {
+  if (!v) collapsed.value = true
+})
+
+// 进度摘要：已完成 x / 总数 y
+const summaryText = computed(() => {
+  if (!props.todos.length) return ''
+  const done = props.todos.filter(t => t.status === 'completed').length
+  return done + '/' + props.todos.length
+})
+
+// 展示状态：会话已结束（非流式）时 in_progress 回落为 pending（不转圈、不带标签）
+function displayStatus(t) {
+  return t.status === 'in_progress' && !props.streaming ? 'pending' : t.status
+}
+
+function todoIcon(t) {
+  const map = {
+    pending: 'clock',
+    in_progress: 'loading',
+    completed: 'check'
+  }
+  return map[displayStatus(t)] || 'clock'
 }
 </script>
 

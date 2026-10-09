@@ -81,166 +81,163 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 运行时组件管理（设置-运行时嵌入）：瘦身版安装包的大体积运行时（python-env / node 等）按需在线装配
 // 数据源：主进程 omnibuddy:runtime:status（合并组件规则表与 OmniBuddy-Plugins 发布清单）
 // 进度：omnibuddy:runtime:progress 事件推送（download 百分比 / verify 校验 / extract 装配 / done / error）
+import { ref, reactive, computed, onBeforeUnmount } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
-export default {
-  name: 'RuntimeManager',
-  components: { BuddySkeleton },
-  data() {
-    return {
-      loading: false,
-      loaded: false,
-      components: [],
-      manifestError: '',
-      // 进度表：组件名 → { phase, percent, received, total, error }
-      progressMap: {},
-      meta: { downloadedRoot: '' },
-      offProgress: null
+defineOptions({ name: 'RuntimeManager' })
+
+const { message, confirm } = useFeedback()
+
+const loading = ref(false)
+const loaded = ref(false)
+const components = ref([])
+const manifestError = ref('')
+// 进度表：组件名 → { phase, percent, received, total, error }
+const progressMap = reactive({})
+const meta = reactive({ downloadedRoot: '' })
+let offProgress = null
+
+// 按 group 归并分组；分组元信息（图标 / 说明）随组名静态维护
+const sections = computed(() => {
+  const META = {
+    '解释器与依赖库': { icon: 'tool', desc: '代码执行工具的解释器与预装依赖库' },
+    '文档转换': { icon: 'download', desc: '文档格式转换引擎' },
+    '浏览器内核与辅助': { icon: 'market', desc: 'playwright 浏览器内核与媒体组件' }
+  }
+  const groups = []
+  components.value.forEach(c => {
+    let g = groups.find(x => x.label === c.group)
+    if (!g) {
+      const meta = META[c.group] || { icon: 'tool', desc: '' }
+      g = { label: c.group, icon: meta.icon, desc: meta.desc, items: [] }
+      groups.push(g)
     }
-  },
-  computed: {
-    // 按 group 归并分组；分组元信息（图标 / 说明）随组名静态维护
-    sections() {
-      const META = {
-        '解释器与依赖库': { icon: 'tool', desc: '代码执行工具的解释器与预装依赖库' },
-        '文档转换': { icon: 'download', desc: '文档格式转换引擎' },
-        '浏览器内核与辅助': { icon: 'market', desc: 'playwright 浏览器内核与媒体组件' }
-      }
-      const groups = []
-      this.components.forEach(c => {
-        let g = groups.find(x => x.label === c.group)
-        if (!g) {
-          const meta = META[c.group] || { icon: 'tool', desc: '' }
-          g = { label: c.group, icon: meta.icon, desc: meta.desc, items: [] }
-          groups.push(g)
-        }
-        g.items.push(c)
-      })
-      return groups
+    g.items.push(c)
+  })
+  return groups
+})
+
+// created 时机：初始化加载与进度事件绑定
+load()
+bindProgress()
+
+onBeforeUnmount(() => {
+  if (offProgress) offProgress()
+})
+
+function buddyApi() {
+  return (window.electronAPI && window.electronAPI.omnibuddy) || null
+}
+function isBusy(name) {
+  // 进行中：有进度且未到终态（done / error 由事件回调清表并刷新状态）
+  const p = progressMap[name]
+  return !!p && p.phase !== 'done' && p.phase !== 'error'
+}
+function progressOf(name) {
+  return progressMap[name] || { phase: '', percent: 0 }
+}
+function phaseText(phase) {
+  const map = { verify: 'sha256 校验中…', extract: '解压装配中…' }
+  return map[phase] || '处理中…'
+}
+function statusClass(c) {
+  if (c.builtin) return ''
+  if (c.installed) return ''
+  if (!c.installable) return 'off'
+  return 'idle'
+}
+function statusText(c) {
+  if (c.builtin) return '内置'
+  if (c.installed) return '已装配'
+  if (!c.installable) return '暂不支持'
+  return '未装配'
+}
+function formatSize(bytes) {
+  if (!bytes) return ''
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+  if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+  return Math.max(1, Math.round(bytes / 1024)) + ' KB'
+}
+// 装配进度事件（主进程 event.sender 推送）
+function bindProgress() {
+  const api = buddyApi()
+  if (!api || !api.onRuntimeProgress) return
+  offProgress = api.onRuntimeProgress(p => {
+    if (!p || !p.component) return
+    progressMap[p.component] = p
+    if (p.phase === 'done') {
+      message.success('「' + labelOf(p.component) + '」装配完成')
+      refreshOne(p.component)
     }
-  },
-  created() {
-    this.load()
-    this.bindProgress()
-  },
-  beforeUnmount() {
-    if (this.offProgress) this.offProgress()
-  },
-  methods: {
-    api() {
-      return (window.electronAPI && window.electronAPI.omnibuddy) || null
-    },
-    isBusy(name) {
-      // 进行中：有进度且未到终态（done / error 由事件回调清表并刷新状态）
-      const p = this.progressMap[name]
-      return !!p && p.phase !== 'done' && p.phase !== 'error'
-    },
-    progressOf(name) {
-      return this.progressMap[name] || { phase: '', percent: 0 }
-    },
-    phaseText(phase) {
-      const map = { verify: 'sha256 校验中…', extract: '解压装配中…' }
-      return map[phase] || '处理中…'
-    },
-    statusClass(c) {
-      if (c.builtin) return ''
-      if (c.installed) return ''
-      if (!c.installable) return 'off'
-      return 'idle'
-    },
-    statusText(c) {
-      if (c.builtin) return '内置'
-      if (c.installed) return '已装配'
-      if (!c.installable) return '暂不支持'
-      return '未装配'
-    },
-    formatSize(bytes) {
-      if (!bytes) return ''
-      if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB'
-      if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
-      return Math.max(1, Math.round(bytes / 1024)) + ' KB'
-    },
-    // 装配进度事件（主进程 event.sender 推送）
-    bindProgress() {
-      const api = this.api()
-      if (!api || !api.onRuntimeProgress) return
-      this.offProgress = api.onRuntimeProgress(p => {
-        if (!p || !p.component) return
-        this.$set(this.progressMap, p.component, p)
-        if (p.phase === 'done') {
-          this.$message.success('「' + this.labelOf(p.component) + '」装配完成')
-          this.refreshOne(p.component)
-        }
-        if (p.phase === 'error') {
-          this.$message.error('「' + this.labelOf(p.component) + '」装配失败：' + (p.error || '未知错误'))
-        }
-      })
-    },
-    labelOf(name) {
-      const hit = this.components.find(c => c.name === name)
-      return (hit && hit.label) || name
-    },
-    // 单组件落地后局部刷新（不打转圈，避免打断浏览）
-    refreshOne(name) {
-      const api = this.api()
-      if (!api || !api.runtimeStatus) return
-      api.runtimeStatus().then(res => {
-        if (!res || !res.ok) return
-        const hit = (res.components || []).find(c => c.name === name)
-        if (hit) {
-          const idx = this.components.findIndex(c => c.name === name)
-          if (idx >= 0) this.components.splice(idx, 1, hit)
-        }
-      })
-    },
-    async load() {
-      const api = this.api()
-      if (!api || !api.runtimeStatus) return
-      this.loading = true
-      try {
-        const res = await api.runtimeStatus()
-        if (res && res.ok) {
-          this.components = res.components || []
-          this.manifestError = res.manifestError || ''
-          this.meta = { downloadedRoot: res.downloadedRoot || '' }
-          this.loaded = true
-        }
-      } finally {
-        this.loading = false
-      }
-    },
-    async install(c) {
-      const api = this.api()
-      if (!api || !api.runtimeInstall) return
-      this.$set(this.progressMap, c.name, { phase: 'download', percent: 0 })
-      const res = await api.runtimeInstall(c.name)
-      if (!res || !res.ok) {
-        this.$message.error((res && res.error) || '装配失败')
-      }
-      // 成功路径由 progress done 事件收尾；此处兜底刷新状态
-      this.refreshOne(c.name)
-    },
-    async uninstall(c) {
-      const api = this.api()
-      if (!api || !api.runtimeUninstall) return
-      const yes = await this.$confirm(
-        '卸载「' + c.label + '」后，相关工具将回退系统环境（可随时重新下载装配）。',
-        '卸载组件',
-        { confirmButtonText: '卸载', cancelButtonText: '取消', type: 'warning' }
-      ).then(() => true).catch(() => false)
-      if (!yes) return
-      const res = await api.runtimeUninstall(c.name)
-      if (res && res.ok) {
-        this.$message.success('已卸载「' + c.label + '」')
-        this.refreshOne(c.name)
-      } else {
-        this.$message.error((res && res.error) || '卸载失败')
-      }
+    if (p.phase === 'error') {
+      message.error('「' + labelOf(p.component) + '」装配失败：' + (p.error || '未知错误'))
     }
+  })
+}
+function labelOf(name) {
+  const hit = components.value.find(c => c.name === name)
+  return (hit && hit.label) || name
+}
+// 单组件落地后局部刷新（不打转圈，避免打断浏览）
+function refreshOne(name) {
+  const api = buddyApi()
+  if (!api || !api.runtimeStatus) return
+  api.runtimeStatus().then(res => {
+    if (!res || !res.ok) return
+    const hit = (res.components || []).find(c => c.name === name)
+    if (hit) {
+      const idx = components.value.findIndex(c => c.name === name)
+      if (idx >= 0) components.value.splice(idx, 1, hit)
+    }
+  })
+}
+async function load() {
+  const api = buddyApi()
+  if (!api || !api.runtimeStatus) return
+  loading.value = true
+  try {
+    const res = await api.runtimeStatus()
+    if (res && res.ok) {
+      components.value = res.components || []
+      manifestError.value = res.manifestError || ''
+      meta.downloadedRoot = res.downloadedRoot || ''
+      loaded.value = true
+    }
+  } finally {
+    loading.value = false
+  }
+}
+async function install(c) {
+  const api = buddyApi()
+  if (!api || !api.runtimeInstall) return
+  progressMap[c.name] = { phase: 'download', percent: 0 }
+  const res = await api.runtimeInstall(c.name)
+  if (!res || !res.ok) {
+    message.error((res && res.error) || '装配失败')
+  }
+  // 成功路径由 progress done 事件收尾；此处兜底刷新状态
+  refreshOne(c.name)
+}
+async function uninstall(c) {
+  const api = buddyApi()
+  if (!api || !api.runtimeUninstall) return
+  const yes = await confirm(
+    '卸载「' + c.label + '」后，相关工具将回退系统环境（可随时重新下载装配）。',
+    '卸载组件',
+    { confirmButtonText: '卸载', cancelButtonText: '取消', type: 'warning' }
+  ).then(() => true).catch(() => false)
+  if (!yes) return
+  const res = await api.runtimeUninstall(c.name)
+  if (res && res.ok) {
+    message.success('已卸载「' + c.label + '」')
+    refreshOne(c.name)
+  } else {
+    message.error((res && res.error) || '卸载失败')
   }
 }
 </script>

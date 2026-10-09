@@ -24,7 +24,7 @@
             :key="it.value"
             class="ob-pop-item"
             :class="{ active: it.value === modelValue }"
-            @click="$emit('select', it.value)"
+            @click="emit('select', it.value)"
           >
             <span class="ob-pop-ico">
               <svg-icon :icon-class="it.svg || 'menu'" class="ob-pop-svg" />
@@ -58,76 +58,75 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { computed } from 'vue'
+
 // OmniBuddy 输入栏上拉选择器：空间 / 模型等内嵌 chip 的统一浮层
 // 设计参考 Claude / ChatGPT 输入栏：chip 为中性幽灵按钮（无警示配色），
 // 浮层为 mac 菜单风（毛玻璃 + 选中项主题色对勾 + 次要信息弱化标签）。
 // 打开状态由父组件集中管理（activeKey），保证同时只展开一个。
-export default {
-  name: 'ComposerPicker',
-  props: {
-    // 自身标识（与 activeKey 比较判断是否展开）
-    pickerKey: {
-      type: String,
-      required: true
-    },
-    // 当前展开的选择器标识（'' 表示全部收起）
-    activeKey: {
-      type: String,
-      default: ''
-    },
-    // 当前选中值（空值时 chip 文字弱化为占位样式）
-    modelValue: {
-      type: [String, Number],
-      default: ''
-    },
-    // 触发 chip 图标（svg 图标名）
-    triggerIcon: {
-      type: String,
-      default: 'menu'
-    },
-    triggerLabel: {
-      type: String,
-      default: ''
-    },
-    triggerTitle: {
-      type: String,
-      default: ''
-    },
-    // 浮层顶部小标题
-    panelTitle: {
-      type: String,
-      default: ''
-    },
-    // 选项：{ value, label, svg?, tag? }
-    items: {
-      type: Array,
-      default: () => []
-    },
-    emptyTitle: {
-      type: String,
-      default: '暂无选项'
-    },
-    emptyDesc: {
-      type: String,
-      default: ''
-    },
-    // 禁用触发 chip（浮层不可弹出；选中值仍正常展示）
-    disabled: {
-      type: Boolean,
-      default: false
-    }
+defineOptions({ name: 'ComposerPicker' })
+
+const props = defineProps({
+  // 自身标识（与 activeKey 比较判断是否展开）
+  pickerKey: {
+    type: String,
+    required: true
   },
-  computed: {
-    isOpen() {
-      return !this.disabled && this.activeKey === this.pickerKey
-    }
+  // 当前展开的选择器标识（'' 表示全部收起）
+  activeKey: {
+    type: String,
+    default: ''
   },
-  methods: {
-    onToggle() {
-      if (!this.disabled) this.$emit('toggle')
-    }
+  // 当前选中值（空值时 chip 文字弱化为占位样式）
+  modelValue: {
+    type: [String, Number],
+    default: ''
+  },
+  // 触发 chip 图标（svg 图标名）
+  triggerIcon: {
+    type: String,
+    default: 'menu'
+  },
+  triggerLabel: {
+    type: String,
+    default: ''
+  },
+  triggerTitle: {
+    type: String,
+    default: ''
+  },
+  // 浮层顶部小标题
+  panelTitle: {
+    type: String,
+    default: ''
+  },
+  // 选项：{ value, label, svg?, tag? }
+  items: {
+    type: Array,
+    default: () => []
+  },
+  emptyTitle: {
+    type: String,
+    default: '暂无选项'
+  },
+  emptyDesc: {
+    type: String,
+    default: ''
+  },
+  // 禁用触发 chip（浮层不可弹出；选中值仍正常展示）
+  disabled: {
+    type: Boolean,
+    default: false
   }
+})
+
+const emit = defineEmits(['toggle', 'select'])
+
+const isOpen = computed(() => !props.disabled && props.activeKey === props.pickerKey)
+
+function onToggle() {
+  if (!props.disabled) emit('toggle')
 }
 </script>
 

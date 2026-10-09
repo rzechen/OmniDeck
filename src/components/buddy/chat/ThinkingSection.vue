@@ -57,7 +57,7 @@
           :key="'ask-' + i"
           class="ob-think-ask"
           :message="item"
-          @answer="(msg, value) => $emit('ask-answer', msg, value)"
+          @answer="(msg, value) => emit('ask-answer', msg, value)"
         />
 
         <!-- 工具调用（含 MCP 工具） -->
@@ -120,7 +120,7 @@
             v-if="item.ask"
             class="ob-think-ask"
             :message="item.ask"
-            @answer="(msg, value) => $emit('ask-answer', msg, value)"
+            @answer="(msg, value) => emit('ask-answer', msg, value)"
           />
 
           <!-- 详情：参数区 + 结果区（左侧竖线缩进）；文件变更的双列对比移至消息末尾的
@@ -169,10 +169,13 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) / ask_user 提问 的聚合渲染
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
 import { buddyApi } from '@/utils/buddy/buddy-api'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
 import AskUserCard from './AskUserCard.vue'
 
 // 内置工具的中文短名（与 builtin-tools.js / pi.js registerTool 的 label 对齐；
@@ -234,353 +237,380 @@ const TOOL_LABELS = {
   get_search_content: '调取搜索结果'
 }
 
-export default {
-  name: 'ThinkingSection',
-  components: { AskUserCard },
-  props: {
-    // 有序内容块：{ type: 'thinking' | 'skill' | 'tool' | 'ask', ... }
-    items: {
-      type: Array,
-      default: () => []
-    },
-    // 正在思考（实时接收 thinking 内容）
-    isThinking: {
-      type: Boolean,
-      default: false
-    },
-    // 助手回复正在流式生成
-    isStreaming: {
-      type: Boolean,
-      default: false
-    },
-    // 队首待确认权限（工具卡片据此显示"等待授权"：tool_execution_start 先于权限检查
-    // 发射，等待授权的工具卡片与执行中外观一致，用户无从得知回合卡在确认上）
-    permPending: {
-      type: Object,
-      default: null
-    }
+defineOptions({ name: 'ThinkingSection' })
+
+const props = defineProps({
+  // 有序内容块：{ type: 'thinking' | 'skill' | 'tool' | 'ask', ... }
+  items: {
+    type: Array,
+    default: () => []
   },
-  data() {
-    return {
-      // 默认收起（含生成中；头部仍有动态标识轮次进度）；此后由用户自由展开收起
-      collapsed: true,
-      toolOpenOverrides: {},
-      // 登录向导当前打开的站点集合（host → true）：login_wizard 广播驱动，
-      // 工具卡片「打开登录向导」按钮据此翻转「登录中…」态
-      wizardHosts: {}
-    }
+  // 正在思考（实时接收 thinking 内容）
+  isThinking: {
+    type: Boolean,
+    default: false
   },
-  created() {
-    // 订阅登录向导开关广播（主进程 loginWizard 直发）：翻转向导打开态
-    const wizardApi = buddyApi()
-    if (wizardApi && wizardApi.onEvent) {
-      this._unsubWizard = wizardApi.onEvent(e => {
-        if (!e || e.type !== 'login_wizard') return
-        const next = Object.assign({}, this.wizardHosts)
-        if (e.phase === 'open') next[e.host] = true
-        else delete next[e.host]
-        this.wizardHosts = next
+  // 助手回复正在流式生成
+  isStreaming: {
+    type: Boolean,
+    default: false
+  },
+  // 队首待确认权限（工具卡片据此显示"等待授权"：tool_execution_start 先于权限检查
+  // 发射，等待授权的工具卡片与执行中外观一致，用户无从得知回合卡在确认上）
+  permPending: {
+    type: Object,
+    default: null
+  }
+})
+
+const emit = defineEmits(['ask-answer'])
+
+const { message } = useFeedback()
+
+// 默认收起（含生成中；头部仍有动态标识轮次进度）；此后由用户自由展开收起
+const collapsed = ref(true)
+const toolOpenOverrides = ref({})
+// 登录向导当前打开的站点集合（host → true）：login_wizard 广播驱动，
+// 工具卡片「打开登录向导」按钮据此翻转「登录中…」态
+const wizardHosts = ref({})
+
+// 订阅登录向导开关广播（主进程 loginWizard 直发）：翻转向导打开态
+let unsubWizard = null
+const wizardApi = buddyApi()
+if (wizardApi && wizardApi.onEvent) {
+  unsubWizard = wizardApi.onEvent(e => {
+    if (!e || e.type !== 'login_wizard') return
+    const next = Object.assign({}, wizardHosts.value)
+    if (e.phase === 'open') next[e.host] = true
+    else delete next[e.host]
+    wizardHosts.value = next
+  })
+}
+// Markdown 渲染缓存（非响应式，WeakMap 不阻止条目回收）：
+// v-html 绑定的是方法，组件每次重渲染都会对全部条目重新执行 markdown 解析；
+// 流式期间 items 每个 tick 都变更，点击展开/收起也会触发整组件重渲染，
+// 全量重解析导致明显卡顿。按「条目对象 + 文本内容」缓存后，
+// 内容未变化的条目直接复用渲染结果，仅当前增长的条目重新渲染
+const mdCache = new WeakMap()
+// 无 toolCallId 条目的 key 缓存：args 可能极大（如 write 的 content），
+// JSON.stringify 全量序列化每次渲染重复执行同样有开销
+const toolKeyCache = new WeakMap()
+
+// 是否存在待回答的 ask_user 卡片（独立暂存条目或挂接在工具条目上）：
+// 系统正等待用户输入，思考区不允许被折叠隐藏
+const hasPendingAsk = computed(() => {
+  return props.items.some(i =>
+    (i.type === 'ask' && !i.answered) || (i.type === 'tool' && i.ask && !i.ask.answered)
+  )
+})
+
+// 系统等待用户回答时思考区不允许保持收起（提问卡片必须可见：
+// 历史加载时初始即有待回答 ask 的场景）
+watch(hasPendingAsk, (v) => {
+  if (v) collapsed.value = false
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  // 退出登录向导广播订阅（防泄漏）
+  if (unsubWizard) {
+    unsubWizard()
+    unsubWizard = null
+  }
+})
+
+// 步骤数：工具与 Skill 计数（思考文本不计）
+const stepCount = computed(() => {
+  return props.items.filter(i => i.type === 'tool' || i.type === 'skill').length
+})
+
+// 本轮文件变更数（写工具产生的有效变更）
+const fileChangeCount = computed(() => {
+  return props.items.filter(i => i.type === 'tool' && i.fileChange).length
+})
+
+// 是否有运行中的工具（含等待授权：status 均为 running）
+const hasRunningTool = computed(() => {
+  return props.items.some(i => i.type === 'tool' && i.status === 'running')
+})
+
+// 头部文案：思考中 / 执行操作中（有运行中工具，含等待授权）/ 正文生成中 / 已完成
+// （与动态类同步区分轮次阶段；interleaved 输出下正文已出现但工具仍在跑时，
+//   "回答生成中"会误导用户以为卡在正文生成，实际在等工具/权限）
+const headerTitle = computed(() => {
+  if (props.isThinking) return '深度思考中…'
+  if (props.isStreaming && hasRunningTool.value) return '正在执行操作…'
+  if (props.isStreaming) return '回答生成中…'
+  return '已深度思考'
+})
+
+function toggleCollapse() {
+  // 存在待回答的 ask 卡片时不允许收起（提问卡片不能被折叠隐藏）
+  if (!collapsed.value && hasPendingAsk.value) return
+  collapsed.value = !collapsed.value
+}
+
+// Markdown 区点击委托：链接拦截 + 代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+function onMdClick(e) {
+  // 链接不导航应用窗口（伪链接如 http://entries.md 会白屏）：合法外链交系统浏览器
+  const anchor = e.target.closest && e.target.closest('a')
+  if (anchor) {
+    e.preventDefault()
+    const href = anchor.getAttribute('href') || ''
+    if (/^https?:\/\//i.test(href)) window.open(href, '_blank')
+    return
+  }
+  // 代码块「放大」：内容与语言标记经全局总线送右栏预览面板（页面层监听）
+  const zoom = e.target.closest && e.target.closest('.ob-code-zoom')
+  if (zoom) {
+    const box = zoom.closest('.ob-code')
+    if (box) {
+      const langEl = box.querySelector('.ob-code-lang')
+      const codeEl = box.querySelector('pre code')
+      bus.emit('chat:artifact-preview', {
+        kind: 'code',
+        lang: langEl ? langEl.textContent.trim() : '',
+        code: codeEl ? codeEl.textContent : ''
       })
     }
-    // Markdown 渲染缓存（非响应式，WeakMap 不阻止条目回收）：
-    // v-html 绑定的是方法，组件每次重渲染都会对全部条目重新执行 markdown 解析；
-    // 流式期间 items 每个 tick 都变更，点击展开/收起也会触发整组件重渲染，
-    // 全量重解析导致明显卡顿。按「条目对象 + 文本内容」缓存后，
-    // 内容未变化的条目直接复用渲染结果，仅当前增长的条目重新渲染
-    this._mdCache = new WeakMap()
-    // 无 toolCallId 条目的 key 缓存：args 可能极大（如 write 的 content），
-    // JSON.stringify 全量序列化每次渲染重复执行同样有开销
-    this._toolKeyCache = new WeakMap()
-  },
-  watch: {
-    // 系统等待用户回答时思考区不允许保持收起（提问卡片必须可见：
-    // 历史加载时初始即有待回答 ask 的场景）
-    hasPendingAsk: {
-      immediate: true,
-      handler(v) {
-        if (v) this.collapsed = false
-      }
+    return
+  }
+  handleCodeCopy(e).then(ok => {
+    if (ok) message.success('已复制')
+  })
+  handleTableCsv(e).then(ok => {
+    if (ok) message.success('已下载 CSV')
+  })
+}
+
+// 带缓存的 Markdown 渲染：文本与上次相同时复用结果（streaming 高频重渲染下
+// 避免对全部条目重复解析，点击展开/收起不再触发全量重解析）
+function renderedCached(item, text) {
+  const s = text || ''
+  const cached = mdCache.get(item)
+  if (cached && cached.text === s) return cached.html
+  const html = renderMarkdown(s)
+  mdCache.set(item, { text: s, html })
+  return html
+}
+
+function isMcp(item) {
+  const name = item.toolName
+  if (!name) return false
+  // 单代理工具名即为 'mcp'（server 在 args.server）；其余为 mcp__ 前缀变体
+  return name === 'mcp' || name.indexOf('mcp_') === 0
+}
+
+// server 名提取（展示连接器 label，如 playwright，而非 'mcp' 字样）：
+// 单代理 'mcp' → args.server；命名空间代理 'mcp__playwright' → playwright；
+// 三段式 'mcp__server__tool' → server
+function mcpServerLabel(item) {
+  const name = item.toolName
+  if (!name) return ''
+  if (name === 'mcp') return (item.args && item.args.server) || 'MCP'
+  if (name.indexOf('mcp_') === 0) {
+    const rest = name.slice(4).replace(/^_+/, '')
+    const sep = rest.indexOf('__')
+    return sep >= 0 ? rest.slice(0, sep) : rest
+  }
+  return ''
+}
+
+// 底层工具名提取：代理/命名空间代理调用优先 args.tool，三段式从名称尾部提取
+function mcpToolName(item) {
+  const at = item.args && item.args.tool
+  if (typeof at === 'string' && at) return at
+  const name = item.toolName
+  if (name && name.indexOf('mcp_') === 0) {
+    const rest = name.slice(4).replace(/^_+/, '')
+    const sep = rest.indexOf('__')
+    if (sep >= 0) return rest.slice(sep + 2)
+  }
+  return ''
+}
+
+// 原始工具名 tag（与主标题相同时不显示）
+function rawToolTag(item) {
+  const name = item.toolName
+  if (!name) return ''
+  let raw = name
+  if (name === 'mcp' || name.indexOf('mcp_') === 0) {
+    raw = mcpToolName(item)
+  }
+  return raw && raw !== friendlyToolName(item) ? raw : ''
+}
+
+function friendlyToolName(item) {
+  const name = item.toolName
+  if (!name) return '工具调用'
+  if (name === 'mcp' || name.indexOf('mcp_') === 0) {
+    const server = mcpServerLabel(item)
+    let tool = mcpToolName(item)
+    // 底层工具名可能带 server 前缀（如 playwright_browser_navigate），剥离保持简洁
+    if (tool && server && server !== 'MCP' && tool.indexOf(server + '_') === 0) {
+      tool = tool.slice(server.length + 1)
     }
-  },
-  beforeUnmount() {
-    // 退出登录向导广播订阅（防泄漏）
-    if (this._unsubWizard) {
-      this._unsubWizard()
-      this._unsubWizard = null
+    if (tool) return TOOL_LABELS[tool] || tool
+    // 无底层工具名（search / status 等网关操作）
+    return '连接器操作'
+  }
+  return TOOL_LABELS[name] || name
+}
+
+// 摘要行状态图标：运行中 loading / 错误 warning-outline / 完成 check
+function toolIcon(item) {
+  if (item.status === 'running') return 'loading'
+  if (item.isError) return 'warning-outline'
+  return 'check'
+}
+
+// subagent 委派目标专员（args.agent）：并行委派多卡片时的区分标识
+function subagentAgent(item) {
+  if (item.toolName !== 'subagent' || !item.args) return ''
+  const a = item.args.agent || item.args.agentId
+  return typeof a === 'string' ? a.replace(/^wechat-/, '') : ''
+}
+
+// ===== 站点登录向导（撞墙工具卡片内嵌入口） =====
+function isWizardOpen(host) {
+  return !!wizardHosts.value[host]
+}
+
+// 打开登录向导小窗（主进程专用 BrowserWindow，成功自动保存登录态并关闭）
+function openLoginWizard(item) {
+  const sl = item.siteLogin
+  if (!sl || !sl.host) return
+  const api = buddyApi()
+  const siteApi = api && api.siteAuth
+  if (!siteApi || !siteApi.login) return
+  siteApi.login(sl.host, sl.url).then(res => {
+    // 同 host 重复打开时主进程只聚焦复用（ok:true），不重复计数
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '打开登录窗口失败')
     }
-  },
-  computed: {
-    // 步骤数：工具与 Skill 计数（思考文本不计）
-    stepCount() {
-      return this.items.filter(i => i.type === 'tool' || i.type === 'skill').length
-    },
-    // 是否存在待回答的 ask_user 卡片（独立暂存条目或挂接在工具条目上）：
-    // 系统正等待用户输入，思考区不允许被折叠隐藏
-    hasPendingAsk() {
-      return this.items.some(i =>
-        (i.type === 'ask' && !i.answered) || (i.type === 'tool' && i.ask && !i.ask.answered)
-      )
-    },
-    // 本轮文件变更数（写工具产生的有效变更）
-    fileChangeCount() {
-      return this.items.filter(i => i.type === 'tool' && i.fileChange).length
-    },
-    // 头部文案：思考中 / 执行操作中（有运行中工具，含等待授权）/ 正文生成中 / 已完成
-    // （与动态类同步区分轮次阶段；interleaved 输出下正文已出现但工具仍在跑时，
-    //   "回答生成中"会误导用户以为卡在正文生成，实际在等工具/权限）
-    headerTitle() {
-      if (this.isThinking) return '深度思考中…'
-      if (this.isStreaming && this.hasRunningTool) return '正在执行操作…'
-      if (this.isStreaming) return '回答生成中…'
-      return '已深度思考'
-    },
-    // 是否有运行中的工具（含等待授权：status 均为 running）
-    hasRunningTool() {
-      return this.items.some(i => i.type === 'tool' && i.status === 'running')
-    }
-  },
-  methods: {
-    toggleCollapse() {
-      // 存在待回答的 ask 卡片时不允许收起（提问卡片不能被折叠隐藏）
-      if (!this.collapsed && this.hasPendingAsk) return
-      this.collapsed = !this.collapsed
-    },
-    // Markdown 区点击委托：链接拦截 + 代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
-    onMdClick(e) {
-      // 链接不导航应用窗口（伪链接如 http://entries.md 会白屏）：合法外链交系统浏览器
-      const anchor = e.target.closest && e.target.closest('a')
-      if (anchor) {
-        e.preventDefault()
-        const href = anchor.getAttribute('href') || ''
-        if (/^https?:\/\//i.test(href)) window.open(href, '_blank')
-        return
-      }
-      // 代码块「放大」：内容与语言标记经全局总线送右栏预览面板（页面层监听）
-      const zoom = e.target.closest && e.target.closest('.ob-code-zoom')
-      if (zoom) {
-        const box = zoom.closest('.ob-code')
-        if (box) {
-          const langEl = box.querySelector('.ob-code-lang')
-          const codeEl = box.querySelector('pre code')
-          this.$bus.emit('chat:artifact-preview', {
-            kind: 'code',
-            lang: langEl ? langEl.textContent.trim() : '',
-            code: codeEl ? codeEl.textContent : ''
-          })
-        }
-        return
-      }
-      handleCodeCopy(e).then(ok => {
-        if (ok) this.$message.success('已复制')
-      })
-      handleTableCsv(e).then(ok => {
-        if (ok) this.$message.success('已下载 CSV')
-      })
-    },
-    // 带缓存的 Markdown 渲染：文本与上次相同时复用结果（streaming 高频重渲染下
-    // 避免对全部条目重复解析，点击展开/收起不再触发全量重解析）
-    renderedCached(item, text) {
-      const s = text || ''
-      const cached = this._mdCache.get(item)
-      if (cached && cached.text === s) return cached.html
-      const html = renderMarkdown(s)
-      this._mdCache.set(item, { text: s, html })
-      return html
-    },
-    isMcp(item) {
-      const name = item.toolName
-      if (!name) return false
-      // 单代理工具名即为 'mcp'（server 在 args.server）；其余为 mcp__ 前缀变体
-      return name === 'mcp' || name.indexOf('mcp_') === 0
-    },
-    // server 名提取（展示连接器 label，如 playwright，而非 'mcp' 字样）：
-    // 单代理 'mcp' → args.server；命名空间代理 'mcp__playwright' → playwright；
-    // 三段式 'mcp__server__tool' → server
-    mcpServerLabel(item) {
-      const name = item.toolName
-      if (!name) return ''
-      if (name === 'mcp') return (item.args && item.args.server) || 'MCP'
-      if (name.indexOf('mcp_') === 0) {
-        const rest = name.slice(4).replace(/^_+/, '')
-        const sep = rest.indexOf('__')
-        return sep >= 0 ? rest.slice(0, sep) : rest
-      }
-      return ''
-    },
-    // 底层工具名提取：代理/命名空间代理调用优先 args.tool，三段式从名称尾部提取
-    mcpToolName(item) {
-      const at = item.args && item.args.tool
-      if (typeof at === 'string' && at) return at
-      const name = item.toolName
-      if (name && name.indexOf('mcp_') === 0) {
-        const rest = name.slice(4).replace(/^_+/, '')
-        const sep = rest.indexOf('__')
-        if (sep >= 0) return rest.slice(sep + 2)
-      }
-      return ''
-    },
-    // 原始工具名 tag（与主标题相同时不显示）
-    rawToolTag(item) {
-      const name = item.toolName
-      if (!name) return ''
-      let raw = name
-      if (name === 'mcp' || name.indexOf('mcp_') === 0) {
-        raw = this.mcpToolName(item)
-      }
-      return raw && raw !== this.friendlyToolName(item) ? raw : ''
-    },
-    friendlyToolName(item) {
-      const name = item.toolName
-      if (!name) return '工具调用'
-      if (name === 'mcp' || name.indexOf('mcp_') === 0) {
-        const server = this.mcpServerLabel(item)
-        let tool = this.mcpToolName(item)
-        // 底层工具名可能带 server 前缀（如 playwright_browser_navigate），剥离保持简洁
-        if (tool && server && server !== 'MCP' && tool.indexOf(server + '_') === 0) {
-          tool = tool.slice(server.length + 1)
-        }
-        if (tool) return TOOL_LABELS[tool] || tool
-        // 无底层工具名（search / status 等网关操作）
-        return '连接器操作'
-      }
-      return TOOL_LABELS[name] || name
-    },
-    // 摘要行状态图标：运行中 loading / 错误 warning-outline / 完成 check
-    toolIcon(item) {
-      if (item.status === 'running') return 'loading'
-      if (item.isError) return 'warning-outline'
-      return 'check'
-    },
-    // subagent 委派目标专员（args.agent）：并行委派多卡片时的区分标识
-    subagentAgent(item) {
-      if (item.toolName !== 'subagent' || !item.args) return ''
-      const a = item.args.agent || item.args.agentId
-      return typeof a === 'string' ? a.replace(/^wechat-/, '') : ''
-    },
-    // ===== 站点登录向导（撞墙工具卡片内嵌入口） =====
-    isWizardOpen(host) {
-      return !!this.wizardHosts[host]
-    },
-    // 打开登录向导小窗（主进程专用 BrowserWindow，成功自动保存登录态并关闭）
-    openLoginWizard(item) {
-      const sl = item.siteLogin
-      if (!sl || !sl.host) return
-      const api = buddyApi()
-      const siteApi = api && api.siteAuth
-      if (!siteApi || !siteApi.login) return
-      siteApi.login(sl.host, sl.url).then(res => {
-        // 同 host 重复打开时主进程只聚焦复用（ok:true），不重复计数
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '打开登录窗口失败')
-        }
-      }).catch(() => {
-        this.$message.error('打开登录窗口失败')
-      })
-    },
-    // 运行中的工具是否即当前待确认权限的目标：bash 类按 command、文件类按 path 匹配，
-    // 其余按工具名兜底（并发工具时区分"在执行"与"在等授权"）
-    matchesPerm(item) {
-      const p = this.permPending
-      if (!p) return false
-      const args = item.args || {}
-      if (p.command && args.command === p.command) return true
-      if (p.path && (args.file_path === p.path || args.path === p.path)) return true
-      if (p.toolName && item.name === p.toolName) return true
-      return false
-    },
-    hasArgs(item) {
-      return !!(item.args && typeof item.args === 'object' && Object.keys(item.args).length)
-    },
-    // args.content 为非空字符串：content 单独成块，其余参数走 chips
-    hasContentArg(item) {
-      return !!(item.args && typeof item.args.content === 'string' && item.args.content.length)
-    },
-    // 参数键值对列表（skipContent：跳过 content 键）
-    argEntries(item, skipContent) {
-      const args = item.args
-      if (!args || typeof args !== 'object') return []
-      return Object.keys(args)
-        .filter(k => !(skipContent && k === 'content'))
-        .map(k => ({ key: k, val: args[k] }))
-    },
-    // chips 参数（hasContentArg 时排除 content）
-    chipEntries(item) {
-      return this.argEntries(item, true)
-    },
-    // 参数值截断：对象先序列化，超长截断加省略号
-    truncateVal(v, max) {
-      let s = v
-      if (s !== null && typeof s === 'object') {
-        try {
-          s = JSON.stringify(s)
-        } catch (e) {
-          s = String(s)
-        }
-      }
+  }).catch(() => {
+    message.error('打开登录窗口失败')
+  })
+}
+
+// 运行中的工具是否即当前待确认权限的目标：bash 类按 command、文件类按 path 匹配，
+// 其余按工具名兜底（并发工具时区分"在执行"与"在等授权"）
+function matchesPerm(item) {
+  const p = props.permPending
+  if (!p) return false
+  const args = item.args || {}
+  if (p.command && args.command === p.command) return true
+  if (p.path && (args.file_path === p.path || args.path === p.path)) return true
+  if (p.toolName && item.name === p.toolName) return true
+  return false
+}
+
+function hasArgs(item) {
+  return !!(item.args && typeof item.args === 'object' && Object.keys(item.args).length)
+}
+
+// args.content 为非空字符串：content 单独成块，其余参数走 chips
+function hasContentArg(item) {
+  return !!(item.args && typeof item.args.content === 'string' && item.args.content.length)
+}
+
+// 参数键值对列表（skipContent：跳过 content 键）
+function argEntries(item, skipContent) {
+  const args = item.args
+  if (!args || typeof args !== 'object') return []
+  return Object.keys(args)
+    .filter(k => !(skipContent && k === 'content'))
+    .map(k => ({ key: k, val: args[k] }))
+}
+
+// chips 参数（hasContentArg 时排除 content）
+function chipEntries(item) {
+  return argEntries(item, true)
+}
+
+// 参数值截断：对象先序列化，超长截断加省略号
+function truncateVal(v, max) {
+  let s = v
+  if (s !== null && typeof s === 'object') {
+    try {
+      s = JSON.stringify(s)
+    } catch (e) {
       s = String(s)
-      return s.length > max ? s.slice(0, max) + '…' : s
-    },
-    // 是否有可展示的结果（流式 partial 优先）
-    hasResult(item) {
-      return !!(item.partial || item.result)
-    },
-    // 联网工具（pi-web-access）：结果为 Markdown（链接列表/网页摘要），按富文本渲染
-    isWebTool(item) {
-      return ['web_search', 'fetch_content', 'source_check'].indexOf(item.toolName) >= 0
-    },
-    // 结果文本：超 500 字截断加省略号
-    truncatedResult(item) {
-      const raw = item.partial || item.result || ''
-      // 兜底：结构化结果序列化展示（正常已由主进程规整为字符串）
-      const s = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2)
-      return s.length > 500 ? s.slice(0, 500) + '…' : s
-    },
-    // 结果仍在流式输出（运行中且有 partial）：尾部显示光标
-    isResultStreaming(item) {
-      return item.status === 'running' && !!item.partial
-    },
-    hasDetails(item) {
-      return this.hasArgs(item) || this.hasResult(item) || !!item.fileChange
-    },
-    toolKey(item) {
-      if (item.toolCallId) return item.toolCallId
-      // 兜底 key：按条目缓存（args 引用不变即复用），避免每次渲染重复全量序列化
-      const cached = this._toolKeyCache.get(item)
-      if (cached && cached.args === item.args) return cached.key
-      const key = item.toolName + '::' + (item.args ? JSON.stringify(item.args).slice(0, 40) : '')
-      this._toolKeyCache.set(item, { args: item.args, key })
-      return key
-    },
-    isToolOpen(item) {
-      // 默认收起（错误时默认展开）；用户手动操作后以 override 为准
-      const key = this.toolKey(item)
-      if (Object.prototype.hasOwnProperty.call(this.toolOpenOverrides, key)) {
-        return this.toolOpenOverrides[key]
-      }
-      return !!item.isError
-    },
-    toggleTool(item) {
-      this.toolOpenOverrides[this.toolKey(item)] = !this.isToolOpen(item)
-    },
-    // ===== 文件变更记录 =====
-    // 变更类型中文标签
-    fcTypeLabel(t) {
-      return { created: '新建', modified: '修改', deleted: '删除', mkdir: '新建目录' }[t] || '变更'
-    },
-    // 摘要行文件名（取末段路径，完整路径见 title 提示）
-    fcFileShort(fc) {
-      const f = fc.file || ''
-      const parts = f.split('/')
-      return parts.length > 1 ? parts[parts.length - 1] : f
-    },
-    // 新增行数（-1 = 超限未知 → 不显示数字）
-    fcAdded(fc) {
-      return typeof fc.added === 'number' && fc.added >= 0 ? fc.added : null
-    },
-    fcRemoved(fc) {
-      return typeof fc.removed === 'number' && fc.removed >= 0 ? fc.removed : null
     }
   }
+  s = String(s)
+  return s.length > max ? s.slice(0, max) + '…' : s
+}
+
+// 是否有可展示的结果（流式 partial 优先）
+function hasResult(item) {
+  return !!(item.partial || item.result)
+}
+
+// 联网工具（pi-web-access）：结果为 Markdown（链接列表/网页摘要），按富文本渲染
+function isWebTool(item) {
+  return ['web_search', 'fetch_content', 'source_check'].indexOf(item.toolName) >= 0
+}
+
+// 结果文本：超 500 字截断加省略号
+function truncatedResult(item) {
+  const raw = item.partial || item.result || ''
+  // 兜底：结构化结果序列化展示（正常已由主进程规整为字符串）
+  const s = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2)
+  return s.length > 500 ? s.slice(0, 500) + '…' : s
+}
+
+// 结果仍在流式输出（运行中且有 partial）：尾部显示光标
+function isResultStreaming(item) {
+  return item.status === 'running' && !!item.partial
+}
+
+function hasDetails(item) {
+  return hasArgs(item) || hasResult(item) || !!item.fileChange
+}
+
+function toolKey(item) {
+  if (item.toolCallId) return item.toolCallId
+  // 兜底 key：按条目缓存（args 引用不变即复用），避免每次渲染重复全量序列化
+  const cached = toolKeyCache.get(item)
+  if (cached && cached.args === item.args) return cached.key
+  const key = item.toolName + '::' + (item.args ? JSON.stringify(item.args).slice(0, 40) : '')
+  toolKeyCache.set(item, { args: item.args, key })
+  return key
+}
+
+function isToolOpen(item) {
+  // 默认收起（错误时默认展开）；用户手动操作后以 override 为准
+  const key = toolKey(item)
+  if (Object.prototype.hasOwnProperty.call(toolOpenOverrides.value, key)) {
+    return toolOpenOverrides.value[key]
+  }
+  return !!item.isError
+}
+
+function toggleTool(item) {
+  toolOpenOverrides.value[toolKey(item)] = !isToolOpen(item)
+}
+
+// ===== 文件变更记录 =====
+// 变更类型中文标签
+function fcTypeLabel(t) {
+  return { created: '新建', modified: '修改', deleted: '删除', mkdir: '新建目录' }[t] || '变更'
+}
+
+// 摘要行文件名（取末段路径，完整路径见 title 提示）
+function fcFileShort(fc) {
+  const f = fc.file || ''
+  const parts = f.split('/')
+  return parts.length > 1 ? parts[parts.length - 1] : f
+}
+
+// 新增行数（-1 = 超限未知 → 不显示数字）
+function fcAdded(fc) {
+  return typeof fc.added === 'number' && fc.added >= 0 ? fc.added : null
+}
+
+function fcRemoved(fc) {
+  return typeof fc.removed === 'number' && fc.removed >= 0 ? fc.removed : null
 }
 </script>
 

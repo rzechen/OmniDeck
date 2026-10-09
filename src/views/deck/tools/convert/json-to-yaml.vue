@@ -84,13 +84,19 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import yaml from 'js-yaml'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/ui/download'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'ConvertJsonYaml' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/convert/json-to-yaml'
 
@@ -111,103 +117,100 @@ server:
   port: 8080
   host: 0.0.0.0`
 
-export default {
-  name: 'ConvertJsonYaml',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      direction: 'j2y',
-      rawInput: JSON_EXAMPLE,
-      output: '',
-      errorMsg: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
+const direction = ref('j2y')
+const rawInput = ref(JSON_EXAMPLE)
+const output = ref('')
+const errorMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+// 防抖定时器（非响应式）
+let timer = null
+
+function convert() {
+  errorMsg.value = ''
+  output.value = ''
+  if (!rawInput.value.trim()) return
+  try {
+    if (direction.value === 'j2y') {
+      output.value = yaml.dump(JSON.parse(rawInput.value), { indent: 2, lineWidth: 120 })
+    } else {
+      output.value = JSON.stringify(yaml.load(rawInput.value), null, 2)
     }
-  },
-  watch: {
-    rawInput() {
-      clearTimeout(this._timer)
-      this._timer = setTimeout(() => this.convert(), 250)
-    },
-    direction() {
-      // 切换方向：输出内容反填为输入，便于来回转换
-      if (this.output && !this.errorMsg) {
-        this.rawInput = this.output
-      } else {
-        this.rawInput = this.direction === 'j2y' ? JSON_EXAMPLE : YAML_EXAMPLE
-      }
-      this.convert()
-    }
-  },
-  mounted() {
-    this.convert()
-  },
-  beforeUnmount() {
-    clearTimeout(this._timer)
-  },
-  methods: {
-    convert() {
-      this.errorMsg = ''
-      this.output = ''
-      if (!this.rawInput.trim()) return
-      try {
-        if (this.direction === 'j2y') {
-          this.output = yaml.dump(JSON.parse(this.rawInput), { indent: 2, lineWidth: 120 })
-        } else {
-          this.output = JSON.stringify(yaml.load(this.rawInput), null, 2)
-        }
-      } catch (e) {
-        this.errorMsg = e.message
-      }
-    },
-    copyOutput() {
-      if (!this.output) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.output).then(() => {
-        this.$message.success('复制成功')
-        // 仅按钮触发记录（防抖自动转换不记录）
-        record(TOOL_PATH, {
-          input: this.rawInput,
-          output: this.output,
-          options: { action: 'copy', direction: this.direction }
-        })
-      })
-    },
-    downloadOutput() {
-      if (!this.output) {
-        this.$message.warning('没有可下载的内容')
-        return
-      }
-      downloadText(this.direction === 'j2y' ? 'export.yaml' : 'export.json', this.output)
-      record(TOOL_PATH, {
-        input: this.rawInput,
-        output: this.output,
-        options: { action: 'download', direction: this.direction }
-      })
-    },
-    // 从历史恢复：回填输入（含方向）并触发转换
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      if (full.options && full.options.direction) this.direction = full.options.direction
-      this.rawInput = full.input || ''
-      this.$nextTick(() => {
-        this.convert()
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.rawInput = ''
-      this.output = ''
-      this.$refs.inputEditor.focus()
-    }
+  } catch (e) {
+    errorMsg.value = e.message
   }
 }
+
+function copyOutput() {
+  if (!output.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(output.value).then(() => {
+    message.success('复制成功')
+    // 仅按钮触发记录（防抖自动转换不记录）
+    record(TOOL_PATH, {
+      input: rawInput.value,
+      output: output.value,
+      options: { action: 'copy', direction: direction.value }
+    })
+  })
+}
+
+function downloadOutput() {
+  if (!output.value) {
+    message.warning('没有可下载的内容')
+    return
+  }
+  downloadText(direction.value === 'j2y' ? 'export.yaml' : 'export.json', output.value)
+  record(TOOL_PATH, {
+    input: rawInput.value,
+    output: output.value,
+    options: { action: 'download', direction: direction.value }
+  })
+}
+
+// 从历史恢复：回填输入（含方向）并触发转换
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  if (full.options && full.options.direction) direction.value = full.options.direction
+  rawInput.value = full.input || ''
+  await nextTick()
+  convert()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  rawInput.value = ''
+  output.value = ''
+  inputEditor.value.focus()
+}
+
+watch(rawInput, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => convert(), 250)
+})
+watch(direction, () => {
+  // 切换方向：输出内容反填为输入，便于来回转换
+  if (output.value && !errorMsg.value) {
+    rawInput.value = output.value
+  } else {
+    rawInput.value = direction.value === 'j2y' ? JSON_EXAMPLE : YAML_EXAMPLE
+  }
+  convert()
+})
+
+onMounted(() => {
+  convert()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
 </script>

@@ -50,6 +50,14 @@
                 >
                   上次 {{ t.lastRun.ok ? '成功' : '失败' }} · {{ timeShort(t.lastRun.at) }}
                 </span>
+                <span
+                  v-if="runsCount(t) > 1"
+                  class="ob-auto-runs-toggle"
+                  @click="toggleRuns(t)"
+                >
+                  {{ expandedRuns[t.id] ? '收起历史' : '历史 ' + runsCount(t) + ' 次' }}
+                  <svg-icon :icon-class="expandedRuns[t.id] ? 'arrow-up' : 'arrow-down'" />
+                </span>
               </div>
               <!-- 失败原因直接可见（单行截断，hover 看全文） -->
               <div
@@ -59,6 +67,27 @@
               >
                 <svg-icon icon-class="warning-outline" />
                 {{ t.lastRun.error }}
+              </div>
+              <!-- 运行历史（append-only runs，最近 20 条；单条运行时省略） -->
+              <div v-if="expandedRuns[t.id] && runsCount(t) > 1" class="ob-auto-runs">
+                <div
+                  v-for="(r, i) in runsOf(t)"
+                  :key="(r.at || i) + '-' + i"
+                  class="ob-auto-run-row"
+                  :class="{ ok: r.ok, fail: !r.ok, deleted: r.sessionDeleted }"
+                  :title="runTitle(r)"
+                  @click="openSession(r.sessionId)"
+                >
+                  <span class="ob-auto-run-dot" />
+                  <span class="ob-auto-run-time">{{ timeShort(r.at) }}</span>
+                  <span class="ob-auto-run-reason">{{ r.reason === 'manual' ? '手动' : '计划' }}</span>
+                  <span class="ob-auto-run-state">{{ r.ok ? '成功' : '失败' }}</span>
+                  <span v-if="r.deniedOps && r.deniedOps.length" class="ob-auto-run-denied">
+                    无头拦截 {{ r.deniedOps.length }} 项写操作
+                  </span>
+                  <span v-if="!r.ok && r.error" class="ob-auto-run-err">{{ r.error }}</span>
+                  <span v-if="r.sessionDeleted" class="ob-auto-run-deleted-tag">会话已删</span>
+                </div>
               </div>
             </div>
             <div class="ob-auto-actions">
@@ -259,13 +288,22 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 自动化（定时任务）：任务列表 + 三步新建向导（场景 → 内容 → 时间）
 // 数据源：主进程 scheduler（tasks.json 持久化）；执行结果落系统会话（「自动化」分组），
-// 运行/结束经 omnibuddy:event（automation:run / automation:done）实时刷新
+// 运行/结束经 omnibuddy:event（automation:run / automation:done）实时刷新。
+// 运行历史（t.runs，主进程 append-only 保留最近 20 条）在本页展开查看
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import { buddyApi, buddyApiSection } from '@/utils/buddy/buddy-api'
 import { getItem } from '@/utils/storage/db'
+import { useFeedback } from '@/composables/useFeedback'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
+
+defineOptions({ name: 'OmniBuddyAutomation' })
+
+const router = useRouter()
+const { message, confirm } = useFeedback()
 
 // 场景定义：图标 / 描述 / 默认周期 / 指令模板（topic 注入）
 const SCENARIOS = [
@@ -318,396 +356,449 @@ const SCENARIOS = [
 
 const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
-export default {
-  name: 'OmniBuddyAutomation',
-  components: { BuddySkeleton },
-  data() {
-    return {
-      loading: false,
-      loaded: false,
-      tasks: [],
-      workspaces: [],
-      providers: [],
-      scenarios: SCENARIOS,
-      // 新建 / 编辑向导
-      wizard: {
-        visible: false,
-        editing: false,
-        editId: '',
-        step: 0,
-        scenario: 'daily',
-        name: '',
-        topic: '',
-        prompt: '',
-        promptDirty: false,
-        workspaceId: '',
-        // 执行模型：providerId（必选；providers 为空时无法保存，引导先去模型管理）
-        providerId: '',
-        notify: true,
-        scheduleType: 'daily',
-        weekday: 1,
-        // 执行时间：fixed 固定点 / random 范围内随机（防固定时间被识别）
-        timeMode: 'fixed',
-        time: '09:00',
-        timeRange: ['09:00', '10:00'],
-        saving: false,
-        errName: '',
-        errTopic: '',
-        errPrompt: '',
-        errWorkspace: '',
-        errProvider: ''
-      }
-    }
-  },
-  mounted() {
-    this.load()
-    this.loadWorkspaces()
-    this.loadProviders()
-    // 任务运行/结束实时刷新（调度器触发在主进程，页面可能不在前台）
-    const api = buddyApi()
-    if (api && api.onEvent) {
-      this._unsub = api.onEvent(e => {
-        if (e && (e.type === 'automation:run' || e.type === 'automation:done')) this.load()
-      })
-    }
-  },
-  beforeUnmount() {
-    if (this._unsub) {
-      this._unsub()
-      this._unsub = null
-    }
-  },
-  methods: {
-    autoApi() {
-      return buddyApiSection('automation')
-    },
-    async load() {
-      const a = this.autoApi()
-      if (!a) {
-        this.$message.warning('自动化需要 OmniDeck 桌面端')
-        return
-      }
-      this.loading = !this.loaded
-      try {
-        const res = await a.list()
-        if (res && res.ok) this.tasks = res.tasks || []
-        this.loaded = true
-      } finally {
-        this.loading = false
-      }
-    },
-    async loadWorkspaces() {
-      const api = buddyApi()
-      if (!api || !api.listWorkspaces) return
-      const list = await api.listWorkspaces()
-      this.workspaces = Array.isArray(list) ? list : []
-    },
-    // 模型列表（IndexedDB）+ 同步镜像到主进程：
-    // 定时任务无头执行时读不到渲染进程，按 providerId 绑定模型须依赖主进程镜像。
-    // JSON 拷贝穿透响应式 Proxy（IPC 结构化克隆无法序列化 Proxy）
-    loadProviders() {
-      const list = getItem('aiProviderList', [])
-      const all = Array.isArray(list) ? list : []
-      // 执行模型仅列文本生成模型（图像模型专用生图，不能作为任务执行模型）
-      this.providers = all.filter(p => p && p.type !== 'image')
-      const a = this.autoApi()
-      if (a && a.syncProviders) {
-        // 镜像同步全量（含 type:'image' 图像条目，pi 侧 generate_image 注册依赖镜像）
-        Promise.resolve(a.syncProviders(JSON.parse(JSON.stringify(all)))).catch(() => {})
-      }
-    },
-    goProviders() {
-      this.$router.push('/omnibuddy/providers').catch(() => {})
-    },
-    // ===== 展示辅助 =====
-    scenarioOf(t) {
-      return this.scenarios.find(s => s.key === t.scenario) || this.scenarios[this.scenarios.length - 1]
-    },
-    // 周期人话化：每天 09:00 / 每周一 09:00 / 每天 09:00 ~ 10:00 随机
-    scheduleText(s) {
-      if (!s) return ''
-      const base = s.type === 'weekly'
-        ? '每' + (WEEKDAY_NAMES[s.weekday || 0] || '周一') + ' '
-        : '每天 '
-      if (s.mode === 'random') {
-        return base + (s.timeStart || '09:00') + ' ~ ' + (s.timeEnd || '10:00') + ' 随机'
-      }
-      return base + (s.time || '09:00')
-    },
-    // 任务所用模型：具体模型名（未绑定 / 绑定模型被删时标红提示）
-    modelText(t) {
-      // 未绑定（旧版本创建的任务）：表单已移除「跟随对话模型」选项，标红引导编辑绑定
-      if (!t.providerId) return '未设置模型'
-      const p = this.providers.find(x => x.id === t.providerId)
-      return p ? p.name : '模型已删除'
-    },
-    modelTitle(t) {
-      if (!t.providerId) return '任务未绑定执行模型（旧版本创建），请编辑任务选择执行模型'
-      const p = this.providers.find(x => x.id === t.providerId)
-      return p ? (p.name + ' · ' + p.model) : '任务绑定的模型已被删除，运行将失败，请编辑任务重新选择'
-    },
-    // 下次执行：今天/明天 HH:mm，更远给日期
-    nextText(ts) {
-      if (!ts) return '—'
-      const d = new Date(ts)
-      const now = new Date()
-      const pad = n => String(n).padStart(2, '0')
-      const hm = pad(d.getHours()) + ':' + pad(d.getMinutes())
-      const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-      if (sameDay(d, now)) return '今天 ' + hm
-      const tomorrow = new Date(now.getTime() + 24 * 3600 * 1000)
-      if (sameDay(d, tomorrow)) return '明天 ' + hm
-      return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm
-    },
-    timeShort(ts) {
-      const d = new Date(ts)
-      const pad = n => String(n).padStart(2, '0')
-      return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
-    },
-    // 查看上次执行的会话
-    async openSession(sid) {
-      if (!sid) return
-      // 会话可能已被删除（如手动清理运行记录）：提示而非落到空白占位页
-      const api = buddyApi()
-      if (api && api.sessionMeta) {
-        let meta = null
-        try { meta = await api.sessionMeta(sid) } catch (e) { /* 桌面端异常时放行跳转 */ }
-        if (!meta) {
-          this.$message.info('上次运行的会话已被删除')
-          return
-        }
-      }
-      this.$router.push('/omnibuddy?s=' + sid).catch(() => {})
-    },
-    // ===== 任务操作 =====
-    async toggleTask(t, v) {
-      const a = this.autoApi()
-      if (!a) return
-      const res = await a.update({ id: t.id, patch: { enabled: v } })
-      if (!res || !res.ok) {
-        this.$message.error((res && res.error) || '操作失败')
-        return
-      }
-      t.enabled = v
-      t.nextRunAt = res.task ? res.task.nextRunAt : t.nextRunAt
-    },
-    async runNow(t) {
-      const a = this.autoApi()
-      if (!a) return
-      const res = await a.runNow(t.id)
-      if (!res || !res.ok) {
-        this.$message.error((res && res.error) || '启动失败')
-        return
-      }
-      this.$message.success('任务已启动，结果将推送通知')
-      this.load()
-    },
-    async removeTask(t) {
-      const yes = await this.$confirm(
-        '删除后「' + t.name + '」将不再自动执行（历史会话记录保留），确定删除吗？',
-        '删除任务',
-        { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
-      ).then(() => true).catch(() => false)
-      if (!yes) return
-      const a = this.autoApi()
-      if (!a) return
-      const res = await a.remove(t.id)
-      if (!res || !res.ok) {
-        this.$message.error((res && res.error) || '删除失败')
-        return
-      }
-      this.$message.success('已删除')
-      this.load()
-    },
-    // ===== 新建 / 编辑向导 =====
-    openCreate() {
-      this.resetWizard()
-      this.wizard.visible = true
-    },
-    openEdit(t) {
-      this.resetWizard()
-      const s = this.scenarioOf(t)
-      const sch = t.schedule || {}
-      Object.assign(this.wizard, {
-        editing: true,
-        editId: t.id,
-        scenario: t.scenario,
-        name: t.name,
-        prompt: t.prompt,
-        promptDirty: true,
-        workspaceId: t.workspaceId,
-        providerId: t.providerId || '',
-        notify: t.notify !== false,
-        scheduleType: sch.type === 'weekly' ? 'weekly' : 'daily',
-        weekday: Number.isInteger(sch.weekday) ? sch.weekday : 1,
-        timeMode: sch.mode === 'random' ? 'random' : 'fixed',
-        time: sch.time || '09:00',
-        timeRange: sch.timeStart && sch.timeEnd ? [sch.timeStart, sch.timeEnd] : ['09:00', '10:00'],
-        step: 1
-      })
-      // 场景默认名不回填主题（自定义指令已就位，主题仅为模板生成辅助）
-      if (s.topic && t.scenario !== 'custom') {
-        // 从任务名反推主题展示（仅展示用，不参与保存）
-        this.wizard.topic = t.name.replace(/(每日简报|每周回顾|资讯速览)$/, '').trim()
-      }
-      this.wizard.visible = true
-    },
-    resetWizard() {
-      // 执行模型默认选中默认模型（无模型时留空，校验引导去模型管理）
-      const defProvider = this.providers.find(p => p.isDefault) || this.providers[0]
-      Object.assign(this.wizard, {
-        editing: false,
-        editId: '',
-        step: 0,
-        scenario: 'daily',
-        name: '',
-        topic: '',
-        prompt: '',
-        promptDirty: false,
-        workspaceId: '',
-        providerId: defProvider ? defProvider.id : '',
-        notify: true,
-        scheduleType: 'daily',
-        weekday: 1,
-        timeMode: 'fixed',
-        time: '09:00',
-        timeRange: ['09:00', '10:00'],
-        saving: false,
-        errName: '',
-        errTopic: '',
-        errPrompt: '',
-        errWorkspace: '',
-        errProvider: ''
-      })
-    },
-    chooseScenario(s) {
-      this.wizard.scenario = s.key
-      // 指令未手动编辑时跟随场景模板刷新；名称同样给默认值
-      if (!this.wizard.promptDirty) {
-        this.wizard.prompt = s.prompt(this.wizard.topic || '')
-      }
-      if (!this.wizard.name) this.wizard.name = s.name
-      // 周期联动场景默认（weekly 场景默认每周一）
-      this.wizard.scheduleType = s.schedule.type
-      this.wizard.weekday = s.schedule.type === 'weekly' ? s.schedule.weekday : this.wizard.weekday
-      if (!this.wizard.time || this.wizard.time === '09:00') this.wizard.time = s.schedule.time
-      // 直接进入下一步（场景选定即内容填写）
-      this.wizard.step = 1
-    },
-    // 主题输入 → 未手动编辑指令时重新生成模板；任务名默认跟随「主题 + 场景名」
-    syncPrompt() {
-      const s = this.scenarios.find(x => x.key === this.wizard.scenario)
-      if (!s) return
-      if (!this.wizard.promptDirty) {
-        this.wizard.prompt = s.prompt(this.wizard.topic || '')
-      }
-      if (!this.wizard.name || this.wizard.name === s.name || this.wizard.name === (this._lastTopic || '') + s.name) {
-        this._lastTopic = this.wizard.topic || ''
-        this.wizard.name = (this.wizard.topic ? this.wizard.topic : '') + s.name
-      }
-    },
-    onPromptInput() {
-      this.wizard.promptDirty = true
-    },
-    onScheduleTypeChange() {
-      if (this.wizard.scheduleType === 'weekly' && !Number.isInteger(this.wizard.weekday)) {
-        this.wizard.weekday = 1
-      }
-    },
-    // 步骤 2 校验（固定高度错误行防抖动，遵循表单惯例）
-    validateContent() {
-      const w = this.wizard
-      const s = this.scenarios.find(x => x.key === w.scenario)
-      w.errName = w.name.trim() ? '' : '请填写任务名称'
-      w.errTopic = s && s.topic && !w.topic.trim() ? '请填写关注主题' : ''
-      w.errPrompt = w.prompt.trim() ? '' : '请填写任务指令'
-      w.errWorkspace = w.workspaceId ? '' : '请选择工作空间'
-      // 执行模型必选：未配置任何模型引导去添加；选中项已被删除要求重选
-      if (!this.providers.length) {
-        w.errProvider = '请先在「模型管理」中添加模型'
-      } else if (!w.providerId) {
-        w.errProvider = '请选择执行模型'
-      } else {
-        w.errProvider = this.providers.some(p => p.id === w.providerId)
-          ? ''
-          : '所选模型已被删除，请重新选择'
-      }
-      return !w.errName && !w.errTopic && !w.errPrompt && !w.errWorkspace && !w.errProvider
-    },
-    nextStep() {
-      if (this.wizard.step === 1 && !this.validateContent()) return
-      this.wizard.step++
-    },
-    previewSchedule() {
-      const w = this.wizard
-      const rand = w.timeMode === 'random'
-      // 首次执行：随机模式以范围「最晚时间」判定日期（当天已过最晚时间才顺延）
-      const anchor = rand ? (w.timeRange && w.timeRange[1]) : w.time
-      const [h, m] = String(anchor || '09:00').split(':').map(Number)
-      const d = new Date()
-      d.setHours(h || 0, m || 0, 0, 0)
-      if (w.scheduleType === 'weekly') {
-        let delta = ((w.weekday || 0) - d.getDay() + 7) % 7
-        if (delta === 0 && d.getTime() <= Date.now()) delta = 7
-        d.setDate(d.getDate() + delta)
-      } else if (d.getTime() <= Date.now()) {
-        d.setDate(d.getDate() + 1)
-      }
-      const datePart = (d.getMonth() + 1) + '月' + d.getDate() + '日'
-      return rand
-        ? datePart + ' ' + w.timeRange[0] + ' ~ ' + w.timeRange[1] + ' 间随机'
-        : datePart + ' ' + (w.time || '09:00')
-    },
-    async saveTask() {
-      if (!this.validateContent()) {
-        this.wizard.step = 1
-        return
-      }
-      // 时间校验：固定模式拒绝空串；随机模式要求两端有效且开始早于结束
-      const w = this.wizard
-      const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
-      if (w.timeMode === 'random') {
-        const rs = (w.timeRange && w.timeRange[0]) || ''
-        const re = (w.timeRange && w.timeRange[1]) || ''
-        if (!TIME_RE.test(rs) || !TIME_RE.test(re) || rs >= re) {
-          this.$message.warning('请设置有效的随机时间范围（最早时间需早于最晚时间）')
-          return
-        }
-      } else if (!TIME_RE.test(w.time || '')) {
-        this.$message.warning('请设置有效的执行时间')
-        return
-      }
-      const a = this.autoApi()
-      if (!a) return
-      const payload = {
-        name: w.name.trim(),
-        scenario: w.scenario,
-        prompt: w.prompt.trim(),
-        workspaceId: w.workspaceId,
-        providerId: w.providerId,
-        notify: w.notify,
-        schedule: w.timeMode === 'random'
-          ? { type: w.scheduleType, weekday: w.weekday, mode: 'random', timeStart: w.timeRange[0], timeEnd: w.timeRange[1] }
-          : { type: w.scheduleType, weekday: w.weekday, time: w.time }
-      }
-      w.saving = true
-      try {
-        const res = w.editing
-          ? await a.update({ id: w.editId, patch: payload })
-          : await a.create(payload)
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '保存失败')
-          return
-        }
-        this.$message.success(w.editing ? '已保存' : '任务已创建')
-        w.visible = false
-        this.load()
-      } finally {
-        w.saving = false
-      }
-    }
+const loading = ref(false)
+const loaded = ref(false)
+const tasks = ref([])
+const workspaces = ref([])
+const providers = ref([])
+const scenarios = SCENARIOS
+// 运行历史展开状态：taskId -> bool
+const expandedRuns = ref({})
+
+// 新建 / 编辑向导
+const wizard = reactive({
+  visible: false,
+  editing: false,
+  editId: '',
+  step: 0,
+  scenario: 'daily',
+  name: '',
+  topic: '',
+  prompt: '',
+  promptDirty: false,
+  workspaceId: '',
+  // 执行模型：providerId（必选；providers 为空时无法保存，引导先去模型管理）
+  providerId: '',
+  notify: true,
+  scheduleType: 'daily',
+  weekday: 1,
+  // 执行时间：fixed 固定点 / random 范围内随机（防固定时间被识别）
+  timeMode: 'fixed',
+  time: '09:00',
+  timeRange: ['09:00', '10:00'],
+  saving: false,
+  errName: '',
+  errTopic: '',
+  errPrompt: '',
+  errWorkspace: '',
+  errProvider: ''
+})
+// 主题联动任务名的上一次主题（非响应式，仅逻辑记忆）
+let lastTopic = ''
+let unsub = null
+
+function autoApi() {
+  return buddyApiSection('automation')
+}
+
+async function load() {
+  const a = autoApi()
+  if (!a) {
+    message.warning('自动化需要 OmniDeck 桌面端')
+    return
+  }
+  loading.value = !loaded.value
+  try {
+    const res = await a.list()
+    if (res && res.ok) tasks.value = res.tasks || []
+    loaded.value = true
+  } finally {
+    loading.value = false
   }
 }
+
+async function loadWorkspaces() {
+  const api = buddyApi()
+  if (!api || !api.listWorkspaces) return
+  const list = await api.listWorkspaces()
+  workspaces.value = Array.isArray(list) ? list : []
+}
+
+// 模型列表（IndexedDB）+ 同步镜像到主进程：
+// 定时任务无头执行时读不到渲染进程，按 providerId 绑定模型须依赖主进程镜像。
+// JSON 拷贝穿透响应式 Proxy（IPC 结构化克隆无法序列化 Proxy）
+function loadProviders() {
+  const list = getItem('aiProviderList', [])
+  const all = Array.isArray(list) ? list : []
+  // 执行模型仅列文本生成模型（图像模型专用生图，不能作为任务执行模型）
+  providers.value = all.filter(p => p && p.type !== 'image')
+  const a = autoApi()
+  if (a && a.syncProviders) {
+    // 镜像同步全量（含 type:'image' 图像条目，pi 侧 generate_image 注册依赖镜像）
+    Promise.resolve(a.syncProviders(JSON.parse(JSON.stringify(all)))).catch(() => {})
+  }
+}
+
+function goProviders() {
+  router.push('/omnibuddy/providers').catch(() => {})
+}
+
+// ===== 展示辅助 =====
+function scenarioOf(t) {
+  return scenarios.find(s => s.key === t.scenario) || scenarios[scenarios.length - 1]
+}
+
+// 周期人话化：每天 09:00 / 每周一 09:00 / 每天 09:00 ~ 10:00 随机
+function scheduleText(s) {
+  if (!s) return ''
+  const base = s.type === 'weekly'
+    ? '每' + (WEEKDAY_NAMES[s.weekday || 0] || '周一') + ' '
+    : '每天 '
+  if (s.mode === 'random') {
+    return base + (s.timeStart || '09:00') + ' ~ ' + (s.timeEnd || '10:00') + ' 随机'
+  }
+  return base + (s.time || '09:00')
+}
+
+// 任务所用模型：具体模型名（未绑定 / 绑定模型被删时标红提示）
+function modelText(t) {
+  // 未绑定（旧版本创建的任务）：表单已移除「跟随对话模型」选项，标红引导编辑绑定
+  if (!t.providerId) return '未设置模型'
+  const p = providers.value.find(x => x.id === t.providerId)
+  return p ? p.name : '模型已删除'
+}
+
+function modelTitle(t) {
+  if (!t.providerId) return '任务未绑定执行模型（旧版本创建），请编辑任务选择执行模型'
+  const p = providers.value.find(x => x.id === t.providerId)
+  return p ? (p.name + ' · ' + p.model) : '任务绑定的模型已被删除，运行将失败，请编辑任务重新选择'
+}
+
+// 下次执行：今天/明天 HH:mm，更远给日期
+function nextText(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  const now = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes())
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  if (sameDay(d, now)) return '今天 ' + hm
+  const tomorrow = new Date(now.getTime() + 24 * 3600 * 1000)
+  if (sameDay(d, tomorrow)) return '明天 ' + hm
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm
+}
+
+function timeShort(ts) {
+  const d = new Date(ts)
+  const pad = n => String(n).padStart(2, '0')
+  return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+}
+
+// ===== 运行历史（runs append-only） =====
+// 老任务无 runs 数组时回落 lastRun 单条，保证升级后界面平滑
+function runsOf(t) {
+  if (Array.isArray(t.runs) && t.runs.length) return t.runs
+  return t.lastRun ? [t.lastRun] : []
+}
+
+function runsCount(t) {
+  return runsOf(t).length
+}
+
+function toggleRuns(t) {
+  expandedRuns.value[t.id] = !expandedRuns.value[t.id]
+}
+
+// 历史行 hover 详情：失败原因 + 无头拦截明细（surface + 操作摘要）
+function runTitle(r) {
+  const parts = []
+  if (!r.ok && r.error) parts.push('失败：' + r.error)
+  if (Array.isArray(r.deniedOps) && r.deniedOps.length) {
+    parts.push('无头策略拦截的写操作：\n' + r.deniedOps
+      .map(d => '· [' + (d.surface || '?') + '] ' + (d.value || ''))
+      .join('\n') +
+      '\n如需放行，请在「权限管理」中将对应工具配置为允许')
+  }
+  if (r.sessionDeleted) parts.push('该次运行的会话已被删除')
+  return parts.join('\n\n') || (r.ok ? '执行成功' : '执行失败')
+}
+
+// 查看运行会话
+async function openSession(sid) {
+  if (!sid) return
+  // 会话可能已被删除（如手动清理运行记录）：提示而非落到空白占位页
+  const api = buddyApi()
+  if (api && api.sessionMeta) {
+    let meta = null
+    try { meta = await api.sessionMeta(sid) } catch (e) { /* 桌面端异常时放行跳转 */ }
+    if (!meta) {
+      message.info('该次运行的会话已被删除')
+      return
+    }
+  }
+  router.push('/omnibuddy?s=' + sid).catch(() => {})
+}
+
+// ===== 任务操作 =====
+async function toggleTask(t, v) {
+  const a = autoApi()
+  if (!a) return
+  const res = await a.update({ id: t.id, patch: { enabled: v } })
+  if (!res || !res.ok) {
+    message.error((res && res.error) || '操作失败')
+    return
+  }
+  t.enabled = v
+  t.nextRunAt = res.task ? res.task.nextRunAt : t.nextRunAt
+}
+
+async function runNow(t) {
+  const a = autoApi()
+  if (!a) return
+  const res = await a.runNow(t.id)
+  if (!res || !res.ok) {
+    message.error((res && res.error) || '启动失败')
+    return
+  }
+  message.success('任务已启动，结果将推送通知')
+  load()
+}
+
+async function removeTask(t) {
+  const yes = await confirm(
+    '删除后「' + t.name + '」将不再自动执行（历史会话记录保留），确定删除吗？',
+    '删除任务',
+    { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+  ).then(() => true).catch(() => false)
+  if (!yes) return
+  const a = autoApi()
+  if (!a) return
+  const res = await a.remove(t.id)
+  if (!res || !res.ok) {
+    message.error((res && res.error) || '删除失败')
+    return
+  }
+  message.success('已删除')
+  load()
+}
+
+// ===== 新建 / 编辑向导 =====
+function openCreate() {
+  resetWizard()
+  wizard.visible = true
+}
+
+function openEdit(t) {
+  resetWizard()
+  const s = scenarioOf(t)
+  const sch = t.schedule || {}
+  Object.assign(wizard, {
+    editing: true,
+    editId: t.id,
+    scenario: t.scenario,
+    name: t.name,
+    prompt: t.prompt,
+    promptDirty: true,
+    workspaceId: t.workspaceId,
+    providerId: t.providerId || '',
+    notify: t.notify !== false,
+    scheduleType: sch.type === 'weekly' ? 'weekly' : 'daily',
+    weekday: Number.isInteger(sch.weekday) ? sch.weekday : 1,
+    timeMode: sch.mode === 'random' ? 'random' : 'fixed',
+    time: sch.time || '09:00',
+    timeRange: sch.timeStart && sch.timeEnd ? [sch.timeStart, sch.timeEnd] : ['09:00', '10:00'],
+    step: 1
+  })
+  // 场景默认名不回填主题（自定义指令已就位，主题仅为模板生成辅助）
+  if (s.topic && t.scenario !== 'custom') {
+    // 从任务名反推主题展示（仅展示用，不参与保存）
+    wizard.topic = t.name.replace(/(每日简报|每周回顾|资讯速览)$/, '').trim()
+  }
+  wizard.visible = true
+}
+
+function resetWizard() {
+  // 执行模型默认选中默认模型（无模型时留空，校验引导去模型管理）
+  const defProvider = providers.value.find(p => p.isDefault) || providers.value[0]
+  Object.assign(wizard, {
+    editing: false,
+    editId: '',
+    step: 0,
+    scenario: 'daily',
+    name: '',
+    topic: '',
+    prompt: '',
+    promptDirty: false,
+    workspaceId: '',
+    providerId: defProvider ? defProvider.id : '',
+    notify: true,
+    scheduleType: 'daily',
+    weekday: 1,
+    timeMode: 'fixed',
+    time: '09:00',
+    timeRange: ['09:00', '10:00'],
+    saving: false,
+    errName: '',
+    errTopic: '',
+    errPrompt: '',
+    errWorkspace: '',
+    errProvider: ''
+  })
+}
+
+function chooseScenario(s) {
+  wizard.scenario = s.key
+  // 指令未手动编辑时跟随场景模板刷新；名称同样给默认值
+  if (!wizard.promptDirty) {
+    wizard.prompt = s.prompt(wizard.topic || '')
+  }
+  if (!wizard.name) wizard.name = s.name
+  // 周期联动场景默认（weekly 场景默认每周一）
+  wizard.scheduleType = s.schedule.type
+  wizard.weekday = s.schedule.type === 'weekly' ? s.schedule.weekday : wizard.weekday
+  if (!wizard.time || wizard.time === '09:00') wizard.time = s.schedule.time
+  // 直接进入下一步（场景选定即内容填写）
+  wizard.step = 1
+}
+
+// 主题输入 → 未手动编辑指令时重新生成模板；任务名默认跟随「主题 + 场景名」
+function syncPrompt() {
+  const s = scenarios.find(x => x.key === wizard.scenario)
+  if (!s) return
+  if (!wizard.promptDirty) {
+    wizard.prompt = s.prompt(wizard.topic || '')
+  }
+  if (!wizard.name || wizard.name === s.name || wizard.name === (lastTopic || '') + s.name) {
+    lastTopic = wizard.topic || ''
+    wizard.name = (wizard.topic ? wizard.topic : '') + s.name
+  }
+}
+
+function onPromptInput() {
+  wizard.promptDirty = true
+}
+
+function onScheduleTypeChange() {
+  if (wizard.scheduleType === 'weekly' && !Number.isInteger(wizard.weekday)) {
+    wizard.weekday = 1
+  }
+}
+
+// 步骤 2 校验（固定高度错误行防抖动，遵循表单惯例）
+function validateContent() {
+  const w = wizard
+  const s = scenarios.find(x => x.key === w.scenario)
+  w.errName = w.name.trim() ? '' : '请填写任务名称'
+  w.errTopic = s && s.topic && !w.topic.trim() ? '请填写关注主题' : ''
+  w.errPrompt = w.prompt.trim() ? '' : '请填写任务指令'
+  w.errWorkspace = w.workspaceId ? '' : '请选择工作空间'
+  // 执行模型必选：未配置任何模型引导去添加；选中项已被删除要求重选
+  if (!providers.value.length) {
+    w.errProvider = '请先在「模型管理」中添加模型'
+  } else if (!w.providerId) {
+    w.errProvider = '请选择执行模型'
+  } else {
+    w.errProvider = providers.value.some(p => p.id === w.providerId)
+      ? ''
+      : '所选模型已被删除，请重新选择'
+  }
+  return !w.errName && !w.errTopic && !w.errPrompt && !w.errWorkspace && !w.errProvider
+}
+
+function nextStep() {
+  if (wizard.step === 1 && !validateContent()) return
+  wizard.step++
+}
+
+function previewSchedule() {
+  const w = wizard
+  const rand = w.timeMode === 'random'
+  // 首次执行：随机模式以范围「最晚时间」判定日期（当天已过最晚时间才顺延）
+  const anchor = rand ? (w.timeRange && w.timeRange[1]) : w.time
+  const [h, m] = String(anchor || '09:00').split(':').map(Number)
+  const d = new Date()
+  d.setHours(h || 0, m || 0, 0, 0)
+  if (w.scheduleType === 'weekly') {
+    let delta = ((w.weekday || 0) - d.getDay() + 7) % 7
+    if (delta === 0 && d.getTime() <= Date.now()) delta = 7
+    d.setDate(d.getDate() + delta)
+  } else if (d.getTime() <= Date.now()) {
+    d.setDate(d.getDate() + 1)
+  }
+  const datePart = (d.getMonth() + 1) + '月' + d.getDate() + '日'
+  return rand
+    ? datePart + ' ' + w.timeRange[0] + ' ~ ' + w.timeRange[1] + ' 间随机'
+    : datePart + ' ' + (w.time || '09:00')
+}
+
+async function saveTask() {
+  if (!validateContent()) {
+    wizard.step = 1
+    return
+  }
+  // 时间校验：固定模式拒绝空串；随机模式要求两端有效且开始早于结束
+  const w = wizard
+  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+  if (w.timeMode === 'random') {
+    const rs = (w.timeRange && w.timeRange[0]) || ''
+    const re = (w.timeRange && w.timeRange[1]) || ''
+    if (!TIME_RE.test(rs) || !TIME_RE.test(re) || rs >= re) {
+      message.warning('请设置有效的随机时间范围（最早时间需早于最晚时间）')
+      return
+    }
+  } else if (!TIME_RE.test(w.time || '')) {
+    message.warning('请设置有效的执行时间')
+    return
+  }
+  const a = autoApi()
+  if (!a) return
+  const payload = {
+    name: w.name.trim(),
+    scenario: w.scenario,
+    prompt: w.prompt.trim(),
+    workspaceId: w.workspaceId,
+    providerId: w.providerId,
+    notify: w.notify,
+    schedule: w.timeMode === 'random'
+      ? { type: w.scheduleType, weekday: w.weekday, mode: 'random', timeStart: w.timeRange[0], timeEnd: w.timeRange[1] }
+      : { type: w.scheduleType, weekday: w.weekday, time: w.time }
+  }
+  w.saving = true
+  try {
+    const res = w.editing
+      ? await a.update({ id: w.editId, patch: payload })
+      : await a.create(payload)
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '保存失败')
+      return
+    }
+    message.success(w.editing ? '已保存' : '任务已创建')
+    w.visible = false
+    load()
+  } finally {
+    w.saving = false
+  }
+}
+
+onMounted(() => {
+  load()
+  loadWorkspaces()
+  loadProviders()
+  // 任务运行/结束实时刷新（调度器触发在主进程，页面可能不在前台）
+  const api = buddyApi()
+  if (api && api.onEvent) {
+    unsub = api.onEvent(e => {
+      if (e && (e.type === 'automation:run' || e.type === 'automation:done')) load()
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  if (unsub) {
+    unsub()
+    unsub = null
+  }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -869,6 +960,23 @@ export default {
   }
 }
 
+// 运行历史展开入口（meta 行内轻量链接）
+.ob-auto-runs-toggle {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+
+  .svg-icon {
+    font-size: 11px;
+  }
+
+  &:hover {
+    color: var(--primary-color);
+  }
+}
+
 // 失败原因行：红色警示（与上次失败状态色一致），单行截断 hover 全文
 .ob-auto-fail {
   margin-top: 3px;
@@ -885,6 +993,104 @@ export default {
     flex-shrink: 0;
     font-size: 12px;
   }
+}
+
+// 运行历史列表（最近 20 条 append-only 记录，点击直达会话）
+.ob-auto-runs {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.025);
+}
+
+.ob-auto-run-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 3px 4px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: $text-secondary;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb), 0.06);
+  }
+
+  &.deleted {
+    cursor: default;
+  }
+}
+
+.ob-auto-run-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: $text-secondary;
+
+  .ok & {
+    background: #2E8B63;
+  }
+
+  .fail & {
+    background: #C0504D;
+  }
+}
+
+.ob-auto-run-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ob-auto-run-reason {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 10.5px;
+}
+
+.ob-auto-run-state {
+  flex-shrink: 0;
+  font-weight: 600;
+
+  .ok & {
+    color: #2E8B63;
+  }
+
+  .fail & {
+    color: #C0504D;
+  }
+}
+
+// 无头策略拦截徽标（写操作被默认拒绝的运行）
+.ob-auto-run-denied {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: #9A6B1F;
+  background: rgba(233, 168, 47, 0.14);
+}
+
+.ob-auto-run-err {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #C0504D;
+}
+
+.ob-auto-run-deleted-tag {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  opacity: 0.65;
 }
 
 .ob-auto-actions {

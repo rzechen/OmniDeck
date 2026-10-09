@@ -15,25 +15,23 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
-export default {
-  name: 'LifeAreaCode',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      // 表格列配置：区号列等宽字体且支持点击复制
-      columns: [
-        { key: 'country', title: '国家或地区', tag: true },
-        { key: 'name', title: '英文名称' },
-        { key: 'phone', title: '电话区号', mono: true, copy: true },
-        { key: 'code', title: '域名缩写', mono: true },
-        { key: 'tz', title: '时差(相对北京时间)', mono: true }
-      ],
-      // 全球国家区号数据，提取自旧项目 areaCode 模块
-      rows: [
+defineOptions({ name: 'LifeAreaCode' })
+
+// 表格列配置：区号列等宽字体且支持点击复制
+const columns = ref([
+  { key: 'country', title: '国家或地区', tag: true },
+  { key: 'name', title: '英文名称' },
+  { key: 'phone', title: '电话区号', mono: true, copy: true },
+  { key: 'code', title: '域名缩写', mono: true },
+  { key: 'tz', title: '时差(相对北京时间)', mono: true }
+])
+// 全球国家区号数据，提取自旧项目 areaCode 模块
+const rows = ref([
         { country: '安哥拉', name: 'Angola', phone: '244', code: 'AO', tz: '-7' },
         { country: '阿富汗', name: 'Afghanistan', phone: '93', code: 'AF', tz: '0' },
         { country: '阿尔巴尼亚', name: 'Albania', phone: '355', code: 'AL', tz: '-7' },
@@ -226,8 +224,5 @@ export default {
         { country: '津巴布韦', name: 'Zimbabwe', phone: '263', code: 'ZW', tz: '-6' },
         { country: '扎伊尔', name: 'Zaire', phone: '243', code: 'ZR', tz: '-7' },
         { country: '赞比亚', name: 'Zambia', phone: '260', code: 'ZM', tz: '-6' },
-      ]
-    }
-  }
-}
+      ])
 </script>

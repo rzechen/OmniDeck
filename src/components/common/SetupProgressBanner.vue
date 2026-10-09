@@ -21,116 +21,111 @@
   </transition>
 </template>
 
-<script>
+<script setup>
 // 首启装配进度横幅：后台装配会话（omnibuddy:setup:*）在主视图的常驻展示。
 // 引导页「先进入 OmniDeck」后装配仍在主进程继续，本横幅凭同一快照通道渲染：
 // installing = 百分比 + 当前组件 + ETA；failed = 重试入口；done = 短暂提示后自动收起。
 // 挂载时同步快照（页面刷新 / 二次进入不丢进度），仅 installing/failed 主动展示，
 // 挂载即 done 的不展示（老用户常态启动不该看到横幅）。
-export default {
-  name: 'SetupProgressBanner',
-  data() {
-    return {
-      session: { state: '', items: [] }, // 空态占位（visible 由 state 驱动）
-      offProgress: null,
-      justDone: false, // 本次挂载周期内目睹完成（用于短暂展示）
-      hideTimer: null
-    }
-  },
-  computed: {
-    api() {
-      return (window.electronAPI && window.electronAPI.omnibuddy) || null
-    },
-    visible() {
-      if (!this.session || !this.session.state) return false
-      if (this.session.state === 'installing') return true
-      if (this.session.state === 'failed') return true
-      if (this.session.state === 'done') return this.justDone
-      return false
-    },
-    items() {
-      return (this.session && this.session.items) || []
-    },
-    failedItems() {
-      return this.items.filter(c => c.state === 'error')
-    },
-    currentItem() {
-      return this.items.find(c => c.state === 'installing') || null
-    },
-    // 整体进度：字节口径优先，无字节回退按项数
-    pct() {
-      const s = this.session
-      if (s && s.bytesTotal > 0) {
-        return Math.min(99, Math.floor((s.bytesDone || 0) / s.bytesTotal * 100))
-      }
-      const total = this.items.length
-      if (!total) return 0
-      const ok = this.items.filter(c => c.state === 'ok').length
-      return Math.min(100, Math.floor(ok / total * 100))
-    },
-    currentText() {
-      const c = this.currentItem
-      if (!c) return ''
-      const phase = c._phase
-      if (phase === 'verify') return `${c.label} · 校验中`
-      if (phase === 'extract') return `${c.label} · 装配中`
-      if (phase === 'download' && c.size && c._received) {
-        return `${c.label} · ${Math.min(99, Math.floor(c._received / c.size * 100))}%`
-      }
-      return c.label || ''
-    },
-    etaText() {
-      const s = this.session
-      if (!s || s.state !== 'installing' || !s.etaSec) return ''
-      const sec = s.etaSec
-      if (sec >= 60) return Math.ceil(sec / 60) + ' 分钟'
-      return sec + ' 秒'
-    }
-  },
-  watch: {
-    // 目睹装配从 installing/failed 走到 done → 短暂展示后自动收起。
-    // 挂载时快照同步带来的 ''→done 不算（视图切换重建组件会重新拉快照，
-    // 老用户常态下切来切去不该反复弹"装配完成"）
-    'session.state'(st, old) {
-      if (st === 'done' && (old === 'installing' || old === 'failed')) {
-        this.justDone = true
-        clearTimeout(this.hideTimer)
-        this.hideTimer = setTimeout(() => { this.justDone = false }, 4000)
-      }
-    }
-  },
-  created() {
-    this.bindProgress()
-    this.syncSnapshot()
-  },
-  beforeUnmount() {
-    if (this.offProgress) this.offProgress()
-    clearTimeout(this.hideTimer)
-  },
-  methods: {
-    applySession(s) {
-      if (s && s.items) this.session = s
-    },
-    bindProgress() {
-      const api = this.api
-      if (!api || !api.onSetupProgress) return
-      this.offProgress = api.onSetupProgress(this.applySession)
-    },
-    // 挂载时同步既有快照（后台装配已在跑 / 已失败的场景）
-    async syncSnapshot() {
-      const api = this.api
-      if (!api || !api.setupSnapshot) return
-      try {
-        this.applySession(await api.setupSnapshot())
-      } catch (e) { /* 快照失败静默 */ }
-    },
-    // 失败重试：重新触发主进程后台装配（其内部会重新检查缺失清单并续传）
-    retry() {
-      const api = this.api
-      if (api && api.setupStartInstall) api.setupStartInstall().catch(() => {})
-    }
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
+
+defineOptions({ name: 'SetupProgressBanner' })
+
+const session = ref({ state: '', items: [] }) // 空态占位（visible 由 state 驱动）
+let offProgress = null
+const justDone = ref(false) // 本次挂载周期内目睹完成（用于短暂展示）
+let hideTimer = null
+
+const api = computed(() => (window.electronAPI && window.electronAPI.omnibuddy) || null)
+
+const visible = computed(() => {
+  if (!session.value || !session.value.state) return false
+  if (session.value.state === 'installing') return true
+  if (session.value.state === 'failed') return true
+  if (session.value.state === 'done') return justDone.value
+  return false
+})
+
+const items = computed(() => (session.value && session.value.items) || [])
+const failedItems = computed(() => items.value.filter(c => c.state === 'error'))
+const currentItem = computed(() => items.value.find(c => c.state === 'installing') || null)
+
+// 整体进度：字节口径优先，无字节回退按项数
+const pct = computed(() => {
+  const s = session.value
+  if (s && s.bytesTotal > 0) {
+    return Math.min(99, Math.floor((s.bytesDone || 0) / s.bytesTotal * 100))
   }
+  const total = items.value.length
+  if (!total) return 0
+  const ok = items.value.filter(c => c.state === 'ok').length
+  return Math.min(100, Math.floor(ok / total * 100))
+})
+
+const currentText = computed(() => {
+  const c = currentItem.value
+  if (!c) return ''
+  const phase = c._phase
+  if (phase === 'verify') return `${c.label} · 校验中`
+  if (phase === 'extract') return `${c.label} · 装配中`
+  if (phase === 'download' && c.size && c._received) {
+    return `${c.label} · ${Math.min(99, Math.floor(c._received / c.size * 100))}%`
+  }
+  return c.label || ''
+})
+
+const etaText = computed(() => {
+  const s = session.value
+  if (!s || s.state !== 'installing' || !s.etaSec) return ''
+  const sec = s.etaSec
+  if (sec >= 60) return Math.ceil(sec / 60) + ' 分钟'
+  return sec + ' 秒'
+})
+
+// 目睹装配从 installing/failed 走到 done → 短暂展示后自动收起。
+// 挂载时快照同步带来的 ''→done 不算（视图切换重建组件会重新拉快照，
+// 老用户常态下切来切去不该反复弹"装配完成"）
+watch(() => session.value.state, (st, old) => {
+  if (st === 'done' && (old === 'installing' || old === 'failed')) {
+    justDone.value = true
+    clearTimeout(hideTimer)
+    hideTimer = setTimeout(() => { justDone.value = false }, 4000)
+  }
+})
+
+function applySession(s) {
+  if (s && s.items) session.value = s
 }
+
+function bindProgress() {
+  const inst = api.value
+  if (!inst || !inst.onSetupProgress) return
+  offProgress = inst.onSetupProgress(applySession)
+}
+
+// 挂载时同步既有快照（后台装配已在跑 / 已失败的场景）
+async function syncSnapshot() {
+  const inst = api.value
+  if (!inst || !inst.setupSnapshot) return
+  try {
+    applySession(await inst.setupSnapshot())
+  } catch (e) { /* 快照失败静默 */ }
+}
+
+// 失败重试：重新触发主进程后台装配（其内部会重新检查缺失清单并续传）
+function retry() {
+  const inst = api.value
+  if (inst && inst.setupStartInstall) inst.setupStartInstall().catch(() => {})
+}
+
+// created：绑定进度 + 同步快照
+bindProgress()
+syncSnapshot()
+
+onBeforeUnmount(() => {
+  if (offProgress) offProgress()
+  clearTimeout(hideTimer)
+})
 </script>
 
 <style lang="scss" scoped>

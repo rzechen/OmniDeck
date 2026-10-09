@@ -124,7 +124,8 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import solarlunar from 'solarlunar'
 import ToolShell from '@/components/tool/ToolShell.vue'
 
@@ -211,165 +212,162 @@ function starOf(sl) {
   return STARS[(dayBranch - monthBranch + 12) % 12]
 }
 
-export default {
-  name: 'LifeCalendar',
-  components: { ToolShell },
-  data() {
-    const now = new Date()
-    return {
-      year: now.getFullYear(),
-      month: now.getMonth() + 1,
-      today: now,
-      weeks: WEEKS,
-      // 选中的日期（老黄历详情展示），默认今天
-      selected: {
-        y: now.getFullYear(),
-        m: now.getMonth() + 1,
-        d: now.getDate()
-      }
-    }
-  },
-  computed: {
-    yearOptions() {
-      const y = new Date().getFullYear()
-      const out = []
-      for (let i = y - 6; i <= y + 6; i++) out.push(i)
-      return out
-    },
-    hasHolidayData() {
-      return !!HOLIDAYS[this.year]
-    },
-    monthLunarText() {
-      const sl = solarlunar.solar2lunar(this.year, this.month, 1)
-      if (sl === -1) return ''
-      return `${sl.gzYear}${sl.monthCn}`
-    },
-    todayText() {
-      const d = this.today
-      return `今天是 ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    },
-    festivalCount() {
-      return this.cells.filter(c => c && c.festival).length
-    },
-    // 选中日期的老黄历信息
-    selInfo() {
-      const { y, m, d } = this.selected
-      const sl = solarlunar.solar2lunar(y, m, d)
-      if (sl === -1) return null
-      const hd = HOLIDAYS[y] || null
-      const key = String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0')
-      const isOff = !!(hd && hd.off.indexOf(key) !== -1)
-      const isWork = !!(hd && hd.work.indexOf(key) !== -1)
-      const lunarKey = `${sl.lMonth}-${sl.lDay}`
-      const solarKey = `${m}-${d}`
-      const festival = LUNAR_FESTIVALS[lunarKey] || SOLAR_FESTIVALS[solarKey] || ''
-      const dayBranch = branchOf(sl.gzDay)
-      const clashIdx = BRANCH_CLASH[dayBranch]
-      return {
-        monthCn: sl.monthCn,
-        dayCn: sl.dayCn,
-        isLeap: sl.isLeap,
-        gzYear: sl.gzYear,
-        gzMonth: sl.gzMonth,
-        gzDay: sl.gzDay,
-        animal: sl.animal,
-        term: sl.term || '',
-        festival,
-        isOff,
-        isWork,
-        star: starOf(sl),
-        clashAnimal: BRANCH_ANIMALS[clashIdx],
-        shaDir: SHA_DIR[dayBranch]
-      }
-    },
-    // 日历格子：周一起始，前置补位
-    cells() {
-      const Y = this.year
-      const M = this.month
-      const firstDay = new Date(Y, M - 1, 1)
-      const daysInMonth = new Date(Y, M, 0).getDate()
-      // 周一=0 ... 周日=6
-      let lead = firstDay.getDay() - 1
-      if (lead < 0) lead = 6
-      const list = []
-      for (let i = 0; i < lead; i++) list.push(null)
-      const today = this.today
-      const hd = HOLIDAYS[Y] || null
-      for (let d = 1; d <= daysInMonth; d++) {
-        const date = new Date(Y, M - 1, d)
-        const sl = solarlunar.solar2lunar(Y, M, d)
-        const week = date.getDay()
-        const isToday =
-          date.getFullYear() === today.getFullYear() &&
-          date.getMonth() === today.getMonth() &&
-          date.getDate() === today.getDate()
-        const key = String(M).padStart(2, '0') + '-' + String(d).padStart(2, '0')
-        const isOff = !!(hd && hd.off.indexOf(key) !== -1)
-        const isWork = !!(hd && hd.work.indexOf(key) !== -1)
-        // 标签优先级：节气 > 农历节日 > 公历节日 > 农历日
-        const term = sl && sl.term ? sl.term : ''
-        const lunarKey = sl ? `${sl.lMonth}-${sl.lDay}` : ''
-        const solarKey = `${M}-${d}`
-        const lunarFestival = LUNAR_FESTIVALS[lunarKey] || ''
-        const solarFestival = SOLAR_FESTIVALS[solarKey] || ''
-        let label = ''
-        let festival = ''
-        if (term) {
-          label = term
-        } else if (lunarFestival) {
-          label = lunarFestival
-          festival = lunarFestival
-        } else if (solarFestival) {
-          label = solarFestival
-          festival = solarFestival
-        } else {
-          label = sl ? (sl.lDay === 1 ? sl.monthCn : sl.dayCn) : ''
-        }
-        const tips = []
-        if (festival) tips.push(festival)
-        if (term) tips.push(term + '（节气）')
-        if (sl) tips.push(`农历 ${sl.monthCn}${sl.dayCn} · ${sl.gzDay}日`)
-        if (isOff) tips.push('法定节假日放假')
-        if (isWork) tips.push('调休上班')
-        list.push({
-          day: d,
-          week,
-          isToday,
-          isOff,
-          isWork,
-          term,
-          festival,
-          label,
-          gzDay: sl ? sl.gzDay : '',
-          star: sl ? starOf(sl).name : '',
-          tip: tips.join(' · ')
-        })
-      }
-      return list
-    }
-  },
-  methods: {
-    isSelected(cell) {
-      return (
-        this.selected.y === this.year &&
-        this.selected.m === this.month &&
-        this.selected.d === cell.day
-      )
-    },
-    selectDate(cell) {
-      this.selected = { y: this.year, m: this.month, d: cell.day }
-    },
-    shiftMonth(delta) {
-      const d = new Date(this.year, this.month - 1 + delta, 1)
-      this.year = d.getFullYear()
-      this.month = d.getMonth() + 1
-    },
-    goToday() {
-      const d = new Date()
-      this.year = d.getFullYear()
-      this.month = d.getMonth() + 1
-    }
+defineOptions({ name: 'LifeCalendar' })
+
+const now = new Date()
+const year = ref(now.getFullYear())
+const month = ref(now.getMonth() + 1)
+const today = ref(now)
+const weeks = WEEKS
+// 选中的日期（老黄历详情展示），默认今天
+const selected = ref({
+  y: now.getFullYear(),
+  m: now.getMonth() + 1,
+  d: now.getDate()
+})
+
+const yearOptions = computed(() => {
+  const y = new Date().getFullYear()
+  const out = []
+  for (let i = y - 6; i <= y + 6; i++) out.push(i)
+  return out
+})
+
+const hasHolidayData = computed(() => !!HOLIDAYS[year.value])
+
+const monthLunarText = computed(() => {
+  const sl = solarlunar.solar2lunar(year.value, month.value, 1)
+  if (sl === -1) return ''
+  return `${sl.gzYear}${sl.monthCn}`
+})
+
+const todayText = computed(() => {
+  const d = today.value
+  return `今天是 ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+})
+
+const festivalCount = computed(() => cells.value.filter(c => c && c.festival).length)
+
+// 选中日期的老黄历信息
+const selInfo = computed(() => {
+  const { y, m, d } = selected.value
+  const sl = solarlunar.solar2lunar(y, m, d)
+  if (sl === -1) return null
+  const hd = HOLIDAYS[y] || null
+  const key = String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0')
+  const isOff = !!(hd && hd.off.indexOf(key) !== -1)
+  const isWork = !!(hd && hd.work.indexOf(key) !== -1)
+  const lunarKey = `${sl.lMonth}-${sl.lDay}`
+  const solarKey = `${m}-${d}`
+  const festival = LUNAR_FESTIVALS[lunarKey] || SOLAR_FESTIVALS[solarKey] || ''
+  const dayBranch = branchOf(sl.gzDay)
+  const clashIdx = BRANCH_CLASH[dayBranch]
+  return {
+    monthCn: sl.monthCn,
+    dayCn: sl.dayCn,
+    isLeap: sl.isLeap,
+    gzYear: sl.gzYear,
+    gzMonth: sl.gzMonth,
+    gzDay: sl.gzDay,
+    animal: sl.animal,
+    term: sl.term || '',
+    festival,
+    isOff,
+    isWork,
+    star: starOf(sl),
+    clashAnimal: BRANCH_ANIMALS[clashIdx],
+    shaDir: SHA_DIR[dayBranch]
   }
+})
+
+// 日历格子：周一起始，前置补位
+const cells = computed(() => {
+  const Y = year.value
+  const M = month.value
+  const firstDay = new Date(Y, M - 1, 1)
+  const daysInMonth = new Date(Y, M, 0).getDate()
+  // 周一=0 ... 周日=6
+  let lead = firstDay.getDay() - 1
+  if (lead < 0) lead = 6
+  const list = []
+  for (let i = 0; i < lead; i++) list.push(null)
+  const t = today.value
+  const hd = HOLIDAYS[Y] || null
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(Y, M - 1, d)
+    const sl = solarlunar.solar2lunar(Y, M, d)
+    const week = date.getDay()
+    const isToday =
+      date.getFullYear() === t.getFullYear() &&
+      date.getMonth() === t.getMonth() &&
+      date.getDate() === t.getDate()
+    const key = String(M).padStart(2, '0') + '-' + String(d).padStart(2, '0')
+    const isOff = !!(hd && hd.off.indexOf(key) !== -1)
+    const isWork = !!(hd && hd.work.indexOf(key) !== -1)
+    // 标签优先级：节气 > 农历节日 > 公历节日 > 农历日
+    const term = sl && sl.term ? sl.term : ''
+    const lunarKey = sl ? `${sl.lMonth}-${sl.lDay}` : ''
+    const solarKey = `${M}-${d}`
+    const lunarFestival = LUNAR_FESTIVALS[lunarKey] || ''
+    const solarFestival = SOLAR_FESTIVALS[solarKey] || ''
+    let label = ''
+    let festival = ''
+    if (term) {
+      label = term
+    } else if (lunarFestival) {
+      label = lunarFestival
+      festival = lunarFestival
+    } else if (solarFestival) {
+      label = solarFestival
+      festival = solarFestival
+    } else {
+      label = sl ? (sl.lDay === 1 ? sl.monthCn : sl.dayCn) : ''
+    }
+    const tips = []
+    if (festival) tips.push(festival)
+    if (term) tips.push(term + '（节气）')
+    if (sl) tips.push(`农历 ${sl.monthCn}${sl.dayCn} · ${sl.gzDay}日`)
+    if (isOff) tips.push('法定节假日放假')
+    if (isWork) tips.push('调休上班')
+    list.push({
+      day: d,
+      week,
+      isToday,
+      isOff,
+      isWork,
+      term,
+      festival,
+      label,
+      gzDay: sl ? sl.gzDay : '',
+      star: sl ? starOf(sl).name : '',
+      tip: tips.join(' · ')
+    })
+  }
+  return list
+})
+
+function isSelected(cell) {
+  return (
+    selected.value.y === year.value &&
+    selected.value.m === month.value &&
+    selected.value.d === cell.day
+  )
+}
+
+function selectDate(cell) {
+  selected.value = { y: year.value, m: month.value, d: cell.day }
+}
+
+function shiftMonth(delta) {
+  const d = new Date(year.value, month.value - 1 + delta, 1)
+  year.value = d.getFullYear()
+  month.value = d.getMonth() + 1
+}
+
+function goToday() {
+  const d = new Date()
+  year.value = d.getFullYear()
+  month.value = d.getMonth() + 1
 }
 </script>
 

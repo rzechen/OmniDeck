@@ -90,110 +90,113 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'FormatVarName' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/format/var-name'
 
-export default {
-  name: 'FormatVarName',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      rawInput: 'user name\nno time out\nHTTP response code',
-      cols: ['original', 'camelCase', 'PascalCase', 'snake_case', 'SNAKE_CASE', 'kebab_case'],
-      historyVisible: false,
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  computed: {
-    lineCount() {
-      return this.rawInput ? this.rawInput.split('\n').filter(l => l.trim()).length : 0
-    },
-    rows() {
-      return this.rawInput
-        .split(/[\n,]+/)
-        .map(v => v.trim())
-        .filter(Boolean)
-        .map(v => {
-          const words = this.splitWords(v)
-          return {
-            original: v,
-            camelCase: this.toCamelCase(words),
-            PascalCase: this.toPascalCase(words),
-            snake_case: this.toSnakeCase(words),
-            SNAKE_CASE: this.toSnakeCase(words).toUpperCase(),
-            kebab_case: this.toKebabCase(words)
-          }
-        })
-    }
-  },
-  methods: {
-    // 拆分单词：先按分隔符，再拆连续驼峰（userName → user name）
-    splitWords(str) {
-      let words = str.split(/[_\-\s]+/).filter(Boolean)
-      if (words.length === 1) {
-        const s = words[0]
-        words = s.match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])/g) || [s]
+const rawInput = ref('user name\nno time out\nHTTP response code')
+const cols = ['original', 'camelCase', 'PascalCase', 'snake_case', 'SNAKE_CASE', 'kebab_case']
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+const lineCount = computed(() =>
+  rawInput.value ? rawInput.value.split('\n').filter(l => l.trim()).length : 0
+)
+const rows = computed(() =>
+  rawInput.value
+    .split(/[\n,]+/)
+    .map(v => v.trim())
+    .filter(Boolean)
+    .map(v => {
+      const words = splitWords(v)
+      return {
+        original: v,
+        camelCase: toCamelCase(words),
+        PascalCase: toPascalCase(words),
+        snake_case: toSnakeCase(words),
+        SNAKE_CASE: toSnakeCase(words).toUpperCase(),
+        kebab_case: toKebabCase(words)
       }
-      return words.map(w => w.toLowerCase())
-    },
-    toCamelCase(words) {
-      return words.map((w, i) => (i === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1))).join('')
-    },
-    toPascalCase(words) {
-      return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('')
-    },
-    toSnakeCase(words) {
-      return words.join('_')
-    },
-    toKebabCase(words) {
-      return words.join('-')
-    },
-    copyCell(text) {
-      if (!text) return
-      navigator.clipboard.writeText(text).then(() => {
-        this.$message({ message: `已复制：${text}`, type: 'success', duration: 1200 })
-      })
-    },
-    copyAll() {
-      if (!this.rows.length) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      const header = ['原始', 'camelCase', 'PascalCase', 'snake_case', 'CONSTANT_CASE', 'kebab-case'].join('\t')
-      const lines = this.rows.map(r =>
-        [r.original, r.camelCase, r.PascalCase, r.snake_case, r.SNAKE_CASE, r.kebab_case].join('\t')
-      )
-      navigator.clipboard.writeText([header, ...lines].join('\n')).then(() => {
-        this.$message.success('已复制全部结果')
-      })
-      record(TOOL_PATH, {
-        input: this.rawInput,
-        output: [header, ...lines].join('\n'),
-        options: { action: 'copy-all', count: this.rows.length }
-      })
-    },
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.rawInput = full.input || ''
-      this.$nextTick(() => {
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.rawInput = ''
-      this.$refs.inputEditor.focus()
-    }
+    })
+)
+
+// 拆分单词：先按分隔符，再拆连续驼峰（userName → user name）
+function splitWords(str) {
+  let words = str.split(/[_\-\s]+/).filter(Boolean)
+  if (words.length === 1) {
+    const s = words[0]
+    words = s.match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])/g) || [s]
   }
+  return words.map(w => w.toLowerCase())
+}
+
+function toCamelCase(words) {
+  return words.map((w, i) => (i === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1))).join('')
+}
+
+function toPascalCase(words) {
+  return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('')
+}
+
+function toSnakeCase(words) {
+  return words.join('_')
+}
+
+function toKebabCase(words) {
+  return words.join('-')
+}
+
+function copyCell(text) {
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    message({ message: `已复制：${text}`, type: 'success', duration: 1200 })
+  })
+}
+
+function copyAll() {
+  if (!rows.value.length) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  const header = ['原始', 'camelCase', 'PascalCase', 'snake_case', 'CONSTANT_CASE', 'kebab-case'].join('\t')
+  const lines = rows.value.map(r =>
+    [r.original, r.camelCase, r.PascalCase, r.snake_case, r.SNAKE_CASE, r.kebab_case].join('\t')
+  )
+  navigator.clipboard.writeText([header, ...lines].join('\n')).then(() => {
+    message.success('已复制全部结果')
+  })
+  record(TOOL_PATH, {
+    input: rawInput.value,
+    output: [header, ...lines].join('\n'),
+    options: { action: 'copy-all', count: rows.value.length }
+  })
+}
+
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  rawInput.value = full.input || ''
+  await nextTick()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  rawInput.value = ''
+  inputEditor.value.focus()
 }
 </script>
 

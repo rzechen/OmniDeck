@@ -34,96 +34,97 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 规则编辑器复用组件：受控输入 + 自主保存（getRule/saveRule IPC），
 // 父层负责标题展示与保存后的状态刷新（@saved 回调）
+import { reactive, ref, computed, watch } from 'vue'
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'RuleEditor',
-  props: {
-    // 规则目标 key（'global' 或工作空间 id）
-    targetKey: {
-      type: String,
-      required: true
-    },
-    // 打开时已保存内容（父层经 getRule 读好后传入）
-    initialContent: {
-      type: String,
-      default: ''
-    },
-    placeholder: {
-      type: String,
-      default: ''
-    },
-    // 是否显示自带底部保存栏（父层提供统一保存入口时置 false）
-    showFoot: {
-      type: Boolean,
-      default: true
-    },
-    // 是否显示右侧预览分栏（空间规则抽屉等单栏场景置 false，编辑区铺满）
-    showPreview: {
-      type: Boolean,
-      default: true
-    }
+defineOptions({ name: 'RuleEditor' })
+
+const props = defineProps({
+  // 规则目标 key（'global' 或工作空间 id）
+  targetKey: {
+    type: String,
+    required: true
   },
-  data() {
-    return {
-      form: { content: this.initialContent },
-      savedContent: this.initialContent,
-      saving: false
-    }
+  // 打开时已保存内容（父层经 getRule 读好后传入）
+  initialContent: {
+    type: String,
+    default: ''
   },
-  computed: {
-    previewHtml() {
-      return renderMarkdown(this.form.content)
-    },
-    isDirty() {
-      return this.form.content !== this.savedContent
-    }
+  placeholder: {
+    type: String,
+    default: ''
   },
-  watch: {
-    // 父层切换目标（如切换工作空间）时重置编辑器
-    targetKey() {
-      this.form.content = this.initialContent
-      this.savedContent = this.initialContent
-    },
-    initialContent(v) {
-      this.form.content = v
-      this.savedContent = v
-    }
+  // 是否显示自带底部保存栏（父层提供统一保存入口时置 false）
+  showFoot: {
+    type: Boolean,
+    default: true
   },
-  methods: {
-    onMdClick(e) {
-      handleCodeCopy(e).then(ok => {
-        if (ok) this.$message.success('已复制')
-      })
-      handleTableCsv(e).then(ok => {
-        if (ok) this.$message.success('已下载 CSV')
-      })
-    },
-    api() {
-      return (window.electronAPI && window.electronAPI.omnibuddy) || null
-    },
-    async save() {
-      const api = this.api()
-      if (!api || !api.saveRule) return
-      this.saving = true
-      try {
-        const res = await api.saveRule({ key: this.targetKey, content: this.form.content })
-        if (res && res.ok) {
-          this.savedContent = this.form.content
-          this.$message.success('已保存，新对话生效')
-          this.$emit('saved', { key: this.targetKey, content: this.form.content })
-        } else {
-          this.$message.error((res && res.error) || '保存失败')
-        }
-      } finally {
-        this.saving = false
-      }
+  // 是否显示右侧预览分栏（空间规则抽屉等单栏场景置 false，编辑区铺满）
+  showPreview: {
+    type: Boolean,
+    default: true
+  }
+})
+
+const emit = defineEmits(['saved'])
+const { message } = useFeedback()
+
+const form = reactive({ content: props.initialContent })
+const savedContent = ref(props.initialContent)
+const saving = ref(false)
+
+const previewHtml = computed(() => {
+  return renderMarkdown(form.content)
+})
+const isDirty = computed(() => {
+  return form.content !== savedContent.value
+})
+
+// 父层切换目标（如切换工作空间）时重置编辑器
+watch(() => props.targetKey, () => {
+  form.content = props.initialContent
+  savedContent.value = props.initialContent
+})
+watch(() => props.initialContent, v => {
+  form.content = v
+  savedContent.value = v
+})
+
+function onMdClick(e) {
+  handleCodeCopy(e).then(ok => {
+    if (ok) message.success('已复制')
+  })
+  handleTableCsv(e).then(ok => {
+    if (ok) message.success('已下载 CSV')
+  })
+}
+function buddyApi() {
+  return (window.electronAPI && window.electronAPI.omnibuddy) || null
+}
+async function save() {
+  const api = buddyApi()
+  if (!api || !api.saveRule) return
+  saving.value = true
+  try {
+    const res = await api.saveRule({ key: props.targetKey, content: form.content })
+    if (res && res.ok) {
+      savedContent.value = form.content
+      message.success('已保存，新对话生效')
+      emit('saved', { key: props.targetKey, content: form.content })
+    } else {
+      message.error((res && res.error) || '保存失败')
     }
+  } finally {
+    saving.value = false
   }
 }
+
+// 父层经 ref 调 save()（如 hero 统一保存按钮）
+defineExpose({ save })
 </script>
 
 <style lang="scss" scoped>

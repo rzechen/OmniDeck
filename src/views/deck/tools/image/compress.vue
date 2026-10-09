@@ -106,87 +106,82 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
 import { formatSize, loadImage, drawToCanvas, dataUrlToBlob, downloadDataUrl, baseName } from '@/utils/ui/image'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'ImageCompress',
-  components: { ToolShell, ImageDrop },
-  data() {
-    return {
-      quality: 70,
-      scale: 100,
-      target: 'jpeg',
-      formats: [
-        { label: 'JPEG', value: 'jpeg' },
-        { label: 'WEBP', value: 'webp' },
-        { label: 'PNG', value: 'png' }
-      ],
-      items: []
-    }
-  },
-  computed: {
-    doneItems() {
-      return this.items.filter(i => i.out)
-    },
-    totalSaved() {
-      return this.doneItems.reduce((s, i) => s + (i.size - i.outSize), 0)
-    }
-  },
-  methods: {
-    formatSize,
-    onFiles(files) {
-      files.forEach(f => {
-        this.items.push({
-          file: f,
-          name: f.name,
-          size: f.size,
-          url: URL.createObjectURL(f),
-          out: '',
-          outSize: 0,
-          saved: 0
-        })
-      })
-    },
-    async compressAll() {
-      for (const item of this.items) {
-        try {
-          const { img } = await loadImage(item.file)
-          const w = Math.round(img.naturalWidth * this.scale / 100)
-          const h = Math.round(img.naturalHeight * this.scale / 100)
-          const canvas = drawToCanvas(img, w, h)
-          if (this.target === 'jpeg') {
-            // 透明填白
-            const ctx = canvas.getContext('2d')
-            ctx.globalCompositeOperation = 'destination-over'
-            ctx.fillStyle = '#fff'
-            ctx.fillRect(0, 0, w, h)
-          }
-          const mime = this.target === 'png' ? 'image/png' : 'image/' + this.target
-          const dataUrl = canvas.toDataURL(mime, this.quality / 100)
-          item.out = dataUrl
-          item.outSize = dataUrlToBlob(dataUrl).size
-          item.saved = ((item.size - item.outSize) / item.size) * 100
-        } catch (e) {
-          this.$message.error(`${item.name}：${e.message}`)
-        }
+defineOptions({ name: 'ImageCompress' })
+
+const { message } = useFeedback()
+
+const quality = ref(70)
+const scale = ref(100)
+const target = ref('jpeg')
+const formats = [
+  { label: 'JPEG', value: 'jpeg' },
+  { label: 'WEBP', value: 'webp' },
+  { label: 'PNG', value: 'png' }
+]
+const items = ref([])
+
+const doneItems = computed(() => items.value.filter(i => i.out))
+const totalSaved = computed(() => doneItems.value.reduce((s, i) => s + (i.size - i.outSize), 0))
+
+function onFiles(files) {
+  files.forEach(f => {
+    items.value.push({
+      file: f,
+      name: f.name,
+      size: f.size,
+      url: URL.createObjectURL(f),
+      out: '',
+      outSize: 0,
+      saved: 0
+    })
+  })
+}
+
+async function compressAll() {
+  for (const item of items.value) {
+    try {
+      const { img } = await loadImage(item.file)
+      const w = Math.round(img.naturalWidth * scale.value / 100)
+      const h = Math.round(img.naturalHeight * scale.value / 100)
+      const canvas = drawToCanvas(img, w, h)
+      if (target.value === 'jpeg') {
+        // 透明填白
+        const ctx = canvas.getContext('2d')
+        ctx.globalCompositeOperation = 'destination-over'
+        ctx.fillStyle = '#fff'
+        ctx.fillRect(0, 0, w, h)
       }
-    },
-    downloadOne(item) {
-      downloadDataUrl(baseName(item.name) + '_min.' + this.target, item.out)
-    },
-    downloadAll() {
-      this.doneItems.forEach((item, i) => {
-        setTimeout(() => this.downloadOne(item), i * 250)
-      })
-    },
-    removeItem(i) {
-      URL.revokeObjectURL(this.items[i].url)
-      this.items.splice(i, 1)
+      const mime = target.value === 'png' ? 'image/png' : 'image/' + target.value
+      const dataUrl = canvas.toDataURL(mime, quality.value / 100)
+      item.out = dataUrl
+      item.outSize = dataUrlToBlob(dataUrl).size
+      item.saved = ((item.size - item.outSize) / item.size) * 100
+    } catch (e) {
+      message.error(`${item.name}：${e.message}`)
     }
   }
+}
+
+function downloadOne(item) {
+  downloadDataUrl(baseName(item.name) + '_min.' + target.value, item.out)
+}
+
+function downloadAll() {
+  doneItems.value.forEach((item, i) => {
+    setTimeout(() => downloadOne(item), i * 250)
+  })
+}
+
+function removeItem(i) {
+  URL.revokeObjectURL(items.value[i].url)
+  items.value.splice(i, 1)
 }
 </script>
 

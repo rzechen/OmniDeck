@@ -108,180 +108,188 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 技能管理独立页：ZIP 导入 + 编辑（SKILL.md 表单）+ 删除 + 详情弹窗（复用市场组件）
 // 凭据统一在「我的资料 → 我的凭据」录入（绑定技能注入环境变量）；本页仅展示
 // 技能声明的所需变量名（env-keys frontmatter）与录入状态
 // 卡片与弹窗已拆分至 ./components/（SkillCard / SkillImportDialog）
+import { ref, onActivated } from 'vue'
 import ItemDetailDialog from '@/components/buddy/ItemDetailDialog.vue'
 import SkillCard from './components/SkillCard.vue'
 import SkillImportDialog from './components/SkillImportDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApi } from '@/utils/buddy/buddy-api'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddySkills',
-  components: { ItemDetailDialog, SkillCard, SkillImportDialog, BuddySkeleton },
-  data() {
-    return {
-      // ===== 技能管理 =====
-      skillList: [],
-      // 全量技能（含包成员：packageOf 非空，折叠在主卡片下，点 chip 查详情用）
-      allSkills: [],
-      skillLoading: false,
-      skillDialogVisible: false,
-      // 编辑中的 Skill（null 表示新建 / ZIP 导入）
-      skillEditing: null,
-      // ===== 技能详情弹窗 =====
-      skillDetailVisible: false,
-      skillDetailItem: null,
-      // ===== 技能凭据（统一在「我的凭据」管理，此处仅读状态用于展示） =====
-      skillCredList: []
+defineOptions({ name: 'OmniBuddySkills' })
+
+const { message, confirm } = useFeedback()
+
+// ===== 技能管理 =====
+const skillList = ref([])
+// 全量技能（含包成员：packageOf 非空，折叠在主卡片下，点 chip 查详情用）
+const allSkills = ref([])
+const skillLoading = ref(false)
+const skillDialogVisible = ref(false)
+// 编辑中的 Skill（null 表示新建 / ZIP 导入）
+const skillEditing = ref(null)
+// ===== 技能详情弹窗 =====
+const skillDetailVisible = ref(false)
+const skillDetailItem = ref(null)
+// ===== 技能凭据（统一在「我的凭据」管理，此处仅读状态用于展示） =====
+const skillCredList = ref([])
+
+// ===== 技能管理 =====
+async function loadSkills() {
+  skillLoading.value = true
+  try {
+    const api = buddyApi()
+    const res = api ? await api.listSkills() : []
+    const all = Array.isArray(res) ? res : []
+    // 多 skill 包折叠：包成员（packageOf 非空）不单独成卡，
+    // 由主卡片（packageMembers）下方子行展示
+    skillList.value = all.filter(s => !s.packageOf)
+    allSkills.value = all
+  } catch (e) {
+    skillList.value = []
+    allSkills.value = []
+  }
+  skillLoading.value = false
+  // 与技能列表一起加载技能凭据（卡片状态行展示用）
+  loadSkillCreds()
+}
+
+// 新建（ZIP 导入）：仅打开弹窗，ZIP 状态由弹窗自行重置
+function openSkillCreate() {
+  skillEditing.value = null
+  skillDialogVisible.value = true
+}
+
+// 编辑：仅打开弹窗并传入目标，SKILL.md 内容由弹窗自行读取回填
+function openSkillEdit(s) {
+  skillEditing.value = s
+  skillDialogVisible.value = true
+}
+
+// 导入或编辑成功：刷新列表与凭据
+function onSkillSaved() {
+  skillEditing.value = null
+  loadSkills()
+}
+
+// ===== 技能详情弹窗（复用市场页共享组件） =====
+// 点包成员 chip 打开其详情（成员折叠在主卡片下，不单独成卡）
+function openPackageMember(dir) {
+  const member = allSkills.value.find(s => s.dir === dir)
+  if (member) openSkillDetail(member)
+}
+
+// listSkills 返回的 content 为完整 SKILL.md 文本；描述部分（frontmatter 之后）作为 details 长文
+function openSkillDetail(s) {
+  const content = s.content || ''
+  const bodyStart = content.indexOf('---', 3) // 跳过开头 frontmatter
+  const details = bodyStart > 0 ? content.slice(bodyStart + 3).trim() : ''
+  skillDetailItem.value = {
+    name: s.name,
+    type: 'skill',
+    details: details || s.description || '',
+    description: s.description,
+    declaredKeys: s.envKeys || [],
+    providedKeys: envKeysOf(s),
+    raw: s
+  }
+  skillDetailVisible.value = true
+}
+
+// 导出 Skill 为 ZIP：IPC 取回 Buffer → Blob 触发浏览器下载
+async function exportSkill(s) {
+  const api = buddyApi()
+  if (!api || !api.exportSkillZip) {
+    message.error('技能管理仅桌面端可用')
+    return
+  }
+  try {
+    const res = await api.exportSkillZip(s.dir)
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '导出失败')
+      return
     }
-  },
-  created() {
-    this.loadSkills()
-  },
-  // keep-alive 页签重入：凭据可能在「我的资料 → 我的凭据」已补录/变更，
-  // 重新拉取凭据刷新卡片「待录入」状态（首次进入由 created→loadSkills 已加载，
-  // 此时 skillLoading 仍为 true，天然跳过，避免重复请求）
-  activated() {
-    if (!this.skillLoading && this.skillList.length) this.loadSkillCreds()
-  },
-  methods: {
-    // ===== 技能管理 =====
-    async loadSkills() {
-      this.skillLoading = true
-      try {
-        const api = buddyApi()
-        const res = api ? await api.listSkills() : []
-        const all = Array.isArray(res) ? res : []
-        // 多 skill 包折叠：包成员（packageOf 非空）不单独成卡，
-        // 由主卡片（packageMembers）下方子行展示
-        this.skillList = all.filter(s => !s.packageOf)
-        this.allSkills = all
-      } catch (e) {
-        this.skillList = []
-        this.allSkills = []
-      }
-      this.skillLoading = false
-      // 与技能列表一起加载技能凭据（卡片状态行展示用）
-      this.loadSkillCreds()
-    },
-    // 新建（ZIP 导入）：仅打开弹窗，ZIP 状态由弹窗自行重置
-    openSkillCreate() {
-      this.skillEditing = null
-      this.skillDialogVisible = true
-    },
-    // 编辑：仅打开弹窗并传入目标，SKILL.md 内容由弹窗自行读取回填
-    openSkillEdit(s) {
-      this.skillEditing = s
-      this.skillDialogVisible = true
-    },
-    // 导入或编辑成功：刷新列表与凭据
-    onSkillSaved() {
-      this.skillEditing = null
-      this.loadSkills()
-    },
-    // ===== 技能详情弹窗（复用市场页共享组件） =====
-    // 点包成员 chip 打开其详情（成员折叠在主卡片下，不单独成卡）
-    openPackageMember(dir) {
-      const member = this.allSkills.find(s => s.dir === dir)
-      if (member) this.openSkillDetail(member)
-    },
-    // listSkills 返回的 content 为完整 SKILL.md 文本；描述部分（frontmatter 之后）作为 details 长文
-    openSkillDetail(s) {
-      const content = s.content || ''
-      const bodyStart = content.indexOf('---', 3) // 跳过开头 frontmatter
-      const details = bodyStart > 0 ? content.slice(bodyStart + 3).trim() : ''
-      this.skillDetailItem = {
-        name: s.name,
-        type: 'skill',
-        details: details || s.description || '',
-        description: s.description,
-        declaredKeys: s.envKeys || [],
-        providedKeys: this.envKeysOf(s),
-        raw: s
-      }
-      this.skillDetailVisible = true
-    },
-    // 导出 Skill 为 ZIP：IPC 取回 Buffer → Blob 触发浏览器下载
-    async exportSkill(s) {
-      const api = buddyApi()
-      if (!api || !api.exportSkillZip) {
-        this.$message.error('技能管理仅桌面端可用')
-        return
-      }
-      try {
-        const res = await api.exportSkillZip(s.dir)
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '导出失败')
-          return
-        }
-        const blob = new Blob([res.data], { type: 'application/zip' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = s.name + '.zip'
-        a.click()
-        URL.revokeObjectURL(url)
-        this.$message.success('已导出 ' + s.name + '.zip')
-      } catch (e) {
-        this.$message.error((e && e.message) || '导出失败')
-      }
-    },
-    removeSkill(s) {
-      // 包主技能：级联提示（删除将连带移除包内平铺安装的子技能）
-      const members = (s.packageMembers && s.packageMembers.length) ? s.packageMembers : null
-      const tip = members
-        ? '确定删除技能包「' + s.name + '」吗？随包安装的子技能（' + members.join('、') + '）将一并删除。'
-        : '确定删除 Skill「' + s.name + '」吗？'
-      this.$confirm(tip, '删除 Skill', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(async () => {
-        const api = buddyApi()
-        const res = await api.deleteSkill(s.dir)
-        if (res && res.ok) {
-          const removed = (res.removedMembers && res.removedMembers.length)
-            ? '（连带删除子技能：' + res.removedMembers.join('、') + '）'
-            : ''
-          this.$message.success('已删除' + removed)
-          this.loadSkills()
-        } else {
-          this.$message.error((res && res.error) || '删除失败')
-        }
-      }).catch(() => {})
-    },
-    // ===== 技能凭据（统一在「我的凭据」管理，此处仅读状态） =====
-    // 筛出绑定了技能的凭据（按 skillNames 匹配，兼容 'credential'/'skill' 类型），供卡片/详情展示录入状态
-    async loadSkillCreds() {
-      const api = buddyApi()
-      const cred = api && api.credentials
-      try {
-        const res = cred ? await cred.list() : []
-        const list = Array.isArray(res) ? res : []
-        this.skillCredList = list.filter(c => Array.isArray(c.skillNames) && c.skillNames.length)
-      } catch (e) {
-        this.skillCredList = []
-      }
-    },
-    // 绑定该技能的全部凭据（按 skillNames 匹配）
-    credsOf(skill) {
-      if (!skill) return []
-      return this.skillCredList.filter(c => (c.skillNames || []).includes(skill.name))
-    },
-    // 该技能已录入的环境变量键名聚合（脱敏视图，仅键名；多条凭据合并去重）
-    envKeysOf(skill) {
-      const keys = []
-      this.credsOf(skill).forEach(c => (c.envKeys || []).forEach(k => {
-        if (!keys.includes(k)) keys.push(k)
-      }))
-      return keys
-    }
+    const blob = new Blob([res.data], { type: 'application/zip' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = s.name + '.zip'
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success('已导出 ' + s.name + '.zip')
+  } catch (e) {
+    message.error((e && e.message) || '导出失败')
   }
 }
+
+function removeSkill(s) {
+  // 包主技能：级联提示（删除将连带移除包内平铺安装的子技能）
+  const members = (s.packageMembers && s.packageMembers.length) ? s.packageMembers : null
+  const tip = members
+    ? '确定删除技能包「' + s.name + '」吗？随包安装的子技能（' + members.join('、') + '）将一并删除。'
+    : '确定删除 Skill「' + s.name + '」吗？'
+  confirm(tip, '删除 Skill', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    const api = buddyApi()
+    const res = await api.deleteSkill(s.dir)
+    if (res && res.ok) {
+      const removed = (res.removedMembers && res.removedMembers.length)
+        ? '（连带删除子技能：' + res.removedMembers.join('、') + '）'
+        : ''
+      message.success('已删除' + removed)
+      loadSkills()
+    } else {
+      message.error((res && res.error) || '删除失败')
+    }
+  }).catch(() => {})
+}
+
+// ===== 技能凭据（统一在「我的凭据」管理，此处仅读状态） =====
+// 筛出绑定了技能的凭据（按 skillNames 匹配，兼容 'credential'/'skill' 类型），供卡片/详情展示录入状态
+async function loadSkillCreds() {
+  const api = buddyApi()
+  const cred = api && api.credentials
+  try {
+    const res = cred ? await cred.list() : []
+    const list = Array.isArray(res) ? res : []
+    skillCredList.value = list.filter(c => Array.isArray(c.skillNames) && c.skillNames.length)
+  } catch (e) {
+    skillCredList.value = []
+  }
+}
+
+// 绑定该技能的全部凭据（按 skillNames 匹配）
+function credsOf(skill) {
+  if (!skill) return []
+  return skillCredList.value.filter(c => (c.skillNames || []).includes(skill.name))
+}
+
+// 该技能已录入的环境变量键名聚合（脱敏视图，仅键名；多条凭据合并去重）
+function envKeysOf(skill) {
+  const keys = []
+  credsOf(skill).forEach(c => (c.envKeys || []).forEach(k => {
+    if (!keys.includes(k)) keys.push(k)
+  }))
+  return keys
+}
+
+// created：进入页面即拉取技能列表
+loadSkills()
+
+// keep-alive 页签重入：凭据可能在「我的资料 → 我的凭据」已补录/变更，
+// 重新拉取凭据刷新卡片「待录入」状态（首次进入由 loadSkills 已加载，
+// 此时 skillLoading 仍为 true，天然跳过，避免重复请求）
+onActivated(() => {
+  if (!skillLoading.value && skillList.value.length) loadSkillCreds()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -297,7 +305,7 @@ export default {
   padding: 18px 4px;
 }
 
-/* 详情弹窗：所需变量标签（✓ 已录入 / ! 缺失）——cells slot 内容带父 scope，需 ::v-deep
+/* 详情弹窗：所需变量标签（✓ 已录入 / ! 缺失）——cells slot 内容带父 scope，需深度选择器
    配色与 SkillCard 的 .ob-card-tag 保持一致 */
 :deep(.ob-detail-key){
   display: inline-block;

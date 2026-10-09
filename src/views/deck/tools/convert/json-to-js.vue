@@ -69,87 +69,98 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
-import { jsonToCodeMixin } from './code-gen-mixin'
+import { useCodeGen } from './useCodeGen'
 
-export default {
-  name: 'ConvertJsonToJs',
-  // 执行历史 toolPath（mixin 的 recordHistory 读取）
-  toolPath: '/tools/convert/json-to-js',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  mixins: [jsonToCodeMixin],
-  data() {
-    return {
-      // 面板可访问的工具 path
-      HISTORY_TOOL: '/tools/convert/json-to-js',
-      example: `{
+defineOptions({ name: 'ConvertJsonToJs' })
+
+// 执行历史 toolPath（useCodeGen 的 recordHistory 读取）
+const TOOL_PATH = '/tools/convert/json-to-js'
+// 面板可访问的工具 path
+const HISTORY_TOOL = TOOL_PATH
+
+const EXAMPLE = `{
   "name": "OmniDeck",
   "version": "1.0.0",
   "openSource": true,
   "stars": 128,
   "author": { "name": "ranze", "city": "Shanghai" },
   "tags": ["electron", "vue", "tools"]
-}`,
-      ext: 'js'
-    }
-  },
-  methods: {
-    generate(obj, className) {
-      const classMap = new Map()
-      this.genClass(obj, className, classMap)
-      this.classCount = classMap.size
-      return [...classMap.values()].join('\n\n')
-    },
-    genClass(obj, className, classMap) {
-      const toCamel = s => s.replace(/_([a-z])/g, (m, p1) => p1.toUpperCase())
-      const toPascal = s => {
-        const c = toCamel(s)
-        return c.charAt(0).toUpperCase() + c.slice(1)
-      }
-      const jsType = (value, key) => {
-        if (value === null) return 'null'
-        if (Array.isArray(value)) {
-          if (!value.length) return 'Array'
-          return `${jsType(value[0], key)}[]`
-        }
-        if (typeof value === 'string') return 'string'
-        if (typeof value === 'boolean') return 'boolean'
-        if (typeof value === 'number') return 'number'
-        if (typeof value === 'object') {
-          const nested = toPascal(key)
-          this.genClass(value, nested, classMap)
-          return nested
-        }
-        return 'any'
-      }
-      const ctorLines = []
-      const getters = []
-      Object.entries(obj).forEach(([key, val]) => {
-        const fn = toCamel(key)
-        const t = jsType(val, key)
-        // 嵌套对象用 new、对象数组用 map，其余直接 JSON 字面量
-        let init
-        if (val && typeof val === 'object' && !Array.isArray(val)) {
-          init = `new ${t}(${JSON.stringify(val)})`
-        } else if (Array.isArray(val) && val.length && typeof val[0] === 'object' && val[0] !== null) {
-          const elemType = t.replace(/\[\]$/, '')
-          init = `[${val.map(it => `new ${elemType}(${JSON.stringify(it)})`).join(', ')}]`
-        } else {
-          init = JSON.stringify(val)
-        }
-        ctorLines.push(`    /** ${key} (${t}) */\n    this.${fn} = ${init};`)
-        getters.push(`  get ${fn}() {\n    return this.${fn};\n  }`)
-      })
-      classMap.set(
-        className,
-        `class ${className} {\n  constructor(data) {\n${ctorLines.join('\n')}\n  }\n\n${getters.join('\n\n')}\n}`
-      )
-    }
+}`
+
+function genClass(obj, className, classMap) {
+  const toCamel = s => s.replace(/_([a-z])/g, (m, p1) => p1.toUpperCase())
+  const toPascal = s => {
+    const c = toCamel(s)
+    return c.charAt(0).toUpperCase() + c.slice(1)
   }
+  const jsType = (value, key) => {
+    if (value === null) return 'null'
+    if (Array.isArray(value)) {
+      if (!value.length) return 'Array'
+      return `${jsType(value[0], key)}[]`
+    }
+    if (typeof value === 'string') return 'string'
+    if (typeof value === 'boolean') return 'boolean'
+    if (typeof value === 'number') return 'number'
+    if (typeof value === 'object') {
+      const nested = toPascal(key)
+      genClass(value, nested, classMap)
+      return nested
+    }
+    return 'any'
+  }
+  const ctorLines = []
+  const getters = []
+  Object.entries(obj).forEach(([key, val]) => {
+    const fn = toCamel(key)
+    const t = jsType(val, key)
+    // 嵌套对象用 new、对象数组用 map，其余直接 JSON 字面量
+    let init
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      init = `new ${t}(${JSON.stringify(val)})`
+    } else if (Array.isArray(val) && val.length && typeof val[0] === 'object' && val[0] !== null) {
+      const elemType = t.replace(/\[\]$/, '')
+      init = `[${val.map(it => `new ${elemType}(${JSON.stringify(it)})`).join(', ')}]`
+    } else {
+      init = JSON.stringify(val)
+    }
+    ctorLines.push(`    /** ${key} (${t}) */\n    this.${fn} = ${init};`)
+    getters.push(`  get ${fn}() {\n    return this.${fn};\n  }`)
+  })
+  classMap.set(
+    className,
+    `class ${className} {\n  constructor(data) {\n${ctorLines.join('\n')}\n  }\n\n${getters.join('\n\n')}\n}`
+  )
 }
+
+const {
+  jsonInput,
+  className,
+  packageName,
+  output,
+  errorMsg,
+  classCount,
+  historyVisible,
+  inputEditor,
+  copyOutput,
+  downloadOutput,
+  restoreFromHistory,
+  clearAll
+} = useCodeGen({
+  toolPath: TOOL_PATH,
+  example: EXAMPLE,
+  ext: 'js',
+  generate(obj, className) {
+    const classMap = new Map()
+    genClass(obj, className, classMap)
+    classCount.value = classMap.size
+    return [...classMap.values()].join('\n\n')
+  }
+})
 </script>
 
 <style lang="scss" scoped>

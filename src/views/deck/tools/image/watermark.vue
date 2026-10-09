@@ -59,97 +59,96 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
 import { loadImage } from '@/utils/ui/image'
 
-export default {
-  name: 'ImageWatermark',
-  components: { ToolShell, ImageDrop },
-  data() {
-    return {
-      file: null,
-      text: 'OmniDeck',
-      fontSize: 28,
-      opacity: 35,
-      rotate: -30,
-      position: 'center',
-      color: '#FFFFFF',
-      positions: [
-        { label: '左上', value: 'tl' },
-        { label: '居中', value: 'center' },
-        { label: '右下', value: 'br' }
-      ]
-    }
-  },
-  watch: {
-    text() { this.render() },
-    fontSize() { this.render() },
-    opacity() { this.render() },
-    rotate() { this.render() },
-    position() { this.render() }
-  },
-  methods: {
-    async onFile(file) {
-      this.file = file
-      const { img } = await loadImage(file)
-      this._img = img
-      this.$nextTick(() => this.render())
-    },
-    render() {
-      const img = this._img
-      const canvas = this.$refs.canvas
-      if (!img || !canvas) return
-      const scale = Math.min(1, 900 / Math.max(img.naturalWidth, img.naturalHeight))
-      canvas.width = img.naturalWidth * scale
-      canvas.height = img.naturalHeight * scale
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      const t = this.text.trim()
-      if (!t) return
-      ctx.save()
-      ctx.globalAlpha = this.opacity / 100
-      ctx.fillStyle = this.color
-      ctx.font = `600 ${this.fontSize}px -apple-system, 'PingFang SC', sans-serif`
-      const m = ctx.measureText(t)
-      const pad = 20
-      let x
-      let y
-      if (this.position === 'tl') {
-        x = pad
-        y = pad + this.fontSize
-        ctx.textAlign = 'left'
-      } else if (this.position === 'br') {
-        x = canvas.width - pad
-        y = canvas.height - pad
-        ctx.textAlign = 'right'
-      } else {
-        x = canvas.width / 2
-        y = canvas.height / 2
-        ctx.textAlign = 'center'
-      }
-      ctx.translate(x, y)
-      ctx.rotate((this.rotate * Math.PI) / 180)
-      // 描边增强可读性
-      ctx.strokeStyle = 'rgba(0,0,0,0.25)'
-      ctx.lineWidth = 1
-      ctx.strokeText(t, 0, 0)
-      ctx.fillText(t, 0, 0)
-      ctx.restore()
-    },
-    exportImage() {
-      if (!this.$refs.canvas) return
-      const a = document.createElement('a')
-      a.href = this.$refs.canvas.toDataURL('image/png')
-      a.download = 'watermarked.png'
-      a.click()
-    },
-    reset() {
-      this.file = null
-      this._img = null
-    }
+defineOptions({ name: 'ImageWatermark' })
+
+const file = ref(null)
+const text = ref('OmniDeck')
+const fontSize = ref(28)
+const opacity = ref(35)
+const rotate = ref(-30)
+const position = ref('center')
+const color = ref('#FFFFFF')
+const positions = [
+  { label: '左上', value: 'tl' },
+  { label: '居中', value: 'center' },
+  { label: '右下', value: 'br' }
+]
+const canvas = ref(null)
+
+// 加载后的图片对象（非响应式）
+let img = null
+
+watch(text, () => render())
+watch(fontSize, () => render())
+watch(opacity, () => render())
+watch(rotate, () => render())
+watch(position, () => render())
+
+async function onFile(f) {
+  file.value = f
+  const { img: loaded } = await loadImage(f)
+  img = loaded
+  nextTick(() => render())
+}
+
+function render() {
+  const c = canvas.value
+  if (!img || !c) return
+  const scale = Math.min(1, 900 / Math.max(img.naturalWidth, img.naturalHeight))
+  c.width = img.naturalWidth * scale
+  c.height = img.naturalHeight * scale
+  const ctx = c.getContext('2d')
+  ctx.drawImage(img, 0, 0, c.width, c.height)
+  const t = text.value.trim()
+  if (!t) return
+  ctx.save()
+  ctx.globalAlpha = opacity.value / 100
+  ctx.fillStyle = color.value
+  ctx.font = `600 ${fontSize.value}px -apple-system, 'PingFang SC', sans-serif`
+  const m = ctx.measureText(t)
+  const pad = 20
+  let x
+  let y
+  if (position.value === 'tl') {
+    x = pad
+    y = pad + fontSize.value
+    ctx.textAlign = 'left'
+  } else if (position.value === 'br') {
+    x = c.width - pad
+    y = c.height - pad
+    ctx.textAlign = 'right'
+  } else {
+    x = c.width / 2
+    y = c.height / 2
+    ctx.textAlign = 'center'
   }
+  ctx.translate(x, y)
+  ctx.rotate((rotate.value * Math.PI) / 180)
+  // 描边增强可读性
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)'
+  ctx.lineWidth = 1
+  ctx.strokeText(t, 0, 0)
+  ctx.fillText(t, 0, 0)
+  ctx.restore()
+}
+
+function exportImage() {
+  if (!canvas.value) return
+  const a = document.createElement('a')
+  a.href = canvas.value.toDataURL('image/png')
+  a.download = 'watermarked.png'
+  a.click()
+}
+
+function reset() {
+  file.value = null
+  img = null
 }
 </script>
 

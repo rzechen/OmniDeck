@@ -34,21 +34,18 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref } from 'vue'
+
 // 问题反馈页（TODO 占位：表单能力规划中）
-export default {
-  name: 'Feedback',
-  data() {
-    return {
-      features: [
-        { icon: 'edit-outline', label: '问题描述' },
-        { icon: 'picture-outline', label: '截图附带' },
-        { icon: 'collection', label: '历史记录' },
-        { icon: 'chat-line-round', label: '进展通知' }
-      ]
-    }
-  }
-}
+defineOptions({ name: 'Feedback' })
+
+const features = ref([
+  { icon: 'edit-outline', label: '问题描述' },
+  { icon: 'picture-outline', label: '截图附带' },
+  { icon: 'collection', label: '历史记录' },
+  { icon: 'chat-line-round', label: '进展通知' }
+])
 </script>
 
 <style lang="scss" scoped>

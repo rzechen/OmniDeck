@@ -70,100 +70,110 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
-import { downloadText } from '@/utils/ui/download'
-import { jsonToCodeMixin } from './code-gen-mixin'
+import { useCodeGen } from './useCodeGen'
 
-export default {
-  name: 'ConvertJsonToJava',
-  // 执行历史 toolPath（mixin 的 recordHistory 读取）
-  toolPath: '/tools/convert/json-to-java',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  mixins: [jsonToCodeMixin],
-  data() {
-    return {
-      // 面板可访问的工具 path
-      HISTORY_TOOL: '/tools/convert/json-to-java',
-      example: `{
+defineOptions({ name: 'ConvertJsonToJava' })
+
+// 执行历史 toolPath（useCodeGen 的 recordHistory 读取）
+const TOOL_PATH = '/tools/convert/json-to-java'
+// 面板可访问的工具 path
+const HISTORY_TOOL = TOOL_PATH
+
+const EXAMPLE = `{
   "name": "OmniDeck",
   "version": "1.0.0",
   "openSource": true,
   "stars": 128,
   "author": { "name": "ranze", "city": "Shanghai" },
   "tags": ["electron", "vue", "tools"]
-}`,
-      ext: 'java'
-    }
-  },
-  methods: {
-    generate(obj, className) {
-      const classMap = new Map()
-      this.genJavaClass(obj, className, classMap)
-      let imports = ''
-      for (const code of classMap.values()) {
-        if (code.includes('List<')) {
-          imports = 'import java.util.List;\n\n'
-          break
-        }
-      }
-      let main = ''
-      // 主类在最前，嵌套类随后
-      for (const [name, code] of classMap.entries()) {
-        if (name === className) {
-          main = code
-          break
-        }
-      }
-      const nested = [...classMap.entries()]
-        .filter(([n]) => n !== className)
-        .map(([, c]) => '\n' + c)
-        .join('\n')
-      this.classCount = classMap.size
-      return (this.packageName.trim() ? `package ${this.packageName.trim()};\n\n` : '') + imports + main + nested
-    },
-    genJavaClass(obj, className, classMap) {
-      const toCamel = s => s.replace(/_([a-z])/g, (m, p1) => p1.toUpperCase())
-      const toPascal = s => {
-        const c = toCamel(s)
-        return c.charAt(0).toUpperCase() + c.slice(1)
-      }
-      const typeMap = (value, key) => {
-        if (value === null) return 'Object'
-        if (Array.isArray(value)) {
-          if (!value.length) return 'List<Object>'
-          return `List<${typeMap(value[0], key)}>`
-        }
-        if (typeof value === 'string') return 'String'
-        if (typeof value === 'boolean') return 'boolean'
-        if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'double'
-        if (typeof value === 'object') {
-          const nested = toPascal(key)
-          this.genJavaClass(value, nested, classMap)
-          return nested
-        }
-        return 'Object'
-      }
-      const fields = []
-      const methods = []
-      Object.entries(obj).forEach(([key, val]) => {
-        const fn = toCamel(key)
-        const type = typeMap(val, key)
-        fields.push(`    /** ${key} */\n    private ${type} ${fn};`)
-        const cap = fn.charAt(0).toUpperCase() + fn.slice(1)
-        methods.push(
-          `    public ${type} get${cap}() {\n        return ${fn};\n    }\n\n    public void set${cap}(${type} ${fn}) {\n        this.${fn} = ${fn};\n    }`
-        )
-      })
-      classMap.set(
-        className,
-        `public class ${className} {\n\n${fields.join('\n\n')}\n\n${methods.join('\n\n')}\n}`
-      )
-    }
+}`
+
+function genJavaClass(obj, className, classMap) {
+  const toCamel = s => s.replace(/_([a-z])/g, (m, p1) => p1.toUpperCase())
+  const toPascal = s => {
+    const c = toCamel(s)
+    return c.charAt(0).toUpperCase() + c.slice(1)
   }
+  const typeMap = (value, key) => {
+    if (value === null) return 'Object'
+    if (Array.isArray(value)) {
+      if (!value.length) return 'List<Object>'
+      return `List<${typeMap(value[0], key)}>`
+    }
+    if (typeof value === 'string') return 'String'
+    if (typeof value === 'boolean') return 'boolean'
+    if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'double'
+    if (typeof value === 'object') {
+      const nested = toPascal(key)
+      genJavaClass(value, nested, classMap)
+      return nested
+    }
+    return 'Object'
+  }
+  const fields = []
+  const methods = []
+  Object.entries(obj).forEach(([key, val]) => {
+    const fn = toCamel(key)
+    const type = typeMap(val, key)
+    fields.push(`    /** ${key} */\n    private ${type} ${fn};`)
+    const cap = fn.charAt(0).toUpperCase() + fn.slice(1)
+    methods.push(
+      `    public ${type} get${cap}() {\n        return ${fn};\n    }\n\n    public void set${cap}(${type} ${fn}) {\n        this.${fn} = ${fn};\n    }`
+    )
+  })
+  classMap.set(
+    className,
+    `public class ${className} {\n\n${fields.join('\n\n')}\n\n${methods.join('\n\n')}\n}`
+  )
 }
+
+const {
+  jsonInput,
+  className,
+  packageName,
+  output,
+  errorMsg,
+  classCount,
+  historyVisible,
+  inputEditor,
+  copyOutput,
+  downloadOutput,
+  restoreFromHistory,
+  clearAll
+} = useCodeGen({
+  toolPath: TOOL_PATH,
+  example: EXAMPLE,
+  ext: 'java',
+  generate(obj, className) {
+    const classMap = new Map()
+    genJavaClass(obj, className, classMap)
+    let imports = ''
+    for (const code of classMap.values()) {
+      if (code.includes('List<')) {
+        imports = 'import java.util.List;\n\n'
+        break
+      }
+    }
+    let main = ''
+    // 主类在最前，嵌套类随后
+    for (const [name, code] of classMap.entries()) {
+      if (name === className) {
+        main = code
+        break
+      }
+    }
+    const nested = [...classMap.entries()]
+      .filter(([n]) => n !== className)
+      .map(([, c]) => '\n' + c)
+      .join('\n')
+    classCount.value = classMap.size
+    return (packageName.value.trim() ? `package ${packageName.value.trim()};\n\n` : '') + imports + main + nested
+  }
+})
 </script>
 
 <style lang="scss" scoped>

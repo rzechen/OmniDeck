@@ -31,35 +31,37 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { computed } from 'vue'
+import { useRouter } from 'vue-router'
+
 // 工具页通用外壳：统一页头（返回 + 标识 + 操作栏）、内容区与状态栏
 // 工具栏按钮 / 分段控件 / 分栏面板的全局样式类（tool-btn / tool-seg / split-pane）
 // 也由本组件的非 scoped 样式统一提供，供各工具页插槽内容直接使用
-export default {
-  name: 'ToolShell',
-  props: {
-    title: { type: String, required: true },
-    desc: { type: String, default: '' },
-    icon: { type: String, default: '' },
-    color: { type: String, default: '#3366FF' },
-    backPath: { type: String, default: '' }
-  },
-  computed: {
-    iconStyle() {
-      return {
-        background: this.color + '1A',
-        color: this.color
-      }
-    }
-  },
-  methods: {
-    goBack() {
-      if (this.backPath) {
-        this.$router.push(this.backPath)
-      } else {
-        this.$router.back()
-      }
-    }
+defineOptions({ name: 'ToolShell' })
+
+const props = defineProps({
+  title: { type: String, required: true },
+  desc: { type: String, default: '' },
+  icon: { type: String, default: '' },
+  color: { type: String, default: '#3366FF' },
+  backPath: { type: String, default: '' }
+})
+
+const router = useRouter()
+
+const iconStyle = computed(() => {
+  return {
+    background: props.color + '1A',
+    color: props.color
+  }
+})
+
+function goBack() {
+  if (props.backPath) {
+    router.push(props.backPath)
+  } else {
+    router.back()
   }
 }
 </script>

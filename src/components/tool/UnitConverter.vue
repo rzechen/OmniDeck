@@ -47,89 +47,88 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
+
 // 换算页共享组件：配置驱动的实时单位换算
 // units: [{ key, label, factor }]（factor：1 该单位 = factor 标准单位）
 //        或 [{ key, label, toStd(v), fromStd(v) }]（非线性单位如温度）
-export default {
-  name: 'UnitConverter',
-  props: {
-    units: { type: Array, required: true },
-    defaultFrom: { type: String, default: '' },
-    // 初始数值：进入页面即展示完整换算结果
-    defaultValue: { type: [String, Number], default: '' }
-  },
-  data() {
-    return {
-      rawValue: String(this.defaultValue ?? ''),
-      fromKey: this.defaultFrom || (this.units[0] && this.units[0].key),
-      results: {}
-    }
-  },
-  created() {
-    // 初始化各单位结果为空
-    this.units.forEach(u => { this.results[u.key] = null })
-    this.onInput()
-  },
-  methods: {
-    onInput() {
-      const v = parseFloat(this.rawValue)
-      if (this.rawValue.trim() === '' || isNaN(v)) {
-        this.units.forEach(u => {
-          this.results[u.key] = null
-        })
-        return
-      }
-      const from = this.units.find(u => u.key === this.fromKey)
-      if (!from) return
-      // 先转标准单位再散出到各单位
-      let std
-      if (typeof from.toStd === 'function') {
-        std = from.toStd(v)
-      } else {
-        std = v * from.factor
-      }
-      this.units.forEach(u => {
-        let out
-        if (typeof u.fromStd === 'function') {
-          out = u.fromStd(std)
-        } else {
-          out = std / u.factor
-        }
-        this.results[u.key] = this.format(out)
-      })
-    },
-    // 数值美化：大数/小数自适应精度，去多余尾零
-    format(val) {
-      if (!isFinite(val)) return val.toString()
-      const abs = Math.abs(val)
-      let s
-      if (abs !== 0 && (abs >= 1e12 || abs < 1e-6)) {
-        s = val.toExponential(6).replace(/(\.\d*?)0+e/, '$1e').replace(/\.e/, 'e')
-      } else {
-        s = parseFloat(val.toPrecision(12)).toString()
-      }
-      return s
-    },
-    display(v) {
-      return v === null || v === undefined ? '—' : v
-    },
-    copyResult(u) {
-      const v = this.results[u.key]
-      if (v === null || v === undefined) return
-      navigator.clipboard.writeText(String(v)).then(() => {
-        this.$message({
-          message: `已复制：${v} ${u.label}`,
-          type: 'success',
-          duration: 1200
-        })
-      })
-    },
-    clearInput() {
-      this.rawValue = ''
-      this.onInput()
-    }
+defineOptions({ name: 'UnitConverter' })
+
+const props = defineProps({
+  units: { type: Array, required: true },
+  defaultFrom: { type: String, default: '' },
+  // 初始数值：进入页面即展示完整换算结果
+  defaultValue: { type: [String, Number], default: '' }
+})
+
+const { message } = useFeedback()
+
+const rawValue = ref(String(props.defaultValue ?? ''))
+const fromKey = ref(props.defaultFrom || (props.units[0] && props.units[0].key))
+const results = ref({})
+
+// created：初始化各单位结果为空
+props.units.forEach(u => { results.value[u.key] = null })
+onInput()
+
+function onInput() {
+  const v = parseFloat(rawValue.value)
+  if (rawValue.value.trim() === '' || isNaN(v)) {
+    props.units.forEach(u => {
+      results.value[u.key] = null
+    })
+    return
   }
+  const from = props.units.find(u => u.key === fromKey.value)
+  if (!from) return
+  // 先转标准单位再散出到各单位
+  let std
+  if (typeof from.toStd === 'function') {
+    std = from.toStd(v)
+  } else {
+    std = v * from.factor
+  }
+  props.units.forEach(u => {
+    let out
+    if (typeof u.fromStd === 'function') {
+      out = u.fromStd(std)
+    } else {
+      out = std / u.factor
+    }
+    results.value[u.key] = format(out)
+  })
+}
+// 数值美化：大数/小数自适应精度，去多余尾零
+function format(val) {
+  if (!isFinite(val)) return val.toString()
+  const abs = Math.abs(val)
+  let s
+  if (abs !== 0 && (abs >= 1e12 || abs < 1e-6)) {
+    s = val.toExponential(6).replace(/(\.\d*?)0+e/, '$1e').replace(/\.e/, 'e')
+  } else {
+    s = parseFloat(val.toPrecision(12)).toString()
+  }
+  return s
+}
+function display(v) {
+  return v === null || v === undefined ? '—' : v
+}
+function copyResult(u) {
+  const v = results.value[u.key]
+  if (v === null || v === undefined) return
+  navigator.clipboard.writeText(String(v)).then(() => {
+    message({
+      message: `已复制：${v} ${u.label}`,
+      type: 'success',
+      duration: 1200
+    })
+  })
+}
+function clearInput() {
+  rawValue.value = ''
+  onInput()
 }
 </script>
 

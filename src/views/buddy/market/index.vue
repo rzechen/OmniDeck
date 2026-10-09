@@ -194,239 +194,253 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, onMounted, onActivated } from 'vue'
 import ItemDetailDialog from '@/components/buddy/ItemDetailDialog.vue'
 import MarketCard from './components/MarketCard.vue'
 import MarketToolbar from './components/MarketToolbar.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApiSection } from '@/utils/buddy/buddy-api'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddyMarket',
-  components: { ItemDetailDialog, MarketCard, MarketToolbar, BuddySkeleton },
-  data() {
-    return {
-      loading: false,
-      error: '',
-      items: [],           // 市场索引（含已装状态）
-      categoryDefs: [],    // 二级主题分类清单（v2 索引下发；v1 旧索引为空 → 隐藏二级筛选）
-      keyword: '',
-      typeFilter: '',
-      categoryFilter: '',  // 二级主题分类筛选（空 = 全部主题）
-      busyId: '',          // 安装/更新中的项 id（按钮 loading 态）
-      detailVisible: false, // 卡片详情抽屉
-      detailItem: null
-    }
-  },
-  computed: {
-    // 胶囊分类 + 数量角标统计
-    categories() {
-      const counts = {
-        skill: 0,
-        agent: 0,
-        connector: 0
-      }
-      this.items.forEach(it => {
-        const t = this.marketType(it)
-        if (counts[t] !== undefined) counts[t]++
-      })
+defineOptions({ name: 'OmniBuddyMarket' })
 
-      return [
-        { label: '全部', value: '' },
-        { label: '技能', value: 'skill', count: counts.skill },
-        { label: '子代理', value: 'agent', count: counts.agent },
-        { label: '连接器', value: 'connector', count: counts.connector }
-      ]
-    },
-    // 二级主题分类（数据驱动 + 数量统计；索引未下发分类时仅含“全部主题”一项 → 主题分组隐藏）
-    categoryChips() {
-      const counts = {}
-      this.items.forEach(it => {
-        if (it.category) counts[it.category] = (counts[it.category] || 0) + 1
-      })
-      return [
-        { label: '全部主题', value: '', count: this.items.length },
-        ...this.categoryDefs
-          .filter(c => counts[c.value])
-          .map(c => ({ label: c.label, value: c.value, count: counts[c.value] }))
-      ]
-    },
-    filteredItems() {
-      const kw = this.keyword.trim().toLowerCase()
-      const list = this.items.filter(it => {
-        if (this.typeFilter && this.marketType(it) !== this.typeFilter) return false
-        if (this.categoryFilter && (it.category || '') !== this.categoryFilter) return false
-        if (!kw) return true
-        const hay = [it.name, it.description, it.details, (it.tags || []).join(' ')].join(' ').toLowerCase()
-        return hay.includes(kw)
-      })
-      // v4：按趋势分降序展示（与分组模式一致）
-      return list.sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
-    },
-    // 将 items 按技能、子代理、连接器进行三段式分组（用于全部模式展示，尊重二级分类筛选）
-    // 组内按 v4 trendingScore 降序（上游趋势分），缺省 0
-    groupedItems() {
-      const groups = [
-        { type: 'skill', label: '技能 (Skills)', items: [] },
-        { type: 'agent', label: '子代理 (Agents)', items: [] },
-        { type: 'connector', label: '连接器 (Connectors)', items: [] }
-      ]
+const { message } = useFeedback()
 
-      this.items.forEach(it => {
-        if (this.categoryFilter && (it.category || '') !== this.categoryFilter) return
-        const type = this.marketType(it)
-        const targetGroup = groups.find(g => g.type === type)
-        if (targetGroup) {
-          targetGroup.items.push(it)
-        }
-      })
+const loading = ref(false)
+const error = ref('')
+const items = ref([])           // 市场索引（含已装状态）
+const categoryDefs = ref([])    // 二级主题分类清单（v2 索引下发；v1 旧索引为空 → 隐藏二级筛选）
+const keyword = ref('')
+const typeFilter = ref('')
+const categoryFilter = ref('')  // 二级主题分类筛选（空 = 全部主题）
+const busyId = ref('')          // 安装/更新中的项 id（按钮 loading 态）
+const detailVisible = ref(false) // 卡片详情抽屉
+const detailItem = ref(null)
 
-      groups.forEach(g => g.items.sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0)))
-      return groups.filter(g => g.items.length > 0)
-    }
-  },
-  mounted() {
-    this.loadIndex()
-  },
-  activated() {
-    // keep-alive 页面重入：安装状态可能在别处已变更（如技能管理页删除 Skill），
-    // 重新拉取市场索引刷新 installed 状态（首次进入由 mounted 加载，items 为空时跳过）
-    if (!this.loading && (this.items.length || this.error)) this.loadIndex()
-  },
-  methods: {
-    api() {
-      return buddyApiSection('market')
-    },
-    marketType(it) {
-      const t = it.type || 'skill'
-      if (t === 'workflow' || t === 'skill') return 'skill'
-      if (t === 'connector' || t === 'mcp') return 'connector'
-      return t
-    },
-    typeIcon(type) {
-      if (type === 'connector' || type === 'mcp') return 'mcp'
-      if (type === 'agent') return 'subagent'
-      return 'skill'
-    },
-    loadIndex() {
-      const api = this.api()
-      if (!api) {
-        this.error = '当前环境不支持市场功能'
-        return
-      }
-      this.loading = true
-      this.error = ''
-      api.index().then(res => {
-        this.loading = false
-        if (!res || !res.ok) {
-          this.error = (res && res.error) || '未知错误'
-          this.items = []
-          this.categoryDefs = []
-          return
-        }
-        this.items = res.items || []
-        this.categoryDefs = (res.categories || []).map(c => ({ label: c.label, value: c.value }))
-        // 二级筛选失效时（分类被下架）回退到全部
-        if (this.categoryFilter && !this.categoryDefs.some(c => c.value === this.categoryFilter)) {
-          this.categoryFilter = ''
-        }
-      }).catch(() => {
-        this.loading = false
-        this.error = '请求异常（请检查网络）'
-      })
-    },
-    installItem(it) {
-      const api = this.api()
-      if (!api) return
-      this.busyId = it.id
-      api.install(it.id).then(res => {
-        this.busyId = ''
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '安装失败')
-          return
-        }
-        this.$message.success(`「${it.name}」安装成功`)
-        this.applyLocalState(it.id, { installed: true, installedVersion: it.version, hasUpdate: false })
-      }).catch(() => {
-        this.busyId = ''
-        this.$message.error('安装请求异常')
-      })
-    },
-    updateItem(it) {
-      const api = this.api()
-      if (!api) return
-      this.busyId = it.id
-      api.update(it.id).then(res => {
-        this.busyId = ''
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '更新失败')
-          return
-        }
-        this.$message.success(`「${it.name}」已更新到 v${it.version}`)
-        this.applyLocalState(it.id, { installed: true, installedVersion: it.version, hasUpdate: false })
-      }).catch(() => {
-        this.busyId = ''
-        this.$message.error('更新请求异常')
-      })
-    },
-    applyLocalState(id, patch) {
-      const item = this.items.find(x => x.id === id)
-      if (item) Object.assign(item, patch)
-      // 详情抽屉展示的是 openDetail 时的浅拷贝（附加 categoryLabel），同步补丁保持弹窗与列表一致
-      if (this.detailItem && this.detailItem.id === id) Object.assign(this.detailItem, patch)
-    },
-    resetFilter() {
-      this.keyword = ''
-      this.typeFilter = ''
-      this.categoryFilter = ''
-    },
-    // ---------- 边栏导航 ----------
-    // 一级类型与二级主题互斥选择（点击类型清除主题，点击主题清除类型），避免双重筛选叠加造成压抑感
-    selectType(value) {
-      this.typeFilter = value
-      this.categoryFilter = ''
-    },
-    selectCategory(value) {
-      this.categoryFilter = value
-      this.typeFilter = ''
-    },
-    // ---------- 详情抽屉 ----------
-    openDetail(it) {
-      // categoryLabel 由页面计算后传入（共享组件不感知页面级 categoryDefs）
-      this.detailItem = { ...it, categoryLabel: it.category ? this.categoryLabel(it.category) : '' }
-      this.detailVisible = true
-    },
-    // v4 homepage：主进程 shell.openExternal 打开主页（系统浏览器）
-    openHome(it) {
-      const api = this.api()
-      if (!api || !it.homepage) return
-      api.openHome(it.homepage)
-    },
-    uninstallFromDetail() {
-      const api = this.api()
-      const it = this.detailItem
-      if (!api || !it) return
-      this.busyId = it.id
-      api.uninstall(it.id).then(res => {
-        this.busyId = ''
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '卸载失败')
-          return
-        }
-        this.$message.success(`「${it.name}」已卸载`)
-        this.applyLocalState(it.id, { installed: false, installedVersion: '', hasUpdate: false })
-      }).catch(() => {
-        this.busyId = ''
-        this.$message.error('卸载请求异常')
-      })
-    },
-    // ---------- 展示辅助 ----------
-    categoryLabel(value) {
-      const def = this.categoryDefs.find(c => c.value === value)
-      return def ? def.label : value
-    }
+// 胶囊分类 + 数量角标统计
+const categories = computed(() => {
+  const counts = {
+    skill: 0,
+    agent: 0,
+    connector: 0
   }
+  items.value.forEach(it => {
+    const t = marketType(it)
+    if (counts[t] !== undefined) counts[t]++
+  })
+
+  return [
+    { label: '全部', value: '' },
+    { label: '技能', value: 'skill', count: counts.skill },
+    { label: '子代理', value: 'agent', count: counts.agent },
+    { label: '连接器', value: 'connector', count: counts.connector }
+  ]
+})
+
+// 二级主题分类（数据驱动 + 数量统计；索引未下发分类时仅含“全部主题”一项 → 主题分组隐藏）
+const categoryChips = computed(() => {
+  const counts = {}
+  items.value.forEach(it => {
+    if (it.category) counts[it.category] = (counts[it.category] || 0) + 1
+  })
+  return [
+    { label: '全部主题', value: '', count: items.value.length },
+    ...categoryDefs.value
+      .filter(c => counts[c.value])
+      .map(c => ({ label: c.label, value: c.value, count: counts[c.value] }))
+  ]
+})
+
+const filteredItems = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  const list = items.value.filter(it => {
+    if (typeFilter.value && marketType(it) !== typeFilter.value) return false
+    if (categoryFilter.value && (it.category || '') !== categoryFilter.value) return false
+    if (!kw) return true
+    const hay = [it.name, it.description, it.details, (it.tags || []).join(' ')].join(' ').toLowerCase()
+    return hay.includes(kw)
+  })
+  // v4：按趋势分降序展示（与分组模式一致）
+  return list.sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
+})
+
+// 将 items 按技能、子代理、连接器进行三段式分组（用于全部模式展示，尊重二级分类筛选）
+// 组内按 v4 trendingScore 降序（上游趋势分），缺省 0
+const groupedItems = computed(() => {
+  const groups = [
+    { type: 'skill', label: '技能 (Skills)', items: [] },
+    { type: 'agent', label: '子代理 (Agents)', items: [] },
+    { type: 'connector', label: '连接器 (Connectors)', items: [] }
+  ]
+
+  items.value.forEach(it => {
+    if (categoryFilter.value && (it.category || '') !== categoryFilter.value) return
+    const type = marketType(it)
+    const targetGroup = groups.find(g => g.type === type)
+    if (targetGroup) {
+      targetGroup.items.push(it)
+    }
+  })
+
+  groups.forEach(g => g.items.sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0)))
+  return groups.filter(g => g.items.length > 0)
+})
+
+function api() {
+  return buddyApiSection('market')
 }
+
+function marketType(it) {
+  const t = it.type || 'skill'
+  if (t === 'workflow' || t === 'skill') return 'skill'
+  if (t === 'connector' || t === 'mcp') return 'connector'
+  return t
+}
+
+function typeIcon(type) {
+  if (type === 'connector' || type === 'mcp') return 'mcp'
+  if (type === 'agent') return 'subagent'
+  return 'skill'
+}
+
+function loadIndex() {
+  const a = api()
+  if (!a) {
+    error.value = '当前环境不支持市场功能'
+    return
+  }
+  loading.value = true
+  error.value = ''
+  a.index().then(res => {
+    loading.value = false
+    if (!res || !res.ok) {
+      error.value = (res && res.error) || '未知错误'
+      items.value = []
+      categoryDefs.value = []
+      return
+    }
+    items.value = res.items || []
+    categoryDefs.value = (res.categories || []).map(c => ({ label: c.label, value: c.value }))
+    // 二级筛选失效时（分类被下架）回退到全部
+    if (categoryFilter.value && !categoryDefs.value.some(c => c.value === categoryFilter.value)) {
+      categoryFilter.value = ''
+    }
+  }).catch(() => {
+    loading.value = false
+    error.value = '请求异常（请检查网络）'
+  })
+}
+
+function installItem(it) {
+  const a = api()
+  if (!a) return
+  busyId.value = it.id
+  a.install(it.id).then(res => {
+    busyId.value = ''
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '安装失败')
+      return
+    }
+    message.success(`「${it.name}」安装成功`)
+    applyLocalState(it.id, { installed: true, installedVersion: it.version, hasUpdate: false })
+  }).catch(() => {
+    busyId.value = ''
+    message.error('安装请求异常')
+  })
+}
+
+function updateItem(it) {
+  const a = api()
+  if (!a) return
+  busyId.value = it.id
+  a.update(it.id).then(res => {
+    busyId.value = ''
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '更新失败')
+      return
+    }
+    message.success(`「${it.name}」已更新到 v${it.version}`)
+    applyLocalState(it.id, { installed: true, installedVersion: it.version, hasUpdate: false })
+  }).catch(() => {
+    busyId.value = ''
+    message.error('更新请求异常')
+  })
+}
+
+function applyLocalState(id, patch) {
+  const item = items.value.find(x => x.id === id)
+  if (item) Object.assign(item, patch)
+  // 详情抽屉展示的是 openDetail 时的浅拷贝（附加 categoryLabel），同步补丁保持弹窗与列表一致
+  if (detailItem.value && detailItem.value.id === id) Object.assign(detailItem.value, patch)
+}
+
+function resetFilter() {
+  keyword.value = ''
+  typeFilter.value = ''
+  categoryFilter.value = ''
+}
+
+// ---------- 边栏导航 ----------
+// 一级类型与二级主题互斥选择（点击类型清除主题，点击主题清除类型），避免双重筛选叠加造成压抑感
+function selectType(value) {
+  typeFilter.value = value
+  categoryFilter.value = ''
+}
+
+function selectCategory(value) {
+  categoryFilter.value = value
+  typeFilter.value = ''
+}
+
+// ---------- 详情抽屉 ----------
+function openDetail(it) {
+  // categoryLabel 由页面计算后传入（共享组件不感知页面级 categoryDefs）
+  detailItem.value = { ...it, categoryLabel: it.category ? categoryLabel(it.category) : '' }
+  detailVisible.value = true
+}
+
+// v4 homepage：主进程 shell.openExternal 打开主页（系统浏览器）
+function openHome(it) {
+  const a = api()
+  if (!a || !it.homepage) return
+  a.openHome(it.homepage)
+}
+
+function uninstallFromDetail() {
+  const a = api()
+  const it = detailItem.value
+  if (!a || !it) return
+  busyId.value = it.id
+  a.uninstall(it.id).then(res => {
+    busyId.value = ''
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '卸载失败')
+      return
+    }
+    message.success(`「${it.name}」已卸载`)
+    applyLocalState(it.id, { installed: false, installedVersion: '', hasUpdate: false })
+  }).catch(() => {
+    busyId.value = ''
+    message.error('卸载请求异常')
+  })
+}
+
+// ---------- 展示辅助 ----------
+function categoryLabel(value) {
+  const def = categoryDefs.value.find(c => c.value === value)
+  return def ? def.label : value
+}
+
+onMounted(() => {
+  loadIndex()
+})
+
+onActivated(() => {
+  // keep-alive 页面重入：安装状态可能在别处已变更（如技能管理页删除 Skill），
+  // 重新拉取市场索引刷新 installed 状态（首次进入由 mounted 加载，items 为空时跳过）
+  if (!loading.value && (items.value.length || error.value)) loadIndex()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -658,4 +672,3 @@ export default {
   }
 }
 </style>
-

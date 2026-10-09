@@ -40,79 +40,77 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 用量统计（N4 / §18.2）：主进程 summarize 聚合好三维数据，页面只做数据编排；
 // 卡片 / 柱状图 / 饼图 / TOP5 榜单拆分为 components/ 下 co-locate 子组件
+import { ref, reactive, computed, onMounted } from 'vue'
 import { buddyApi } from '@/utils/buddy/buddy-api'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import UsageStatCards from './components/UsageStatCards.vue'
 import DailyBarChart from './components/DailyBarChart.vue'
 import ModelPieChart from './components/ModelPieChart.vue'
 import TopSessions from './components/TopSessions.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddyUsage',
-  components: { BuddySkeleton, UsageStatCards, DailyBarChart, ModelPieChart, TopSessions },
-  data() {
-    return {
-      loading: false,
-      days: 30,
-      summary: {
-        today: { input: 0, output: 0, cost: 0 },
-        total: { input: 0, output: 0, cost: 0 },
-        daily: [],
-        top5: [],
-        models: [],
-        sessionCount: 0
+defineOptions({ name: 'OmniBuddyUsage' })
+
+const { message } = useFeedback()
+
+const loading = ref(false)
+const days = ref(30)
+const summary = reactive({
+  today: { input: 0, output: 0, cost: 0 },
+  total: { input: 0, output: 0, cost: 0 },
+  daily: [],
+  top5: [],
+  models: [],
+  sessionCount: 0
+})
+
+const top5 = computed(() => {
+  return summary.top5 || []
+})
+
+async function load() {
+  const a = buddyApi()
+  if (!a || !a.usageSummarize) {
+    message.warning('用量统计需要 OmniDeck 桌面端')
+    return
+  }
+  loading.value = true
+  try {
+    // 主进程固定 30 天窗口返回；切换 7 天时前端裁剪窗口与合计
+    const res = await a.usageSummarize()
+    if (res && res.ok) {
+      if (days.value < 30 && Array.isArray(res.daily)) {
+        const daily = res.daily.slice(-days.value)
+        const total = daily.reduce((acc, d) => ({
+          input: acc.input + d.input,
+          output: acc.output + d.output,
+          cost: acc.cost + d.cost
+        }), { input: 0, output: 0, cost: 0 })
+        res.daily = daily
+        res.total = total
       }
+      Object.assign(summary, res)
     }
-  },
-  computed: {
-    top5() {
-      return this.summary.top5 || []
-    }
-  },
-  mounted() {
-    this.load()
-  },
-  methods: {
-    async load() {
-      const a = buddyApi()
-      if (!a || !a.usageSummarize) {
-        this.$message.warning('用量统计需要 OmniDeck 桌面端')
-        return
-      }
-      this.loading = true
-      try {
-        // 主进程固定 30 天窗口返回；切换 7 天时前端裁剪窗口与合计
-        const res = await a.usageSummarize()
-        if (res && res.ok) {
-          if (this.days < 30 && Array.isArray(res.daily)) {
-            const daily = res.daily.slice(-this.days)
-            const total = daily.reduce((acc, d) => ({
-              input: acc.input + d.input,
-              output: acc.output + d.output,
-              cost: acc.cost + d.cost
-            }), { input: 0, output: 0, cost: 0 })
-            res.daily = daily
-            res.total = total
-          }
-          this.summary = res
-        }
-      } finally {
-        this.loading = false
-      }
-    },
-    async exportCsv() {
-      const a = buddyApi()
-      if (!a || !a.usageExportCsv) return
-      const res = await a.usageExportCsv()
-      if (res && res.ok) {
-        this.$message.success('已导出：' + res.filePath)
-      }
-    }
+  } finally {
+    loading.value = false
   }
 }
+
+async function exportCsv() {
+  const a = buddyApi()
+  if (!a || !a.usageExportCsv) return
+  const res = await a.usageExportCsv()
+  if (res && res.ok) {
+    message.success('已导出：' + res.filePath)
+  }
+}
+
+onMounted(() => {
+  load()
+})
 </script>
 
 <style lang="scss" scoped>

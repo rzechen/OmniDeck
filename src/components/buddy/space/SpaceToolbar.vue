@@ -43,7 +43,7 @@
         size="small"
         class="sp-search"
         placeholder="搜索当前目录"
-        @input="$emit('update:search', $event)"
+        @input="emit('update:search', $event)"
       >
         <template #prefix>
           <svg-icon icon-class="search" class="sp-search-prefix" />
@@ -55,7 +55,7 @@
             class="sp-search-clear"
             title="清空搜索"
             @mousedown.prevent
-            @click="$emit('update:search', '')"
+            @click="emit('update:search', '')"
           />
         </template>
       </el-input>
@@ -64,125 +64,132 @@
           class="sp-seg-btn"
           :class="{ on: view === 'list' }"
           title="列表视图"
-          @click="$emit('update:view', 'list')"
+          @click="emit('update:view', 'list')"
         ><svg-icon icon-class="tickets" /></button>
         <button
           class="sp-seg-btn"
           :class="{ on: view === 'grid' }"
           title="网格视图"
-          @click="$emit('update:view', 'grid')"
+          @click="emit('update:view', 'grid')"
         ><svg-icon icon-class="menu" /></button>
       </div>
       <button
         class="sp-tool-btn"
         :class="{ on: showHidden }"
         title="显示隐藏文件 / 目录"
-        @click="$emit('update:show-hidden', !showHidden)"
+        @click="emit('update:show-hidden', !showHidden)"
       ><svg-icon icon-class="view" /><span>隐藏项</span></button>
       <div class="sp-divider"></div>
-      <button class="sp-tool-btn" title="新建文件夹" @click="$emit('create-folder')"><svg-icon icon-class="folder-add" /><span>文件夹</span></button>
-      <button class="sp-tool-btn" title="新建文件" @click="$emit('create-file')"><svg-icon icon-class="document-add" /><span>文件</span></button>
-      <button class="sp-tool-btn" title="从本机导入文件" @click="$emit('import')"><svg-icon icon-class="upload" /><span>导入</span></button>
+      <button class="sp-tool-btn" title="新建文件夹" @click="emit('create-folder')"><svg-icon icon-class="folder-add" /><span>文件夹</span></button>
+      <button class="sp-tool-btn" title="新建文件" @click="emit('create-file')"><svg-icon icon-class="document-add" /><span>文件</span></button>
+      <button class="sp-tool-btn" title="从本机导入文件" @click="emit('import')"><svg-icon icon-class="upload" /><span>导入</span></button>
       <!-- 空间规则：编辑当前工作空间的 AGENTS.md，仅该空间对话生效 -->
-      <button class="sp-tool-btn" title="编辑此空间的规则，仅该空间对话生效" @click="$emit('space-rule')"><svg-icon icon-class="rules" /><span>空间规则</span></button>
+      <button class="sp-tool-btn" title="编辑此空间的规则，仅该空间对话生效" @click="emit('space-rule')"><svg-icon icon-class="rules" /><span>空间规则</span></button>
       <!-- 多选删除：选中项 ≥ 1 时出现，批量移入废纸篓（确认在页面层） -->
       <button
         v-if="selectedCount > 0"
         class="sp-tool-btn danger"
         title="将所选项目移到废纸篓"
-        @click="$emit('trash-selected')"
+        @click="emit('trash-selected')"
       ><svg-icon icon-class="delete" /><span>删除所选{{ selectedCount > 1 ? ' ' + selectedCount + ' 项' : '' }}</span></button>
       <!-- 清空当前空间：根目录全部内容（含隐藏项）移入废纸篓，二次确认在页面层 -->
-      <button class="sp-tool-btn danger" title="清空此空间全部文件（移到废纸篓）" @click="$emit('empty')"><svg-icon icon-class="delete" /><span>清空空间</span></button>
-      <button class="sp-icon-btn" title="重命名此空间" @click="$emit('rename')">
+      <button class="sp-tool-btn danger" title="清空此空间全部文件（移到废纸篓）" @click="emit('empty')"><svg-icon icon-class="delete" /><span>清空空间</span></button>
+      <button class="sp-icon-btn" title="重命名此空间" @click="emit('rename')">
         <svg-icon icon-class="edit" />
       </button>
-      <button class="sp-icon-btn" title="刷新" @click="$emit('refresh')">
+      <button class="sp-icon-btn" title="刷新" @click="emit('refresh')">
         <svg-icon icon-class="refresh-left" :class="{ spinning: loading }" />
       </button>
       <!-- 解绑当前工作空间（连带删除该空间任务记录，二次确认在页面层） -->
-      <button class="sp-icon-btn" title="解绑此空间" @click="$emit('unbind')">
+      <button class="sp-icon-btn" title="解绑此空间" @click="emit('unbind')">
         <svg-icon icon-class="unlink" />
       </button>
     </div>
   </header>
 </template>
 
-<script>
+<script setup>
 // 空间页头部工具栏（受控组件：view/showHidden/search 走 update 事件）
 // 空间名区域兼任工作空间下拉选择器（多空间时点击向下弹出浮层切换）
-export default {
-  name: 'SpaceToolbar',
-  props: {
-    // 当前空间（含 name/dir/icon）
-    space: {
-      type: Object,
-      required: true
-    },
-    // 工作空间下拉选项：{ value, label, svg?, tag?, title? }
-    workspaces: {
-      type: Array,
-      default: () => []
-    },
-    // 当前激活工作空间 id
-    activeId: {
-      type: String,
-      default: ''
-    },
-    // 当前目录可见条目数
-    count: {
-      type: Number,
-      default: 0
-    },
-    view: {
-      type: String,
-      default: 'list'
-    },
-    showHidden: {
-      type: Boolean,
-      default: false
-    },
-    search: {
-      type: String,
-      default: ''
-    },
-    loading: {
-      type: Boolean,
-      default: false
-    },
-    // 当前目录多选中的条目数（> 0 时显示「删除所选」按钮）
-    selectedCount: {
-      type: Number,
-      default: 0
-    }
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+
+defineOptions({ name: 'SpaceToolbar' })
+
+const props = defineProps({
+  // 当前空间（含 name/dir/icon）
+  space: {
+    type: Object,
+    required: true
   },
-  data() {
-    return {
-      // 下拉展开状态（组件内部管理，点击外部关闭）
-      wsOpen: false
-    }
+  // 工作空间下拉选项：{ value, label, svg?, tag?, title? }
+  workspaces: {
+    type: Array,
+    default: () => []
   },
-  created() {
-    document.addEventListener('mousedown', this.onDocMouseDown)
+  // 当前激活工作空间 id
+  activeId: {
+    type: String,
+    default: ''
   },
-  beforeUnmount() {
-    document.removeEventListener('mousedown', this.onDocMouseDown)
+  // 当前目录可见条目数
+  count: {
+    type: Number,
+    default: 0
   },
-  methods: {
-    // 仅多空间时可展开
-    toggleWs() {
-      if (this.workspaces.length <= 1) return
-      this.wsOpen = !this.wsOpen
-    },
-    pickWorkspace(id) {
-      this.wsOpen = false
-      if (id !== this.activeId) this.$emit('select-workspace', id)
-    },
-    onDocMouseDown(e) {
-      if (this.wsOpen && !e.target.closest('.sp-ws-select')) this.wsOpen = false
-    }
+  view: {
+    type: String,
+    default: 'list'
+  },
+  showHidden: {
+    type: Boolean,
+    default: false
+  },
+  search: {
+    type: String,
+    default: ''
+  },
+  loading: {
+    type: Boolean,
+    default: false
+  },
+  // 当前目录多选中的条目数（> 0 时显示「删除所选」按钮）
+  selectedCount: {
+    type: Number,
+    default: 0
   }
+})
+
+const emit = defineEmits([
+  'update:view', 'update:show-hidden', 'update:search', 'select-workspace',
+  'create-folder', 'create-file', 'import', 'space-rule', 'trash-selected',
+  'empty', 'rename', 'refresh', 'unbind'
+])
+
+// 下拉展开状态（组件内部管理，点击外部关闭）
+const wsOpen = ref(false)
+
+// 仅多空间时可展开
+function toggleWs() {
+  if (props.workspaces.length <= 1) return
+  wsOpen.value = !wsOpen.value
 }
+
+function pickWorkspace(id) {
+  wsOpen.value = false
+  if (id !== props.activeId) emit('select-workspace', id)
+}
+
+function onDocMouseDown(e) {
+  if (wsOpen.value && !e.target.closest('.sp-ws-select')) wsOpen.value = false
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', onDocMouseDown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocMouseDown)
+})
 </script>
 
 <style lang="scss" scoped>

@@ -478,7 +478,10 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute } from 'vue-router'
+import { useStore } from 'vuex'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import { FUND_API } from '@/config/fund-api'
 import {
@@ -513,455 +516,454 @@ const RANGES = [
 
 const RISK_LEVELS = { 1: 'R1 低风险', 2: 'R2 中低风险', 3: 'R3 中风险', 4: 'R4 中高风险', 5: 'R5 高风险' }
 
-export default {
-  name: 'FundDetail',
-  components: { ToolShell },
-  data() {
-    return {
-      code: '',
-      name: '',
-      activeTab: 'trend',
-      quote: null,
-      quoteError: '',
-      loadingQuote: false,
-      histPoints: [],
-      histError: '',
-      loadingHist: false,
-      range: 'm3',
-      // 历史净值 Tab 时间范围（默认 3 月）
-      navRange: 'm3',
-      trading: isTradingTime(),
-      // 基金信息
-      fundInfo: null,
-      loadingInfo: false,
-      managers: [],
-      // 图表悬停状态：{ i: 数据点索引 }
-      intraHover: null,
-      trendHover: null,
-      navHover: null,
-      TABS,
-      RANGES
-    }
-  },
-  computed: {
-    // 持仓（若该基金在持仓中）
-    position() {
-      return loadPositions().find(p => p.code === this.code) || null
-    },
-    myProfit() {
-      if (!this.position || !this.quote) {
-        return { marketValue: 0, profit: 0, profitRate: 0, todayProfit: 0 }
-      }
-      return calcProfit(this.position, this.quote)
-    },
+defineOptions({ name: 'FundDetail' })
 
-    /* ============ 盘中分时图（昨收中轴对称 + 百分比刻度，专业行情风格） ============ */
-    // 分时图对称范围：以昨收为中心，上下取最大偏移，保证 0% 刻度与昨收线重合
-    intraRange() {
-      if (!this.quote || !this.quote.points.length) return null
-      const vals = this.quote.points.map(p => p.v)
-      const min = this.minOf(vals)
-      const max = this.maxOf(vals)
-      const nav = this.quote.nav
-      const d = Math.max(Math.abs(min - nav), Math.abs(max - nav)) || 0.0001
-      return { lo: nav - d, hi: nav + d, d }
-    },
-    intraXY() {
-      if (!this.quote || this.quote.points.length < 2 || !this.intraRange) return []
-      const { lo, hi } = this.intraRange
-      const vals = this.quote.points.map(p => p.v)
-      const step = VIEW_W / (vals.length - 1)
-      return vals.map((v, i) => ({
-        x: i * step,
-        y: 16 + (1 - (v - lo) / (hi - lo)) * (CHART_H - 32),
-        t: this.quote.points[i].t,
-        v: this.quote.points[i].v,
-        pct: this.quote.points[i].pct
-      }))
-    },
-    intraPath() {
-      return this.pathFromXY(this.intraXY)
-    },
-    intraArea() {
-      return this.intraPath ? this.intraPath + ` L ${VIEW_W} ${CHART_H} L 0 ${CHART_H} Z` : ''
-    },
-    // 昨收线：对称范围下恒为中线
-    intraBaseY() {
-      return this.intraXY.length ? 16 + (CHART_H - 32) / 2 : 0
-    },
-    intraColor() {
-      if (!this.quote) return '#F5222D'
-      return this.quote.estPct >= 0 ? '#F5222D' : '#52C41A'
-    },
-    // 分时图 y 轴刻度：百分比轴（0% = 昨收价，醒目标注）
-    intraTicks() {
-      if (!this.intraRange || !this.quote) return []
-      const { d } = this.intraRange
-      const nav = this.quote.nav
-      const maxPct = (d / nav) * 100
-      const out = []
-      for (let i = 0; i <= Y_TICKS; i++) {
-        const pct = -maxPct + (2 * maxPct * i) / Y_TICKS
-        const y = 16 + (1 - i / Y_TICKS) * (CHART_H - 32)
-        const isZero = Math.abs(pct) < maxPct / Y_TICKS / 2
-        out.push({
-          y,
-          isZero,
-          // 0% 刻度位置显示昨收价（专业分时图惯例），其余显示百分比
-          label: isZero ? nav.toFixed(4) : (pct > 0 ? '+' : '') + pct.toFixed(2) + '%'
-        })
-      }
-      return out
-    },
-    // 分时图 x 轴刻度（5 等分）
-    intraXTicks() {
-      return this.xTicksOf(this.intraXY, CHART_H)
-    },
+const route = useRoute()
+const store = useStore()
 
-    /* ============ 估值走势 Tab：历史走势（范围切换 + 降采样） ============ */
-    trendSliced() {
-      return this.sliceByRange(this.histPoints, this.range)
-    },
-    trendXY() {
-      return this.chartData(this.trendSliced, TREND_H, 'nav')
-    },
-    trendPath() {
-      return this.pathFromXY(this.trendXY)
-    },
-    trendArea() {
-      return this.trendPath ? this.trendPath + ` L ${VIEW_W} ${TREND_H} L 0 ${TREND_H} Z` : ''
-    },
-    trendBaseY() {
-      if (!this.trendSliced.length) return 0
-      return this.baseY(this.trendSliced.map(p => p.nav), this.trendSliced[0].nav, TREND_H)
-    },
-    // 区间涨跌幅
-    rangePct() {
-      if (this.trendSliced.length < 2) return null
-      const first = this.trendSliced[0].nav
-      const last = this.trendSliced[this.trendSliced.length - 1].nav
-      return first > 0 ? ((last - first) / first) * 100 : null
-    },
-    trendColor() {
-      return this.rangePct === null || this.rangePct >= 0 ? '#F5222D' : '#52C41A'
-    },
-    trendTicks() {
-      return this.yTicks(TREND_H, this.trendMin, this.trendMax)
-    },
-    trendMin() {
-      return this.minOf(this.trendSliced.map(p => p.nav))
-    },
-    trendMax() {
-      return this.maxOf(this.trendSliced.map(p => p.nav))
-    },
-    // 历史走势 x 轴刻度（5 等分）
-    trendXTicks() {
-      return this.xTicksOf(this.trendXY, TREND_H)
-    },
+const code = ref('')
+const name = ref('')
+const activeTab = ref('trend')
+const quote = ref(null)
+const quoteError = ref('')
+const loadingQuote = ref(false)
+const histPoints = ref([])
+const histError = ref('')
+const loadingHist = ref(false)
+const range = ref('m3')
+// 历史净值 Tab 时间范围（默认 3 月）
+const navRange = ref('m3')
+// 是否交易时段（组件创建时求值一次，与原 data 行为一致）
+const trading = isTradingTime()
+// 基金信息
+const fundInfo = ref(null)
+const loadingInfo = ref(false)
+const managers = ref([])
+// 图表悬停状态：{ i: 数据点索引 }
+const intraHover = ref(null)
+const trendHover = ref(null)
+const navHover = ref(null)
+// 悬停 ref 映射：onChartMove 按字符串 key 定位
+const hoverRefs = { intraHover, trendHover, navHover }
 
-    /* ============ 历史净值 Tab：走势（范围切换 + 降采样） ============ */
-    navSliced() {
-      return this.sliceByRange(this.histPoints, this.navRange)
-    },
-    navXY() {
-      return this.chartData(this.navSliced, TREND_H, 'nav')
-    },
-    navPath() {
-      return this.pathFromXY(this.navXY)
-    },
-    navArea() {
-      return this.navPath ? this.navPath + ` L ${VIEW_W} ${TREND_H} L 0 ${TREND_H} Z` : ''
-    },
-    navBaseY() {
-      if (!this.navSliced.length) return 0
-      return this.baseY(this.navSliced.map(p => p.nav), this.navSliced[0].nav, TREND_H)
-    },
-    // 历史净值 Tab 区间涨跌幅
-    navRangePct() {
-      if (this.navSliced.length < 2) return null
-      const first = this.navSliced[0].nav
-      const last = this.navSliced[this.navSliced.length - 1].nav
-      return first > 0 ? ((last - first) / first) * 100 : null
-    },
-    navColor() {
-      return this.navRangePct === null || this.navRangePct >= 0 ? '#F5222D' : '#52C41A'
-    },
-    navTicks() {
-      return this.yTicks(TREND_H, this.navMin, this.navMax)
-    },
-    navMin() {
-      return this.minOf(this.navSliced.map(p => p.nav))
-    },
-    navMax() {
-      return this.maxOf(this.navSliced.map(p => p.nav))
-    },
-    // 净值走势 x 轴刻度（5 等分）
-    navXTicks() {
-      return this.xTicksOf(this.navXY, TREND_H)
-    },
-    // 净值列表（当前范围内倒序）
-    reversedNavs() {
-      return this.navSliced.slice().reverse()
-    },
+// 自动刷新定时器（非响应式）
+let timer = null
 
-    /* ============ 基金信息 Tab ============ */
-    infoFields() {
-      const d = this.fundInfo && this.fundInfo.raw
-      if (!d) return []
-      const fields = [
-        { label: '基金全称', value: d.FULLNAME },
-        { label: '基金代码', value: d.FCODE || this.code },
-        { label: '基金类型', value: d.FTYPE },
-        { label: '成立日期', value: d.ESTABDATE },
-        { label: '基金公司', value: d.JJGS },
-        { label: '托管银行', value: d.TGYH },
-        { label: '基金经理', value: d.JJJL },
-        { label: '资产规模', value: this.fmtScale(d.NETNAV) },
-        { label: '业绩比较基准', value: d.BENCH },
-        { label: '风险等级', value: RISK_LEVELS[Number(d.RISKLEVEL)] || '' }
-      ]
-      return fields.filter(f => f.value)
-    }
-  },
-  watch: {
-    // 路由参数变化（同组件复用）
-    '$route.params.code': {
-      immediate: true,
-      handler(code) {
-        if (code && code !== this.code) {
-          this.code = code
-          this.init()
-        }
-      }
-    }
-  },
-  mounted() {
-    this._timer = setInterval(() => this.loadQuote(true), isTradingTime() ? 60000 : 300000)
-  },
-  beforeUnmount() {
-    clearInterval(this._timer)
-  },
-  methods: {
-    riseColor, fmtMoney, fmtPct, fmtQuoteDate, fmtQuoteTime,
-
-    init() {
-      this.quote = null
-      this.quoteError = ''
-      this.histPoints = []
-      this.histError = ''
-      this.fundInfo = null
-      this.managers = []
-      this.intraHover = null
-      this.trendHover = null
-      this.navHover = null
-      this.activeTab = 'trend'
-      this.range = 'm3'
-      this.navRange = 'm3'
-      this.loadQuote()
-      this.loadHistory()
-      this.loadInfo()
-    },
-
-    /* ============ 数据加载 ============ */
-    async loadQuote(force) {
-      this.loadingQuote = true
-      try {
-        const q = await fetchQuote(this.code, force)
-        this.quote = q
-        this.quoteError = ''
-      } catch (e) {
-        this.quoteError = e.message || '估值获取失败'
-      }
-      this.loadingQuote = false
-    },
-    async loadHistory() {
-      this.loadingHist = true
-      try {
-        const h = await fetchHistory(this.code)
-        this.name = h.name
-        // 多页签：标题带上基金名，便于区分同时打开的多只基金页签
-        if (h.name) {
-          this.$store.commit('tagsView/UPDATE_TAB_TITLE', {
-            side: 'deck',
-            fullPath: this.$route.fullPath,
-            title: h.name + ' · ' + this.code
-          })
-        }
-        this.histPoints = h.points
-        this.managers = h.managers || []
-        this.histError = ''
-      } catch (e) {
-        this.histError = e.message || '历史净值获取失败'
-      }
-      this.loadingHist = false
-    },
-    async loadInfo() {
-      this.loadingInfo = true
-      try {
-        this.fundInfo = await fetchFundBasic(this.code)
-      } catch (e) {
-        this.fundInfo = null
-      }
-      this.loadingInfo = false
-    },
-    openExternal() {
-      const url = FUND_API.fundDetailPage.replace('{code}', this.code)
-      window.open(url, '_blank')
-    },
-
-    /* ============ 图表通用 ============ */
-    // 范围切片：ts 时间戳比较（数据层已预解析，避免重复 new Date）
-    sliceByRange(points, key) {
-      const r = RANGES.find(x => x.key === key)
-      if (!r || !r.days) return points
-      const from = Date.now() - r.days * 86400000
-      return points.filter(p => p.ts >= from)
-    },
-    // 大数组降采样：等距抽取保证首尾点保留（数据过多时 spread/new Date 会导致卡顿）
-    downsample(arr, max) {
-      if (arr.length <= max) return arr
-      const step = (arr.length - 1) / (max - 1)
-      const out = []
-      for (let i = 0; i < max; i++) {
-        out.push(arr[Math.round(i * step)])
-      }
-      // 首尾覆盖，防浮点偏差丢尾点
-      out[0] = arr[0]
-      out[out.length - 1] = arr[arr.length - 1]
-      return out
-    },
-    // 序列极值（单遍循环，避免 spread 展开大数组）
-    minOf(vals) {
-      let m = Infinity
-      for (let i = 0; i < vals.length; i++) if (vals[i] < m) m = vals[i]
-      return m
-    },
-    maxOf(vals) {
-      let m = -Infinity
-      for (let i = 0; i < vals.length; i++) if (vals[i] > m) m = vals[i]
-      return m
-    },
-    // 点序列 → 渲染数据（降采样 + 坐标换算 + 附带原始字段）
-    chartData(points, h, valKey) {
-      if (!points || points.length < 2) return []
-      const sampled = this.downsample(points, MAX_POINTS)
-      const vals = sampled.map(p => p[valKey])
-      const min = this.minOf(vals)
-      const max = this.maxOf(vals)
-      const span = max - min || 1
-      const step = VIEW_W / (sampled.length - 1)
-      return sampled.map((p, i) => ({
-        x: i * step,
-        y: 16 + (1 - (p[valKey] - min) / span) * (h - 32),
-        date: p.date,
-        nav: p.nav,
-        pct: p.pct,
-        t: p.t,
-        v: p.v
-      }))
-    },
-    // y 轴刻度：极值 → Y_TICKS+1 条网格线（含数值标签）
-    yTicks(h, min, max) {
-      if (!isFinite(min) || !isFinite(max) || min === Infinity || max === -Infinity) return []
-      const span = (max - min) || 1
-      const out = []
-      for (let i = 0; i <= Y_TICKS; i++) {
-        const v = min + (span * i) / Y_TICKS
-        const y = 16 + (1 - i / Y_TICKS) * (h - 32)
-        out.push({ y, label: v.toFixed(4) })
-      }
-      return out
-    },
-    // x 轴刻度：数据等距 5 档（首尾贴边）
-    xTicksOf(xys) {
-      if (!xys || xys.length < 2) return []
-      const N = 5
-      const first = xys[0]
-      const last = xys[xys.length - 1]
-      const out = []
-      for (let i = 0; i < N; i++) {
-        const idx = Math.round((i / (N - 1)) * (xys.length - 1))
-        const p = xys[idx]
-        let label = ''
-        if (p.t) {
-          // 分时：HH:MM
-          label = p.t
-        } else if (p.date) {
-          // 历史：跨度大显示年-月，否则月-日
-          const days = (last.date && first.date) ? (new Date(last.date) - new Date(first.date)) / 86400000 : 0
-          label = days > 400 ? p.date.slice(2, 7) : p.date.slice(5)
-        }
-        out.push({
-          pct: (p.x / VIEW_W) * 100,
-          label,
-          first: i === 0,
-          last: i === N - 1
-        })
-      }
-      return out
-    },
-    // 数值序列 → SVG 坐标点（等距 x，归一化 y；仅小数组使用）
-    buildXY(vals, h) {
-      if (!vals || vals.length < 2) return []
-      const min = this.minOf(vals)
-      const max = this.maxOf(vals)
-      const span = max - min || 1
-      const step = VIEW_W / (vals.length - 1)
-      return vals.map((v, i) => ({
-        x: i * step,
-        y: 16 + (1 - (v - min) / span) * (h - 32)
-      }))
-    },
-    pathFromXY(xys) {
-      if (!xys || xys.length < 2) return ''
-      return xys
-        .map((p, i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1))
-        .join(' ')
-    },
-    // 基准值（昨收/期初）的 y 坐标
-    baseY(vals, base, h) {
-      const min = this.minOf(vals)
-      const max = this.maxOf(vals)
-      const span = max - min || 1
-      const y = 16 + (1 - (base - min) / span) * (h - 32)
-      return Math.min(Math.max(y, 0), h)
-    },
-    // 图表 mousemove：换算 viewBox x 坐标 → 最近数据点索引
-    onChartMove(evt, key, xys) {
-      if (!xys || xys.length < 2) return
-      const rect = evt.currentTarget.getBoundingClientRect()
-      if (!rect.width) return
-      const vx = ((evt.clientX - rect.left) / rect.width) * VIEW_W
-      const step = VIEW_W / (xys.length - 1)
-      const i = Math.max(0, Math.min(xys.length - 1, Math.round(vx / step)))
-      this[key] = { i }
-    },
-    // Tooltip 定位：x 百分比（clamp 防溢出），点靠上时显示在下方
-    tipPos(p, viewH) {
-      if (!p) return {}
-      const left = Math.min(90, Math.max(10, (p.x / VIEW_W) * 100))
-      const top = (p.y / viewH) * 100
-      return {
-        left: left + '%',
-        top: top + '%',
-        transform: top < 30 ? 'translate(-50%, 12px)' : 'translate(-50%, calc(-100% - 10px))'
-      }
-    },
-    // Tooltip 内涨幅色（深色底上偏亮）
-    tipPctColor(v) {
-      return v >= 0 ? '#FF7875' : '#95DE64'
-    },
-
-    /* ============ 基金信息 ============ */
-    // '2614228709.42' → '26.14 亿元'
-    fmtScale(v) {
-      const n = Number(v)
-      if (!n || isNaN(n)) return ''
-      if (n >= 1e8) return (n / 1e8).toFixed(2) + ' 亿元'
-      if (n >= 1e4) return (n / 1e4).toFixed(2) + ' 万元'
-      return n.toFixed(2) + ' 元'
-    }
+// 持仓（若该基金在持仓中）
+const position = computed(() => {
+  return loadPositions().find(p => p.code === code.value) || null
+})
+const myProfit = computed(() => {
+  if (!position.value || !quote.value) {
+    return { marketValue: 0, profit: 0, profitRate: 0, todayProfit: 0 }
   }
+  return calcProfit(position.value, quote.value)
+})
+
+/* ============ 盘中分时图（昨收中轴对称 + 百分比刻度，专业行情风格） ============ */
+// 分时图对称范围：以昨收为中心，上下取最大偏移，保证 0% 刻度与昨收线重合
+const intraRange = computed(() => {
+  if (!quote.value || !quote.value.points.length) return null
+  const vals = quote.value.points.map(p => p.v)
+  const min = minOf(vals)
+  const max = maxOf(vals)
+  const nav = quote.value.nav
+  const d = Math.max(Math.abs(min - nav), Math.abs(max - nav)) || 0.0001
+  return { lo: nav - d, hi: nav + d, d }
+})
+const intraXY = computed(() => {
+  if (!quote.value || quote.value.points.length < 2 || !intraRange.value) return []
+  const { lo, hi } = intraRange.value
+  const vals = quote.value.points.map(p => p.v)
+  const step = VIEW_W / (vals.length - 1)
+  return vals.map((v, i) => ({
+    x: i * step,
+    y: 16 + (1 - (v - lo) / (hi - lo)) * (CHART_H - 32),
+    t: quote.value.points[i].t,
+    v: quote.value.points[i].v,
+    pct: quote.value.points[i].pct
+  }))
+})
+const intraPath = computed(() => {
+  return pathFromXY(intraXY.value)
+})
+const intraArea = computed(() => {
+  return intraPath.value ? intraPath.value + ` L ${VIEW_W} ${CHART_H} L 0 ${CHART_H} Z` : ''
+})
+// 昨收线：对称范围下恒为中线
+const intraBaseY = computed(() => {
+  return intraXY.value.length ? 16 + (CHART_H - 32) / 2 : 0
+})
+const intraColor = computed(() => {
+  if (!quote.value) return '#F5222D'
+  return quote.value.estPct >= 0 ? '#F5222D' : '#52C41A'
+})
+// 分时图 y 轴刻度：百分比轴（0% = 昨收价，醒目标注）
+const intraTicks = computed(() => {
+  if (!intraRange.value || !quote.value) return []
+  const { d } = intraRange.value
+  const nav = quote.value.nav
+  const maxPct = (d / nav) * 100
+  const out = []
+  for (let i = 0; i <= Y_TICKS; i++) {
+    const pct = -maxPct + (2 * maxPct * i) / Y_TICKS
+    const y = 16 + (1 - i / Y_TICKS) * (CHART_H - 32)
+    const isZero = Math.abs(pct) < maxPct / Y_TICKS / 2
+    out.push({
+      y,
+      isZero,
+      // 0% 刻度位置显示昨收价（专业分时图惯例），其余显示百分比
+      label: isZero ? nav.toFixed(4) : (pct > 0 ? '+' : '') + pct.toFixed(2) + '%'
+    })
+  }
+  return out
+})
+// 分时图 x 轴刻度（5 等分）
+const intraXTicks = computed(() => {
+  return xTicksOf(intraXY.value, CHART_H)
+})
+
+/* ============ 估值走势 Tab：历史走势（范围切换 + 降采样） ============ */
+const trendSliced = computed(() => {
+  return sliceByRange(histPoints.value, range.value)
+})
+const trendXY = computed(() => {
+  return chartData(trendSliced.value, TREND_H, 'nav')
+})
+const trendPath = computed(() => {
+  return pathFromXY(trendXY.value)
+})
+const trendArea = computed(() => {
+  return trendPath.value ? trendPath.value + ` L ${VIEW_W} ${TREND_H} L 0 ${TREND_H} Z` : ''
+})
+const trendBaseY = computed(() => {
+  if (!trendSliced.value.length) return 0
+  return baseY(trendSliced.value.map(p => p.nav), trendSliced.value[0].nav, TREND_H)
+})
+// 区间涨跌幅
+const rangePct = computed(() => {
+  if (trendSliced.value.length < 2) return null
+  const first = trendSliced.value[0].nav
+  const last = trendSliced.value[trendSliced.value.length - 1].nav
+  return first > 0 ? ((last - first) / first) * 100 : null
+})
+const trendColor = computed(() => {
+  return rangePct.value === null || rangePct.value >= 0 ? '#F5222D' : '#52C41A'
+})
+const trendMin = computed(() => {
+  return minOf(trendSliced.value.map(p => p.nav))
+})
+const trendMax = computed(() => {
+  return maxOf(trendSliced.value.map(p => p.nav))
+})
+const trendTicks = computed(() => {
+  return yTicks(TREND_H, trendMin.value, trendMax.value)
+})
+// 历史走势 x 轴刻度（5 等分）
+const trendXTicks = computed(() => {
+  return xTicksOf(trendXY.value, TREND_H)
+})
+
+/* ============ 历史净值 Tab：走势（范围切换 + 降采样） ============ */
+const navSliced = computed(() => {
+  return sliceByRange(histPoints.value, navRange.value)
+})
+const navXY = computed(() => {
+  return chartData(navSliced.value, TREND_H, 'nav')
+})
+const navPath = computed(() => {
+  return pathFromXY(navXY.value)
+})
+const navArea = computed(() => {
+  return navPath.value ? navPath.value + ` L ${VIEW_W} ${TREND_H} L 0 ${TREND_H} Z` : ''
+})
+const navBaseY = computed(() => {
+  if (!navSliced.value.length) return 0
+  return baseY(navSliced.value.map(p => p.nav), navSliced.value[0].nav, TREND_H)
+})
+// 历史净值 Tab 区间涨跌幅
+const navRangePct = computed(() => {
+  if (navSliced.value.length < 2) return null
+  const first = navSliced.value[0].nav
+  const last = navSliced.value[navSliced.value.length - 1].nav
+  return first > 0 ? ((last - first) / first) * 100 : null
+})
+const navColor = computed(() => {
+  return navRangePct.value === null || navRangePct.value >= 0 ? '#F5222D' : '#52C41A'
+})
+const navMin = computed(() => {
+  return minOf(navSliced.value.map(p => p.nav))
+})
+const navMax = computed(() => {
+  return maxOf(navSliced.value.map(p => p.nav))
+})
+const navTicks = computed(() => {
+  return yTicks(TREND_H, navMin.value, navMax.value)
+})
+// 净值走势 x 轴刻度（5 等分）
+const navXTicks = computed(() => {
+  return xTicksOf(navXY.value, TREND_H)
+})
+// 净值列表（当前范围内倒序）
+const reversedNavs = computed(() => {
+  return navSliced.value.slice().reverse()
+})
+
+/* ============ 基金信息 Tab ============ */
+const infoFields = computed(() => {
+  const d = fundInfo.value && fundInfo.value.raw
+  if (!d) return []
+  const fields = [
+    { label: '基金全称', value: d.FULLNAME },
+    { label: '基金代码', value: d.FCODE || code.value },
+    { label: '基金类型', value: d.FTYPE },
+    { label: '成立日期', value: d.ESTABDATE },
+    { label: '基金公司', value: d.JJGS },
+    { label: '托管银行', value: d.TGYH },
+    { label: '基金经理', value: d.JJJL },
+    { label: '资产规模', value: fmtScale(d.NETNAV) },
+    { label: '业绩比较基准', value: d.BENCH },
+    { label: '风险等级', value: RISK_LEVELS[Number(d.RISKLEVEL)] || '' }
+  ]
+  return fields.filter(f => f.value)
+})
+
+// 路由参数变化（同组件复用）
+watch(
+  () => route.params.code,
+  val => {
+    if (val && val !== code.value) {
+      code.value = val
+      init()
+    }
+  },
+  { immediate: true }
+)
+
+onMounted(() => {
+  timer = setInterval(() => loadQuote(true), isTradingTime() ? 60000 : 300000)
+})
+
+onBeforeUnmount(() => {
+  clearInterval(timer)
+})
+
+function init() {
+  quote.value = null
+  quoteError.value = ''
+  histPoints.value = []
+  histError.value = ''
+  fundInfo.value = null
+  managers.value = []
+  intraHover.value = null
+  trendHover.value = null
+  navHover.value = null
+  activeTab.value = 'trend'
+  range.value = 'm3'
+  navRange.value = 'm3'
+  loadQuote()
+  loadHistory()
+  loadInfo()
+}
+
+/* ============ 数据加载 ============ */
+async function loadQuote(force) {
+  loadingQuote.value = true
+  try {
+    const q = await fetchQuote(code.value, force)
+    quote.value = q
+    quoteError.value = ''
+  } catch (e) {
+    quoteError.value = e.message || '估值获取失败'
+  }
+  loadingQuote.value = false
+}
+async function loadHistory() {
+  loadingHist.value = true
+  try {
+    const h = await fetchHistory(code.value)
+    name.value = h.name
+    // 多页签：标题带上基金名，便于区分同时打开的多只基金页签
+    if (h.name) {
+      store.commit('tagsView/UPDATE_TAB_TITLE', {
+        side: 'deck',
+        fullPath: route.fullPath,
+        title: h.name + ' · ' + code.value
+      })
+    }
+    histPoints.value = h.points
+    managers.value = h.managers || []
+    histError.value = ''
+  } catch (e) {
+    histError.value = e.message || '历史净值获取失败'
+  }
+  loadingHist.value = false
+}
+async function loadInfo() {
+  loadingInfo.value = true
+  try {
+    fundInfo.value = await fetchFundBasic(code.value)
+  } catch (e) {
+    fundInfo.value = null
+  }
+  loadingInfo.value = false
+}
+function openExternal() {
+  const url = FUND_API.fundDetailPage.replace('{code}', code.value)
+  window.open(url, '_blank')
+}
+
+/* ============ 图表通用 ============ */
+// 范围切片：ts 时间戳比较（数据层已预解析，避免重复 new Date）
+function sliceByRange(points, key) {
+  const r = RANGES.find(x => x.key === key)
+  if (!r || !r.days) return points
+  const from = Date.now() - r.days * 86400000
+  return points.filter(p => p.ts >= from)
+}
+// 大数组降采样：等距抽取保证首尾点保留（数据过多时 spread/new Date 会导致卡顿）
+function downsample(arr, max) {
+  if (arr.length <= max) return arr
+  const step = (arr.length - 1) / (max - 1)
+  const out = []
+  for (let i = 0; i < max; i++) {
+    out.push(arr[Math.round(i * step)])
+  }
+  // 首尾覆盖，防浮点偏差丢尾点
+  out[0] = arr[0]
+  out[out.length - 1] = arr[arr.length - 1]
+  return out
+}
+// 序列极值（单遍循环，避免 spread 展开大数组）
+function minOf(vals) {
+  let m = Infinity
+  for (let i = 0; i < vals.length; i++) if (vals[i] < m) m = vals[i]
+  return m
+}
+function maxOf(vals) {
+  let m = -Infinity
+  for (let i = 0; i < vals.length; i++) if (vals[i] > m) m = vals[i]
+  return m
+}
+// 点序列 → 渲染数据（降采样 + 坐标换算 + 附带原始字段）
+function chartData(points, h, valKey) {
+  if (!points || points.length < 2) return []
+  const sampled = downsample(points, MAX_POINTS)
+  const vals = sampled.map(p => p[valKey])
+  const min = minOf(vals)
+  const max = maxOf(vals)
+  const span = max - min || 1
+  const step = VIEW_W / (sampled.length - 1)
+  return sampled.map((p, i) => ({
+    x: i * step,
+    y: 16 + (1 - (p[valKey] - min) / span) * (h - 32),
+    date: p.date,
+    nav: p.nav,
+    pct: p.pct,
+    t: p.t,
+    v: p.v
+  }))
+}
+// y 轴刻度：极值 → Y_TICKS+1 条网格线（含数值标签）
+function yTicks(h, min, max) {
+  if (!isFinite(min) || !isFinite(max) || min === Infinity || max === -Infinity) return []
+  const span = (max - min) || 1
+  const out = []
+  for (let i = 0; i <= Y_TICKS; i++) {
+    const v = min + (span * i) / Y_TICKS
+    const y = 16 + (1 - i / Y_TICKS) * (h - 32)
+    out.push({ y, label: v.toFixed(4) })
+  }
+  return out
+}
+// x 轴刻度：数据等距 5 档（首尾贴边）
+function xTicksOf(xys) {
+  if (!xys || xys.length < 2) return []
+  const N = 5
+  const first = xys[0]
+  const last = xys[xys.length - 1]
+  const out = []
+  for (let i = 0; i < N; i++) {
+    const idx = Math.round((i / (N - 1)) * (xys.length - 1))
+    const p = xys[idx]
+    let label = ''
+    if (p.t) {
+      // 分时：HH:MM
+      label = p.t
+    } else if (p.date) {
+      // 历史：跨度大显示年-月，否则月-日
+      const days = (last.date && first.date) ? (new Date(last.date) - new Date(first.date)) / 86400000 : 0
+      label = days > 400 ? p.date.slice(2, 7) : p.date.slice(5)
+    }
+    out.push({
+      pct: (p.x / VIEW_W) * 100,
+      label,
+      first: i === 0,
+      last: i === N - 1
+    })
+  }
+  return out
+}
+// 数值序列 → SVG 坐标点（等距 x，归一化 y；仅小数组使用）
+function buildXY(vals, h) {
+  if (!vals || vals.length < 2) return []
+  const min = minOf(vals)
+  const max = maxOf(vals)
+  const span = max - min || 1
+  const step = VIEW_W / (vals.length - 1)
+  return vals.map((v, i) => ({
+    x: i * step,
+    y: 16 + (1 - (v - min) / span) * (h - 32)
+  }))
+}
+function pathFromXY(xys) {
+  if (!xys || xys.length < 2) return ''
+  return xys
+    .map((p, i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1))
+    .join(' ')
+}
+// 基准值（昨收/期初）的 y 坐标
+function baseY(vals, base, h) {
+  const min = minOf(vals)
+  const max = maxOf(vals)
+  const span = max - min || 1
+  const y = 16 + (1 - (base - min) / span) * (h - 32)
+  return Math.min(Math.max(y, 0), h)
+}
+// 图表 mousemove：换算 viewBox x 坐标 → 最近数据点索引
+function onChartMove(evt, key, xys) {
+  if (!xys || xys.length < 2) return
+  const rect = evt.currentTarget.getBoundingClientRect()
+  if (!rect.width) return
+  const vx = ((evt.clientX - rect.left) / rect.width) * VIEW_W
+  const step = VIEW_W / (xys.length - 1)
+  const i = Math.max(0, Math.min(xys.length - 1, Math.round(vx / step)))
+  hoverRefs[key].value = { i }
+}
+// Tooltip 定位：x 百分比（clamp 防溢出），点靠上时显示在下方
+function tipPos(p, viewH) {
+  if (!p) return {}
+  const left = Math.min(90, Math.max(10, (p.x / VIEW_W) * 100))
+  const top = (p.y / viewH) * 100
+  return {
+    left: left + '%',
+    top: top + '%',
+    transform: top < 30 ? 'translate(-50%, 12px)' : 'translate(-50%, calc(-100% - 10px))'
+  }
+}
+// Tooltip 内涨幅色（深色底上偏亮）
+function tipPctColor(v) {
+  return v >= 0 ? '#FF7875' : '#95DE64'
+}
+
+/* ============ 基金信息 ============ */
+// '2614228709.42' → '26.14 亿元'
+function fmtScale(v) {
+  const n = Number(v)
+  if (!n || isNaN(n)) return ''
+  if (n >= 1e8) return (n / 1e8).toFixed(2) + ' 亿元'
+  if (n >= 1e4) return (n / 1e4).toFixed(2) + ' 万元'
+  return n.toFixed(2) + ' 元'
 }
 </script>
 

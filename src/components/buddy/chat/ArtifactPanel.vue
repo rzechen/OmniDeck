@@ -28,76 +28,81 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 导出产物卡片面板：消费 tool item 的 artifacts 清单
 // （doc_export / preview_export 等交付工具在 details.artifacts 返回：
 //   { path, name, format, size, sizeText }）
 import { buddyApiSection } from '@/utils/buddy/buddy-api'
 import { fileIcon } from '@/utils/ui/file-meta'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'ArtifactPanel',
-  props: {
-    // 产物清单（多条则平铺多卡）
-    artifacts: {
-      type: Array,
-      default: () => []
-    }
-  },
-  methods: {
-    // 文件类型图标（与工作空间文件列表同源：按扩展名映射 PNG 素材）
-    fileIcon,
-    // 点击卡片：经全局总线送右侧预览面板（chat 页面层监听渲染）
-    previewArtifact(a) {
-      this.$bus.emit('chat:artifact-preview', {
-        path: a.path || '',
-        name: a.name || a.path || '',
-        format: this.fmtOf(a)
-      })
-    },
-    // 格式归一：显式 format > 扩展名兜底
-    fmtOf(a) {
-      const f = String(a.format || '').toLowerCase()
-      if (f) return f
-      const m = /\.([a-z0-9]+)$/i.exec(a.name || a.path || '')
-      return m ? m[1].toLowerCase() : 'file'
-    },
-    // 格式中文名（meta 行展示：Word 文档 / PDF 文档 / 网页 …；未知类型大写扩展名）
-    fmtLabel(a) {
-      const f = this.fmtOf(a)
-      return {
-        docx: 'Word 文档',
-        doc: 'Word 文档',
-        pdf: 'PDF 文档',
-        html: '网页',
-        htm: '网页',
-        md: 'Markdown',
-        png: '图片',
-        jpg: '图片',
-        jpeg: '图片'
-      }[f] || f.toUpperCase()
-    },
-    fmtSize(n) {
-      const v = Number(n) || 0
-      if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB'
-      if (v >= 1024) return (v / 1024).toFixed(1) + ' KB'
-      return v + ' B'
-    },
-    // 用系统默认应用打开产物文件
-    async openArtifact(a) {
-      const files = buddyApiSection('files')
-      if (!files) return this.$message.warning('当前环境不支持该操作')
-      const res = await files.open(a.path)
-      if (res && res.ok === false) this.$message.error('打开失败：' + (res.error || '文件可能已被移动'))
-    },
-    // 在系统文件管理器中显示
-    async revealArtifact(a) {
-      const files = buddyApiSection('files')
-      if (!files) return this.$message.warning('当前环境不支持该操作')
-      const res = await files.reveal(a.path)
-      if (res && res.ok === false) this.$message.error('打开所在文件夹失败：' + (res.error || ''))
-    }
+defineOptions({ name: 'ArtifactPanel' })
+
+defineProps({
+  // 产物清单（多条则平铺多卡）
+  artifacts: {
+    type: Array,
+    default: () => []
   }
+})
+
+const { message } = useFeedback()
+
+// 点击卡片：经全局总线送右侧预览面板（chat 页面层监听渲染）
+function previewArtifact(a) {
+  bus.emit('chat:artifact-preview', {
+    path: a.path || '',
+    name: a.name || a.path || '',
+    format: fmtOf(a)
+  })
+}
+
+// 格式归一：显式 format > 扩展名兜底
+function fmtOf(a) {
+  const f = String(a.format || '').toLowerCase()
+  if (f) return f
+  const m = /\.([a-z0-9]+)$/i.exec(a.name || a.path || '')
+  return m ? m[1].toLowerCase() : 'file'
+}
+
+// 格式中文名（meta 行展示：Word 文档 / PDF 文档 / 网页 …；未知类型大写扩展名）
+function fmtLabel(a) {
+  const f = fmtOf(a)
+  return {
+    docx: 'Word 文档',
+    doc: 'Word 文档',
+    pdf: 'PDF 文档',
+    html: '网页',
+    htm: '网页',
+    md: 'Markdown',
+    png: '图片',
+    jpg: '图片',
+    jpeg: '图片'
+  }[f] || f.toUpperCase()
+}
+
+function fmtSize(n) {
+  const v = Number(n) || 0
+  if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB'
+  if (v >= 1024) return (v / 1024).toFixed(1) + ' KB'
+  return v + ' B'
+}
+
+// 用系统默认应用打开产物文件
+async function openArtifact(a) {
+  const files = buddyApiSection('files')
+  if (!files) return message.warning('当前环境不支持该操作')
+  const res = await files.open(a.path)
+  if (res && res.ok === false) message.error('打开失败：' + (res.error || '文件可能已被移动'))
+}
+
+// 在系统文件管理器中显示
+async function revealArtifact(a) {
+  const files = buddyApiSection('files')
+  if (!files) return message.warning('当前环境不支持该操作')
+  const res = await files.reveal(a.path)
+  if (res && res.ok === false) message.error('打开所在文件夹失败：' + (res.error || ''))
 }
 </script>
 

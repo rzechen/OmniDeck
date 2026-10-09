@@ -119,9 +119,12 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 工作空间页：网盘风格的本地文件管理（状态与业务编排，UI 见 components/buddy/space/）
 // 工作空间来源 = 对话中「关联本地磁盘路径」登记的目录；默认为空状态占位
+import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { useStore } from 'vuex'
 import SpaceBlank from '@/components/buddy/space/SpaceBlank.vue'
 import SpaceToolbar from '@/components/buddy/space/SpaceToolbar.vue'
 import SpaceCrumbs from '@/components/buddy/space/SpaceCrumbs.vue'
@@ -133,525 +136,562 @@ import SpaceRuleDialog from '@/components/buddy/space/SpaceRuleDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { isTextEntry } from '@/utils/ui/file-meta'
 import { getItem, setItem } from '@/utils/storage/db'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddyWorkspace',
-  components: { SpaceBlank, SpaceToolbar, SpaceCrumbs, SpaceGrid, SpaceList, SpaceContextMenu, SpaceFilePreview, SpaceRuleDialog, BuddySkeleton },
-  data() {
-    return {
-      // 已关联的工作空间列表（由对话关联磁盘路径时登记）
-      workspaces: [],
-      activeId: '',
-      // 当前目录（绝对路径，始终位于所选工作空间根目录内）
-      currentDir: '',
-      entries: [],
-      loading: false,
-      // 多选：选中项名集合（Cmd/Ctrl 加选、Shift 范围选、单击单选）
-      selected: [],
-      // Shift 范围选择的锚点（最近一次单击/加选项）
-      lastAnchor: '',
-      // 视图与筛选
-      view: 'list',
-      showHidden: false,
-      search: '',
-      // 右键菜单
-      menu: { visible: false, x: 0, y: 0, item: null },
-      // 拖拽深度（enter/leave 计数，用于遮罩显隐）
-      dragDepth: 0,
-      // 文件预览 / 编辑
-      preview: { visible: false, path: '', name: '', content: '', size: 0, mtime: 0, saving: false },
-      // 空间规则弹窗（hasRule 经 rulesTargets 查询，保存后刷新）
-      ruleDialog: { visible: false, hasRule: false }
-    }
-  },
-  computed: {
-    active() {
-      return this.workspaces.find(w => w.id === this.activeId) || null
-    },
-    // 传给 SpaceToolbar 的合成空间对象（icon 统一用文件夹）
-    activeSpace() {
-      return this.active
-        ? { name: this.displayName(this.active), dir: this.active.path, icon: 'folder' }
-        : { name: '', dir: '', icon: 'folder' }
-    },
-    // 工作空间下拉选项（多空间时头部可切换）
-    workspaceItems() {
-      return this.workspaces.map(w => ({
-        value: w.id,
-        label: this.displayName(w),
-        svg: 'folder',
-        tag: w.id === this.activeId ? '' : (w.path && w.path.length > 30 ? w.path.slice(0, 28) + '…' : w.path)
-      }))
-    },
-    filesApi() {
-      return (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.files) || null
-    },
-    // 面包屑：根目录之后的相对层级
-    crumbs() {
-      const root = this.active && this.active.path
-      if (!root || !this.currentDir || this.currentDir === root) return []
-      const rel = this.currentDir.slice(root.length).replace(/^[/\\]+/, '')
-      const parts = rel.split(/[/\\]+/).filter(Boolean)
-      let acc = root
-      return parts.map(name => {
-        acc = acc.replace(/[/\\]+$/, '') + '/' + name
-        return { name, path: acc }
-      })
-    },
-    hiddenCount() {
-      return this.entries.filter(e => e.hidden).length
-    },
-    // 应用隐藏开关 + 搜索过滤
-    visibleEntries() {
-      const q = this.search.trim().toLowerCase()
-      return this.entries.filter(e => {
-        if (!this.showHidden && e.hidden) return false
-        if (q && !e.name.toLowerCase().includes(q)) return false
-        return true
-      })
-    },
-    // 空目录时的提示文案
-    emptyDesc() {
-      if (this.search) return ''
-      if (this.hiddenCount && !this.showHidden) {
-        return this.hiddenCount + ' 个隐藏项目未显示，可点击工具栏「隐藏项」查看'
-      }
-      return '拖入文件或点击「导入」添加内容'
-    }
-  },
-  watch: {
-    currentDir() {
-      this.selected = []
-      this.lastAnchor = ''
-      this.search = ''
-      this.load()
-    }
-  },
-  created() {
-    this.loadWorkspaces()
-    // 对话关联/展示名更新后同步
-    this.$bus.on('omnibuddy:workspaces-changed', this.loadWorkspaces)
-    // 全局点击 / Esc 关闭右键菜单
-    document.addEventListener('mousedown', this.onDocMouseDown)
-    document.addEventListener('keydown', this.onKeydown)
-  },
-  beforeUnmount() {
-    this.$bus.off('omnibuddy:workspaces-changed', this.loadWorkspaces)
-    document.removeEventListener('mousedown', this.onDocMouseDown)
-    document.removeEventListener('keydown', this.onKeydown)
-  },
-  methods: {
-    // ===== 工作空间 =====
-    // 展示名（未重命名时按磁盘路径呈现，与任务列表分组口径一致）
-    displayName(w) {
-      const name = (w && w.name) || ''
-      return name && name !== w.path ? name : w.path
-    },
-    // 空间规则弹窗：打开前查一次该空间 hasRule 状态
-    async openSpaceRule() {
-      if (!this.activeId) return
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      if (api && api.rulesTargets) {
-        try {
-          const targets = await api.rulesTargets()
-          const t = (targets || []).find(x => x.key === this.activeId)
-          this.ruleDialog.hasRule = !!(t && t.hasRule)
-        } catch (e) {
-          this.ruleDialog.hasRule = false
-        }
-      }
-      this.ruleDialog.visible = true
-    },
-    // 空间规则保存后：刷新徽标状态
-    async onSpaceRuleSaved() {
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      if (!api || !api.rulesTargets) return
-      try {
-        const targets = await api.rulesTargets()
-        const t = (targets || []).find(x => x.key === this.activeId)
-        this.ruleDialog.hasRule = !!(t && t.hasRule)
-      } catch (e) { /* 保持现状 */ }
-    },
-    async loadWorkspaces() {
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      if (!api) {
-        this.workspaces = []
-        return
-      }
-      const list = await api.listWorkspaces()
-      this.workspaces = Array.isArray(list) ? list.filter(w => w.available !== false) : []
-      // 恢复上次选中；失效则取第一个
-      const saved = getItem('buddyActiveWorkspaceId', '')
-      const hit = this.workspaces.find(w => w.id === saved)
-      this.selectWorkspace(hit || this.workspaces[0] || null)
-    },
-    selectWorkspace(w) {
-      // 下拉事件传 id，这里归一为对象
-      if (typeof w === 'string') w = this.workspaces.find(x => x.id === w) || null
-      const prevId = this.activeId
-      this.activeId = (w && w.id) || ''
-      if (this.activeId) setItem('buddyActiveWorkspaceId', this.activeId)
-      // 切换工作空间回根目录（同空间不重置当前目录）
-      if (this.activeId && this.activeId !== prevId) {
-        this.currentDir = w.path
-      } else if (!this.activeId) {
-        this.currentDir = ''
-        this.entries = []
-      }
-    },
-    // 重命名当前工作空间：改展示名（磁盘目录不动），成功后同步下拉与任务列表分组
-    async renameWorkspace() {
-      const ws = this.active
-      if (!ws) return
-      const { value } = await this.$prompt('请输入新的空间名称', '重命名工作空间', {
-        confirmButtonText: '保存',
-        cancelButtonText: '取消',
-        inputValue: this.displayName(ws)
-      }).catch(() => ({ value: '' }))
-      const name = String(value || '').trim()
-      if (!name || name === this.displayName(ws)) return
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      if (!api || !api.renameWorkspace) return
-      const res = await api.renameWorkspace({ id: ws.id, name })
-      if (res && res.ok) {
-        ws.name = name
-        this.$bus.emit('omnibuddy:workspaces-changed')
-        this.$message.success('已重命名')
-      } else {
-        this.$message.error((res && res.error) || '重命名失败')
-      }
-    },
-    // 解绑当前工作空间：二次确认后解除登记并删除该空间全部任务记录（含检查点）；
-    // 磁盘文件不受影响，记忆摘要照常留档
-    confirmUnbind() {
-      const ws = this.active
-      if (!ws) return
-      const name = this.displayName(ws)
-      this.$confirm(
-        '解绑后「' + name + '」将从列表移除，该空间下的任务记录（含对话与检查点）将一并删除；磁盘文件不受影响。',
-        '解绑工作空间',
-        { confirmButtonText: '解绑', cancelButtonText: '取消', type: 'warning' }
-      ).then(async () => {
-        const api = window.electronAPI && window.electronAPI.omnibuddy
-        if (!api) return
-        const res = await api.removeWorkspace(ws.id)
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '解绑失败')
-          return
-        }
-        const removed = res.removedSessions || []
-        // 被删会话：清理页签与会话状态池，当前正在查看的会话命中则回新建页
-        for (const sid of removed) {
-          this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + sid })
-          this.$store.commit('buddyChat/DROP_SESSION', sid)
-        }
-        if (removed.includes(this.$route.query.s)) {
-          this.$router.push('/omnibuddy').catch(() => {})
-        }
-        await this.loadWorkspaces()
-        this.$bus.emit('omnibuddy:sessions-changed')
-        this.$bus.emit('omnibuddy:workspaces-changed')
-        this.$message.success(removed.length ? '已解绑，删除任务记录 ' + removed.length + ' 条' : '已解绑')
-      }).catch(() => {})
-    },
-    async load() {
-      if (!this.currentDir) return
-      if (!this.filesApi) {
-        this.$message.info('文件管理需要 OmniDeck 桌面端')
-        return
-      }
-      this.loading = true
-      const res = await this.filesApi.list(this.currentDir)
-      this.loading = false
-      if (res && res.ok) {
-        this.entries = res.entries || []
-        // 清理已消失的选中项（删除 / 重命名 / 导入覆盖后保持高亮一致）
-        this.selected = this.selected.filter(n => this.entries.some(x => x.name === n))
-        if (!this.selected.includes(this.lastAnchor)) this.lastAnchor = this.selected[this.selected.length - 1] || ''
-      } else {
-        this.entries = []
-        if (res && res.error) this.$message.error(res.error)
-      }
-    },
-    // ===== 浏览 =====
-    entryPath(en) {
-      return this.currentDir.replace(/[/\\]+$/, '') + '/' + en.name
-    },
-    // 列表项点击选择（访达式多选）：普通单击单选 / Cmd+Ctrl 切换加选 / Shift 范围选
-    selectEntry(name, e) {
-      const toggle = e && (e.metaKey || e.ctrlKey)
-      const range = e && e.shiftKey
-      if (toggle) {
-        this.selected = this.selected.includes(name)
-          ? this.selected.filter(n => n !== name)
-          : this.selected.concat(name)
-        this.lastAnchor = name
-      } else if (range && this.lastAnchor) {
-        const names = this.visibleEntries.map(x => x.name)
-        const a = names.indexOf(this.lastAnchor)
-        const b = names.indexOf(name)
-        if (a >= 0 && b >= 0) {
-          const [s, t] = a < b ? [a, b] : [b, a]
-          this.selected = names.slice(s, t + 1)
-        }
-      } else {
-        this.selected = [name]
-        this.lastAnchor = name
-      }
-    },
-    openEntry(en) {
-      if (en.isDir) {
-        this.currentDir = this.entryPath(en)
-        return
-      }
-      if (isTextEntry(en)) {
-        this.openPreview(en)
-      } else {
-        this.openExternal(en)
-      }
-    },
-    goCrumb(idx) {
-      this.currentDir = idx < 0 ? this.active.path : this.crumbs[idx].path
-    },
-    // ===== 操作 =====
-    async createFolder() {
-      const { value } = await this.$prompt('请输入文件夹名称', '新建文件夹', {
-        confirmButtonText: '创建',
-        cancelButtonText: '取消',
-        inputValue: '新建文件夹',
-        inputPattern: /^[^\\/]+$/,
-        inputErrorMessage: '名称不能包含 / 或 \\'
-      }).catch(() => ({ value: '' }))
-      const name = String(value || '').trim()
-      if (!name) return
-      const res = await this.filesApi.mkdir({ dir: this.currentDir, name })
-      if (res && res.ok) {
-        this.$message.success('文件夹已创建')
-        this.load()
-      } else {
-        this.$message.error((res && res.error) || '创建失败')
-      }
-    },
-    async createFile() {
-      const { value } = await this.$prompt('请输入文件名称（含扩展名）', '新建文件', {
-        confirmButtonText: '创建',
-        cancelButtonText: '取消',
-        inputValue: '未命名.txt',
-        inputPattern: /^[^\\/]+$/,
-        inputErrorMessage: '名称不能包含 / 或 \\'
-      }).catch(() => ({ value: '' }))
-      const name = String(value || '').trim()
-      if (!name) return
-      const res = await this.filesApi.createFile({ dir: this.currentDir, name })
-      if (res && res.ok) {
-        this.$message.success('文件已创建')
-        this.load()
-      } else {
-        this.$message.error((res && res.error) || '创建失败')
-      }
-    },
-    async importDialog() {
-      if (!this.filesApi) return
-      const res = await this.filesApi.importDialog(this.currentDir)
-      if (res && res.ok) {
-        this.$message.success('已导入 ' + res.count + ' 个文件')
-        this.load()
-      } else if (res && !res.canceled && res.error) {
-        this.$message.error(res.error)
-      }
-    },
-    async renameEntry(en) {
-      const { value } = await this.$prompt('请输入新名称', '重命名', {
-        confirmButtonText: '保存',
-        cancelButtonText: '取消',
-        inputValue: en.name,
-        inputPattern: /^[^\\/]+$/,
-        inputErrorMessage: '名称不能包含 / 或 \\'
-      }).catch(() => ({ value: '' }))
-      const name = String(value || '').trim()
-      if (!name || name === en.name) return
-      const res = await this.filesApi.rename({ path: this.entryPath(en), name })
-      if (res && res.ok) {
-        this.$message.success('已重命名')
-        this.load()
-      } else {
-        this.$message.error((res && res.error) || '重命名失败')
-      }
-    },
-    trashEntry(en) {
-      const tip = en.isDir ? '文件夹及其全部内容' : '文件'
-      this.$confirm('将把该' + tip + '移到系统废纸篓，确定删除「' + en.name + '」吗？', '删除', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(async () => {
-        const res = await this.filesApi.trash(this.entryPath(en))
-        if (res && res.ok) {
-          this.$message.success('已移到废纸篓')
-          this.load()
-        } else {
-          this.$message.error((res && res.error) || '删除失败')
-        }
-      }).catch(() => {})
-    },
-    // 批量删除所选（工具栏按钮 / 多选态右键菜单入口）
-    confirmTrashSelected() {
-      const names = this.selected.slice()
-      if (!names.length || !this.filesApi) return
-      this.$confirm('将把所选 ' + names.length + ' 个项目（含文件夹及其内容）移到系统废纸篓，确定删除吗？', '删除所选', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(async () => {
-        const res = await this.filesApi.trashBatch(names.map(n => this.entryPath({ name: n })))
-        if (res && res.ok) {
-          this.$message.success('已移到废纸篓 ' + res.count + ' 项' + (res.error ? '，' + res.error : ''))
-          this.selected = []
-          this.lastAnchor = ''
-          this.load()
-        } else {
-          this.$message.error((res && res.error) || '删除失败')
-        }
-      }).catch(() => {})
-    },
-    // 清空当前空间：根目录全部内容（含隐藏项）移到废纸篓，不影响空间绑定与任务记录
-    confirmEmpty() {
-      const ws = this.active
-      if (!ws || !this.filesApi) return
-      this.$confirm(
-        '将把「' + this.displayName(ws) + '」根目录下的全部内容（含隐藏项目）移到系统废纸篓。空间绑定与任务记录不受影响，确定清空吗？',
-        '清空空间',
-        { confirmButtonText: '清空', cancelButtonText: '取消', type: 'warning' }
-      ).then(async () => {
-        const res = await this.filesApi.empty(ws.path)
-        if (res && res.ok) {
-          this.$message.success('已清空 ' + res.count + ' 个项目' + (res.error ? '，' + res.error : ''))
-          this.selected = []
-          this.lastAnchor = ''
-          this.load()
-        } else {
-          this.$message.error((res && res.error) || '清空失败')
-        }
-      }).catch(() => {})
-    },
-    async revealEntry(en) {
-      const res = await this.filesApi.reveal(this.entryPath(en))
-      if (!res || !res.ok) this.$message.error((res && res.error) || '操作失败')
-    },
-    async openExternal(en) {
-      const res = await this.filesApi.open(this.entryPath(en))
-      if (!res || !res.ok) this.$message.error((res && res.error) || '打开失败')
-    },
-    // ===== 右键菜单 =====
-    openMenu(e, en) {
-      // 右键项不在选中集合内：重置为单选；在集合内：保留多选（删除项作用于全部选中）
-      if (!this.selected.includes(en.name)) {
-        this.selected = [en.name]
-        this.lastAnchor = en.name
-      }
-      // 视口边缘收敛
-      const x = Math.min(e.clientX, window.innerWidth - 190)
-      const y = Math.min(e.clientY, window.innerHeight - 190)
-      this.menu = { visible: true, x, y, item: en }
-    },
-    closeMenu() {
-      this.menu.visible = false
-      this.menu.item = null
-    },
-    onDocMouseDown(e) {
-      if (this.menu.visible && !e.target.closest('.sp-menu')) this.closeMenu()
-    },
-    onKeydown(e) {
-      if (e.key !== 'Escape') return
-      this.closeMenu()
-      if (this.preview.visible) this.preview.visible = false
-    },
-    menuAction(action) {
-      const en = this.menu.item
-      this.closeMenu()
-      if (!en) return
-      switch (action) {
-        case 'open':
-          this.openEntry(en)
-          break
-        case 'reveal':
-          this.revealEntry(en)
-          break
-        case 'rename':
-          this.renameEntry(en)
-          break
-        case 'trash':
-          // 多选态下（右键项在选中集合内）：批量删除全部选中项，否则删单条
-          if (this.selected.length > 1 && this.selected.includes(en.name)) {
-            this.confirmTrashSelected()
-          } else {
-            this.trashEntry(en)
-          }
-          break
-        default:
-          break
-      }
-    },
-    // ===== 预览 / 编辑 =====
-    async openPreview(en) {
-      if (!this.filesApi) return
-      const res = await this.filesApi.read(this.entryPath(en))
-      if (res && res.ok) {
-        this.preview = {
-          visible: true,
-          path: this.entryPath(en),
-          name: en.name,
-          content: res.content,
-          size: res.size,
-          mtime: res.mtime,
-          saving: false
-        }
-      } else if (res && (res.binary || res.tooLarge)) {
-        // 二进制 / 超大文件交给系统应用
-        this.openExternal(en)
-      } else {
-        this.$message.error((res && res.error) || '读取失败')
-      }
-    },
-    async savePreview() {
-      this.preview.saving = true
-      const res = await this.filesApi.write({ path: this.preview.path, content: this.preview.content })
-      this.preview.saving = false
-      if (res && res.ok) {
-        this.$message.success('已保存')
-        this.load()
-      } else {
-        this.$message.error((res && res.error) || '保存失败')
-      }
-    },
-    async revealFile(p) {
-      const res = await this.filesApi.reveal(p)
-      if (!res || !res.ok) this.$message.error((res && res.error) || '操作失败')
-    },
-    // ===== 拖拽导入 =====
-    onDragEnter() {
-      this.dragDepth++
-    },
-    onDragLeave() {
-      this.dragDepth = Math.max(0, this.dragDepth - 1)
-    },
-    async onDrop(e) {
-      this.dragDepth = 0
-      const files = Array.from((e.dataTransfer && e.dataTransfer.files) || [])
-      if (!files.length || !this.filesApi || !this.currentDir) return
-      const getPath = window.electronAPI && window.electronAPI.getPathForFile
-      const paths = files.map(f => (getPath ? getPath(f) : '')).filter(Boolean)
-      if (!paths.length) return
-      const res = await this.filesApi.importPaths({ dir: this.currentDir, paths })
-      if (res && res.ok) {
-        this.$message.success('已导入 ' + res.count + ' 个文件')
-        this.load()
-      } else if (res && res.error) {
-        this.$message.error(res.error)
-      }
+defineOptions({ name: 'OmniBuddyWorkspace' })
+
+const router = useRouter()
+const route = useRoute()
+const store = useStore()
+const { message, confirm, prompt } = useFeedback()
+
+// 已关联的工作空间列表（由对话关联磁盘路径时登记）
+const workspaces = ref([])
+const activeId = ref('')
+// 当前目录（绝对路径，始终位于所选工作空间根目录内）
+const currentDir = ref('')
+const entries = ref([])
+const loading = ref(false)
+// 多选：选中项名集合（Cmd/Ctrl 加选、Shift 范围选、单击单选）
+const selected = ref([])
+// Shift 范围选择的锚点（最近一次单击/加选项）
+const lastAnchor = ref('')
+// 视图与筛选
+const view = ref('list')
+const showHidden = ref(false)
+const search = ref('')
+// 右键菜单
+const menu = reactive({ visible: false, x: 0, y: 0, item: null })
+// 拖拽深度（enter/leave 计数，用于遮罩显隐）
+const dragDepth = ref(0)
+// 文件预览 / 编辑
+const preview = reactive({ visible: false, path: '', name: '', content: '', size: 0, mtime: 0, saving: false })
+// 空间规则弹窗（hasRule 经 rulesTargets 查询，保存后刷新）
+const ruleDialog = reactive({ visible: false, hasRule: false })
+
+const active = computed(() => {
+  return workspaces.value.find(w => w.id === activeId.value) || null
+})
+
+// 传给 SpaceToolbar 的合成空间对象（icon 统一用文件夹）
+const activeSpace = computed(() => {
+  return active.value
+    ? { name: displayName(active.value), dir: active.value.path, icon: 'folder' }
+    : { name: '', dir: '', icon: 'folder' }
+})
+
+// 工作空间下拉选项（多空间时头部可切换）
+const workspaceItems = computed(() => {
+  return workspaces.value.map(w => ({
+    value: w.id,
+    label: displayName(w),
+    svg: 'folder',
+    tag: w.id === activeId.value ? '' : (w.path && w.path.length > 30 ? w.path.slice(0, 28) + '…' : w.path)
+  }))
+})
+
+const filesApi = computed(() => {
+  return (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.files) || null
+})
+
+// 面包屑：根目录之后的相对层级
+const crumbs = computed(() => {
+  const root = active.value && active.value.path
+  if (!root || !currentDir.value || currentDir.value === root) return []
+  const rel = currentDir.value.slice(root.length).replace(/^[/\\]+/, '')
+  const parts = rel.split(/[/\\]+/).filter(Boolean)
+  let acc = root
+  return parts.map(name => {
+    acc = acc.replace(/[/\\]+$/, '') + '/' + name
+    return { name, path: acc }
+  })
+})
+
+const hiddenCount = computed(() => {
+  return entries.value.filter(e => e.hidden).length
+})
+
+// 应用隐藏开关 + 搜索过滤
+const visibleEntries = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  return entries.value.filter(e => {
+    if (!showHidden.value && e.hidden) return false
+    if (q && !e.name.toLowerCase().includes(q)) return false
+    return true
+  })
+})
+
+// 空目录时的提示文案
+const emptyDesc = computed(() => {
+  if (search.value) return ''
+  if (hiddenCount.value && !showHidden.value) {
+    return hiddenCount.value + ' 个隐藏项目未显示，可点击工具栏「隐藏项」查看'
+  }
+  return '拖入文件或点击「导入」添加内容'
+})
+
+// ===== 工作空间 =====
+// 展示名（未重命名时按磁盘路径呈现，与任务列表分组口径一致）
+function displayName(w) {
+  const name = (w && w.name) || ''
+  return name && name !== w.path ? name : w.path
+}
+
+// 空间规则弹窗：打开前查一次该空间 hasRule 状态
+async function openSpaceRule() {
+  if (!activeId.value) return
+  const api = window.electronAPI && window.electronAPI.omnibuddy
+  if (api && api.rulesTargets) {
+    try {
+      const targets = await api.rulesTargets()
+      const t = (targets || []).find(x => x.key === activeId.value)
+      ruleDialog.hasRule = !!(t && t.hasRule)
+    } catch (e) {
+      ruleDialog.hasRule = false
     }
   }
+  ruleDialog.visible = true
 }
+
+// 空间规则保存后：刷新徽标状态
+async function onSpaceRuleSaved() {
+  const api = window.electronAPI && window.electronAPI.omnibuddy
+  if (!api || !api.rulesTargets) return
+  try {
+    const targets = await api.rulesTargets()
+    const t = (targets || []).find(x => x.key === activeId.value)
+    ruleDialog.hasRule = !!(t && t.hasRule)
+  } catch (e) { /* 保持现状 */ }
+}
+
+async function loadWorkspaces() {
+  const api = window.electronAPI && window.electronAPI.omnibuddy
+  if (!api) {
+    workspaces.value = []
+    return
+  }
+  const list = await api.listWorkspaces()
+  workspaces.value = Array.isArray(list) ? list.filter(w => w.available !== false) : []
+  // 恢复上次选中；失效则取第一个
+  const saved = getItem('buddyActiveWorkspaceId', '')
+  const hit = workspaces.value.find(w => w.id === saved)
+  selectWorkspace(hit || workspaces.value[0] || null)
+}
+
+function selectWorkspace(w) {
+  // 下拉事件传 id，这里归一为对象
+  if (typeof w === 'string') w = workspaces.value.find(x => x.id === w) || null
+  const prevId = activeId.value
+  activeId.value = (w && w.id) || ''
+  if (activeId.value) setItem('buddyActiveWorkspaceId', activeId.value)
+  // 切换工作空间回根目录（同空间不重置当前目录）
+  if (activeId.value && activeId.value !== prevId) {
+    currentDir.value = w.path
+  } else if (!activeId.value) {
+    currentDir.value = ''
+    entries.value = []
+  }
+}
+
+// 重命名当前工作空间：改展示名（磁盘目录不动），成功后同步下拉与任务列表分组
+async function renameWorkspace() {
+  const ws = active.value
+  if (!ws) return
+  const { value } = await prompt('请输入新的空间名称', '重命名工作空间', {
+    confirmButtonText: '保存',
+    cancelButtonText: '取消',
+    inputValue: displayName(ws)
+  }).catch(() => ({ value: '' }))
+  const name = String(value || '').trim()
+  if (!name || name === displayName(ws)) return
+  const api = window.electronAPI && window.electronAPI.omnibuddy
+  if (!api || !api.renameWorkspace) return
+  const res = await api.renameWorkspace({ id: ws.id, name })
+  if (res && res.ok) {
+    ws.name = name
+    bus.emit('omnibuddy:workspaces-changed')
+    message.success('已重命名')
+  } else {
+    message.error((res && res.error) || '重命名失败')
+  }
+}
+
+// 解绑当前工作空间：二次确认后解除登记并删除该空间全部任务记录（含检查点）；
+// 磁盘文件不受影响，记忆摘要照常留档
+function confirmUnbind() {
+  const ws = active.value
+  if (!ws) return
+  const name = displayName(ws)
+  confirm(
+    '解绑后「' + name + '」将从列表移除，该空间下的任务记录（含对话与检查点）将一并删除；磁盘文件不受影响。',
+    '解绑工作空间',
+    { confirmButtonText: '解绑', cancelButtonText: '取消', type: 'warning' }
+  ).then(async () => {
+    const api = window.electronAPI && window.electronAPI.omnibuddy
+    if (!api) return
+    const res = await api.removeWorkspace(ws.id)
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '解绑失败')
+      return
+    }
+    const removed = res.removedSessions || []
+    // 被删会话：清理页签与会话状态池，当前正在查看的会话命中则回新建页
+    for (const sid of removed) {
+      store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + sid })
+      store.commit('buddyChat/DROP_SESSION', sid)
+    }
+    if (removed.includes(route.query.s)) {
+      router.push('/omnibuddy').catch(() => {})
+    }
+    await loadWorkspaces()
+    bus.emit('omnibuddy:sessions-changed')
+    bus.emit('omnibuddy:workspaces-changed')
+    message.success(removed.length ? '已解绑，删除任务记录 ' + removed.length + ' 条' : '已解绑')
+  }).catch(() => {})
+}
+
+async function load() {
+  if (!currentDir.value) return
+  if (!filesApi.value) {
+    message.info('文件管理需要 OmniDeck 桌面端')
+    return
+  }
+  loading.value = true
+  const res = await filesApi.value.list(currentDir.value)
+  loading.value = false
+  if (res && res.ok) {
+    entries.value = res.entries || []
+    // 清理已消失的选中项（删除 / 重命名 / 导入覆盖后保持高亮一致）
+    selected.value = selected.value.filter(n => entries.value.some(x => x.name === n))
+    if (!selected.value.includes(lastAnchor.value)) lastAnchor.value = selected.value[selected.value.length - 1] || ''
+  } else {
+    entries.value = []
+    if (res && res.error) message.error(res.error)
+  }
+}
+
+// ===== 浏览 =====
+function entryPath(en) {
+  return currentDir.value.replace(/[/\\]+$/, '') + '/' + en.name
+}
+
+// 列表项点击选择（访达式多选）：普通单击单选 / Cmd+Ctrl 切换加选 / Shift 范围选
+function selectEntry(name, e) {
+  const toggle = e && (e.metaKey || e.ctrlKey)
+  const range = e && e.shiftKey
+  if (toggle) {
+    selected.value = selected.value.includes(name)
+      ? selected.value.filter(n => n !== name)
+      : selected.value.concat(name)
+    lastAnchor.value = name
+  } else if (range && lastAnchor.value) {
+    const names = visibleEntries.value.map(x => x.name)
+    const a = names.indexOf(lastAnchor.value)
+    const b = names.indexOf(name)
+    if (a >= 0 && b >= 0) {
+      const [s, t] = a < b ? [a, b] : [b, a]
+      selected.value = names.slice(s, t + 1)
+    }
+  } else {
+    selected.value = [name]
+    lastAnchor.value = name
+  }
+}
+
+function openEntry(en) {
+  if (en.isDir) {
+    currentDir.value = entryPath(en)
+    return
+  }
+  if (isTextEntry(en)) {
+    openPreview(en)
+  } else {
+    openExternal(en)
+  }
+}
+
+function goCrumb(idx) {
+  currentDir.value = idx < 0 ? active.value.path : crumbs.value[idx].path
+}
+
+// ===== 操作 =====
+async function createFolder() {
+  const { value } = await prompt('请输入文件夹名称', '新建文件夹', {
+    confirmButtonText: '创建',
+    cancelButtonText: '取消',
+    inputValue: '新建文件夹',
+    inputPattern: /^[^\\/]+$/,
+    inputErrorMessage: '名称不能包含 / 或 \\'
+  }).catch(() => ({ value: '' }))
+  const name = String(value || '').trim()
+  if (!name) return
+  const res = await filesApi.value.mkdir({ dir: currentDir.value, name })
+  if (res && res.ok) {
+    message.success('文件夹已创建')
+    load()
+  } else {
+    message.error((res && res.error) || '创建失败')
+  }
+}
+
+async function createFile() {
+  const { value } = await prompt('请输入文件名称（含扩展名）', '新建文件', {
+    confirmButtonText: '创建',
+    cancelButtonText: '取消',
+    inputValue: '未命名.txt',
+    inputPattern: /^[^\\/]+$/,
+    inputErrorMessage: '名称不能包含 / 或 \\'
+  }).catch(() => ({ value: '' }))
+  const name = String(value || '').trim()
+  if (!name) return
+  const res = await filesApi.value.createFile({ dir: currentDir.value, name })
+  if (res && res.ok) {
+    message.success('文件已创建')
+    load()
+  } else {
+    message.error((res && res.error) || '创建失败')
+  }
+}
+
+async function importDialog() {
+  if (!filesApi.value) return
+  const res = await filesApi.value.importDialog(currentDir.value)
+  if (res && res.ok) {
+    message.success('已导入 ' + res.count + ' 个文件')
+    load()
+  } else if (res && !res.canceled && res.error) {
+    message.error(res.error)
+  }
+}
+
+async function renameEntry(en) {
+  const { value } = await prompt('请输入新名称', '重命名', {
+    confirmButtonText: '保存',
+    cancelButtonText: '取消',
+    inputValue: en.name,
+    inputPattern: /^[^\\/]+$/,
+    inputErrorMessage: '名称不能包含 / 或 \\'
+  }).catch(() => ({ value: '' }))
+  const name = String(value || '').trim()
+  if (!name || name === en.name) return
+  const res = await filesApi.value.rename({ path: entryPath(en), name })
+  if (res && res.ok) {
+    message.success('已重命名')
+    load()
+  } else {
+    message.error((res && res.error) || '重命名失败')
+  }
+}
+
+function trashEntry(en) {
+  const tip = en.isDir ? '文件夹及其全部内容' : '文件'
+  confirm('将把该' + tip + '移到系统废纸篓，确定删除「' + en.name + '」吗？', '删除', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    const res = await filesApi.value.trash(entryPath(en))
+    if (res && res.ok) {
+      message.success('已移到废纸篓')
+      load()
+    } else {
+      message.error((res && res.error) || '删除失败')
+    }
+  }).catch(() => {})
+}
+
+// 批量删除所选（工具栏按钮 / 多选态右键菜单入口）
+function confirmTrashSelected() {
+  const names = selected.value.slice()
+  if (!names.length || !filesApi.value) return
+  confirm('将把所选 ' + names.length + ' 个项目（含文件夹及其内容）移到系统废纸篓，确定删除吗？', '删除所选', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    const res = await filesApi.value.trashBatch(names.map(n => entryPath({ name: n })))
+    if (res && res.ok) {
+      message.success('已移到废纸篓 ' + res.count + ' 项' + (res.error ? '，' + res.error : ''))
+      selected.value = []
+      lastAnchor.value = ''
+      load()
+    } else {
+      message.error((res && res.error) || '删除失败')
+    }
+  }).catch(() => {})
+}
+
+// 清空当前空间：根目录全部内容（含隐藏项）移到废纸篓，不影响空间绑定与任务记录
+function confirmEmpty() {
+  const ws = active.value
+  if (!ws || !filesApi.value) return
+  confirm(
+    '将把「' + displayName(ws) + '」根目录下的全部内容（含隐藏项目）移到系统废纸篓。空间绑定与任务记录不受影响，确定清空吗？',
+    '清空空间',
+    { confirmButtonText: '清空', cancelButtonText: '取消', type: 'warning' }
+  ).then(async () => {
+    const res = await filesApi.value.empty(ws.path)
+    if (res && res.ok) {
+      message.success('已清空 ' + res.count + ' 个项目' + (res.error ? '，' + res.error : ''))
+      selected.value = []
+      lastAnchor.value = ''
+      load()
+    } else {
+      message.error((res && res.error) || '清空失败')
+    }
+  }).catch(() => {})
+}
+
+async function revealEntry(en) {
+  const res = await filesApi.value.reveal(entryPath(en))
+  if (!res || !res.ok) message.error((res && res.error) || '操作失败')
+}
+
+async function openExternal(en) {
+  const res = await filesApi.value.open(entryPath(en))
+  if (!res || !res.ok) message.error((res && res.error) || '打开失败')
+}
+
+// ===== 右键菜单 =====
+function openMenu(e, en) {
+  // 右键项不在选中集合内：重置为单选；在集合内：保留多选（删除项作用于全部选中）
+  if (!selected.value.includes(en.name)) {
+    selected.value = [en.name]
+    lastAnchor.value = en.name
+  }
+  // 视口边缘收敛
+  const x = Math.min(e.clientX, window.innerWidth - 190)
+  const y = Math.min(e.clientY, window.innerHeight - 190)
+  Object.assign(menu, { visible: true, x, y, item: en })
+}
+
+function closeMenu() {
+  menu.visible = false
+  menu.item = null
+}
+
+function onDocMouseDown(e) {
+  if (menu.visible && !e.target.closest('.sp-menu')) closeMenu()
+}
+
+function onKeydown(e) {
+  if (e.key !== 'Escape') return
+  closeMenu()
+  if (preview.visible) preview.visible = false
+}
+
+function menuAction(action) {
+  const en = menu.item
+  closeMenu()
+  if (!en) return
+  switch (action) {
+    case 'open':
+      openEntry(en)
+      break
+    case 'reveal':
+      revealEntry(en)
+      break
+    case 'rename':
+      renameEntry(en)
+      break
+    case 'trash':
+      // 多选态下（右键项在选中集合内）：批量删除全部选中项，否则删单条
+      if (selected.value.length > 1 && selected.value.includes(en.name)) {
+        confirmTrashSelected()
+      } else {
+        trashEntry(en)
+      }
+      break
+    default:
+      break
+  }
+}
+
+// ===== 预览 / 编辑 =====
+async function openPreview(en) {
+  if (!filesApi.value) return
+  const res = await filesApi.value.read(entryPath(en))
+  if (res && res.ok) {
+    Object.assign(preview, {
+      visible: true,
+      path: entryPath(en),
+      name: en.name,
+      content: res.content,
+      size: res.size,
+      mtime: res.mtime,
+      saving: false
+    })
+  } else if (res && (res.binary || res.tooLarge)) {
+    // 二进制 / 超大文件交给系统应用
+    openExternal(en)
+  } else {
+    message.error((res && res.error) || '读取失败')
+  }
+}
+
+async function savePreview() {
+  preview.saving = true
+  const res = await filesApi.value.write({ path: preview.path, content: preview.content })
+  preview.saving = false
+  if (res && res.ok) {
+    message.success('已保存')
+    load()
+  } else {
+    message.error((res && res.error) || '保存失败')
+  }
+}
+
+async function revealFile(p) {
+  const res = await filesApi.value.reveal(p)
+  if (!res || !res.ok) message.error((res && res.error) || '操作失败')
+}
+
+// ===== 拖拽导入 =====
+function onDragEnter() {
+  dragDepth.value++
+}
+
+function onDragLeave() {
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+
+async function onDrop(e) {
+  dragDepth.value = 0
+  const files = Array.from((e.dataTransfer && e.dataTransfer.files) || [])
+  if (!files.length || !filesApi.value || !currentDir.value) return
+  const getPath = window.electronAPI && window.electronAPI.getPathForFile
+  const paths = files.map(f => (getPath ? getPath(f) : '')).filter(Boolean)
+  if (!paths.length) return
+  const res = await filesApi.value.importPaths({ dir: currentDir.value, paths })
+  if (res && res.ok) {
+    message.success('已导入 ' + res.count + ' 个文件')
+    load()
+  } else if (res && res.error) {
+    message.error(res.error)
+  }
+}
+
+watch(() => currentDir.value, () => {
+  selected.value = []
+  lastAnchor.value = ''
+  search.value = ''
+  load()
+})
+
+// created：进入页面即拉取工作空间并挂事件
+loadWorkspaces()
+// 对话关联/展示名更新后同步
+bus.on('omnibuddy:workspaces-changed', loadWorkspaces)
+// 全局点击 / Esc 关闭右键菜单
+document.addEventListener('mousedown', onDocMouseDown)
+document.addEventListener('keydown', onKeydown)
+
+onBeforeUnmount(() => {
+  bus.off('omnibuddy:workspaces-changed', loadWorkspaces)
+  document.removeEventListener('mousedown', onDocMouseDown)
+  document.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <style lang="scss" scoped>

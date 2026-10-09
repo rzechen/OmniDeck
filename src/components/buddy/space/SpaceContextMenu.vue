@@ -6,65 +6,62 @@
       class="sp-menu"
       :style="{ left: x + 'px', top: y + 'px' }"
     >
-      <div class="sp-menu-item" @click="$emit('action', 'open')">
+      <div class="sp-menu-item" @click="emit('action', 'open')">
         <svg-icon :icon-class="isDir ? 'folder' : 'view'" />
         {{ isDir ? '打开' : (textable ? '预览 / 编辑' : '打开') }}
       </div>
-      <div class="sp-menu-item" @click="$emit('action', 'reveal')">
+      <div class="sp-menu-item" @click="emit('action', 'reveal')">
         <svg-icon icon-class="monitor" /> 在访达中显示
       </div>
       <div class="sp-menu-sep"></div>
-      <div class="sp-menu-item" @click="$emit('action', 'rename')">
+      <div class="sp-menu-item" @click="emit('action', 'rename')">
         <svg-icon icon-class="edit" /> 重命名
       </div>
       <!-- 多选时（右键项在选中集合内）对全部选中项生效 -->
-      <div class="sp-menu-item danger" @click="$emit('action', 'trash')">
+      <div class="sp-menu-item danger" @click="emit('action', 'trash')">
         <svg-icon icon-class="delete" /> 移到废纸篓{{ selectedCount > 1 ? '（' + selectedCount + ' 项）' : '' }}
       </div>
     </div>
   </transition>
 </template>
 
-<script>
+<script setup>
 // 空间页右键菜单（定位/显隐由父组件控制，动作以事件上抛）
+import { computed } from 'vue'
 import { isTextEntry } from '@/utils/ui/file-meta'
 
-export default {
-  name: 'SpaceContextMenu',
-  props: {
-    visible: {
-      type: Boolean,
-      default: false
-    },
-    x: {
-      type: Number,
-      default: 0
-    },
-    y: {
-      type: Number,
-      default: 0
-    },
-    // 目标条目
-    item: {
-      type: Object,
-      default: null
-    },
-    // 当前多选中的条目数（>1 且右键项在选中集合内时，删除作用于全部选中项）
-    selectedCount: {
-      type: Number,
-      default: 0
-    }
+defineOptions({ name: 'SpaceContextMenu' })
+
+const props = defineProps({
+  visible: {
+    type: Boolean,
+    default: false
   },
-  computed: {
-    isDir() {
-      return !!(this.item && this.item.isDir)
-    },
-    // 文本文件显示「预览 / 编辑」入口
-    textable() {
-      return !!this.item && isTextEntry(this.item)
-    }
+  x: {
+    type: Number,
+    default: 0
+  },
+  y: {
+    type: Number,
+    default: 0
+  },
+  // 目标条目
+  item: {
+    type: Object,
+    default: null
+  },
+  // 当前多选中的条目数（>1 且右键项在选中集合内时，删除作用于全部选中项）
+  selectedCount: {
+    type: Number,
+    default: 0
   }
-}
+})
+
+const emit = defineEmits(['action'])
+
+const isDir = computed(() => !!(props.item && props.item.isDir))
+// 文本文件显示「预览 / 编辑」入口
+const textable = computed(() => !!props.item && isTextEntry(props.item))
 </script>
 
 <style lang="scss" scoped>

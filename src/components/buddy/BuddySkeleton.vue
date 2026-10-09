@@ -122,70 +122,61 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // Buddy 通用骨架屏：数据加载期间以内容形状的占位块替代空白/spinner
 // type = rows（行列表）/ tasks（侧栏任务列表）/ cards（卡片网格）/ chat（对话流）
 //        / stats（指标卡 + 图表块）/ split（左右分栏）/ list（分组行式清单）
 // 量化参数（min/gap/side-w）由使用页传入，与实际布局一致避免加载完成时重排跳变
-export default {
-  name: 'BuddySkeleton',
-  props: {
-    type: {
-      type: String,
-      default: 'rows'
-    },
-    // 骨架单元数量（chat 型为问答组数的 2 倍；tasks/list 为总条目数，2 组均分）
-    count: {
-      type: Number,
-      default: 4
-    },
-    // cards 型网格最小列宽（与实际页 grid minmax 一致，默认 250 同 ob-cards-grid）
-    min: {
-      type: Number,
-      default: 250
-    },
-    // cards 型网格间距（ob-cards-grid 为 14）
-    gap: {
-      type: Number,
-      default: 14
-    },
-    // split 型左栏宽度（与实际页窄栏一致）
-    sideW: {
-      type: Number,
-      default: 240
-    }
+import { computed } from 'vue'
+
+defineOptions({ name: 'BuddySkeleton' })
+
+const props = defineProps({
+  type: {
+    type: String,
+    default: 'rows'
   },
-  computed: {
-    // chat 型分组数（count 折半，至少 2 组）
-    groups() {
-      return Math.max(2, Math.ceil(this.count / 2))
-    },
-    // tasks 型每组条目数（count 总数 2 组均分）
-    tasksPerGroup() {
-      return Math.max(2, Math.ceil(this.count / 2))
-    },
-    // list 型每组行数（count 总数 2 组均分）
-    listRowsPerGroup() {
-      return Math.max(3, Math.ceil(this.count / 2))
-    },
-    // cards 型网格样式：列宽/间距与实际页一致
-    gridStyle() {
-      return {
-        gridTemplateColumns: 'repeat(auto-fill, minmax(' + this.min + 'px, 1fr))',
-        gap: this.gap + 'px'
-      }
-    }
+  // 骨架单元数量（chat 型为问答组数的 2 倍；tasks/list 为总条目数，2 组均分）
+  count: {
+    type: Number,
+    default: 4
   },
-  methods: {
-    // 伪随机行宽（百分比）：避免所有行等宽显得呆板
-    lineW(i, base, spread) {
-      return (base + ((i * 37) % spread)) + '%'
-    },
-    // 用户气泡宽度：max 85% 内伪随机（对齐实际气泡随内容收缩）
-    bubbleW(g) {
-      return (32 + ((g * 23) % 28)) + '%'
-    }
+  // cards 型网格最小列宽（与实际页 grid minmax 一致，默认 250 同 ob-cards-grid）
+  min: {
+    type: Number,
+    default: 250
+  },
+  // cards 型网格间距（ob-cards-grid 为 14）
+  gap: {
+    type: Number,
+    default: 14
+  },
+  // split 型左栏宽度（与实际页窄栏一致）
+  sideW: {
+    type: Number,
+    default: 240
   }
+})
+
+// chat 型分组数（count 折半，至少 2 组）
+const groups = computed(() => Math.max(2, Math.ceil(props.count / 2)))
+// tasks 型每组条目数（count 总数 2 组均分）
+const tasksPerGroup = computed(() => Math.max(2, Math.ceil(props.count / 2)))
+// list 型每组行数（count 总数 2 组均分）
+const listRowsPerGroup = computed(() => Math.max(3, Math.ceil(props.count / 2)))
+// cards 型网格样式：列宽/间距与实际页一致
+const gridStyle = computed(() => ({
+  gridTemplateColumns: 'repeat(auto-fill, minmax(' + props.min + 'px, 1fr))',
+  gap: props.gap + 'px'
+}))
+
+// 伪随机行宽（百分比）：避免所有行等宽显得呆板
+function lineW(i, base, spread) {
+  return (base + ((i * 37) % spread)) + '%'
+}
+// 用户气泡宽度：max 85% 内伪随机（对齐实际气泡随内容收缩）
+function bubbleW(g) {
+  return (32 + ((g * 23) % 28)) + '%'
 }
 </script>
 
