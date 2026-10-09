@@ -56,6 +56,10 @@ function systemPrompt() {
   // codemode 脚本约束：脚本被包装为 (async (tools, console) => {...}) 执行，
   // 声明同名变量会直接语法报错（invalid redefinition of parameter name）
   lines.push('编写 codemode 脚本时：脚本以 (tools, console) 参数形式注入环境，不得用 const/let/function 再声明 tools、console 同名变量（会报 invalid redefinition of parameter name）；调用工具写作 await tools.<工具名>({ ...参数 })，查找未列出的工具用 searchTools(关键词)。')
+  // 沙箱能力边界：实测踩坑记录（无定时器/模块能力，输出截断），
+  // 避免模型按完整 Node 环境心智模型写脚本反复试错
+  lines.push('codemode 与 browser_run_code_unsafe 均为裁剪沙箱：无 setTimeout/setInterval（等待用 Playwright 的 page.waitForTimeout，或把轮询循环放进 run_code_unsafe 内部执行）、无 require 与动态 import、不能直接读写磁盘文件；工具输出约 50KB 截断，大文件不要经 base64 传输。')
+  lines.push('下载浏览器页面内受保护的资源（如带防盗链的图片 CDN）：裸 curl 会 403，应使用 Playwright download 事件方案（page.waitForEvent("download") + download.saveAs(路径)）直接落盘；向用户展示本地大图用 bash 的 open 命令，不要尝试在回复内嵌大体积 base64。')
   lines.push('文件写入与编辑工具（write / edit）默认需经用户逐次确认，确认通过后方可执行。')
   lines.push('若用户拒绝确认或处于只读模式，则不写文件，将结果直接输出给用户。')
   // 用户资料：结构化个人背景确定性注入，填工时等场景无需再手写 work-assistant 技能

@@ -64,90 +64,90 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import CryptoJS from 'crypto-js'
 import { keccak256, sha3_256, sha3_512, shake128, shake256 } from 'js-sha3'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'EncryptHash',
-  components: { ToolShell, CodeEditor },
-  data() {
-    return {
-      inputText: 'Hello OmniDeck',
-      algorithm: 'md5',
-      algorithms: [
-        { label: 'MD5', value: 'md5' },
-        { label: 'SHA-1', value: 'sha1' },
-        { label: 'SHA-256', value: 'sha256' },
-        { label: 'SHA-512', value: 'sha512' },
-        { label: 'Keccak-256', value: 'keccak256' },
-        { label: 'SHA3-256', value: 'sha3_256' },
-        { label: 'SHA3-512', value: 'sha3_512' },
-        { label: 'SHAKE-128', value: 'shake128' },
-        { label: 'SHAKE-256', value: 'shake256' }
-      ],
-      hashResult: '',
-      errorMsg: ''
-    }
-  },
-  computed: {
-    // 全部算法并行展示，当前算法高亮
-    results() {
-      const t = this.inputText
-      if (!t) return this.algorithms.map(a => ({ label: a.label, value: '' }))
-      const map = {
-        md5: () => CryptoJS.MD5(t).toString(),
-        sha1: () => CryptoJS.SHA1(t).toString(),
-        sha256: () => CryptoJS.SHA256(t).toString(),
-        sha512: () => CryptoJS.SHA512(t).toString(),
-        keccak256: () => keccak256(t),
-        sha3_256: () => sha3_256(t),
-        sha3_512: () => sha3_512(t),
-        shake128: () => shake128(t, 256),
-        shake256: () => shake256(t, 512)
-      }
-      return this.algorithms.map(a => {
-        let v = ''
-        try {
-          v = map[a.value]()
-        } catch (e) {
-          v = ''
-        }
-        return { label: a.label, value: v }
-      })
-    },
-    currentLabel() {
-      const a = this.algorithms.find(x => x.value === this.algorithm)
-      return a ? a.label : ''
-    }
-  },
-  methods: {
-    compute() {
-      // 下拉切换时仅更新选中态，结果面板已全量实时计算
-    },
-    copyResult() {
-      const r = this.results.find(x => x.label === this.currentLabel)
-      if (!r || !r.value) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(r.value).then(() => {
-        this.$message.success(`${this.currentLabel} 已复制`)
-      })
-    },
-    copyHash(r) {
-      if (!r.value) return
-      navigator.clipboard.writeText(r.value).then(() => {
-        this.$message({ message: `${r.label} 已复制`, type: 'success', duration: 1200 })
-      })
-    },
-    clearAll() {
-      this.inputText = ''
-      this.$refs.inputEditor.focus()
-    }
+defineOptions({ name: 'EncryptHash' })
+
+const { message } = useFeedback()
+
+const inputText = ref('Hello OmniDeck')
+const algorithm = ref('md5')
+const algorithms = [
+  { label: 'MD5', value: 'md5' },
+  { label: 'SHA-1', value: 'sha1' },
+  { label: 'SHA-256', value: 'sha256' },
+  { label: 'SHA-512', value: 'sha512' },
+  { label: 'Keccak-256', value: 'keccak256' },
+  { label: 'SHA3-256', value: 'sha3_256' },
+  { label: 'SHA3-512', value: 'sha3_512' },
+  { label: 'SHAKE-128', value: 'shake128' },
+  { label: 'SHAKE-256', value: 'shake256' }
+]
+const hashResult = ref('')
+const errorMsg = ref('')
+const inputEditor = ref(null)
+
+// 全部算法并行展示，当前算法高亮
+const results = computed(() => {
+  const t = inputText.value
+  if (!t) return algorithms.map(a => ({ label: a.label, value: '' }))
+  const map = {
+    md5: () => CryptoJS.MD5(t).toString(),
+    sha1: () => CryptoJS.SHA1(t).toString(),
+    sha256: () => CryptoJS.SHA256(t).toString(),
+    sha512: () => CryptoJS.SHA512(t).toString(),
+    keccak256: () => keccak256(t),
+    sha3_256: () => sha3_256(t),
+    sha3_512: () => sha3_512(t),
+    shake128: () => shake128(t, 256),
+    shake256: () => shake256(t, 512)
   }
+  return algorithms.map(a => {
+    let v = ''
+    try {
+      v = map[a.value]()
+    } catch (e) {
+      v = ''
+    }
+    return { label: a.label, value: v }
+  })
+})
+const currentLabel = computed(() => {
+  const a = algorithms.find(x => x.value === algorithm.value)
+  return a ? a.label : ''
+})
+
+function compute() {
+  // 下拉切换时仅更新选中态，结果面板已全量实时计算
+}
+
+function copyResult() {
+  const r = results.value.find(x => x.label === currentLabel.value)
+  if (!r || !r.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(r.value).then(() => {
+    message.success(`${currentLabel.value} 已复制`)
+  })
+}
+
+function copyHash(r) {
+  if (!r.value) return
+  navigator.clipboard.writeText(r.value).then(() => {
+    message({ message: `${r.label} 已复制`, type: 'success', duration: 1200 })
+  })
+}
+
+function clearAll() {
+  inputText.value = ''
+  inputEditor.value.focus()
 }
 </script>
 

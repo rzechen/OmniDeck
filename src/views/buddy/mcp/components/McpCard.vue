@@ -17,7 +17,7 @@
       <el-switch
         v-model="item.enabled"
         class="ob-card-switch"
-        @change="$emit('toggle', item)"
+        @change="emit('toggle', item)"
       />
     </div>
 
@@ -31,10 +31,10 @@
         <span v-if="!item.enabled" class="ob-foot-off">已停用</span>
       </div>
       <div class="ob-card-actions">
-        <span class="ob-item-action" title="编辑" @click="$emit('edit', item)">
+        <span class="ob-item-action" title="编辑" @click="emit('edit', item)">
           <svg-icon icon-class="edit" />
         </span>
-        <span class="ob-item-action danger" title="删除" @click="$emit('remove', item)">
+        <span class="ob-item-action danger" title="删除" @click="emit('remove', item)">
           <svg-icon icon-class="delete" />
         </span>
       </div>
@@ -42,18 +42,19 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 连接器卡片：启用开关（toggle 上抛切换后的当前值）/ 编辑 / 删除，均交父级处理
-export default {
-  name: 'McpCard',
-  props: {
-    // 单个 MCP Server 配置（对象引用与父级列表共享，保存失败父级可直接回滚 enabled）
-    item: {
-      type: Object,
-      required: true
-    }
+defineOptions({ name: 'McpCard' })
+
+defineProps({
+  // 单个 MCP Server 配置（对象引用与父级列表共享，保存失败父级可直接回滚 enabled）
+  item: {
+    type: Object,
+    required: true
   }
-}
+})
+
+const emit = defineEmits(['toggle', 'edit', 'remove'])
 </script>
 
 <style lang="scss" scoped>

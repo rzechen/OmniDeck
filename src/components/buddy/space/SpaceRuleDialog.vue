@@ -2,7 +2,7 @@
   <!-- 工作空间规则抽屉：复用 RuleEditor 编辑当前空间的 AGENTS.md
        长文编辑场景 → 右侧全高抽屉（ob-drawer 体系），编辑器撑满剩余高度 -->
   <transition name="ob-drawer">
-    <div v-if="visible" class="ob-drawer" @mousedown.self="$emit('close')">
+    <div v-if="visible" class="ob-drawer" @mousedown.self="emit('close')">
       <div class="ob-drawer-panel sr-panel">
         <header class="ob-drawer-header">
           <div class="sr-head-left">
@@ -10,7 +10,7 @@
             <span v-if="hasRule" class="sr-badge ok">已配置</span>
             <span v-else class="sr-badge none">未配置</span>
           </div>
-          <svg-icon icon-class="close" class="ob-dialog-close" @click="$emit('close')" />
+          <svg-icon icon-class="close" class="ob-dialog-close" @click="emit('close')" />
         </header>
 
         <div class="ob-drawer-body sr-body">
@@ -20,7 +20,7 @@
             :initial-content="content"
             :placeholder="placeholder"
             :show-preview="false"
-            @saved="$emit('saved')"
+            @saved="emit('saved')"
           />
           <div v-else class="sr-loading"><buddy-skeleton type="rows" :count="4" /></div>
         </div>
@@ -31,73 +31,67 @@
   </transition>
 </template>
 
-<script>
+<script setup>
 // 空间规则弹窗：getRule 读取 → RuleEditor 编辑保存（保存即销毁 pi 会话，主进程内置）
+import { ref, computed, watch } from 'vue'
 import RuleEditor from '@/components/buddy/RuleEditor.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
-export default {
-  name: 'SpaceRuleDialog',
-  components: { RuleEditor, BuddySkeleton },
-  props: {
-    visible: {
-      type: Boolean,
-      default: false
-    },
-    // 工作空间 id（规则目标 key）
-    spaceId: {
-      type: String,
-      default: ''
-    },
-    spaceName: {
-      type: String,
-      default: ''
-    },
-    // 外部传入的规则状态（hasRule，用于头部徽标）
-    hasRule: {
-      type: Boolean,
-      default: false
-    }
+defineOptions({ name: 'SpaceRuleDialog' })
+
+const props = defineProps({
+  visible: {
+    type: Boolean,
+    default: false
   },
-  data() {
-    return {
-      loaded: false,
-      content: ''
-    }
+  // 工作空间 id（规则目标 key）
+  spaceId: {
+    type: String,
+    default: ''
   },
-  computed: {
-    placeholder() {
-      return [
-        '# 本空间说明',
-        '此目录存放财务月度报表与凭证扫描件',
-        '',
-        '# 约定',
-        '- 日期格式统一 YYYYMMDD',
-        '- 供应商名录在 vendors.xlsx，以最新版为准'
-      ].join('\n')
-    }
+  spaceName: {
+    type: String,
+    default: ''
   },
-  watch: {
-    // 打开时读取当前空间规则内容（切空间后重开走同一入口）
-    async visible(v) {
-      if (!v) return
-      this.loaded = false
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      if (!api || !api.getRule || !this.spaceId) {
-        this.content = ''
-        this.loaded = true
-        return
-      }
-      try {
-        const res = await api.getRule(this.spaceId)
-        this.content = (res && res.ok && res.content) || ''
-      } catch (e) {
-        this.content = ''
-      }
-      this.loaded = true
-    }
+  // 外部传入的规则状态（hasRule，用于头部徽标）
+  hasRule: {
+    type: Boolean,
+    default: false
   }
-}
+})
+
+const emit = defineEmits(['saved', 'close'])
+
+const loaded = ref(false)
+const content = ref('')
+
+const placeholder = computed(() => [
+  '# 本空间说明',
+  '此目录存放财务月度报表与凭证扫描件',
+  '',
+  '# 约定',
+  '- 日期格式统一 YYYYMMDD',
+  '- 供应商名录在 vendors.xlsx，以最新版为准'
+].join('\n'))
+
+// 打开时读取当前空间规则内容（切空间后重开走同一入口）
+watch(() => props.visible, async v => {
+  if (!v) return
+  loaded.value = false
+  const api = window.electronAPI && window.electronAPI.omnibuddy
+  if (!api || !api.getRule || !props.spaceId) {
+    content.value = ''
+    loaded.value = true
+    return
+  }
+  try {
+    const res = await api.getRule(props.spaceId)
+    content.value = (res && res.ok && res.content) || ''
+  } catch (e) {
+    content.value = ''
+  }
+  loaded.value = true
+})
 </script>
 
 <style lang="scss" scoped>

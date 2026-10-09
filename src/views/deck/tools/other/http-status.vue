@@ -9,22 +9,20 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // HTTP 状态码速查：数据迁移自旧项目 httpState 模块
-export default {
-  name: 'OtherHttpStatus',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherHttpStatus' })
+
+const columns = [
         { key: 'category', title: '类别' },
         { key: 'code', title: '状态码', mono: true, tag: true },
         { key: 'description', title: '说明' }
-      ],
-      rows: [
+]
+
+const rows = [
         { category: '1xx（临时响应）', code: '100（继续）', description: '请求者应当继续提出请求。服务器已收到请求的第一部分，现等待剩余部分。' },
         { category: '1xx（临时响应）', code: '101（切换协议）', description: '请求者要求服务器切换协议，服务器已确认准备切换。' },
         { category: '2xx（成功）', code: '200（成功）', description: '服务器已成功处理请求，通常表示请求的网页已提供。' },
@@ -63,9 +61,6 @@ export default {
         { category: '5xx（服务器错误）', code: '502（错误网关）', description: '服务器作为网关，从上游服务器收到无效响应。' },
         { category: '5xx（服务器错误）', code: '503（服务不可用）', description: '服务器当前不可用，通常是暂时状态。' },
         { category: '5xx（服务器错误）', code: '504（网关超时）', description: '服务器作为网关，未及时从上游服务器接收响应。' },
-        { category: '5xx（服务器错误）', code: '505（HTTP 版本不受支持）', description: '服务器不支持请求中使用的 HTTP 版本。' },
-      ]
-    }
-  }
-}
+        { category: '5xx（服务器错误）', code: '505（HTTP 版本不受支持）', description: '服务器不支持请求中使用的 HTTP 版本。' }
+]
 </script>

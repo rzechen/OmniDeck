@@ -9,22 +9,20 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // Word 快捷键速查：数据迁移自旧项目 word 模块
-export default {
-  name: 'OtherWordShortcut',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherWordShortcut' })
+
+const columns = [
         { key: 'keys', title: 'Windows', mono: true, copy: true },
         { key: 'mac', title: 'Mac', mono: true, copy: true },
         { key: 'desc', title: '功能说明' }
-      ],
-      rows: [
+]
+
+const rows = [
         { keys: 'Ctrl+O', mac: '⌘+O', desc: '打开文档' },
         { keys: 'Ctrl+P', mac: '⌘+P', desc: '打印文档' },
         { keys: 'Ctrl+A', mac: '⌘+A', desc: '全选内容' },
@@ -69,9 +67,6 @@ export default {
         { keys: 'Ctrl++', mac: '⌘++', desc: '切换到下标输入状态' },
         { keys: 'Ctrl+Shift++', mac: '⇧+⌘++', desc: '切换到上标输入状态' },
         { keys: 'Ctrl+→', mac: '⌘+→', desc: '按单词 / 词语间隔向后移动光标' },
-        { keys: 'Ctrl+←', mac: '⌘+←', desc: '按单词 / 词语间隔向前移动光标' },
-      ]
-    }
-  }
-}
+        { keys: 'Ctrl+←', mac: '⌘+←', desc: '按单词 / 词语间隔向前移动光标' }
+]
 </script>

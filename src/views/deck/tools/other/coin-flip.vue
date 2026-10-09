@@ -75,71 +75,61 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 
-export default {
-  name: 'OtherCoinFlip',
-  components: { ToolShell },
-  data() {
-    return {
-      face: 'heads',
-      flipping: false,
-      lastResult: '',
-      flipCount: 0,
-      heads: 0,
-      tails: 0,
-      history: []
-    }
-  },
-  computed: {
-    total() {
-      return this.heads + this.tails
-    },
-    headsPct() {
-      return this.total ? Math.round((this.heads / this.total) * 100) : 50
-    },
-    tailsPct() {
-      return this.total ? 100 - this.headsPct : 50
-    }
-  },
-  methods: {
-    // 加密级随机：单次 0/1
-    randomBit() {
-      const arr = new Uint8Array(1)
-      crypto.getRandomValues(arr)
-      return arr[0] % 2
-    },
-    flip() {
-      if (this.flipping) return
-      this.flipping = true
-      this.lastResult = ''
-      setTimeout(() => {
-        const bit = this.randomBit()
-        this.face = bit === 0 ? 'heads' : 'tails'
-        if (bit === 0) this.heads++
-        else this.tails++
-        this.history.push(this.face)
-        if (this.history.length > 50) this.history.shift()
-        this.lastResult = bit === 0 ? '正面' : '反面'
-        this.flipCount++
-        this.flipping = false
-      }, 650)
-    },
-    async flip10() {
-      for (let i = 0; i < 10; i++) {
-        if (this.flipping) await new Promise(r => setTimeout(r, 120))
-        this.flip()
-        await new Promise(r => setTimeout(r, 700))
-      }
-    },
-    reset() {
-      this.heads = 0
-      this.tails = 0
-      this.history = []
-      this.lastResult = ''
-    }
+defineOptions({ name: 'OtherCoinFlip' })
+
+const face = ref('heads')
+const flipping = ref(false)
+const lastResult = ref('')
+const flipCount = ref(0)
+const heads = ref(0)
+const tails = ref(0)
+const history = ref([])
+
+const total = computed(() => heads.value + tails.value)
+const headsPct = computed(() => (total.value ? Math.round((heads.value / total.value) * 100) : 50))
+const tailsPct = computed(() => (total.value ? 100 - headsPct.value : 50))
+
+// 加密级随机：单次 0/1
+function randomBit() {
+  const arr = new Uint8Array(1)
+  crypto.getRandomValues(arr)
+  return arr[0] % 2
+}
+
+function flip() {
+  if (flipping.value) return
+  flipping.value = true
+  lastResult.value = ''
+  setTimeout(() => {
+    const bit = randomBit()
+    face.value = bit === 0 ? 'heads' : 'tails'
+    if (bit === 0) heads.value++
+    else tails.value++
+    history.value.push(face.value)
+    if (history.value.length > 50) history.value.shift()
+    lastResult.value = bit === 0 ? '正面' : '反面'
+    flipCount.value++
+    flipping.value = false
+  }, 650)
+}
+
+async function flip10() {
+  for (let i = 0; i < 10; i++) {
+    if (flipping.value) await new Promise(r => setTimeout(r, 120))
+    flip()
+    await new Promise(r => setTimeout(r, 700))
   }
+}
+
+function reset() {
+  heads.value = 0
+  tails.value = 0
+  history.value = []
+  lastResult.value = ''
 }
 </script>
 

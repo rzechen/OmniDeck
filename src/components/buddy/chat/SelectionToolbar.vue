@@ -19,126 +19,139 @@
   </transition>
 </template>
 
-<script>
+<script setup>
 // 划选工具条（豆包风格深色浮条）：监听 document mouseup / selectionchange，
 // 选区落在指定容器（消息区）内时按选区矩形定位显示「复制 / 追问」。
 // 生命周期由父组件显式管理（setup / teardown）：keep-alive 切走时须移除监听。
-export default {
-  name: 'SelectionToolbar',
-  props: {
-    // 划选作用域容器 getter（返回消息滚动区 HTMLElement；函数实时取值，规避 prop 时序）
-    getArea: {
-      type: Function,
-      default: null
-    }
-  },
-  data() {
-    return {
-      visible: false,
-      text: '',
-      top: 0,
-      left: 0
-    }
-  },
-  created() {
-    // 已绑定 scroll 隐藏的容器（teardown 时解绑）
-    this._areaEl = null
-  },
-  beforeUnmount() {
-    this.teardown()
-  },
-  methods: {
-    // ===== 监听挂载 / 移除（父级 activated / deactivated 调用） =====
-    setup() {
-      document.addEventListener('mouseup', this.onMouseUp)
-      document.addEventListener('selectionchange', this.onSelChange)
-      window.addEventListener('resize', this.hide)
-      this.bindAreaScroll(true)
-    },
-    teardown() {
-      document.removeEventListener('mouseup', this.onMouseUp)
-      document.removeEventListener('selectionchange', this.onSelChange)
-      window.removeEventListener('resize', this.hide)
-      this.bindAreaScroll(false)
-      this.hide()
-    },
-    // 消息区滚动即隐藏（选区矩形随滚动失效）
-    bindAreaScroll(on) {
-      if (this._areaEl) {
-        this._areaEl.removeEventListener('scroll', this.hide)
-        this._areaEl = null
-      }
-      if (on) {
-        const el = this.getArea && this.getArea()
-        if (el) {
-          this._areaEl = el
-          this._areaEl.addEventListener('scroll', this.hide, { passive: true })
-        }
-      }
-    },
-    onMouseUp() {
-      // mouseup 后选区才最终确定，延后一帧取稳定状态
-      setTimeout(() => this.evaluate(), 0)
-    },
-    // 选区被折叠（点击空白 / 开始新选择）时立即隐藏
-    onSelChange() {
-      const sel = window.getSelection()
-      if (!sel || sel.isCollapsed) this.hide()
-    },
-    evaluate() {
-      const sel = window.getSelection()
-      if (!sel || sel.isCollapsed || !sel.rangeCount) return this.hide()
-      const range = sel.getRangeAt(0)
-      const node = range.commonAncestorContainer
-      const el = node.nodeType === 1 ? node : node.parentElement
-      // 选区必须落在消息区内（排除输入框 / 工具条自身 / 其他区域）
-      const area = this.getArea && this.getArea()
-      if (!area || !el || !area.contains(el)) return this.hide()
-      const text = String(sel.toString() || '').trim()
-      if (!text) return this.hide()
-      const rect = range.getBoundingClientRect()
-      if (!rect || (!rect.width && !rect.height)) return this.hide()
+import { ref, onBeforeUnmount } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-      this.text = text
-      // 浮条预估尺寸（宽 ~140 / 高 ~40）：选区上方居中，贴顶时翻到下方，左右越界钳制
-      const W = 140
-      const H = 44
-      const vw = window.innerWidth
-      let left = rect.left + rect.width / 2 - W / 2
-      left = Math.max(8, Math.min(left, vw - W - 8))
-      let top
-      if (rect.top - H - 6 >= 8) {
-        top = rect.top - H - 6
-      } else {
-        top = rect.bottom + 6
-      }
-      this.left = Math.round(left)
-      this.top = Math.round(top)
-      this.visible = true
-    },
-    hide() {
-      this.visible = false
-    },
-    copySel() {
-      const text = this.text
-      this.hide()
-      if (!text) return
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(
-          () => this.$message.success('已复制'),
-          () => this.$message.error('复制失败')
-        )
-      } else {
-        this.$message.error('当前环境不支持复制')
-      }
-    },
-    quoteSel() {
-      const text = this.text
-      this.hide()
-      if (text) this.$emit('quote', text)
+defineOptions({ name: 'SelectionToolbar' })
+
+const props = defineProps({
+  // 划选作用域容器 getter（返回消息滚动区 HTMLElement；函数实时取值，规避 prop 时序）
+  getArea: {
+    type: Function,
+    default: null
+  }
+})
+
+const emit = defineEmits(['quote'])
+
+const { message } = useFeedback()
+
+const visible = ref(false)
+const text = ref('')
+const top = ref(0)
+const left = ref(0)
+
+// 已绑定 scroll 隐藏的容器（teardown 时解绑）
+let areaEl = null
+
+onBeforeUnmount(() => {
+  teardown()
+})
+
+// ===== 监听挂载 / 移除（父级 activated / deactivated 调用） =====
+function setup() {
+  document.addEventListener('mouseup', onMouseUp)
+  document.addEventListener('selectionchange', onSelChange)
+  window.addEventListener('resize', hide)
+  bindAreaScroll(true)
+}
+
+function teardown() {
+  document.removeEventListener('mouseup', onMouseUp)
+  document.removeEventListener('selectionchange', onSelChange)
+  window.removeEventListener('resize', hide)
+  bindAreaScroll(false)
+  hide()
+}
+
+// 消息区滚动即隐藏（选区矩形随滚动失效）
+function bindAreaScroll(on) {
+  if (areaEl) {
+    areaEl.removeEventListener('scroll', hide)
+    areaEl = null
+  }
+  if (on) {
+    const el = props.getArea && props.getArea()
+    if (el) {
+      areaEl = el
+      areaEl.addEventListener('scroll', hide, { passive: true })
     }
   }
 }
+
+function onMouseUp() {
+  // mouseup 后选区才最终确定，延后一帧取稳定状态
+  setTimeout(() => evaluate(), 0)
+}
+
+// 选区被折叠（点击空白 / 开始新选择）时立即隐藏
+function onSelChange() {
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed) hide()
+}
+
+function evaluate() {
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return hide()
+  const range = sel.getRangeAt(0)
+  const node = range.commonAncestorContainer
+  const el = node.nodeType === 1 ? node : node.parentElement
+  // 选区必须落在消息区内（排除输入框 / 工具条自身 / 其他区域）
+  const area = props.getArea && props.getArea()
+  if (!area || !el || !area.contains(el)) return hide()
+  const selText = String(sel.toString() || '').trim()
+  if (!selText) return hide()
+  const rect = range.getBoundingClientRect()
+  if (!rect || (!rect.width && !rect.height)) return hide()
+
+  text.value = selText
+  // 浮条预估尺寸（宽 ~140 / 高 ~40）：选区上方居中，贴顶时翻到下方，左右越界钳制
+  const W = 140
+  const H = 44
+  const vw = window.innerWidth
+  let posLeft = rect.left + rect.width / 2 - W / 2
+  posLeft = Math.max(8, Math.min(posLeft, vw - W - 8))
+  let posTop
+  if (rect.top - H - 6 >= 8) {
+    posTop = rect.top - H - 6
+  } else {
+    posTop = rect.bottom + 6
+  }
+  left.value = Math.round(posLeft)
+  top.value = Math.round(posTop)
+  visible.value = true
+}
+
+function hide() {
+  visible.value = false
+}
+
+function copySel() {
+  const selText = text.value
+  hide()
+  if (!selText) return
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(selText).then(
+      () => message.success('已复制'),
+      () => message.error('复制失败')
+    )
+  } else {
+    message.error('当前环境不支持复制')
+  }
+}
+
+function quoteSel() {
+  const selText = text.value
+  hide()
+  if (selText) emit('quote', selText)
+}
+
+// 父组件经模板 ref 显式管理监听生命周期（setup / teardown）
+defineExpose({ setup, teardown })
 </script>
 
 <style lang="scss" scoped>

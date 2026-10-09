@@ -85,13 +85,19 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { html as beautifyHtml } from 'js-beautify'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/ui/download'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'ConvertJsonXml' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/convert/json-to-xml'
 
@@ -130,164 +136,163 @@ function escapeXml(s) {
     .replace(/'/g, '&apos;')
 }
 
-export default {
-  name: 'ConvertJsonXml',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      direction: 'j2x',
-      rawInput: JSON_EXAMPLE,
-      rootName: 'root',
-      output: '',
-      errorMsg: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
+const direction = ref('j2x')
+const rawInput = ref(JSON_EXAMPLE)
+const rootName = ref('root')
+const output = ref('')
+const errorMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+// 防抖定时器（非响应式）
+let timer = null
+
+function convert() {
+  errorMsg.value = ''
+  output.value = ''
+  if (!rawInput.value.trim()) return
+  try {
+    if (direction.value === 'j2x') {
+      const obj = JSON.parse(rawInput.value)
+      if (typeof obj !== 'object' || obj === null) {
+        throw new Error('请输入 JSON 对象或数组')
+      }
+      const root = (rootName.value.trim() || 'root')
+      if (!validTag(root)) throw new Error(`根节点名「${root}」不是合法的 XML 标签名`)
+      output.value = beautifyHtml(jsonToXml(obj, root, 0), {
+        indent_size: 2,
+        preserve_newlines: false,
+        wrap_line_length: 0
+      })
+    } else {
+      const doc = new DOMParser().parseFromString(rawInput.value, 'application/xml')
+      if (doc.querySelector('parsererror')) {
+        throw new Error('XML 语法错误：' + doc.querySelector('parsererror').textContent.slice(0, 80))
+      }
+      output.value = JSON.stringify(xmlToJson(doc.documentElement), null, 2)
     }
-  },
-  watch: {
-    rawInput() {
-      clearTimeout(this._timer)
-      this._timer = setTimeout(() => this.convert(), 250)
-    },
-    direction() {
-      if (this.output && !this.errorMsg) {
-        this.rawInput = this.output
-      } else {
-        this.rawInput = this.direction === 'j2x' ? JSON_EXAMPLE : XML_EXAMPLE
-      }
-      this.convert()
-    },
-    rootName() {
-      if (this.direction === 'j2x') this.convert()
-    }
-  },
-  mounted() {
-    this.convert()
-  },
-  beforeUnmount() {
-    clearTimeout(this._timer)
-  },
-  methods: {
-    convert() {
-      this.errorMsg = ''
-      this.output = ''
-      if (!this.rawInput.trim()) return
-      try {
-        if (this.direction === 'j2x') {
-          const obj = JSON.parse(this.rawInput)
-          if (typeof obj !== 'object' || obj === null) {
-            throw new Error('请输入 JSON 对象或数组')
-          }
-          const root = (this.rootName.trim() || 'root')
-          if (!validTag(root)) throw new Error(`根节点名「${root}」不是合法的 XML 标签名`)
-          this.output = beautifyHtml(this.jsonToXml(obj, root), {
-            indent_size: 2,
-            preserve_newlines: false,
-            wrap_line_length: 0
-          })
-        } else {
-          const doc = new DOMParser().parseFromString(this.rawInput, 'application/xml')
-          if (doc.querySelector('parsererror')) {
-            throw new Error('XML 语法错误：' + doc.querySelector('parsererror').textContent.slice(0, 80))
-          }
-          this.output = JSON.stringify(this.xmlToJson(doc.documentElement), null, 2)
-        }
-      } catch (e) {
-        this.errorMsg = e.message
-      }
-    },
-    // JSON → XML：数组同标签重复、嵌套对象递归
-    jsonToXml(value, tag, indent) {
-      if (Array.isArray(value)) {
-        return value.map(v => this.jsonToXml(v, tag, indent)).join('\n')
-      }
-      const pad = ' '.repeat(indent)
-      if (typeof value === 'object' && value !== null) {
-        const inner = Object.entries(value)
-          .map(([k, v]) => {
-            if (!validTag(k)) throw new Error(`字段名「${k}」不能作为 XML 标签，请修改字段名`)
-            return this.jsonToXml(v, k, indent + 2)
-          })
-          .join('\n')
-        return `${pad}<${tag}>\n${inner}\n${pad}</${tag}>`
-      }
-      return `${pad}<${tag}>${escapeXml(value)}</${tag}>`
-    },
-    // XML → JSON：同名兄弟标签合并为数组；文本节点转 number/boolean
-    xmlToJson(el) {
-      const children = [...el.children]
-      if (!children.length) {
-        const text = (el.textContent || '').trim()
-        if (text === '') return null
-        if (text === 'true') return true
-        if (text === 'false') return false
-        if (!isNaN(Number(text))) return Number(text)
-        return text
-      }
-      const obj = {}
-      children.forEach(c => {
-        const v = this.xmlToJson(c)
-        if (obj[c.tagName] === undefined) {
-          obj[c.tagName] = v
-        } else if (Array.isArray(obj[c.tagName])) {
-          obj[c.tagName].push(v)
-        } else {
-          obj[c.tagName] = [obj[c.tagName], v]
-        }
-      })
-      return obj
-    },
-    copyOutput() {
-      if (!this.output) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.output).then(() => {
-        this.$message.success('复制成功')
-        // 仅按钮触发记录（防抖自动转换不记录）
-        record(TOOL_PATH, {
-          input: this.rawInput,
-          output: this.output,
-          options: { action: 'copy', direction: this.direction, rootName: this.rootName }
-        })
-      })
-    },
-    downloadOutput() {
-      if (!this.output) {
-        this.$message.warning('没有可下载的内容')
-        return
-      }
-      downloadText(this.direction === 'j2x' ? 'export.xml' : 'export.json', this.output)
-      record(TOOL_PATH, {
-        input: this.rawInput,
-        output: this.output,
-        options: { action: 'download', direction: this.direction, rootName: this.rootName }
-      })
-    },
-    // 从历史恢复：回填输入（含方向与根节点名）并触发转换
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      if (full.options && full.options.direction) this.direction = full.options.direction
-      if (full.options && full.options.rootName) this.rootName = full.options.rootName
-      this.rawInput = full.input || ''
-      this.$nextTick(() => {
-        this.convert()
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.rawInput = ''
-      this.output = ''
-      this.$refs.inputEditor.focus()
-    }
+  } catch (e) {
+    errorMsg.value = e.message
   }
 }
+
+// JSON → XML：数组同标签重复、嵌套对象递归
+function jsonToXml(value, tag, indent) {
+  if (Array.isArray(value)) {
+    return value.map(v => jsonToXml(v, tag, indent)).join('\n')
+  }
+  const pad = ' '.repeat(indent)
+  if (typeof value === 'object' && value !== null) {
+    const inner = Object.entries(value)
+      .map(([k, v]) => {
+        if (!validTag(k)) throw new Error(`字段名「${k}」不能作为 XML 标签，请修改字段名`)
+        return jsonToXml(v, k, indent + 2)
+      })
+      .join('\n')
+    return `${pad}<${tag}>\n${inner}\n${pad}</${tag}>`
+  }
+  return `${pad}<${tag}>${escapeXml(value)}</${tag}>`
+}
+
+// XML → JSON：同名兄弟标签合并为数组；文本节点转 number/boolean
+function xmlToJson(el) {
+  const children = [...el.children]
+  if (!children.length) {
+    const text = (el.textContent || '').trim()
+    if (text === '') return null
+    if (text === 'true') return true
+    if (text === 'false') return false
+    if (!isNaN(Number(text))) return Number(text)
+    return text
+  }
+  const obj = {}
+  children.forEach(c => {
+    const v = xmlToJson(c)
+    if (obj[c.tagName] === undefined) {
+      obj[c.tagName] = v
+    } else if (Array.isArray(obj[c.tagName])) {
+      obj[c.tagName].push(v)
+    } else {
+      obj[c.tagName] = [obj[c.tagName], v]
+    }
+  })
+  return obj
+}
+
+function copyOutput() {
+  if (!output.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(output.value).then(() => {
+    message.success('复制成功')
+    // 仅按钮触发记录（防抖自动转换不记录）
+    record(TOOL_PATH, {
+      input: rawInput.value,
+      output: output.value,
+      options: { action: 'copy', direction: direction.value, rootName: rootName.value }
+    })
+  })
+}
+
+function downloadOutput() {
+  if (!output.value) {
+    message.warning('没有可下载的内容')
+    return
+  }
+  downloadText(direction.value === 'j2x' ? 'export.xml' : 'export.json', output.value)
+  record(TOOL_PATH, {
+    input: rawInput.value,
+    output: output.value,
+    options: { action: 'download', direction: direction.value, rootName: rootName.value }
+  })
+}
+
+// 从历史恢复：回填输入（含方向与根节点名）并触发转换
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  if (full.options && full.options.direction) direction.value = full.options.direction
+  if (full.options && full.options.rootName) rootName.value = full.options.rootName
+  rawInput.value = full.input || ''
+  await nextTick()
+  convert()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  rawInput.value = ''
+  output.value = ''
+  inputEditor.value.focus()
+}
+
+watch(rawInput, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => convert(), 250)
+})
+watch(direction, () => {
+  if (output.value && !errorMsg.value) {
+    rawInput.value = output.value
+  } else {
+    rawInput.value = direction.value === 'j2x' ? JSON_EXAMPLE : XML_EXAMPLE
+  }
+  convert()
+})
+watch(rootName, () => {
+  if (direction.value === 'j2x') convert()
+})
+
+onMounted(() => {
+  convert()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
 </script>
 
 <style lang="scss" scoped>

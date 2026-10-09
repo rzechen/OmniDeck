@@ -9,6 +9,7 @@ const builtinTools = require('../tools/builtin-tools')
 const permissions = require('../platform/permissions')
 const credentials = require('../integrations/credentials')
 const webSearch = require('../integrations/web-search')
+const mcp = require('../integrations/mcp')
 const capabilities = require('../platform/capabilities')
 const docExport = require('../tools/doc-export')
 const imageGen = require('../tools/image-gen')
@@ -341,6 +342,12 @@ async function disposeSession(chatId) {
   rejectUiAsks(chatId)
   try { entry.unsubscribe() } catch (e) { /* 忽略 */ }
   try { await entry.session.dispose() } catch (e) { /* 忽略 */ }
+  // pi dispose 不发射 session_shutdown，MCP stdio 子进程不随之关闭（详见
+  // mcp.cleanupLeakedServers 注释）；最后一个会话销毁后清理泄漏进程，
+  // 有并发会话时不清理（无法区分子进程归属，等最后一个会话销毁/退出）
+  if (state.sessions.size === 0) {
+    try { mcp.cleanupLeakedServers() } catch (e) { /* 忽略 */ }
+  }
 }
 
 // 触发 pi-memory 退出摘要（自动记忆链路）：SDK 的 dispose() 是纯同步清理、

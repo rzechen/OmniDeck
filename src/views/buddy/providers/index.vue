@@ -89,132 +89,135 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 模型管理页：列表管理（新建/编辑/删除/设默认）
 // 所有模型统一走 OpenAI / Anthropic 接口规范，保存前经真实请求测试连接
 // 卡片与新建/编辑弹窗已拆分至 ./components/（ProviderCard / ProviderFormDialog）
+import { ref, computed } from 'vue'
 import { getItem, setItem } from '@/utils/storage/db'
 import ProviderCard from './components/ProviderCard.vue'
 import ProviderFormDialog from './components/ProviderFormDialog.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddyProviders',
-  components: { ProviderCard, ProviderFormDialog },
-  data() {
-    return {
-      list: [],
-      // 弹窗显隐与编辑对象（null 表示新建）
-      dialogVisible: false,
-      editingId: null,
-      editingProvider: null,
-      // 新建模式（'chat' 文本 / 'image' 图像），传给表单弹窗
-      createMode: 'chat'
-    }
-  },
-  computed: {
-    // 文本生成模型（对话 / 任务执行模型）
-    chatProviders() {
-      return this.list.filter(p => p.type !== 'image')
-    },
-    // 图像生成模型（generate_image 专用，不参与对话）
-    imageProviders() {
-      return this.list.filter(p => p.type === 'image')
-    }
-  },
-  created() {
-    this.load()
-  },
-  methods: {
-    load() {
-      const saved = getItem('aiProviderList', [])
-      let list = Array.isArray(saved) ? saved : []
-      // 兼容旧数据：Ollama 类型映射为自定义
-      if (list.some(p => p.type === 'ollama')) {
-        list = list.map(p => (p.type === 'ollama' ? { ...p, type: 'custom' } : p))
-        setItem('aiProviderList', list)
-      }
-      this.list = list
-    },
-    persist() {
-      setItem('aiProviderList', this.list)
-      // 同步模型列表镜像到主进程：定时任务按 providerId 绑定执行模型（IndexedDB 主进程不可读）。
-      // JSON 拷贝穿透响应式 Proxy（IPC 结构化克隆无法序列化 Proxy）
-      const auto = (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.automation) || null
-      if (auto && auto.syncProviders) {
-        Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(this.list)))).catch(() => {})
-      }
-    },
-    // 新建：记录模式（文本 / 图像）后清空编辑状态打开弹窗
-    openCreate(mode) {
-      this.createMode = mode === 'image' ? 'image' : 'chat'
-      this.editingId = null
-      this.editingProvider = null
-      this.dialogVisible = true
-    },
-    // 编辑：暂存编辑对象后打开弹窗
-    openEdit(p) {
-      this.editingId = p.id
-      this.editingProvider = p
-      this.dialogVisible = true
-    },
-    // 弹窗保存回调：写入编辑项或追加新记录并持久化（tier 保存时同档位自动顶替旧配置）
-    applySaved({ editingId, values, item }) {
-      if (editingId) {
-        const target = this.list.find(x => x.id === editingId)
-        if (target) {
-          target.name = values.name
-          target.apiFormat = values.apiFormat
-          target.baseUrl = values.baseUrl
-          target.model = values.model
-          target.displayName = values.displayName
-          target.apiKey = values.apiKey
-          target.tier = values.tier || ''
-          target.modelSeries = values.modelSeries || 'default'
-          target.contextWindowInput = values.contextWindowInput != null ? values.contextWindowInput : null
-          target.contextWindowOutput = values.contextWindowOutput != null ? values.contextWindowOutput : null
-          target.toolTurns = values.toolTurns || 500
-          target.imageInput = values.imageInput !== false
-          target.thinkingMode = values.thinkingMode || 'follow'
-          // 采样参数（pi 1.0.2+ samplingParamsByThinkingLevel）：null 表示未配置（清除既有值）
-          target.sampling = values.sampling || null
-          target.type = values.type || 'custom'
-        }
-      } else if (item) {
-        this.list.push(item)
-      }
-      // 同档位互斥：新配置顶掉其它供应商的同档位
-      const source = editingId ? this.list.find(x => x.id === editingId) : item
-      if (source && source.tier) {
-        this.list.forEach(p => {
-          if (p.id !== source.id && p.tier === source.tier) p.tier = ''
-        })
-      }
-      this.persist()
-    },
-    // 设为默认供应商
-    setDefault(id) {
-      this.list.forEach(p => {
-        p.isDefault = p.id === id
-      })
-      this.persist()
-    },
-    // 删除（带确认；删除默认项后自动指定新的默认）
-    removeProvider(p) {
-      this.$confirm('确定删除模型「' + p.name + '」吗？', '删除模型', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(() => {
-        this.list = this.list.filter(x => x.id !== p.id)
-        if (p.isDefault && this.list.length) {
-          this.list[0].isDefault = true
-        }
-        this.persist()
-        this.$message.success('已删除')
-      }).catch(() => {})
-    }
+defineOptions({ name: 'OmniBuddyProviders' })
+
+const { message, confirm } = useFeedback()
+
+const list = ref([])
+// 弹窗显隐与编辑对象（null 表示新建）
+const dialogVisible = ref(false)
+const editingId = ref(null)
+const editingProvider = ref(null)
+// 新建模式（'chat' 文本 / 'image' 图像），传给表单弹窗
+const createMode = ref('chat')
+
+// 文本生成模型（对话 / 任务执行模型）
+const chatProviders = computed(() => {
+  return list.value.filter(p => p.type !== 'image')
+})
+
+// 图像生成模型（generate_image 专用，不参与对话）
+const imageProviders = computed(() => {
+  return list.value.filter(p => p.type === 'image')
+})
+
+function load() {
+  const saved = getItem('aiProviderList', [])
+  let providers = Array.isArray(saved) ? saved : []
+  // 兼容旧数据：Ollama 类型映射为自定义
+  if (providers.some(p => p.type === 'ollama')) {
+    providers = providers.map(p => (p.type === 'ollama' ? { ...p, type: 'custom' } : p))
+    setItem('aiProviderList', providers)
+  }
+  list.value = providers
+}
+
+function persist() {
+  setItem('aiProviderList', list.value)
+  // 同步模型列表镜像到主进程：定时任务按 providerId 绑定执行模型（IndexedDB 主进程不可读）。
+  // JSON 拷贝穿透响应式 Proxy（IPC 结构化克隆无法序列化 Proxy）
+  const auto = (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.automation) || null
+  if (auto && auto.syncProviders) {
+    Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(list.value)))).catch(() => {})
   }
 }
+
+// 新建：记录模式（文本 / 图像）后清空编辑状态打开弹窗
+function openCreate(mode) {
+  createMode.value = mode === 'image' ? 'image' : 'chat'
+  editingId.value = null
+  editingProvider.value = null
+  dialogVisible.value = true
+}
+
+// 编辑：暂存编辑对象后打开弹窗
+function openEdit(p) {
+  editingId.value = p.id
+  editingProvider.value = p
+  dialogVisible.value = true
+}
+
+// 弹窗保存回调：写入编辑项或追加新记录并持久化（tier 保存时同档位自动顶替旧配置）
+function applySaved({ editingId: savedId, values, item }) {
+  if (savedId) {
+    const target = list.value.find(x => x.id === savedId)
+    if (target) {
+      target.name = values.name
+      target.apiFormat = values.apiFormat
+      target.baseUrl = values.baseUrl
+      target.model = values.model
+      target.displayName = values.displayName
+      target.apiKey = values.apiKey
+      target.tier = values.tier || ''
+      target.modelSeries = values.modelSeries || 'default'
+      target.contextWindowInput = values.contextWindowInput != null ? values.contextWindowInput : null
+      target.contextWindowOutput = values.contextWindowOutput != null ? values.contextWindowOutput : null
+      target.toolTurns = values.toolTurns || 500
+      target.imageInput = values.imageInput !== false
+      target.thinkingMode = values.thinkingMode || 'follow'
+      // 采样参数（pi 1.0.2+ samplingParamsByThinkingLevel）：null 表示未配置（清除既有值）
+      target.sampling = values.sampling || null
+      target.type = values.type || 'custom'
+    }
+  } else if (item) {
+    list.value.push(item)
+  }
+  // 同档位互斥：新配置顶掉其它供应商的同档位
+  const source = savedId ? list.value.find(x => x.id === savedId) : item
+  if (source && source.tier) {
+    list.value.forEach(p => {
+      if (p.id !== source.id && p.tier === source.tier) p.tier = ''
+    })
+  }
+  persist()
+}
+
+// 设为默认供应商
+function setDefault(id) {
+  list.value.forEach(p => {
+    p.isDefault = p.id === id
+  })
+  persist()
+}
+
+// 删除（带确认；删除默认项后自动指定新的默认）
+function removeProvider(p) {
+  confirm('确定删除模型「' + p.name + '」吗？', '删除模型', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    list.value = list.value.filter(x => x.id !== p.id)
+    if (p.isDefault && list.value.length) {
+      list.value[0].isDefault = true
+    }
+    persist()
+    message.success('已删除')
+  }).catch(() => {})
+}
+
+// created：进入页面即读取本地模型列表
+load()
 </script>
 
 <style lang="scss" scoped>

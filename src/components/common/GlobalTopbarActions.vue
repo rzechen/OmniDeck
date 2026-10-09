@@ -27,61 +27,61 @@
   </div>
 </template>
 
-<script>
-export default {
-  name: 'GlobalTopbarActions',
-  props: {
-    // 仅渲染 Windows 窗口控制（Buddy 视图：设置入口在侧栏头部，顶栏只留窗口控制）
-    winOnly: { type: Boolean, default: false }
-  },
-  data() {
-    return {
-      // Windows 无边框窗口控制（macOS 走系统红绿灯）
-      isWindows: !!(window.electronAPI && window.electronAPI.platform === 'win32'),
-      winMaximized: false
-    }
-  },
-  computed: {
-    // 当前处于 Buddy 视图时，设置页也走 Buddy 布局（保持视图上下文）
-    isBuddy() {
-      return this.$route.path.startsWith('/omnibuddy')
-    },
-    isActive() {
-      return this.$route.name === 'Settings' || this.$route.name === 'OmniBuddySettings'
-    }
-  },
-  mounted() {
-    // Windows：同步初始最大化状态 + 监听变化切换按钮图标
-    if (this.isWindows && window.electronAPI.winControl) {
-      window.electronAPI.winControl.isMaximized().then(v => {
-        this.winMaximized = v
-      })
-      this.offMaximized = window.electronAPI.winControl.onMaximizedChanged(v => {
-        this.winMaximized = v
-      })
-    }
-  },
-  beforeUnmount() {
-    if (this.offMaximized) this.offMaximized()
-  },
-  methods: {
-    goSettings() {
-      const name = this.isBuddy ? 'OmniBuddySettings' : 'Settings'
-      if (this.$route.name !== name) {
-        this.$router.push({ name }).catch(() => {})
-      }
-    },
-    // ===== Windows 窗口控制 =====
-    winMinimize() {
-      window.electronAPI.winControl.minimize()
-    },
-    winToggleMax() {
-      window.electronAPI.winControl.toggleMaximize()
-    },
-    winClose() {
-      window.electronAPI.winControl.close()
-    }
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
+defineOptions({ name: 'GlobalTopbarActions' })
+
+defineProps({
+  // 仅渲染 Windows 窗口控制（Buddy 视图：设置入口在侧栏头部，顶栏只留窗口控制）
+  winOnly: { type: Boolean, default: false }
+})
+
+const route = useRoute()
+const router = useRouter()
+
+// Windows 无边框窗口控制（macOS 走系统红绿灯）
+const isWindows = !!(window.electronAPI && window.electronAPI.platform === 'win32')
+const winMaximized = ref(false)
+let offMaximized = null
+
+// 当前处于 Buddy 视图时，设置页也走 Buddy 布局（保持视图上下文）
+const isBuddy = computed(() => route.path.startsWith('/omnibuddy'))
+const isActive = computed(() => route.name === 'Settings' || route.name === 'OmniBuddySettings')
+
+onMounted(() => {
+  // Windows：同步初始最大化状态 + 监听变化切换按钮图标
+  if (isWindows && window.electronAPI.winControl) {
+    window.electronAPI.winControl.isMaximized().then(v => {
+      winMaximized.value = v
+    })
+    offMaximized = window.electronAPI.winControl.onMaximizedChanged(v => {
+      winMaximized.value = v
+    })
   }
+})
+
+onBeforeUnmount(() => {
+  if (offMaximized) offMaximized()
+})
+
+function goSettings() {
+  const name = isBuddy.value ? 'OmniBuddySettings' : 'Settings'
+  if (route.name !== name) {
+    router.push({ name }).catch(() => {})
+  }
+}
+
+// ===== Windows 窗口控制 =====
+function winMinimize() {
+  window.electronAPI.winControl.minimize()
+}
+function winToggleMax() {
+  window.electronAPI.winControl.toggleMaximize()
+}
+function winClose() {
+  window.electronAPI.winControl.close()
 }
 </script>
 

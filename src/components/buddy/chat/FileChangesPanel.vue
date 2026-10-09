@@ -106,85 +106,85 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 文件变更汇总面板（消息级）：聚合本轮 tool items 的 fileChange，
 // 同一文件去重（列表仅呈现最新一次变更，完整历史在详情弹窗左侧以树形 tab 呈现）。
 // 数据来自 message.items（实时 tool_end 写入 / 历史记录归一化恢复），天然随会话持久化。
-export default {
-  name: 'FileChangesPanel',
-  props: {
-    // fileChange 数组（按工具调用时序）：{ file, type:'created'|'modified'|'deleted'|'mkdir', added, removed, rows, truncated }
-    changes: {
-      type: Array,
-      default: () => []
-    }
-  },
-  data() {
-    return {
-      expanded: false,
-      groupIndex: null, // 当前查看的文件分组下标（null = 未挂载弹窗）
-      changeIndex: -1, // 选中查看的变更在 history 中的下标
-      dialogVisible: false
-    }
-  },
-  computed: {
-    // 按文件去重分组：{ file, history: [fileChange...], latest }（保持首次出现顺序）
-    fileGroups() {
-      const map = new Map()
-      this.changes.forEach(c => {
-        if (!c || !c.file) return
-        if (!map.has(c.file)) map.set(c.file, { file: c.file, history: [] })
-        map.get(c.file).history.push(c)
-      })
-      const groups = Array.from(map.values())
-      groups.forEach(g => { g.latest = g.history[g.history.length - 1] })
-      return groups
-    },
-    group() {
-      return this.groupIndex === null ? null : (this.fileGroups[this.groupIndex] || null)
-    },
-    // 当前查看的变更（由左侧变更历史 tab 选中项决定）
-    detail() {
-      return this.group ? (this.group.history[this.changeIndex] || null) : null
-    },
-    // 汇总新增行数（按去重后各文件最新一次变更统计；部分超限未知时不计入，全部未知则不显示）
-    totalAdded() {
-      return this.sumKnown(this.fileGroups.map(g => g.latest.added))
-    },
-    totalRemoved() {
-      return this.sumKnown(this.fileGroups.map(g => g.latest.removed))
-    }
-  },
-  methods: {
-    typeLabel(t) {
-      return { created: '新建', modified: '修改', deleted: '删除', mkdir: '新建目录' }[t] || '变更'
-    },
-    // 行数取值（-1 = 超限未知 → 不显示）
-    addedOf(c) {
-      return typeof c.added === 'number' && c.added >= 0 ? c.added : null
-    },
-    removedOf(c) {
-      return typeof c.removed === 'number' && c.removed >= 0 ? c.removed : null
-    },
-    // 已知值求和（无任何已知值返回 null）
-    sumKnown(vals) {
-      const known = vals.filter(v => typeof v === 'number' && v >= 0)
-      if (!known.length) return null
-      return known.reduce((a, b) => a + b, 0)
-    },
-    // 空行占位：pre-wrap 下空字符串无行框会塌陷，用单个空格撑起行高
-    cellText(side) {
-      return side ? (side.text || ' ') : ''
-    },
-    // 打开单文件详情：默认选中最新一次变更
-    openDetail(i) {
-      const g = this.fileGroups[i]
-      if (!g) return
-      this.groupIndex = i
-      this.changeIndex = g.history.length - 1
-      this.dialogVisible = true
-    }
+import { ref, computed } from 'vue'
+
+defineOptions({ name: 'FileChangesPanel' })
+
+const props = defineProps({
+  // fileChange 数组（按工具调用时序）：{ file, type:'created'|'modified'|'deleted'|'mkdir', added, removed, rows, truncated }
+  changes: {
+    type: Array,
+    default: () => []
   }
+})
+
+const expanded = ref(false)
+const groupIndex = ref(null) // 当前查看的文件分组下标（null = 未挂载弹窗）
+const changeIndex = ref(-1) // 选中查看的变更在 history 中的下标
+const dialogVisible = ref(false)
+
+// 按文件去重分组：{ file, history: [fileChange...], latest }（保持首次出现顺序）
+const fileGroups = computed(() => {
+  const map = new Map()
+  props.changes.forEach(c => {
+    if (!c || !c.file) return
+    if (!map.has(c.file)) map.set(c.file, { file: c.file, history: [] })
+    map.get(c.file).history.push(c)
+  })
+  const groups = Array.from(map.values())
+  groups.forEach(g => { g.latest = g.history[g.history.length - 1] })
+  return groups
+})
+
+const group = computed(() => {
+  return groupIndex.value === null ? null : (fileGroups.value[groupIndex.value] || null)
+})
+
+// 当前查看的变更（由左侧变更历史 tab 选中项决定）
+const detail = computed(() => {
+  return group.value ? (group.value.history[changeIndex.value] || null) : null
+})
+
+// 汇总新增行数（按去重后各文件最新一次变更统计；部分超限未知时不计入，全部未知则不显示）
+const totalAdded = computed(() => sumKnown(fileGroups.value.map(g => g.latest.added)))
+const totalRemoved = computed(() => sumKnown(fileGroups.value.map(g => g.latest.removed)))
+
+function typeLabel(t) {
+  return { created: '新建', modified: '修改', deleted: '删除', mkdir: '新建目录' }[t] || '变更'
+}
+
+// 行数取值（-1 = 超限未知 → 不显示）
+function addedOf(c) {
+  return typeof c.added === 'number' && c.added >= 0 ? c.added : null
+}
+
+function removedOf(c) {
+  return typeof c.removed === 'number' && c.removed >= 0 ? c.removed : null
+}
+
+// 已知值求和（无任何已知值返回 null）
+function sumKnown(vals) {
+  const known = vals.filter(v => typeof v === 'number' && v >= 0)
+  if (!known.length) return null
+  return known.reduce((a, b) => a + b, 0)
+}
+
+// 空行占位：pre-wrap 下空字符串无行框会塌陷，用单个空格撑起行高
+function cellText(side) {
+  return side ? (side.text || ' ') : ''
+}
+
+// 打开单文件详情：默认选中最新一次变更
+function openDetail(i) {
+  const g = fileGroups.value[i]
+  if (!g) return
+  groupIndex.value = i
+  changeIndex.value = g.history.length - 1
+  dialogVisible.value = true
 }
 </script>
 

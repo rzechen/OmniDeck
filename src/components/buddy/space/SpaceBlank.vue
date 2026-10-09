@@ -10,30 +10,29 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 空间页空态占位
-export default {
-  name: 'SpaceBlank',
-  props: {
-    icon: {
-      type: String,
-      default: 'folder'
-    },
-    title: {
-      type: String,
-      required: true
-    },
-    desc: {
-      type: String,
-      default: ''
-    },
-    // 目录内空态（图标小一号）
-    small: {
-      type: Boolean,
-      default: false
-    }
+defineOptions({ name: 'SpaceBlank' })
+
+defineProps({
+  icon: {
+    type: String,
+    default: 'folder'
+  },
+  title: {
+    type: String,
+    required: true
+  },
+  desc: {
+    type: String,
+    default: ''
+  },
+  // 目录内空态（图标小一号）
+  small: {
+    type: Boolean,
+    default: false
   }
-}
+})
 </script>
 
 <style lang="scss" scoped>

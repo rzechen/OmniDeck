@@ -165,283 +165,300 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 记忆管理（增强）：pi-memory 记忆文件的查看 / 编辑页
 // 数据源：主进程 omnibuddy:memory:*（memory.js 读写 agentDir/memory 下的 markdown；
 // recovery 恢复记录只读展示；status 提供 pi-memory / qmd / collection 就绪状态）
+import { ref, reactive, computed } from 'vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OmniBuddyMemory',
-  components: { BuddySkeleton },
-  data() {
-    return {
-      loading: false,
-      loaded: false,
-      // 就绪状态（memory.status()）
-      st: { extension: '检测中…', qmd: '检测中…', collection: '检测中…' },
-      statusRaw: { installed: false, qmd: { available: false, collection: false } },
-      files: [],
-      stats: { longTermEntries: 0, dailyCount: 0, recoveryCount: 0 },
-      // 长期记忆分型条目（主进程解析 MEMORY.md）
-      longTermEntries: [],
-      byTypeObj: { preference: 0, semantic: 0, episodic: 0 },
-      // 编辑器视图：entries = 条目视图（长期记忆默认），source = 源码编辑
-      viewMode: 'source',
-      // 类型筛选（'' = 全部）
-      typeFilter: '',
-      // 文件名过滤
-      keyword: '',
-      // 当前打开的文件（null = 未选）
-      current: null,
-      form: { content: '' },
-      // 打开时已保存的原文（未保存修改判断）
-      savedContent: '',
-      saving: false
+defineOptions({ name: 'OmniBuddyMemory' })
+
+const { message, confirm } = useFeedback()
+
+const loading = ref(false)
+const loaded = ref(false)
+// 就绪状态（memory.status()）
+const st = reactive({ extension: '检测中…', qmd: '检测中…', collection: '检测中…' })
+const statusRaw = ref({ installed: false, qmd: { available: false, collection: false } })
+const files = ref([])
+const stats = reactive({ longTermEntries: 0, dailyCount: 0, recoveryCount: 0 })
+// 长期记忆分型条目（主进程解析 MEMORY.md）
+const longTermEntries = ref([])
+const byTypeObj = ref({ preference: 0, semantic: 0, episodic: 0 })
+// 编辑器视图：entries = 条目视图（长期记忆默认），source = 源码编辑
+const viewMode = ref('source')
+// 类型筛选（'' = 全部）
+const typeFilter = ref('')
+// 文件名过滤
+const keyword = ref('')
+// 当前打开的文件（null = 未选）
+const current = ref(null)
+const form = reactive({ content: '' })
+// 打开时已保存的原文（未保存修改判断）
+const savedContent = ref('')
+const saving = ref(false)
+
+const api = computed(() => {
+  return (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.memory) || null
+})
+
+// 分组文件列表（按标题/内容关键字过滤，用户视角）
+const groups = computed(() => {
+  const kw = keyword.value.toLowerCase()
+  const pick = kind => files.value.filter(f => f.kind === kind &&
+    (!kw || titleOf(f).toLowerCase().indexOf(kw) >= 0 || (f.name || '').toLowerCase().indexOf(kw) >= 0))
+  return [
+    { key: 'long_term', label: '长期记忆', items: pick('long_term'), emptyText: '暂无长期记忆' },
+    { key: 'scratchpad', label: '草稿板', items: pick('scratchpad'), emptyText: '暂无草稿清单' },
+    { key: 'daily', label: '每日日志', items: pick('daily'), emptyText: '暂无工作日志' },
+    { key: 'recovery', label: '恢复记录', items: pick('recovery'), emptyText: '暂无恢复记录' }
+  ]
+})
+
+// 恢复记录只读；其余记忆文件可编辑
+const readonly = computed(() => {
+  return !!current.value && current.value.kind === 'recovery'
+})
+
+// 三型统计（Hero 徽章）
+const byType = computed(() => {
+  return byTypeObj.value || { preference: 0, semantic: 0, episodic: 0 }
+})
+
+// 长期记忆打开且文件存在时默认条目视图
+const isEntryView = computed(() => {
+  return !!current.value && current.value.kind === 'long_term' && viewMode.value === 'entries'
+})
+
+// 类型筛选 chips（全部 + 三型）
+const typeChips = computed(() => {
+  return [
+    { key: '', label: '全部', count: longTermEntries.value.length },
+    { key: 'preference', label: '偏好', count: byType.value.preference },
+    { key: 'semantic', label: '事实', count: byType.value.semantic },
+    { key: 'episodic', label: '事件', count: byType.value.episodic }
+  ]
+})
+
+// 按类型过滤的条目列表
+const filteredEntries = computed(() => {
+  if (!typeFilter.value) return longTermEntries.value
+  return longTermEntries.value.filter(e => e.type === typeFilter.value)
+})
+
+// 是否存在未保存修改
+const isDirty = computed(() => {
+  return !!current.value && form.content !== savedContent.value
+})
+
+const placeholder = computed(() => {
+  if (!current.value) return ''
+  if (current.value.kind === 'long_term') {
+    return [
+      '「- #标签 内容」逐条书写，三型标签对齐 CoALA 记忆分层：',
+      '- #preference 本仓库一律使用 pnpm（用户偏好，长期有效）',
+      '- #semantic 后端选用 PostgreSQL（已确认事实与约定）',
+      '- #episodic 2026-09-23 完成记忆架构升级（情景事件）'
+    ].join('\n')
+  }
+  if (current.value.kind === 'scratchpad') return '- [ ] 修复登录超时问题'
+  return ''
+})
+
+// 状态条配色（正常 / 降级）
+const statusClass = computed(() => {
+  const s = statusRaw.value
+  return {
+    extension: s.installed ? 'ok' : 'warn',
+    qmd: s.qmd.available ? 'ok' : 'warn',
+    collection: s.qmd.collection ? 'ok' : 'warn'
+  }
+})
+
+// 分组条目图标
+function iconOf(f) {
+  return { long_term: 'memory', scratchpad: 'todo', daily: 'document', recovery: 'refresh-left' }[f.kind] || 'document'
+}
+
+// 条目标题：用户视角命名（不暴露文件名 / 路径）
+// 日志按日期、恢复记录按保存时间区分
+function titleOf(f) {
+  if (f.kind === 'long_term') return '长期记忆'
+  if (f.kind === 'scratchpad') return '草稿板'
+  if (f.kind === 'daily') return f.name.replace(/\.md$/, '') + ' 的日志'
+  if (f.kind === 'recovery') {
+    const t = (f.mtime || '').slice(5, 16).replace('T', ' ')
+    return '恢复记录' + (t ? ' · ' + t : '')
+  }
+  return f.name
+}
+
+// 条目元信息：大小 + 修改时间；不存在显示「暂无内容」
+function metaOf(f) {
+  if (!f.exists) return '暂无内容'
+  const kb = f.size > 1024 ? (f.size / 1024).toFixed(1) + ' KB' : f.size + ' B'
+  const day = (f.mtime || '').slice(0, 16).replace('T', ' ')
+  return kb + (day ? ' · ' + day : '')
+}
+
+// 打开文件：读取内容进入编辑器
+async function openFile(f) {
+  if (!api.value) return
+  if (isDirty.value) {
+    try {
+      await confirm('当前内容尚未保存，切换后将丢失修改，确定继续？', '提示', {
+        confirmButtonText: '继续',
+        cancelButtonText: '留下',
+        type: 'warning'
+      })
+    } catch (e) {
+      return
     }
-  },
-  computed: {
-    api() {
-      return (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.memory) || null
-    },
-    // 分组文件列表（按标题/内容关键字过滤，用户视角）
-    groups() {
-      const kw = this.keyword.toLowerCase()
-      const pick = kind => this.files.filter(f => f.kind === kind &&
-        (!kw || this.titleOf(f).toLowerCase().indexOf(kw) >= 0 || (f.name || '').toLowerCase().indexOf(kw) >= 0))
-      return [
-        { key: 'long_term', label: '长期记忆', items: pick('long_term'), emptyText: '暂无长期记忆' },
-        { key: 'scratchpad', label: '草稿板', items: pick('scratchpad'), emptyText: '暂无草稿清单' },
-        { key: 'daily', label: '每日日志', items: pick('daily'), emptyText: '暂无工作日志' },
-        { key: 'recovery', label: '恢复记录', items: pick('recovery'), emptyText: '暂无恢复记录' }
-      ]
-    },
-    // 恢复记录只读；其余记忆文件可编辑
-    readonly() {
-      return !!this.current && this.current.kind === 'recovery'
-    },
-    // 三型统计（Hero 徽章）
-    byType() {
-      return this.byTypeObj || { preference: 0, semantic: 0, episodic: 0 }
-    },
-    // 长期记忆打开且文件存在时默认条目视图
-    isEntryView() {
-      return !!this.current && this.current.kind === 'long_term' && this.viewMode === 'entries'
-    },
-    // 类型筛选 chips（全部 + 三型）
-    typeChips() {
-      return [
-        { key: '', label: '全部', count: this.longTermEntries.length },
-        { key: 'preference', label: '偏好', count: this.byType.preference },
-        { key: 'semantic', label: '事实', count: this.byType.semantic },
-        { key: 'episodic', label: '事件', count: this.byType.episodic }
-      ]
-    },
-    // 按类型过滤的条目列表
-    filteredEntries() {
-      if (!this.typeFilter) return this.longTermEntries
-      return this.longTermEntries.filter(e => e.type === this.typeFilter)
-    },
-    // 是否存在未保存修改
-    isDirty() {
-      return !!this.current && this.form.content !== this.savedContent
-    },
-    placeholder() {
-      if (!this.current) return ''
-      if (this.current.kind === 'long_term') {
-        return [
-          '「- #标签 内容」逐条书写，三型标签对齐 CoALA 记忆分层：',
-          '- #preference 本仓库一律使用 pnpm（用户偏好，长期有效）',
-          '- #semantic 后端选用 PostgreSQL（已确认事实与约定）',
-          '- #episodic 2026-09-23 完成记忆架构升级（情景事件）'
-        ].join('\n')
-      }
-      if (this.current.kind === 'scratchpad') return '- [ ] 修复登录超时问题'
-      return ''
-    },
-    // 状态条配色（正常 / 降级）
-    statusClass() {
-      const s = this.statusRaw
-      return {
-        extension: s.installed ? 'ok' : 'warn',
-        qmd: s.qmd.available ? 'ok' : 'warn',
-        collection: s.qmd.collection ? 'ok' : 'warn'
+  }
+  const res = await api.value.read(f.path)
+  if (!res || !res.ok) {
+    message.error((res && res.error) || '读取失败')
+    return
+  }
+  current.value = Object.assign({}, f, { exists: res.exists })
+  form.content = res.content || ''
+  savedContent.value = form.content
+  // 长期记忆且已有内容 → 默认条目视图；其余（含新建）→ 源码视图
+  viewMode.value = (f.kind === 'long_term' && res.exists) ? 'entries' : 'source'
+  typeFilter.value = ''
+}
+
+// 条目视图 ⇄ 源码编辑切换（源码有未保存修改时提示）
+function toggleView() {
+  if (isEntryView.value) {
+    viewMode.value = 'source'
+    return
+  }
+  if (isDirty.value) {
+    message.warning('请先保存或放弃修改，再切回条目视图')
+    return
+  }
+  viewMode.value = 'entries'
+}
+
+// 单条删除长期记忆（主进程按 id 定位行组重写）
+async function removeOne(e) {
+  if (!api.value || !api.value.removeEntry) return
+  try {
+    await confirm('删除这条记忆？下一次对话起 Agent 将不再想起它。', '提示', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (err) {
+    return
+  }
+  const res = await api.value.removeEntry(e.id)
+  if (res && res.ok) {
+    message.success('已删除')
+    await loadList()
+    // 同步刷新当前打开的源码内容（条目视图数据随 loadList 更新）
+    if (current.value) {
+      const fresh = await api.value.read(current.value.path)
+      if (fresh && fresh.ok) {
+        current.value.exists = fresh.exists
+        form.content = fresh.content || ''
+        savedContent.value = form.content
+        if (!fresh.exists) viewMode.value = 'source'
       }
     }
-  },
-  created() {
-    this.load()
-  },
-  methods: {
-    // 分组条目图标
-    iconOf(f) {
-      return { long_term: 'memory', scratchpad: 'todo', daily: 'document', recovery: 'refresh-left' }[f.kind] || 'document'
-    },
-    // 条目标题：用户视角命名（不暴露文件名 / 路径）
-    // 日志按日期、恢复记录按保存时间区分
-    titleOf(f) {
-      if (f.kind === 'long_term') return '长期记忆'
-      if (f.kind === 'scratchpad') return '草稿板'
-      if (f.kind === 'daily') return f.name.replace(/\.md$/, '') + ' 的日志'
-      if (f.kind === 'recovery') {
-        const t = (f.mtime || '').slice(5, 16).replace('T', ' ')
-        return '恢复记录' + (t ? ' · ' + t : '')
-      }
-      return f.name
-    },
-    // 条目元信息：大小 + 修改时间；不存在显示「暂无内容」
-    metaOf(f) {
-      if (!f.exists) return '暂无内容'
-      const kb = f.size > 1024 ? (f.size / 1024).toFixed(1) + ' KB' : f.size + ' B'
-      const day = (f.mtime || '').slice(0, 16).replace('T', ' ')
-      return kb + (day ? ' · ' + day : '')
-    },
-    // 打开文件：读取内容进入编辑器
-    async openFile(f) {
-      if (!this.api) return
-      if (this.isDirty) {
-        try {
-          await this.$confirm('当前内容尚未保存，切换后将丢失修改，确定继续？', '提示', {
-            confirmButtonText: '继续',
-            cancelButtonText: '留下',
-            type: 'warning'
-          })
-        } catch (e) {
-          return
-        }
-      }
-      const res = await this.api.read(f.path)
-      if (!res || !res.ok) {
-        this.$message.error((res && res.error) || '读取失败')
-        return
-      }
-      this.current = Object.assign({}, f, { exists: res.exists })
-      this.form.content = res.content || ''
-      this.savedContent = this.form.content
-      // 长期记忆且已有内容 → 默认条目视图；其余（含新建）→ 源码视图
-      this.viewMode = (f.kind === 'long_term' && res.exists) ? 'entries' : 'source'
-      this.typeFilter = ''
-    },
-    // 条目视图 ⇄ 源码编辑切换（源码有未保存修改时提示）
-    toggleView() {
-      if (this.isEntryView) {
-        this.viewMode = 'source'
-        return
-      }
-      if (this.isDirty) {
-        this.$message.warning('请先保存或放弃修改，再切回条目视图')
-        return
-      }
-      this.viewMode = 'entries'
-    },
-    // 单条删除长期记忆（主进程按 id 定位行组重写）
-    async removeOne(e) {
-      if (!this.api || !this.api.removeEntry) return
-      try {
-        await this.$confirm('删除这条记忆？下一次对话起 Agent 将不再想起它。', '提示', {
-          confirmButtonText: '删除',
-          cancelButtonText: '取消',
-          type: 'warning'
-        })
-      } catch (err) {
-        return
-      }
-      const res = await this.api.removeEntry(e.id)
-      if (res && res.ok) {
-        this.$message.success('已删除')
-        await this.loadList()
-        // 同步刷新当前打开的源码内容（条目视图数据随 loadList 更新）
-        if (this.current) {
-          const fresh = await this.api.read(this.current.path)
-          if (fresh && fresh.ok) {
-            this.current.exists = fresh.exists
-            this.form.content = fresh.content || ''
-            this.savedContent = this.form.content
-            if (!fresh.exists) this.viewMode = 'source'
-          }
-        }
-      } else {
-        this.$message.error((res && res.error) || '删除失败')
-      }
-    },
-    // 分型中文名
-    typeLabel(t) {
-      return { preference: '偏好', semantic: '事实', episodic: '事件' }[t] || t
-    },
-    // 保存（清空保存 = 删除文件；保存后刷新清单，主进程会重建会话注入最新记忆）
-    async save() {
-      if (!this.current || !this.api) return
-      this.saving = true
-      try {
-        const res = await this.api.write({ path: this.current.path, content: this.form.content })
-        if (res && res.ok) {
-          this.savedContent = this.form.content
-          this.$message.success(res.removed ? '已清空该记忆' : '已保存，下一次对话生效')
-          await this.loadList()
-        } else {
-          this.$message.error((res && res.error) || '保存失败')
-        }
-      } finally {
-        this.saving = false
-      }
-    },
-    // 导出记忆：主进程汇总长期记忆/草稿板/每日日志为 Markdown，保存对话框选择位置
-    // 取消保存静默返回，仅失败时提示
-    async exportMemory() {
-      if (!this.api || !this.api.export) return
-      const res = await this.api.export()
-      if (!res) return
-      if (res.ok) {
-        this.$message.success('已导出：' + res.filePath)
-      } else if (!res.canceled) {
-        this.$message.error(res.error || '导出失败')
-      }
-    },
-    // 刷新：清单 + 就绪状态
-    refresh() {
-      this.load()
-    },
-    async load() {
-      if (!this.api) return
-      this.loading = true
-      try {
-        await Promise.all([this.loadList(), this.loadStatus()])
-        this.loaded = true
-      } finally {
-        this.loading = false
-      }
-    },
-    async loadList() {
-      if (!this.api) return
-      const res = await this.api.list()
-      if (res && res.ok) {
-        this.files = Array.isArray(res.files) ? res.files : []
-        this.stats = res.stats || this.stats
-        this.longTermEntries = (res.longTerm && res.longTerm.entries) || []
-        this.byTypeObj = (res.longTerm && res.longTerm.byType) || { preference: 0, semantic: 0, episodic: 0 }
-        // 当前打开的文件被删除时退出编辑器
-        if (this.current && !this.files.some(f => f.path === this.current.path)) {
-          this.current = null
-          this.form.content = ''
-          this.savedContent = ''
-        }
-      }
-    },
-    async loadStatus() {
-      if (!this.api) return
-      const res = await this.api.status()
-      if (!res || !res.ok) return
-      this.statusRaw = { installed: !!res.installed, qmd: res.qmd || {} }
-      this.st = {
-        extension: res.installed ? '已就绪' : '未就绪',
-        qmd: res.qmd.available ? '已就绪' : '不可用',
-        collection: res.qmd.available
-          ? (res.qmd.collection ? '已就绪' : '准备中')
-          : '不可用'
-      }
+  } else {
+    message.error((res && res.error) || '删除失败')
+  }
+}
+
+// 分型中文名
+function typeLabel(t) {
+  return { preference: '偏好', semantic: '事实', episodic: '事件' }[t] || t
+}
+
+// 保存（清空保存 = 删除文件；保存后刷新清单，主进程会重建会话注入最新记忆）
+async function save() {
+  if (!current.value || !api.value) return
+  saving.value = true
+  try {
+    const res = await api.value.write({ path: current.value.path, content: form.content })
+    if (res && res.ok) {
+      savedContent.value = form.content
+      message.success(res.removed ? '已清空该记忆' : '已保存，下一次对话生效')
+      await loadList()
+    } else {
+      message.error((res && res.error) || '保存失败')
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+// 导出记忆：主进程汇总长期记忆/草稿板/每日日志为 Markdown，保存对话框选择位置
+// 取消保存静默返回，仅失败时提示
+async function exportMemory() {
+  if (!api.value || !api.value.export) return
+  const res = await api.value.export()
+  if (!res) return
+  if (res.ok) {
+    message.success('已导出：' + res.filePath)
+  } else if (!res.canceled) {
+    message.error(res.error || '导出失败')
+  }
+}
+
+// 刷新：清单 + 就绪状态
+function refresh() {
+  load()
+}
+
+async function load() {
+  if (!api.value) return
+  loading.value = true
+  try {
+    await Promise.all([loadList(), loadStatus()])
+    loaded.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadList() {
+  if (!api.value) return
+  const res = await api.value.list()
+  if (res && res.ok) {
+    files.value = Array.isArray(res.files) ? res.files : []
+    Object.assign(stats, res.stats || stats)
+    longTermEntries.value = (res.longTerm && res.longTerm.entries) || []
+    byTypeObj.value = (res.longTerm && res.longTerm.byType) || { preference: 0, semantic: 0, episodic: 0 }
+    // 当前打开的文件被删除时退出编辑器
+    if (current.value && !files.value.some(f => f.path === current.value.path)) {
+      current.value = null
+      form.content = ''
+      savedContent.value = ''
     }
   }
 }
+
+async function loadStatus() {
+  if (!api.value) return
+  const res = await api.value.status()
+  if (!res || !res.ok) return
+  statusRaw.value = { installed: !!res.installed, qmd: res.qmd || {} }
+  Object.assign(st, {
+    extension: res.installed ? '已就绪' : '未就绪',
+    qmd: res.qmd.available ? '已就绪' : '不可用',
+    collection: res.qmd.available
+      ? (res.qmd.collection ? '已就绪' : '准备中')
+      : '不可用'
+  })
+}
+
+// created：进入页面即拉取数据
+load()
 </script>
 
 <style lang="scss" scoped>

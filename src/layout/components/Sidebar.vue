@@ -173,8 +173,12 @@
   </aside>
 </template>
 
-<script>
+<script setup>
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 import draggable from 'vuedraggable'
+import { bus } from '@/utils/ui/bus'
 import {
   homeItem,
   favoriteItem,
@@ -186,202 +190,200 @@ import {
 import { getMenuOrder, saveMenuOrder } from '@/utils/ui/menu-order'
 import { getShortcut, formatAccelerator, onShortcutsChanged } from '@/utils/ui/shortcuts'
 
-export default {
-  name: 'Sidebar',
-  components: { draggable },
-  props: {
-    collapsed: {
-      type: Boolean,
-      default: false
-    }
-  },
-  data() {
-    return {
-      home: homeItem,
-      favorite: favoriteItem,
-      todo: todoItem,
-      clipboard: clipboardItem,
-      browser: browserItem,
-      groups: [],
-      expandedMap: { tools: true },
-      // 滑动指示器位置（相对 nav 内容坐标）
-      indicator: { top: 0, height: 18, opacity: 0 },
-      // 首次定位完成后再启用过渡，避免指示器从顶部滑入
-      indicatorReady: false,
-      // 快捷键版本号（设置页改键后 bump，刷新提示文案）
-      shortcutVersion: 0
-    }
-  },
-  computed: {
-    // OmniBuddy 唤起快捷键提示（⌘OJ / Ctrl+O+J，随设置实时变化）
-    buddyShortcutText() {
-      // 依赖版本号：改键后重新计算
-      void this.shortcutVersion
-      return formatAccelerator(getShortcut('buddy'))
-    },
-    toolsExpanded() {
-      return this.expandedMap.tools !== false
-    },
-    indicatorStyle() {
-      return {
-        top: this.indicator.top + 'px',
-        height: this.indicator.height + 'px',
-        opacity: this.indicator.opacity
-      }
-    }
-  },
-  watch: {
-    // 路由变化 → 指示器滑动到新的激活项
-    $route() {
-      this.$nextTick(this.updateIndicator)
-    },
-    // 展开/收起侧边栏：条目位置变化
-    collapsed() {
-      this.$nextTick(this.updateIndicator)
-    },
-    // 分组展开/收起：二级菜单位置变化
-    expandedMap: {
-      deep: true,
-      handler() {
-        this.$nextTick(this.updateIndicator)
-      }
-    }
-  },
-  created() {
-    // 深拷贝组结构（children 引用配置数组，保证拖拽变更同步到配置单例）
-    this.groups = menuGroups.map(g => ({ ...g }))
-    // 恢复持久化的排序
-    this.restoreOrder()
-    // 按设置的默认状态初始化分组展开/收起（'collapse' 时全部收起）
-    if (this.$store.state.sidebarGroupsDefault === 'collapse') {
-      const map = {}
-      this.groups.forEach(g => {
-        map[g.key] = false
-      })
-      this.expandedMap = map
-    }
-    // 设置页「还原排序」动作广播：重建菜单
-    this.$bus.on('menu-order-reset', this.onOrderReset)
-  },
-  beforeUnmount() {
-    this.$bus.off('menu-order-reset', this.onOrderReset)
-    if (this.offShortcutsChanged) this.offShortcutsChanged()
-  },
-  mounted() {
-    this.updateIndicator()
-    // 设置页改键后刷新快捷键提示文案
-    this.offShortcutsChanged = onShortcutsChanged(() => { this.shortcutVersion++ })
-    this.$nextTick(() => {
-      this.indicatorReady = true
-    })
-  },
-  methods: {
-    // 计算指示器位置：优先取可见的激活菜单项（二级菜单收起时回退到激活的组头）
-    updateIndicator() {
-      const nav = this.$refs.nav
-      if (!nav) return
-      const candidates = nav.querySelectorAll('.nav-item.active, .nav-group-header.active')
-      let el = null
-      for (let i = 0; i < candidates.length; i++) {
-        // offsetParent 为 null 说明元素（或其祖先）display:none，不可见
-        if (candidates[i].offsetParent !== null) {
-          el = candidates[i]
-          break
-        }
-      }
-      if (!el) {
-        this.indicator.opacity = 0
-        return
-      }
-      const h = el.offsetHeight
-      const barH = Math.min(18, Math.max(12, h - 8))
-      this.indicator = {
-        top: el.offsetTop + (h - barH) / 2,
-        height: barH,
-        opacity: 1
-      }
-    },
-    // 按给定顺序原地重排（splice 原地移动，保持数组引用稳定）
-    sortByNames(list, keyField, names) {
-      if (!names || !names.length) return
-      names.forEach((name, idx) => {
-        const i = list.findIndex(item => item[keyField] === name)
-        if (i > -1 && i !== idx) {
-          const [moved] = list.splice(i, 1)
-          list.splice(idx, 0, moved)
-        }
-      })
-    },
-    // 重建菜单结构并应用持久化排序
-    restoreOrder() {
-      this.groups = menuGroups.map(g => ({ ...g, children: [...g.children] }))
-      const order = getMenuOrder()
-      if (order) {
-        this.sortByNames(this.groups, 'key', order.groupKeys)
-        this.groups.forEach(g => {
-          if (order.children[g.key]) {
-            this.sortByNames(g.children, 'name', order.children[g.key])
-          }
-        })
-      }
-    },
-    // 设置页「还原排序」：持久化已被清除，直接重建为初始顺序
-    onOrderReset() {
-      this.restoreOrder()
-      this.expandedMap = { tools: true }
-      this.$nextTick(this.updateIndicator)
-    },
-    // 选中判断：路径匹配（当前路径等于菜单项路径，或以其为前缀）
-    // 工具详情页（如 /tools/format/json）保持对应分类菜单（/tools/format）高亮
-    isActive(item) {
-      const path = this.$route.path
-      return path === item.path || path.startsWith(item.path + '/')
-    },
-    isGroupActive(group) {
-      return group.children.some(item => this.isActive(item))
-    },
-    isSettingsActive() {
-      return this.$route.name === this.settings.name
-    },
-    isVersionActive() {
-      return this.$route.name === this.version.name
-    },
-    isGroupExpanded(group) {
-      return this.expandedMap[group.key] !== false
-    },
-    navigate(item) {
-      if (this.$route.name !== item.name) {
-        this.$router.push(item.path)
-      }
-    },
-    goBuddy() {
-      // 恢复 buddy 侧最后所在页面（无记录时回新任务页）
-      const target = this.$router.lastBuddyPath || '/omnibuddy'
-      if (this.$route.fullPath !== target) {
-        this.$router.push(target).catch(() => {})
-      }
-    },
-    onToggleGroup(group) {
-      if (this.collapsed) {
-        // 折叠状态下点击组图标，展开侧边栏
-        this.$store.commit('TOGGLE_SIDEBAR')
-      } else {
-        this.expandedMap[group.key] = !this.isGroupExpanded(group)
-      }
-    },
-    // 拖拽结束：持久化组顺序 + 每组内二级菜单顺序
-    saveGroupOrder() {
-      saveMenuOrder({
-        groupKeys: this.groups.map(g => g.key),
-        children: this.groups.reduce((acc, g) => {
-          acc[g.key] = g.children.map(c => c.name)
-          return acc
-        }, {})
-      })
-      this.$nextTick(this.updateIndicator)
+defineOptions({ name: 'Sidebar' })
+
+const props = defineProps({
+  collapsed: {
+    type: Boolean,
+    default: false
+  }
+})
+
+const route = useRoute()
+const router = useRouter()
+const store = useStore()
+
+const nav = ref(null)
+const home = homeItem
+const favorite = favoriteItem
+const todo = todoItem
+const clipboard = clipboardItem
+const browser = browserItem
+const groups = ref([])
+const expandedMap = reactive({ tools: true })
+// 滑动指示器位置（相对 nav 内容坐标）
+const indicator = reactive({ top: 0, height: 18, opacity: 0 })
+// 首次定位完成后再启用过渡，避免指示器从顶部滑入
+const indicatorReady = ref(false)
+// 快捷键版本号（设置页改键后 bump，刷新提示文案）
+const shortcutVersion = ref(0)
+let offShortcutsChanged = null
+
+// OmniBuddy 唤起快捷键提示（⌘OJ / Ctrl+O+J，随设置实时变化）
+const buddyShortcutText = computed(() => {
+  // 依赖版本号：改键后重新计算
+  void shortcutVersion.value
+  return formatAccelerator(getShortcut('buddy'))
+})
+
+const toolsExpanded = computed(() => expandedMap.tools !== false)
+
+const indicatorStyle = computed(() => ({
+  top: indicator.top + 'px',
+  height: indicator.height + 'px',
+  opacity: indicator.opacity
+}))
+
+// 路由变化 → 指示器滑动到新的激活项
+watch(() => route.fullPath, () => {
+  nextTick(updateIndicator)
+})
+
+// 展开/收起侧边栏：条目位置变化
+watch(() => props.collapsed, () => {
+  nextTick(updateIndicator)
+})
+
+// 分组展开/收起：二级菜单位置变化
+watch(expandedMap, () => {
+  nextTick(updateIndicator)
+}, { deep: true })
+
+// 计算指示器位置：优先取可见的激活菜单项（二级菜单收起时回退到激活的组头）
+function updateIndicator() {
+  const navEl = nav.value
+  if (!navEl) return
+  const candidates = navEl.querySelectorAll('.nav-item.active, .nav-group-header.active')
+  let el = null
+  for (let i = 0; i < candidates.length; i++) {
+    // offsetParent 为 null 说明元素（或其祖先）display:none，不可见
+    if (candidates[i].offsetParent !== null) {
+      el = candidates[i]
+      break
     }
   }
+  if (!el) {
+    indicator.opacity = 0
+    return
+  }
+  const h = el.offsetHeight
+  const barH = Math.min(18, Math.max(12, h - 8))
+  indicator.top = el.offsetTop + (h - barH) / 2
+  indicator.height = barH
+  indicator.opacity = 1
 }
+
+// 按给定顺序原地重排（splice 原地移动，保持数组引用稳定）
+function sortByNames(list, keyField, names) {
+  if (!names || !names.length) return
+  names.forEach((name, idx) => {
+    const i = list.findIndex(item => item[keyField] === name)
+    if (i > -1 && i !== idx) {
+      const [moved] = list.splice(i, 1)
+      list.splice(idx, 0, moved)
+    }
+  })
+}
+
+// 重建菜单结构并应用持久化排序
+function restoreOrder() {
+  groups.value = menuGroups.map(g => ({ ...g, children: [...g.children] }))
+  const order = getMenuOrder()
+  if (order) {
+    sortByNames(groups.value, 'key', order.groupKeys)
+    groups.value.forEach(g => {
+      if (order.children[g.key]) {
+        sortByNames(g.children, 'name', order.children[g.key])
+      }
+    })
+  }
+}
+
+// 设置页「还原排序」：持久化已被清除，直接重建为初始顺序
+function onOrderReset() {
+  restoreOrder()
+  Object.keys(expandedMap).forEach(k => delete expandedMap[k])
+  expandedMap.tools = true
+  nextTick(updateIndicator)
+}
+
+// 选中判断：路径匹配（当前路径等于菜单项路径，或以其为前缀）
+// 工具详情页（如 /tools/format/json）保持对应分类菜单（/tools/format）高亮
+function isActive(item) {
+  const path = route.path
+  return path === item.path || path.startsWith(item.path + '/')
+}
+
+function isGroupActive(group) {
+  return group.children.some(item => isActive(item))
+}
+
+function isGroupExpanded(group) {
+  return expandedMap[group.key] !== false
+}
+
+function navigate(item) {
+  if (route.name !== item.name) {
+    router.push(item.path)
+  }
+}
+
+function goBuddy() {
+  // 恢复 buddy 侧最后所在页面（无记录时回新任务页）
+  const target = router.lastBuddyPath || '/omnibuddy'
+  if (route.fullPath !== target) {
+    router.push(target).catch(() => {})
+  }
+}
+
+function onToggleGroup(group) {
+  if (props.collapsed) {
+    // 折叠状态下点击组图标，展开侧边栏
+    store.commit('TOGGLE_SIDEBAR')
+  } else {
+    expandedMap[group.key] = !isGroupExpanded(group)
+  }
+}
+
+// 拖拽结束：持久化组顺序 + 每组内二级菜单顺序
+function saveGroupOrder() {
+  saveMenuOrder({
+    groupKeys: groups.value.map(g => g.key),
+    children: groups.value.reduce((acc, g) => {
+      acc[g.key] = g.children.map(c => c.name)
+      return acc
+    }, {})
+  })
+  nextTick(updateIndicator)
+}
+
+// created：深拷贝组结构（children 引用配置数组，保证拖拽变更同步到配置单例）
+groups.value = menuGroups.map(g => ({ ...g }))
+// 恢复持久化的排序
+restoreOrder()
+// 按设置的默认状态初始化分组展开/收起（'collapse' 时全部收起）
+if (store.state.sidebarGroupsDefault === 'collapse') {
+  Object.keys(expandedMap).forEach(k => delete expandedMap[k])
+  groups.value.forEach(g => {
+    expandedMap[g.key] = false
+  })
+}
+// 设置页「还原排序」动作广播：重建菜单
+bus.on('menu-order-reset', onOrderReset)
+
+onMounted(() => {
+  updateIndicator()
+  // 设置页改键后刷新快捷键提示文案
+  offShortcutsChanged = onShortcutsChanged(() => { shortcutVersion.value++ })
+  nextTick(() => {
+    indicatorReady.value = true
+  })
+})
+
+onBeforeUnmount(() => {
+  bus.off('menu-order-reset', onOrderReset)
+  if (offShortcutsChanged) offShortcutsChanged()
+})
 </script>
 
 <style lang="scss" scoped>

@@ -9,24 +9,22 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // 扩展 ASCII（Latin-1）速查：数据迁移自旧项目 eascii 模块
-export default {
-  name: 'OtherEascii',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherEascii' })
+
+const columns = [
         { key: 'symbol', title: '符号', tag: true },
         { key: 'decimal', title: '十进制', mono: true },
         { key: 'hex', title: '十六进制', mono: true },
         { key: 'entity', title: 'HTML 实体', mono: true },
         { key: 'name', title: '名称' }
-      ],
-      rows: [
+]
+
+const rows = [
         { symbol: ' ', decimal: '0160', hex: '00A0', entity: '&nbsp;', name: '空格' },
         { symbol: '¡', decimal: '0161', hex: '00A1', entity: '&iexcl;', name: '倒感叹号' },
         { symbol: '¢', decimal: '0162', hex: '00A2', entity: '&cent;', name: '英分' },
@@ -107,9 +105,6 @@ export default {
         { symbol: 'ú', decimal: '0250', hex: '00FA', entity: '&uacute;', name: '锐音符 u' },
         { symbol: 'û', decimal: '0251', hex: '00FB', entity: '&ucirc;', name: '扬抑符 u' },
         { symbol: 'ü', decimal: '0252', hex: '00FC', entity: '&uuml;', name: '分音符 u' },
-        { symbol: 'ÿ', decimal: '0255', hex: '00FF', entity: '&yuml;', name: '分音符 y' },
-      ]
-    }
-  }
-}
+        { symbol: 'ÿ', decimal: '0255', hex: '00FF', entity: '&yuml;', name: '分音符 y' }
+]
 </script>

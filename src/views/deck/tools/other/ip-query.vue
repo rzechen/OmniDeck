@@ -83,10 +83,12 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, onMounted } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
 
 // ip-api.com 免费接口：中文返回，无需 Key
 const API = ip =>
@@ -94,111 +96,107 @@ const API = ip =>
 
 const TOOL_PATH = '/tools/other/ip-query'
 
-export default {
-  name: 'OtherIpQuery',
-  components: { ToolShell, ToolHistoryPanel },
-  data() {
-    return {
-      ipInput: '',
-      ipInfo: null,
-      loading: false,
-      lastError: '',
-      historyVisible: false,
-      TOOL_PATH: TOOL_PATH
+defineOptions({ name: 'OtherIpQuery' })
+
+const { message } = useFeedback()
+
+const ipInput = ref('')
+const ipInfo = ref(null)
+const loading = ref(false)
+const lastError = ref('')
+const historyVisible = ref(false)
+
+const ipcReady = computed(() => !!(window.electronAPI && window.electronAPI.httpRequest))
+const fields = computed(() => {
+  const d = ipInfo.value || {}
+  return [
+    { label: '国家 / 地区', value: d.country ? d.country + '（' + d.countryCode + '）' : '' },
+    { label: '省份', value: d.regionName },
+    { label: '城市', value: d.city },
+    { label: '区县', value: d.district },
+    { label: '邮编', value: d.zip },
+    { label: '时区', value: d.timezone },
+    { label: '运营商', value: d.isp },
+    { label: '组织', value: d.org },
+    { label: 'AS 编号', value: d.as },
+    { label: '经纬度', value: d.lat && d.lon ? d.lat + ', ' + d.lon : '' }
+  ]
+})
+
+onMounted(() => {
+  query()
+})
+
+function isValidIP(ip) {
+  if (!ip) return true // 留空查本机
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&
+    ip.split('.').every(n => Number(n) >= 0 && Number(n) <= 255)
+}
+
+async function query() {
+  const ip = ipInput.value.trim()
+  if (!isValidIP(ip)) {
+    message.warning('IP 地址格式不正确')
+    return
+  }
+  loading.value = true
+  lastError.value = ''
+  try {
+    let res
+    if (ipcReady.value) {
+      res = await window.electronAPI.httpRequest({ method: 'GET', url: API(ip), timeout: 10000 })
+    } else {
+      const r = await fetch(API(ip))
+      res = { ok: r.ok, body: await r.text() }
     }
-  },
-  computed: {
-    ipcReady() {
-      return !!(window.electronAPI && window.electronAPI.httpRequest)
-    },
-    fields() {
-      const d = this.ipInfo || {}
-      return [
-        { label: '国家 / 地区', value: d.country ? d.country + '（' + d.countryCode + '）' : '' },
-        { label: '省份', value: d.regionName },
-        { label: '城市', value: d.city },
-        { label: '区县', value: d.district },
-        { label: '邮编', value: d.zip },
-        { label: '时区', value: d.timezone },
-        { label: '运营商', value: d.isp },
-        { label: '组织', value: d.org },
-        { label: 'AS 编号', value: d.as },
-        { label: '经纬度', value: d.lat && d.lon ? d.lat + ', ' + d.lon : '' }
-      ]
+    if (!res.ok) {
+      throw new Error(res.error || 'HTTP ' + res.status)
     }
-  },
-  mounted() {
-    this.query()
-  },
-  methods: {
-    isValidIP(ip) {
-      if (!ip) return true // 留空查本机
-      return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&
-        ip.split('.').every(n => Number(n) >= 0 && Number(n) <= 255)
-    },
-    async query() {
-      const ip = this.ipInput.trim()
-      if (!this.isValidIP(ip)) {
-        this.$message.warning('IP 地址格式不正确')
-        return
-      }
-      this.loading = true
-      this.lastError = ''
-      try {
-        let res
-        if (this.ipcReady) {
-          res = await window.electronAPI.httpRequest({ method: 'GET', url: API(ip), timeout: 10000 })
-        } else {
-          const r = await fetch(API(ip))
-          res = { ok: r.ok, body: await r.text() }
-        }
-        if (!res.ok) {
-          throw new Error(res.error || 'HTTP ' + res.status)
-        }
-        const data = JSON.parse(res.body)
-        if (data.status !== 'success') {
-          throw new Error(data.message || '查询失败')
-        }
-        this.ipInfo = data
-      } catch (e) {
-        this.lastError = '查询失败：' + e.message
-        this.$message.error(this.lastError)
-      } finally {
-        this.loading = false
-      }
-    },
-    // 手动查询（按钮触发）：成功后记录历史
-    async manualQuery() {
-      await this.query()
-      if (this.ipInfo && !this.lastError) {
-        record(TOOL_PATH, {
-          input: this.ipInput.trim(),
-          output: this.fields.filter(f => f.value).map(f => f.label + '：' + f.value).join('\n'),
-          options: { action: 'query', ip: this.ipInfo.query || this.ipInput.trim() }
-        })
-      }
-    },
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.ipInput = full.input || (full.options && full.options.ip) || ''
-      this.$message.success('已从历史恢复，点击查询重新获取')
-    },
-    async copyResult() {
-      const text = this.fields
-        .filter(f => f.value)
-        .map(f => f.label + '：' + f.value)
-        .join('\n')
-      try {
-        await navigator.clipboard.writeText('IP：' + this.ipInfo.query + '\n' + text)
-        this.$message.success('已复制')
-      } catch (e) {
-        this.$message.error('复制失败')
-      }
+    const data = JSON.parse(res.body)
+    if (data.status !== 'success') {
+      throw new Error(data.message || '查询失败')
     }
+    ipInfo.value = data
+  } catch (e) {
+    lastError.value = '查询失败：' + e.message
+    message.error(lastError.value)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 手动查询（按钮触发）：成功后记录历史
+async function manualQuery() {
+  await query()
+  if (ipInfo.value && !lastError.value) {
+    record(TOOL_PATH, {
+      input: ipInput.value.trim(),
+      output: fields.value.filter(f => f.value).map(f => f.label + '：' + f.value).join('\n'),
+      options: { action: 'query', ip: ipInfo.value.query || ipInput.value.trim() }
+    })
+  }
+}
+
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  ipInput.value = full.input || (full.options && full.options.ip) || ''
+  message.success('已从历史恢复，点击查询重新获取')
+}
+
+async function copyResult() {
+  const text = fields.value
+    .filter(f => f.value)
+    .map(f => f.label + '：' + f.value)
+    .join('\n')
+  try {
+    await navigator.clipboard.writeText('IP：' + ipInfo.value.query + '\n' + text)
+    message.success('已复制')
+  } catch (e) {
+    message.error('复制失败')
   }
 }
 </script>

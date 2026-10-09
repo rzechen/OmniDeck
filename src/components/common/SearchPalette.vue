@@ -52,101 +52,104 @@
   </el-dialog>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, nextTick } from 'vue'
 import { searchItems, toolCategories } from '@/config/tools'
 
-export default {
-  name: 'SearchPalette',
-  // 声明自定义事件：内部原生 input 的 select 事件会冒泡，未声明时 @select 监听器 fallthrough 会被误触发
-  emits: ['select'],
-  props: {
-    // 弹框显隐（.sync）
-    visible: { type: Boolean, default: false }
+defineOptions({ name: 'SearchPalette' })
+
+// 声明自定义事件：内部原生 input 的 select 事件会冒泡，未声明时 @select 监听器 fallthrough 会被误触发
+const emit = defineEmits(['select'])
+
+const props = defineProps({
+  // 弹框显隐（.sync）
+  visible: { type: Boolean, default: false }
+})
+
+const searchInput = ref(null)
+const resultsWrap = ref(null)
+const searchQuery = ref('')
+const activeIndex = ref(0)
+const allItems = searchItems
+
+const dlgVisible = computed({
+  get() {
+    return props.visible
   },
-  data() {
-    return {
-      searchQuery: '',
-      activeIndex: 0,
-      allItems: searchItems
-    }
-  },
-  computed: {
-    dlgVisible: {
-      get() {
-        return this.visible
-      },
-      set(v) {
-        this.$emit('update:visible', v)
-      }
-    },
-    // 所有分类下的具体工具（展平，用于搜索命中）
-    toolItems() {
-      const out = []
-      toolCategories.forEach(cat => {
-        cat.children.forEach(t => {
-          out.push({ path: t.path, title: t.name, iconSvg: t.icon })
-        })
-      })
-      return out
-    },
-    filteredItems() {
-      if (!this.searchQuery) return this.allItems
-      const q = this.searchQuery.toLowerCase()
-      // 命中的分组在前，具体工具在后
-      const groups = this.allItems.filter(item =>
-        item.title.toLowerCase().includes(q)
-      )
-      const tools = this.toolItems.filter(item =>
-        item.title.toLowerCase().includes(q)
-      )
-      return [...groups, ...tools]
-    }
-  },
-  watch: {
-    visible(val) {
-      if (val) {
-        this.activeIndex = 0
-        this.$nextTick(() => {
-          if (this.$refs.searchInput) {
-            this.$refs.searchInput.focus()
-          }
-        })
-      } else {
-        this.searchQuery = ''
-      }
-    },
-    // 输入变化后选中项回到第一个
-    searchQuery() {
-      this.activeIndex = 0
-    }
-  },
-  methods: {
-    // 键盘上下移动选中项（首尾循环）
-    move(dir) {
-      const len = this.filteredItems.length
-      if (!len) return
-      this.activeIndex = (this.activeIndex + dir + len) % len
-      this.scrollToActive()
-    },
-    selectActive() {
-      if (this.filteredItems.length) {
-        this.pick(this.filteredItems[this.activeIndex])
-      }
-    },
-    // 选中项滚动到可视区
-    scrollToActive() {
-      this.$nextTick(() => {
-        const wrap = this.$refs.resultsWrap
-        if (!wrap) return
-        const el = wrap.querySelector(`[data-index="${this.activeIndex}"]`)
-        if (el) el.scrollIntoView({ block: 'nearest' })
-      })
-    },
-    pick(item) {
-      this.dlgVisible = false
-      this.$emit('select', item)
-    }
+  set(v) {
+    emit('update:visible', v)
   }
+})
+
+// 所有分类下的具体工具（展平，用于搜索命中）
+const toolItems = computed(() => {
+  const out = []
+  toolCategories.forEach(cat => {
+    cat.children.forEach(t => {
+      out.push({ path: t.path, title: t.name, iconSvg: t.icon })
+    })
+  })
+  return out
+})
+
+const filteredItems = computed(() => {
+  if (!searchQuery.value) return allItems
+  const q = searchQuery.value.toLowerCase()
+  // 命中的分组在前，具体工具在后
+  const groups = allItems.filter(item =>
+    item.title.toLowerCase().includes(q)
+  )
+  const tools = toolItems.value.filter(item =>
+    item.title.toLowerCase().includes(q)
+  )
+  return [...groups, ...tools]
+})
+
+watch(() => props.visible, val => {
+  if (val) {
+    activeIndex.value = 0
+    nextTick(() => {
+      if (searchInput.value) {
+        searchInput.value.focus()
+      }
+    })
+  } else {
+    searchQuery.value = ''
+  }
+})
+
+// 输入变化后选中项回到第一个
+watch(searchQuery, () => {
+  activeIndex.value = 0
+})
+
+// 键盘上下移动选中项（首尾循环）
+function move(dir) {
+  const len = filteredItems.value.length
+  if (!len) return
+  activeIndex.value = (activeIndex.value + dir + len) % len
+  scrollToActive()
+}
+
+function selectActive() {
+  if (filteredItems.value.length) {
+    pick(filteredItems.value[activeIndex.value])
+  }
+}
+
+// 选中项滚动到可视区
+function scrollToActive() {
+  nextTick(() => {
+    const wrap = resultsWrap.value
+    if (!wrap) return
+    const el = wrap.querySelector(`[data-index="${activeIndex.value}"]`)
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function pick(item) {
+  dlgVisible.value = false
+  emit('select', item)
 }
 </script>
 

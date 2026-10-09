@@ -241,10 +241,16 @@ function setRunner(fn) {
   runner = fn
 }
 
-// 单任务执行（手动 / 计划共用）：运行中互斥，完成后写 lastRun + 重算 nextRunAt
+// 运行历史保留条数（业界 execution history 模式：每次运行一条不可变记录）
+const MAX_RUN_HISTORY = 20
+
+// 单任务执行（手动 / 计划共用）：运行中互斥，完成后写 lastRun/runs + 重算 nextRunAt
 async function runTask(task, reason) {
   if (!runner) return { ok: false, error: '执行器未就绪' }
   if (runningTasks.has(task.id)) return { ok: false, error: '任务正在运行中' }
+  // 本次运行消耗的计划点（schedule 触发时即触发时刻的 nextRunAt；
+  // 手动触发未消耗计划点，仅作基准兜底）
+  const scheduledFor = task.nextRunAt || Date.now()
   runningTasks.add(task.id)
   console.log('[omnibuddy:scheduler] 任务启动：' + task.name + '（' + reason + '）')
   let result = null
@@ -264,9 +270,27 @@ async function runTask(task, reason) {
       ok: !!(result && result.ok),
       sessionId: (result && result.sessionId) || '',
       error: (result && result.error) || '',
-      reason
+      reason,
+      // 无头策略拦截的写操作清单（无拦截时省略，JSON 序列化自动丢弃 undefined）
+      deniedOps: (result && Array.isArray(result.deniedOps) && result.deniedOps.length)
+        ? result.deniedOps
+        : undefined
     }
-    t.nextRunAt = t.enabled ? computeNextRun(t.schedule, Date.now()) : 0
+    // 运行历史 append-only（保留最近 N 条，后跑不覆盖前跑）；
+    // lastRun 保持指向 runs[0]，老读侧（前端 lastRun 消费点）无需改动
+    t.runs = [t.lastRun].concat(Array.isArray(t.runs) ? t.runs : []).slice(0, MAX_RUN_HISTORY)
+    if (reason === 'manual' && t.nextRunAt > 0) {
+      // 手动「立即运行」不消耗计划点：保留原计划，避免顺延/提前下次触发
+    } else if (!t.enabled) {
+      t.nextRunAt = 0
+    } else {
+      // 计划触发：本周期计划点已被本次运行消耗，从「计划点当日末尾」起算
+      // 下个周期。若以运行结束时刻 Date.now() 为基准，daily+random 窗口内
+      // 会随机出晚于结束时刻的当日点 → 同日二次触发（长任务尤其易触发）
+      const dayEnd = new Date(scheduledFor)
+      dayEnd.setHours(23, 59, 59, 999)
+      t.nextRunAt = computeNextRun(t.schedule, dayEnd.getTime())
+    }
     writeTasks(list)
   }
   console.log('[omnibuddy:scheduler] 任务结束：' + task.name +
@@ -351,6 +375,30 @@ function isTaskRunning(id) {
   return runningTasks.has(id)
 }
 
+// 会话删除联动：运行历史（lastRun / runs）中指向该会话的记录标记
+// sessionDeleted —— 保留历史事实的同时，前端跳转/通知点击据此禁用，
+// 避免 lastRun 指向已删会话形成「幽灵 sessionId」（跳转落空）
+function markSessionDeleted(sessionId) {
+  if (!sessionId) return
+  const list = readTasks()
+  let changed = false
+  for (const t of list) {
+    if (t.lastRun && t.lastRun.sessionId === sessionId && !t.lastRun.sessionDeleted) {
+      t.lastRun.sessionDeleted = true
+      changed = true
+    }
+    if (Array.isArray(t.runs)) {
+      for (const r of t.runs) {
+        if (r.sessionId === sessionId && !r.sessionDeleted) {
+          r.sessionDeleted = true
+          changed = true
+        }
+      }
+    }
+  }
+  if (changed) writeTasks(list)
+}
+
 module.exports = {
   // 初始化：落定存储路径、错峰补跑判定并启动 30s 调度循环
   init,
@@ -377,5 +425,7 @@ module.exports = {
   // 同步渲染侧全量供应商列表镜像（含明文 key，0600）
   updateProviders,
   // 读取供应商列表镜像（无则空数组）
-  getProviders
+  getProviders,
+  // 会话删除联动：标记运行历史中指向该会话的记录（防幽灵 sessionId）
+  markSessionDeleted
 }

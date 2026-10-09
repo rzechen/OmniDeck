@@ -11,8 +11,74 @@ const siteAuth = require('../integrations/site-auth')
 const loginWizard = require('../integrations/login-wizard')
 const piRuntime = require('../pi')
 const { emit, running, runAnchors, pendingAsks, pendingPermissions,
-  touchAutomationHeartbeat, automationTurnErrors } = require('./chat-state')
+  touchAutomationHeartbeat, automationTurnErrors,
+  isHeadlessRun, recordDeniedOp } = require('./chat-state')
 const { maybeAutoTitle, writeExitSummary, enqueueSummary } = require('./direct-llm')
+
+// ===== 无头定时执行短路（headless：schedule 触发的运行） =====
+// ask_user / permission_ask 的前端等待管线在无人值守时即永久挂起
+// （AWAITING_USER 豁免看门狗），此处改为短路自动决策：提问返回"自行决策"
+// 指令，权限按"只读放行 / 写拒绝并记录"分级（对齐业界 headless 权限模式）
+
+// 无头 ask_user 的自动应答（也作为落盘 answer，事后审计可见）
+const HEADLESS_ASK_ANSWER = '【无头定时执行环境】当前为无人值守的定时执行，无法向用户提问。' +
+  '请依据任务指令与 skill 内置规则自行做出保守决策并继续完成后续步骤，不要再次调用 ask_user；' +
+  '若确属无法安全决策的关键分叉，选择影响最小的方案继续，并在最终汇报中说明本项决策及理由。'
+
+// 无头放行的只读命令白名单（首 token 判定；含采集所需的网络请求类）
+const HEADLESS_READONLY_CMDS = new Set([
+  'ls', 'cat', 'head', 'tail', 'grep', 'rg', 'find', 'wc', 'file', 'stat', 'du', 'df', 'pwd',
+  'which', 'whoami', 'uname', 'date', 'echo', 'printf', 'env', 'printenv', 'id', 'hostname',
+  'curl', 'wget', 'ping', 'dig', 'nslookup', 'host', 'traceroute', 'sleep'
+])
+// git 只读子命令
+const HEADLESS_GIT_READONLY = new Set(['status', 'log', 'diff', 'show', 'branch', 'remote', 'tag'])
+
+// bash 命令无头只读判定（启发式，保守失败即拒）：
+// 剔除引号内容后按 && || ; | 拆复合命令，每个子命令首 token 须命中白名单；
+// 任何重定向写文件、curl/wget 落盘参数（-o/-O/--output）均拒绝
+function isHeadlessReadonlyBash(command) {
+  const cmd = String(command || '')
+  const stripped = cmd.replace(/'(?:[^'\\]|\\.)*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""')
+  if (/>{1,2}\s*[^&|]/.test(stripped)) return false // 重定向（2>&1 除外）
+  const parts = stripped.split(/&&|\|\||;|\|/g)
+  for (let part of parts) {
+    part = part.trim()
+    if (!part) continue
+    const tokens = part.split(/\s+/)
+    let bin = (tokens[0] || '').split('/').pop()
+    if (bin === 'sudo' || bin === 'env') bin = (tokens[1] || '').split('/').pop()
+    if (bin === 'git') {
+      const sub = (tokens.find(t => t && t[0] !== '-') || '')
+      if (!HEADLESS_GIT_READONLY.has(sub)) return false
+      continue
+    }
+    if (bin === 'curl' || bin === 'wget') {
+      if (/(^|\s)(-o|--output|-O|--save)(\s|=)/.test(part)) return false
+      continue
+    }
+    if (!HEADLESS_READONLY_CMDS.has(bin)) return false
+  }
+  return true
+}
+
+// 无头权限分级判定：返回 verdict（'allow' / 'deny_headless'）
+// - bash：只读白名单命令放行，其余拒绝
+// - 采集/只读类工具（联网、读文件、浏览器）放行——任务指令明确鼓励只读收集
+// - network 面（沙箱网络审批）：读网络放行
+// - 其余（edit/write/apply/mcp__*/codemode/subagent 等写副作用面）：默认拒绝并记录，
+//   需要无头放行的面可在权限管理中配置 allow（allow 不会进 ask 链路，不受此拦截）
+function headlessPermissionVerdict(e) {
+  const tool = String(e.toolName || e.surface || '')
+  if (tool === 'bash') {
+    return isHeadlessReadonlyBash(e.command || e.value) ? 'allow' : 'deny_headless'
+  }
+  if (/^(web_search|web_fetch|web_enable|open_url|browser|read|glob|grep|ls|find)$/.test(tool)) {
+    return 'allow'
+  }
+  if (tool === 'network') return 'allow'
+  return 'deny_headless'
+}
 
 // 删除会话（快速路径）：中止运行中回合 → 快照消息 → 销毁运行时会话与磁盘记录，立即完成；
 // 记忆摘要 fire-and-forget 后台补写（自持消息快照，不依赖已删会话，LLM 耗时不阻塞删除交互）。
@@ -220,6 +286,21 @@ function handlePiEvent(getWindow, e) {
       break
     }
     case 'ask_user': {
+      // 无头定时执行：不进前端等待管线（无人应答即永久挂起），返回自动决策
+      // 指令让模型按 skill 内置规则继续；问答照常落盘，事后审计可见
+      if (isHeadlessRun(chatId)) {
+        try {
+          sessions.addMessage(chatId, {
+            role: 'ask_user',
+            question: e.question,
+            options: e.options,
+            multiSelect: !!e.multiSelect || undefined,
+            answer: HEADLESS_ASK_ANSWER,
+            headless: true
+          })
+        } catch (err) { /* 会话已删除等忽略 */ }
+        return Promise.resolve(HEADLESS_ASK_ANSWER)
+      }
       const callId = 'ask-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
       const askAnchors = runAnchors(chatId) || []
       // 等待前端回答或中断
@@ -243,6 +324,20 @@ function handlePiEvent(getWindow, e) {
       // 权限系统 ask：转发前端确认卡片（允许 / 本会话内允许 / 拒绝）
       const askId = e.askId
       const info = { surface: e.surface, value: e.value, toolName: e.toolName, command: e.command, path: e.path, preview: e.preview }
+      // 无头定时执行：不进前端等待管线，按"只读放行 / 写拒绝并记录"分级
+      // 自动决策；verdict 形态与 pendingPermissions resolve 值一致，
+      // 'deny_headless' 由 permissions 桥接层给出无头专属拒绝文案
+      if (isHeadlessRun(chatId)) {
+        const verdict = headlessPermissionVerdict(e)
+        if (verdict === 'deny_headless') recordDeniedOp(chatId, info.toolName || info.surface, info.command || info.value || info.path)
+        try {
+          sessions.addMessage(chatId, Object.assign({ role: 'permission' }, info, {
+            decided: verdict === 'allow' ? 'allow' : 'deny',
+            headless: true
+          }))
+        } catch (err) { /* 会话已删除等忽略 */ }
+        return Promise.resolve(verdict)
+      }
       // 通知中心投递（窗口未开/后台时用户仍可感知；同 askId 冷却去重，
       // ui.select 兜底路径与 chain 路径各自到达时不重复打扰）
       notify.dispatch('permission.ask', {

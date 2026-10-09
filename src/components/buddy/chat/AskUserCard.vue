@@ -55,95 +55,95 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy ask_user 提问卡片（Agent 中途向用户提问）
 // 单选（默认）：点选项即提交，与「其它」输入互斥（点选项收起输入行）
 // 多选（multiSelect）：chips 勾选 toggle + 「其它」文本并入，统一提交（选项以「；」连接）
 // 交互临时态（_picked/_otherOpen/_input）挂在消息对象上：切页签/组件重建不丢
-export default {
-  name: 'AskUserCard',
-  props: {
-    message: {
-      type: Object,
-      required: true
-    }
-  },
-  computed: {
-    multiSelect() {
-      return !!this.message.multiSelect
-    },
-    otherOpen() {
-      return !!this.message._otherOpen
-    },
-    picked() {
-      return this.message._picked || []
-    },
-    // 多选提交计数：已勾选项 + 其它输入文本（非空时）
-    pickedCount() {
-      let n = this.picked.length
-      if (this.otherOpen && String(this.message._input || '').trim()) n++
-      return n
-    },
-    canSubmitMulti() {
-      return this.pickedCount > 0
-    }
-  },
-  created() {
-    // 交互临时态初始化：无候选选项时「其它」输入行默认展开
-    if (!Array.isArray(this.message._picked)) this.message._picked = []
-    if (typeof this.message._otherOpen !== 'boolean') {
-      this.message._otherOpen = !(this.message.options && this.message.options.length)
-    }
-  },
-  methods: {
-    isPicked(opt) {
-      return this.picked.indexOf(opt) >= 0
-    },
-    // 点普通选项：单选直接提交（与「其它」互斥，收起输入行）；多选 toggle 勾选
-    toggleOpt(opt) {
-      if (this.multiSelect) {
-        const i = this.picked.indexOf(opt)
-        const next = this.picked.slice()
-        if (i >= 0) next.splice(i, 1)
-        else next.push(opt)
-        this.message._picked = next
-        return
-      }
-      this.message._otherOpen = false
-      this.$emit('answer', this.message, opt)
-    },
-    // 点「其它」：展开/收起输入行（收起时清空草稿；与选项选择互斥）
-    toggleOther() {
-      const open = !this.otherOpen
-      this.message._otherOpen = open
-      if (open) {
-        this.$nextTick(() => {
-          const el = this.$refs.otherInput
-          if (el) el.focus()
-        })
-      } else {
-        this.message._input = ''
-      }
-    },
-    // 「其它」输入提交：单选直接提交文本；多选并入已勾选项统一提交
-    submitOther() {
-      const text = String(this.message._input || '').trim()
-      if (!text) return
-      if (this.multiSelect) {
-        this.$emit('answer', this.message, this.picked.concat([text]).join('；'))
-      } else {
-        this.$emit('answer', this.message, text)
-      }
-    },
-    // 多选统一提交：勾选项 + 其它文本（以「；」连接）
-    submitMulti() {
-      if (!this.canSubmitMulti) return
-      const parts = this.picked.slice()
-      const text = String(this.message._input || '').trim()
-      if (this.otherOpen && text) parts.push(text)
-      this.$emit('answer', this.message, parts.join('；'))
-    }
+import { ref, computed, nextTick } from 'vue'
+
+defineOptions({ name: 'AskUserCard' })
+
+const props = defineProps({
+  message: {
+    type: Object,
+    required: true
   }
+})
+
+const emit = defineEmits(['answer'])
+
+// 「其它」输入框（点开「其它」后自动聚焦）
+const otherInput = ref(null)
+
+const multiSelect = computed(() => !!props.message.multiSelect)
+const otherOpen = computed(() => !!props.message._otherOpen)
+const picked = computed(() => props.message._picked || [])
+
+// 多选提交计数：已勾选项 + 其它输入文本（非空时）
+const pickedCount = computed(() => {
+  let n = picked.value.length
+  if (otherOpen.value && String(props.message._input || '').trim()) n++
+  return n
+})
+const canSubmitMulti = computed(() => pickedCount.value > 0)
+
+// 交互临时态初始化：无候选选项时「其它」输入行默认展开
+if (!Array.isArray(props.message._picked)) props.message._picked = []
+if (typeof props.message._otherOpen !== 'boolean') {
+  props.message._otherOpen = !(props.message.options && props.message.options.length)
+}
+
+function isPicked(opt) {
+  return picked.value.indexOf(opt) >= 0
+}
+
+// 点普通选项：单选直接提交（与「其它」互斥，收起输入行）；多选 toggle 勾选
+function toggleOpt(opt) {
+  if (multiSelect.value) {
+    const i = picked.value.indexOf(opt)
+    const next = picked.value.slice()
+    if (i >= 0) next.splice(i, 1)
+    else next.push(opt)
+    props.message._picked = next
+    return
+  }
+  props.message._otherOpen = false
+  emit('answer', props.message, opt)
+}
+
+// 点「其它」：展开/收起输入行（收起时清空草稿；与选项选择互斥）
+function toggleOther() {
+  const open = !otherOpen.value
+  props.message._otherOpen = open
+  if (open) {
+    nextTick(() => {
+      const el = otherInput.value
+      if (el) el.focus()
+    })
+  } else {
+    props.message._input = ''
+  }
+}
+
+// 「其它」输入提交：单选直接提交文本；多选并入已勾选项统一提交
+function submitOther() {
+  const text = String(props.message._input || '').trim()
+  if (!text) return
+  if (multiSelect.value) {
+    emit('answer', props.message, picked.value.concat([text]).join('；'))
+  } else {
+    emit('answer', props.message, text)
+  }
+}
+
+// 多选统一提交：勾选项 + 其它文本（以「；」连接）
+function submitMulti() {
+  if (!canSubmitMulti.value) return
+  const parts = picked.value.slice()
+  const text = String(props.message._input || '').trim()
+  if (otherOpen.value && text) parts.push(text)
+  emit('answer', props.message, parts.join('；'))
 }
 </script>
 

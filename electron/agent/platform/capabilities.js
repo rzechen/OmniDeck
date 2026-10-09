@@ -63,7 +63,7 @@ const CORE_TOOLS = [
   // pi 1.0.0 内置编排工具：codemode 经 QuickJS 沙箱脚本编排工具调用（省约 40%
   // prompt token）。工具本身只做编排：脚本内嵌套调用的工具（read/bash/mcp__*
   // 等）仍各自过权限门（带 parentToolCallId），故默认放行不放大攻击面
-  { name: 'codemode', label: '脚本编排', description: '以 JavaScript 脚本批量编排工具调用（并行执行、结果过滤），显著节省 token；脚本内嵌套调用的工具仍按各自权限逐次管控。', perm: 'allow' },
+  { name: 'codemode', label: '脚本编排', description: '以 JavaScript 脚本批量编排工具调用（并行执行、结果过滤），显著节省 token；脚本内嵌套调用的工具仍按各自权限逐次管控。注意：沙箱无定时器（setTimeout）、无 require/import、输出约 50KB 截断。', perm: 'allow' },
   // tool_search：按需搜索并加载未声明的工具（MCP 大服务器的 deferred 工具），
   // 只改变工具可见性、无副作用
   { name: 'tool_search', label: '检索工具', description: '按关键词搜索并按需加载未声明的工具（如大型 MCP 服务的延迟加载工具），仅影响工具可见性。', perm: 'allow' }

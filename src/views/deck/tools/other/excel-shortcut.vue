@@ -9,24 +9,22 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // Excel 快捷键速查：数据迁移自旧项目 excel 模块（分类展平为列表）
-export default {
-  name: 'OtherExcelShortcut',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherExcelShortcut' })
+
+const columns = [
         { key: 'category', title: '分类' },
         { key: 'name', title: '名称' },
         { key: 'win', title: 'Windows', mono: true, copy: true },
         { key: 'mac', title: 'Mac', mono: true, copy: true },
         { key: 'description', title: '说明' }
-      ],
-      rows: [
+]
+
+const rows = [
         { category: '常用快捷键', name: '关闭工作簿', win: 'Ctrl+W', mac: '⌘+W', description: '关闭当前工作簿' },
         { category: '常用快捷键', name: '打开工作簿', win: 'Ctrl+O', mac: '⌘+O', description: '打开已有工作簿' },
         { category: '常用快捷键', name: '转至“主页”选项卡', win: 'Alt+H', mac: 'Ctrl+Option+H', description: '激活主页选项卡' },
@@ -204,9 +202,6 @@ export default {
         { category: '功能区选项卡访问键', name: '打开“公式”选项卡', win: 'Alt+M', mac: 'Command+Option+M', description: '激活公式选项卡' },
         { category: '功能区选项卡访问键', name: '打开“数据”选项卡', win: 'Alt+A', mac: 'Command+Option+A', description: '激活数据选项卡' },
         { category: '功能区选项卡访问键', name: '打开“审阅”选项卡', win: 'Alt+R', mac: 'Command+Option+R', description: '激活审阅选项卡' },
-        { category: '功能区选项卡访问键', name: '打开“视图”选项卡', win: 'Alt+W', mac: 'Command+Option+W', description: '激活视图选项卡' },
-      ]
-    }
-  }
-}
+        { category: '功能区选项卡访问键', name: '打开“视图”选项卡', win: 'Alt+W', mac: 'Command+Option+W', description: '激活视图选项卡' }
+]
 </script>

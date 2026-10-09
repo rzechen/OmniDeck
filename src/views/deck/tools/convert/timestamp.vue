@@ -92,8 +92,14 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'ConvertTimestamp' })
+
+const { message } = useFeedback()
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -103,113 +109,113 @@ function formatDate(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-export default {
-  name: 'ConvertTimestamp',
-  components: { ToolShell },
-  data() {
-    return {
-      nowTs: 0,
-      nowTime: '',
-      tsInput: '',
-      timeInput: '',
-      tsResults: [],
-      timeResults: []
-    }
-  },
-  computed: {
-    tzOffset() {
-      const m = -new Date().getTimezoneOffset() / 60
-      return m >= 0 ? `+${m}` : m
-    }
-  },
-  mounted() {
-    this.tick()
-    this._timer = setInterval(this.tick, 1000)
-    // 默认填充当前时间
-    this.tsInput = String(Math.floor(Date.now() / 1000))
-    this.convertFromTs()
-    this.timeInput = formatDate(new Date())
-    this.convertFromTime()
-  },
-  beforeUnmount() {
-    clearInterval(this._timer)
-  },
-  methods: {
-    tick() {
-      const now = new Date()
-      this.nowTs = Math.floor(now.getTime() / 1000)
-      this.nowTime = formatDate(now)
-    },
-    fillNow() {
-      const now = new Date()
-      this.tsInput = String(Math.floor(now.getTime() / 1000))
-      this.timeInput = formatDate(now)
-      this.convertFromTs()
-      this.convertFromTime()
-    },
-    // 时间戳 → 时间：自动识别秒/毫秒
-    convertFromTs() {
-      const raw = this.tsInput.trim()
-      this.tsResults = []
-      if (!raw || !/^\d+$/.test(raw)) return
-      let ts = parseInt(raw, 10)
-      // 10 位秒级，13 位毫秒级，其余按数量级猜测
-      if (raw.length <= 11 && ts > 1e9) {
-        // 秒级（1973 年以后）
-      } else if (raw.length >= 12 || ts < 1e9) {
-        ts = ts < 1e12 && raw.length >= 12 ? ts : ts
-      }
-      if (raw.length === 13) {
-        // 毫秒级原样
-      } else if (raw.length <= 11) {
-        ts = ts * 1000
-      } else {
-        // 14+ 位视为毫秒
-      }
-      const d = new Date(ts)
-      if (isNaN(d.getTime())) return
-      this.tsResults = [
-        { label: '日期时间', value: formatDate(d) },
-        { label: '毫秒级', value: String(d.getTime()) },
-        { label: 'ISO 8601', value: d.toISOString() },
-        { label: '星期', value: '周' + '日一二三四五六'[d.getDay()] },
-        { label: '今年第几天', value: `${Math.ceil((d - new Date(d.getFullYear(), 0, 0)) / 86400000)} 天` }
-      ]
-    },
-    // 时间 → 时间戳：支持 2026-09-06、2026-09-06 12:00、含秒、ISO
-    convertFromTime() {
-      const raw = this.timeInput.trim()
-      this.timeResults = []
-      if (!raw) return
-      // 空格分隔的日期时间，iOS Safari 需要 'T' 分隔
-      const normalized = raw.replace(' ', 'T')
-      const d = new Date(normalized)
-      if (isNaN(d.getTime())) return
-      this.timeResults = [
-        { label: '秒级时间戳', value: String(Math.floor(d.getTime() / 1000)) },
-        { label: '毫秒级时间戳', value: String(d.getTime()) },
-        { label: 'ISO 8601', value: d.toISOString() },
-        { label: '相对描述', value: this.relative(d) }
-      ]
-    },
-    // 相对时间描述
-    relative(d) {
-      const diff = d - new Date()
-      const abs = Math.abs(diff)
-      const suffix = diff >= 0 ? '后' : '前'
-      if (abs < 60000) return `${Math.round(abs / 1000)} 秒${suffix}`
-      if (abs < 3600000) return `${Math.round(abs / 60000)} 分钟${suffix}`
-      if (abs < 86400000) return `${Math.round(abs / 3600000)} 小时${suffix}`
-      return `${Math.round(abs / 86400000)} 天${suffix}`
-    },
-    copyText(t) {
-      if (!t) return
-      navigator.clipboard.writeText(t).then(() => {
-        this.$message({ message: `已复制：${t}`, type: 'success', duration: 1200 })
-      })
-    }
-  }
+const nowTs = ref(0)
+const nowTime = ref('')
+const tsInput = ref('')
+const timeInput = ref('')
+const tsResults = ref([])
+const timeResults = ref([])
+
+// 每秒刷新定时器（非响应式）
+let timer = null
+
+const tzOffset = computed(() => {
+  const m = -new Date().getTimezoneOffset() / 60
+  return m >= 0 ? `+${m}` : m
+})
+
+function tick() {
+  const now = new Date()
+  nowTs.value = Math.floor(now.getTime() / 1000)
+  nowTime.value = formatDate(now)
 }
+
+function fillNow() {
+  const now = new Date()
+  tsInput.value = String(Math.floor(now.getTime() / 1000))
+  timeInput.value = formatDate(now)
+  convertFromTs()
+  convertFromTime()
+}
+
+// 时间戳 → 时间：自动识别秒/毫秒
+function convertFromTs() {
+  const raw = tsInput.value.trim()
+  tsResults.value = []
+  if (!raw || !/^\d+$/.test(raw)) return
+  let ts = parseInt(raw, 10)
+  // 10 位秒级，13 位毫秒级，其余按数量级猜测
+  if (raw.length <= 11 && ts > 1e9) {
+    // 秒级（1973 年以后）
+  } else if (raw.length >= 12 || ts < 1e9) {
+    ts = ts < 1e12 && raw.length >= 12 ? ts : ts
+  }
+  if (raw.length === 13) {
+    // 毫秒级原样
+  } else if (raw.length <= 11) {
+    ts = ts * 1000
+  } else {
+    // 14+ 位视为毫秒
+  }
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return
+  tsResults.value = [
+    { label: '日期时间', value: formatDate(d) },
+    { label: '毫秒级', value: String(d.getTime()) },
+    { label: 'ISO 8601', value: d.toISOString() },
+    { label: '星期', value: '周' + '日一二三四五六'[d.getDay()] },
+    { label: '今年第几天', value: `${Math.ceil((d - new Date(d.getFullYear(), 0, 0)) / 86400000)} 天` }
+  ]
+}
+
+// 时间 → 时间戳：支持 2026-09-06、2026-09-06 12:00、含秒、ISO
+function convertFromTime() {
+  const raw = timeInput.value.trim()
+  timeResults.value = []
+  if (!raw) return
+  // 空格分隔的日期时间，iOS Safari 需要 'T' 分隔
+  const normalized = raw.replace(' ', 'T')
+  const d = new Date(normalized)
+  if (isNaN(d.getTime())) return
+  timeResults.value = [
+    { label: '秒级时间戳', value: String(Math.floor(d.getTime() / 1000)) },
+    { label: '毫秒级时间戳', value: String(d.getTime()) },
+    { label: 'ISO 8601', value: d.toISOString() },
+    { label: '相对描述', value: relative(d) }
+  ]
+}
+
+// 相对时间描述
+function relative(d) {
+  const diff = d - new Date()
+  const abs = Math.abs(diff)
+  const suffix = diff >= 0 ? '后' : '前'
+  if (abs < 60000) return `${Math.round(abs / 1000)} 秒${suffix}`
+  if (abs < 3600000) return `${Math.round(abs / 60000)} 分钟${suffix}`
+  if (abs < 86400000) return `${Math.round(abs / 3600000)} 小时${suffix}`
+  return `${Math.round(abs / 86400000)} 天${suffix}`
+}
+
+function copyText(t) {
+  if (!t) return
+  navigator.clipboard.writeText(t).then(() => {
+    message({ message: `已复制：${t}`, type: 'success', duration: 1200 })
+  })
+}
+
+onMounted(() => {
+  tick()
+  timer = setInterval(tick, 1000)
+  // 默认填充当前时间
+  tsInput.value = String(Math.floor(Date.now() / 1000))
+  convertFromTs()
+  timeInput.value = formatDate(new Date())
+  convertFromTime()
+})
+
+onBeforeUnmount(() => {
+  clearInterval(timer)
+})
 </script>
 
 <style lang="scss" scoped>

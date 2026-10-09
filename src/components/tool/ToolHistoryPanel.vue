@@ -14,7 +14,7 @@
           <button class="history-act" title="清空本工具历史" @click="clearAll">
             <svg-icon icon-class="delete" />
           </button>
-          <button class="history-act" title="关闭" @click="$emit('close')">
+          <button class="history-act" title="关闭" @click="emit('close')">
             <svg-icon icon-class="close" />
           </button>
         </div>
@@ -31,7 +31,7 @@
           v-for="item in items"
           :key="item.id"
           class="history-item"
-          @click="$emit('restore', item)"
+          @click="emit('restore', item)"
         >
           <div class="item-preview">{{ item.preview || '（空）' }}</div>
           <div class="item-meta">
@@ -52,69 +52,72 @@
   </transition>
 </template>
 
-<script>
+<script setup>
+import { ref, watch } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
 // 工具执行历史面板：嵌入工具页右侧的抽屉列表
 // 交互：点击记录 → restore 事件（父组件恢复输入）；单删 / 清空本工具
 import * as history from '@/utils/storage/tool-history'
 
-export default {
-  name: 'ToolHistoryPanel',
-  props: {
-    visible: { type: Boolean, default: false },
-    // 工具 path（如 /tools/format/json）
-    tool: { type: String, required: true }
-  },
-  data() {
-    return {
-      items: [],
-      loading: false
-    }
-  },
-  watch: {
-    visible(v) {
-      if (v) this.load()
-    }
-  },
-  methods: {
-    async load() {
-      this.loading = true
-      try {
-        this.items = await history.list(this.tool)
-      } finally {
-        this.loading = false
-      }
-    },
-    async removeOne(item) {
-      await history.remove(item.id)
-      this.items = this.items.filter(i => i.id !== item.id)
-    },
-    async clearAll() {
-      try {
-        await this.$confirm('将清空本工具的全部执行历史，是否继续？', '清空历史', {
-          confirmButtonText: '清空',
-          cancelButtonText: '取消',
-          type: 'warning'
-        })
-      } catch (e) {
-        return
-      }
-      await history.clear(this.tool)
-      this.items = []
-      this.$message.success('已清空本工具历史')
-    },
-    fmtTime(ts) {
-      const d = new Date(ts)
-      const pad = n => String(n).padStart(2, '0')
-      const today = new Date()
-      const isToday = d.toDateString() === today.toDateString()
-      if (isToday) return `今天 ${pad(d.getHours())}:${pad(d.getMinutes())}`
-      return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
-    },
-    fmtSize(n) {
-      if (n < 1024) return `${n} 字符`
-      return `${(n / 1024).toFixed(1)}K 字符`
-    }
+defineOptions({ name: 'ToolHistoryPanel' })
+
+const props = defineProps({
+  visible: { type: Boolean, default: false },
+  // 工具 path（如 /tools/format/json）
+  tool: { type: String, required: true }
+})
+
+const emit = defineEmits(['close', 'restore'])
+
+const { confirm, message } = useFeedback()
+
+const items = ref([])
+const loading = ref(false)
+
+watch(
+  () => props.visible,
+  v => {
+    if (v) load()
   }
+)
+
+async function load() {
+  loading.value = true
+  try {
+    items.value = await history.list(props.tool)
+  } finally {
+    loading.value = false
+  }
+}
+async function removeOne(item) {
+  await history.remove(item.id)
+  items.value = items.value.filter(i => i.id !== item.id)
+}
+async function clearAll() {
+  try {
+    await confirm('将清空本工具的全部执行历史，是否继续？', '清空历史', {
+      confirmButtonText: '清空',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  await history.clear(props.tool)
+  items.value = []
+  message.success('已清空本工具历史')
+}
+function fmtTime(ts) {
+  const d = new Date(ts)
+  const pad = n => String(n).padStart(2, '0')
+  const today = new Date()
+  const isToday = d.toDateString() === today.toDateString()
+  if (isToday) return `今天 ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+function fmtSize(n) {
+  if (n < 1024) return `${n} 字符`
+  return `${(n / 1024).toFixed(1)}K 字符`
 }
 </script>
 

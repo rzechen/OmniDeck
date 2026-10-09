@@ -55,320 +55,304 @@
   </transition>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 快速唤起浮窗（可配置快捷键，默认 ⌘⌥J / Ctrl+Alt+J）
 // 真实对话：与快捷面板（quick 窗口）共用「快捷面板」会话，跨入口延续上下文；
 // 会话状态托管在 buddyChat store（主窗口单点订阅流式事件，浮窗收起期间照常累积）；
 // 轻量形态：不支持附件 / 划选引用 / 分支重发，权限确认自动拒绝（与快捷面板同策略）
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { useStore } from 'vuex'
+import { useRoute, useRouter } from 'vue-router'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
 import ChatMessageList from '@/views/buddy/chat/components/ChatMessageList.vue'
 import { getItem } from '@/utils/storage/db'
 import { getShortcut, matchesShortcut } from '@/utils/ui/shortcuts'
 
+defineOptions({ name: 'BuddySpotlight' })
+
+const store = useStore()
+const route = useRoute()
+const router = useRouter()
+const { message } = useFeedback()
+
 // 浮窗会话固定展示名：与快捷面板共用同一条会话
 const SPOT_NAME = '快捷面板'
 
-export default {
-  name: 'BuddySpotlight',
-  components: { ChatMessageList },
-  data() {
-    return {
-      visible: false,
-      draft: '',
-      // 会话与模型 / 空间上下文
-      sessionId: '',
-      providers: [],
-      currentProviderId: '',
-      workspaces: [],
-      workspaceId: ''
-    }
-  },
-  computed: {
-    // 会话态全在 store（浮窗收起不丢，切回来即从池内恢复）
-    sess() {
-      return this.$store.getters['buddyChat/session'](this.sessionId)
-    },
-    messages() {
-      return (this.sess && this.sess.messages) || []
-    },
-    streaming() {
-      return !!(this.sess && this.sess.streaming)
-    },
-    // 供 watch 的派生量（sess 可能为 null，computed 兜底避免路径求值报错）
-    turnMsg() {
-      return this.sess ? this.sess.turnMsg : null
-    },
-    permLen() {
-      return this.sess && this.sess.permQueue ? this.sess.permQueue.length : 0
-    },
-    currentProvider() {
-      return this.providers.find(p => p.id === this.currentProviderId) || null
-    },
-    // 深度研究三档模型映射（与 buddy chat / 快捷面板同源）
-    tierMapping() {
-      const map = {}
-      this.providers.forEach(p => {
-        if (p.tier && p.baseUrl && p.model) {
-          map[p.tier] = { baseUrl: p.baseUrl, apiKey: p.apiKey || '', model: p.model }
-        }
-      })
-      return map
-    },
-    currentWorkspace() {
-      return this.workspaces.find(w => w.id === this.workspaceId) || null
-    },
-    // 底部上下文摘要：模型 · 空间（title 给全量详情）
-    metaText() {
-      const p = this.currentProvider
-      const w = this.currentWorkspace
-      const left = p ? (p.displayName || p.model || p.name) : '未配置模型'
-      const right = w ? (w.name || String(w.path || '').split('/').pop()) : '未选择空间'
-      return left + ' · ' + right
-    },
-    metaTitle() {
-      const p = this.currentProvider
-      const w = this.currentWorkspace
-      return [
-        p ? '模型：' + p.name + '（' + (p.displayName || p.model) + '）' : '',
-        w ? '空间：' + w.path : ''
-      ].filter(Boolean).join('\n')
-    }
-  },
-  watch: {
-    // 贴底跟滚：流式内容增量 / 新消息（atBottom 语义下才滚）
-    turnMsg: {
-      deep: true,
-      handler() { this.followBottom() }
-    },
-    'messages.length'() { this.followBottom() },
-    // 权限确认：浮窗不承载确认条，仅提示引导；应答由主窗口确认条完成。
-    // 不自动拒绝：deny 会与主窗口确认条竞争应答，造成「弹窗还在等待、
-    // 日志已被拒」的错乱（权限语义为一直等待用户决策）
-    permLen(newLen, oldLen) {
-      if (newLen > oldLen) this.$message.info('有操作等待授权，请在主窗口对话页确认')
-    },
-    // store 转发的 UI 事件（claim 认领保证多实例只消费一次）
-    '$store.state.buddyChat.notice': {
-      immediate: true,
-      handler(list) { this.consumeNotices(list) }
-    }
-  },
-  mounted() {
-    document.addEventListener('keydown', this.handleKeydown)
-  },
-  beforeUnmount() {
-    document.removeEventListener('keydown', this.handleKeydown)
-  },
-  methods: {
-    api() {
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      return api || {
-        listSessions: async () => [],
-        getMessages: async () => [],
-        createSession: async () => null,
-        sendMessage: async () => ({ ok: false, error: '对话能力需要 OmniDeck 桌面端' }),
-        interrupt: () => {},
-        replyAskUser: async () => ({ ok: false }),
-        setFeedback: async () => ({ ok: false }),
-        listWorkspaces: async () => []
-      }
-    },
-    handleKeydown(e) {
-      // 唤起助手：可配置（默认 ⌘⌥J / Ctrl+Alt+J），设置页可改键
-      if (matchesShortcut(e, getShortcut('buddy'))) {
-        e.preventDefault()
-        this.toggle()
-      }
-    },
-    toggle() {
-      this.visible ? this.close() : this.open()
-    },
-    async open() {
-      this.visible = true
-      this.draft = ''
-      this.loadProviders()
-      await Promise.all([this.loadWorkspaces(), this.resumeSession()])
-      this.$nextTick(() => {
-        if (this.$refs.buddyInput) this.$refs.buddyInput.focus()
-        this.scrollToBottom()
-      })
-    },
-    close() {
-      this.visible = false
-    },
-    // ===== 模型 / 空间（与快捷面板共享选型存储）=====
-    loadProviders() {
-      const list = getItem('aiProviderList', [])
-      // 仅列文本生成模型（图像模型专用生图，不参与对话）
-      this.providers = (Array.isArray(list) ? list : []).filter(p => p && p.type !== 'image')
-      const saved = getItem('quick:providerId', '')
-      const pick = this.providers.find(p => p.id === saved) ||
-        this.providers.find(p => p.isDefault) ||
-        this.providers[0]
-      this.currentProviderId = pick ? pick.id : ''
-    },
-    async loadWorkspaces() {
-      const list = await this.api().listWorkspaces()
-      // 仅保留目录仍存在的工作空间（失效项不可发送）
-      this.workspaces = (list || []).filter(w => w.available)
-      const saved = getItem('quick:workspaceId', '')
-      this.workspaceId = this.workspaces.some(w => w.id === saved)
-        ? saved
-        : (this.workspaces[0] ? this.workspaces[0].id : '')
-    },
-    // ===== 会话 =====
-    // 延续「快捷面板」会话：主进程落盘历史拉进 store 池（含快捷面板窗口产生的消息）
-    async resumeSession() {
-      const list = await this.api().listSessions()
-      const hit = (list || []).find(s => (s.displayName || '') === SPOT_NAME)
-      this.sessionId = hit ? hit.id : ''
-      if (!this.sessionId) return
-      // 流式中不重拉（防冲掉占位与流式态）；其余强制刷新，同步另一窗口的更新
-      const force = !(this.sess && this.sess.streaming)
-      await this.$store.dispatch('buddyChat/loadHistory', { id: this.sessionId, force })
-    },
-    async send() {
-      const text = this.draft.trim()
-      if (!text || this.streaming) return
-      if (!window.electronAPI || !window.electronAPI.omnibuddy) {
-        this.$message.info('对话能力需要 OmniDeck 桌面端')
-        return
-      }
-      if (!this.currentProviderId) {
-        this.$message.warning('请先在模型管理中添加模型')
-        return
-      }
-      const ws = this.currentWorkspace
-      if (!ws) {
-        this.$message.warning('暂无可用工作空间，请先在主窗口关联磁盘路径')
-        return
-      }
-      this.draft = ''
+const visible = ref(false)
+const draft = ref('')
+// 会话与模型 / 空间上下文
+const sessionId = ref('')
+const providers = ref([])
+const currentProviderId = ref('')
+const workspaces = ref([])
+const workspaceId = ref('')
+const body = ref(null)
+const buddyInput = ref(null)
 
-      let sid = this.sessionId
-      if (!sid) {
-        // 首轮创建会话并建池：快照空间路径与展示名（左侧列表按展示名分组）
-        const session = await this.api().createSession({
-          workspaceId: ws.id,
-          workspaceDir: ws.path,
-          displayName: SPOT_NAME
-        })
-        sid = session.id
-        this.sessionId = sid
-        this.$store.commit('buddyChat/ENSURE', sid)
-        this.$bus.emit('omnibuddy:sessions-changed')
-      }
-
-      this.$store.commit('buddyChat/PUSH_MSG', {
-        id: sid,
-        msg: { role: 'user', content: text, createdAt: Date.now() }
-      })
-      // 立即显示「思考中」占位（光标闪烁 + 秒计时）；内容块到达后转为深度思考区
-      const placeholder = {
-        role: 'assistant',
-        content: '',
-        streaming: true,
-        isThinking: false,
-        thinking: true,
-        seconds: 0,
-        createdAt: Date.now(),
-        items: []
-      }
-      this.$store.commit('buddyChat/PUSH_MSG', { id: sid, msg: placeholder })
-      this.$store.commit('buddyChat/PATCH', {
-        id: sid,
-        patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, atBottom: true }
-      })
-      this.scrollToBottom()
-
-      const res = await this.api().sendMessage({
-        id: sid,
-        text,
-        // provider 浅拷贝附加档位映射（不污染本地供应商存储）
-        provider: Object.assign({}, this.currentProvider, { tiers: this.tierMapping }),
-        workspaceId: ws.id,
-        displayName: SPOT_NAME
-      })
-      if (!res.ok) {
-        this.$store.commit('buddyChat/PATCH', { id: sid, patch: { streaming: false } })
-        this.$store.dispatch('buddyChat/finishTurn', sid)
-        this.$message.error(res.error || '发送失败')
-      }
-    },
-    interrupt() {
-      if (this.sessionId && this.streaming) this.api().interrupt(this.sessionId)
-    },
-    // ===== 消息交互（轻量子集）=====
-    // 回答 ask_user 表单
-    async answerAsk(m, value) {
-      const answer = String(value || '').trim()
-      if (!answer) return
-      m.answered = true
-      m.answer = answer
-      await this.api().replyAskUser({
-        sessionId: this.sessionId,
-        callId: m.callId,
-        value: answer
-      })
-    },
-    // 点赞 / 点踩持久化
-    async onFeedback({ message, value }) {
-      if (!this.sessionId || !message.id) return
-      const res = await this.api().setFeedback({ id: this.sessionId, messageId: message.id, feedback: value })
-      if (!res || !res.ok) this.$message.error((res && res.error) || '反馈保存失败')
-    },
-    // 编辑重发涉及消息截断 / 分支，浮窗不承载：引导到完整对话
-    onEditResend() {
-      this.$message.info('编辑重发请到完整对话中进行')
-    },
-    // ===== store notice 消费（照 chat 页语义精简）=====
-    async consumeNotices(list) {
-      for (const n of (list || []).slice()) {
-        // perm-pending 由 BuddyLayout 全局消费（通知引导），此处跳过不认领
-        if (n.kind === 'perm-pending') continue
-        if (n.sessionId && n.sessionId !== this.sessionId) continue
-        const ok = await this.$store.dispatch('buddyChat/claim', n.nid)
-        if (!ok) continue
-        if (n.kind === 'sessions-changed') {
-          this.$bus.emit('omnibuddy:sessions-changed')
-        } else if (n.kind === 'success') {
-          this.$message.success(n.text)
-        } else if (n.kind === 'warning') {
-          this.$message.warning(n.text)
-        } else if (n.kind === 'info') {
-          this.$message.info(n.text)
-        }
-      }
-    },
-    // ===== 滚动 =====
-    onMsgScroll() {
-      const b = this.$refs.body
-      if (!b || !this.sess) return
-      // 距底 40px 内视为「在底部」（新消息自动跟滚）
-      const atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 40
-      if (this.sess.atBottom !== atBottom) {
-        this.$store.commit('buddyChat/PATCH', { id: this.sessionId, patch: { atBottom } })
-      }
-    },
-    // 内容块收起等尺寸变化：贴底语义下补偿滚动
-    onContentResize() {
-      this.followBottom()
-    },
-    followBottom() {
-      if (this.sess && this.sess.atBottom) this.scrollToBottom()
-    },
-    scrollToBottom() {
-      this.$nextTick(() => {
-        const b = this.$refs.body
-        if (b) b.scrollTop = b.scrollHeight
-      })
-    },
-    // 跳转模型管理页（Buddy 视图内独立管理页）
-    openBuddySettings() {
-      this.close()
-      if (this.$route.name !== 'OmniBuddyProviders') {
-        this.$router.push('/omnibuddy/providers')
-      }
+// 会话态全在 store（浮窗收起不丢，切回来即从池内恢复）
+const sess = computed(() => store.getters['buddyChat/session'](sessionId.value))
+const messages = computed(() => (sess.value && sess.value.messages) || [])
+const streaming = computed(() => !!(sess.value && sess.value.streaming))
+// 供 watch 的派生量（sess 可能为 null，computed 兜底避免路径求值报错）
+const turnMsg = computed(() => sess.value ? sess.value.turnMsg : null)
+const permLen = computed(() => sess.value && sess.value.permQueue ? sess.value.permQueue.length : 0)
+const currentProvider = computed(() => providers.value.find(p => p.id === currentProviderId.value) || null)
+// 深度研究三档模型映射（与 buddy chat / 快捷面板同源）
+const tierMapping = computed(() => {
+  const map = {}
+  providers.value.forEach(p => {
+    if (p.tier && p.baseUrl && p.model) {
+      map[p.tier] = { baseUrl: p.baseUrl, apiKey: p.apiKey || '', model: p.model }
     }
+  })
+  return map
+})
+const currentWorkspace = computed(() => workspaces.value.find(w => w.id === workspaceId.value) || null)
+// 底部上下文摘要：模型 · 空间（title 给全量详情）
+const metaText = computed(() => {
+  const p = currentProvider.value
+  const w = currentWorkspace.value
+  const left = p ? (p.displayName || p.model || p.name) : '未配置模型'
+  const right = w ? (w.name || String(w.path || '').split('/').pop()) : '未选择空间'
+  return left + ' · ' + right
+})
+const metaTitle = computed(() => {
+  const p = currentProvider.value
+  const w = currentWorkspace.value
+  return [
+    p ? '模型：' + p.name + '（' + (p.displayName || p.model) + '）' : '',
+    w ? '空间：' + w.path : ''
+  ].filter(Boolean).join('\n')
+})
+
+// 贴底跟滚：流式内容增量 / 新消息（atBottom 语义下才滚）
+watch(turnMsg, () => { followBottom() }, { deep: true })
+watch(() => messages.value.length, () => { followBottom() })
+// 权限确认：浮窗不承载确认条，仅提示引导；应答由主窗口确认条完成。
+// 不自动拒绝：deny 会与主窗口确认条竞争应答，造成「弹窗还在等待、
+// 日志已被拒」的错乱（权限语义为一直等待用户决策）
+watch(permLen, (newLen, oldLen) => {
+  if (newLen > oldLen) message.info('有操作等待授权，请在主窗口对话页确认')
+})
+// store 转发的 UI 事件（claim 认领保证多实例只消费一次）
+watch(() => store.state.buddyChat.notice, list => { consumeNotices(list) }, { immediate: true })
+
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleKeydown)
+})
+
+function api() {
+  const api = window.electronAPI && window.electronAPI.omnibuddy
+  return api || {
+    listSessions: async () => [],
+    getMessages: async () => [],
+    createSession: async () => null,
+    sendMessage: async () => ({ ok: false, error: '对话能力需要 OmniDeck 桌面端' }),
+    interrupt: () => {},
+    replyAskUser: async () => ({ ok: false }),
+    setFeedback: async () => ({ ok: false }),
+    listWorkspaces: async () => []
+  }
+}
+function handleKeydown(e) {
+  // 唤起助手：可配置（默认 ⌘⌥J / Ctrl+Alt+J），设置页可改键
+  if (matchesShortcut(e, getShortcut('buddy'))) {
+    e.preventDefault()
+    toggle()
+  }
+}
+function toggle() {
+  visible.value ? close() : open()
+}
+async function open() {
+  visible.value = true
+  draft.value = ''
+  loadProviders()
+  await Promise.all([loadWorkspaces(), resumeSession()])
+  nextTick(() => {
+    if (buddyInput.value) buddyInput.value.focus()
+    scrollToBottom()
+  })
+}
+function close() {
+  visible.value = false
+}
+// ===== 模型 / 空间（与快捷面板共享选型存储）=====
+function loadProviders() {
+  const list = getItem('aiProviderList', [])
+  // 仅列文本生成模型（图像模型专用生图，不参与对话）
+  providers.value = (Array.isArray(list) ? list : []).filter(p => p && p.type !== 'image')
+  const saved = getItem('quick:providerId', '')
+  const pick = providers.value.find(p => p.id === saved) ||
+    providers.value.find(p => p.isDefault) ||
+    providers.value[0]
+  currentProviderId.value = pick ? pick.id : ''
+}
+async function loadWorkspaces() {
+  const list = await api().listWorkspaces()
+  // 仅保留目录仍存在的工作空间（失效项不可发送）
+  workspaces.value = (list || []).filter(w => w.available)
+  const saved = getItem('quick:workspaceId', '')
+  workspaceId.value = workspaces.value.some(w => w.id === saved)
+    ? saved
+    : (workspaces.value[0] ? workspaces.value[0].id : '')
+}
+// ===== 会话 =====
+// 延续「快捷面板」会话：主进程落盘历史拉进 store 池（含快捷面板窗口产生的消息）
+async function resumeSession() {
+  const list = await api().listSessions()
+  const hit = (list || []).find(s => (s.displayName || '') === SPOT_NAME)
+  sessionId.value = hit ? hit.id : ''
+  if (!sessionId.value) return
+  // 流式中不重拉（防冲掉占位与流式态）；其余强制刷新，同步另一窗口的更新
+  const force = !(sess.value && sess.value.streaming)
+  await store.dispatch('buddyChat/loadHistory', { id: sessionId.value, force })
+}
+async function send() {
+  const text = draft.value.trim()
+  if (!text || streaming.value) return
+  if (!window.electronAPI || !window.electronAPI.omnibuddy) {
+    message.info('对话能力需要 OmniDeck 桌面端')
+    return
+  }
+  if (!currentProviderId.value) {
+    message.warning('请先在模型管理中添加模型')
+    return
+  }
+  const ws = currentWorkspace.value
+  if (!ws) {
+    message.warning('暂无可用工作空间，请先在主窗口关联磁盘路径')
+    return
+  }
+  draft.value = ''
+
+  let sid = sessionId.value
+  if (!sid) {
+    // 首轮创建会话并建池：快照空间路径与展示名（左侧列表按展示名分组）
+    const session = await api().createSession({
+      workspaceId: ws.id,
+      workspaceDir: ws.path,
+      displayName: SPOT_NAME
+    })
+    sid = session.id
+    sessionId.value = sid
+    store.commit('buddyChat/ENSURE', sid)
+    bus.emit('omnibuddy:sessions-changed')
+  }
+
+  store.commit('buddyChat/PUSH_MSG', {
+    id: sid,
+    msg: { role: 'user', content: text, createdAt: Date.now() }
+  })
+  // 立即显示「思考中」占位（光标闪烁 + 秒计时）；内容块到达后转为深度思考区
+  const placeholder = {
+    role: 'assistant',
+    content: '',
+    streaming: true,
+    isThinking: false,
+    thinking: true,
+    seconds: 0,
+    createdAt: Date.now(),
+    items: []
+  }
+  store.commit('buddyChat/PUSH_MSG', { id: sid, msg: placeholder })
+  store.commit('buddyChat/PATCH', {
+    id: sid,
+    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, atBottom: true }
+  })
+  scrollToBottom()
+
+  const res = await api().sendMessage({
+    id: sid,
+    text,
+    // provider 浅拷贝附加档位映射（不污染本地供应商存储）
+    provider: Object.assign({}, currentProvider.value, { tiers: tierMapping.value }),
+    workspaceId: ws.id,
+    displayName: SPOT_NAME
+  })
+  if (!res.ok) {
+    store.commit('buddyChat/PATCH', { id: sid, patch: { streaming: false } })
+    store.dispatch('buddyChat/finishTurn', sid)
+    message.error(res.error || '发送失败')
+  }
+}
+function interrupt() {
+  if (sessionId.value && streaming.value) api().interrupt(sessionId.value)
+}
+// ===== 消息交互（轻量子集）=====
+// 回答 ask_user 表单
+async function answerAsk(m, value) {
+  const answer = String(value || '').trim()
+  if (!answer) return
+  m.answered = true
+  m.answer = answer
+  await api().replyAskUser({
+    sessionId: sessionId.value,
+    callId: m.callId,
+    value: answer
+  })
+}
+// 点赞 / 点踩持久化（payload 解构重命名 msg，避免遮蔽弹层 message）
+async function onFeedback({ message: msg, value }) {
+  if (!sessionId.value || !msg.id) return
+  const res = await api().setFeedback({ id: sessionId.value, messageId: msg.id, feedback: value })
+  if (!res || !res.ok) message.error((res && res.error) || '反馈保存失败')
+}
+// 编辑重发涉及消息截断 / 分支，浮窗不承载：引导到完整对话
+function onEditResend() {
+  message.info('编辑重发请到完整对话中进行')
+}
+// ===== store notice 消费（照 chat 页语义精简）=====
+async function consumeNotices(list) {
+  for (const n of (list || []).slice()) {
+    // perm-pending 由 BuddyLayout 全局消费（通知引导），此处跳过不认领
+    if (n.kind === 'perm-pending') continue
+    if (n.sessionId && n.sessionId !== sessionId.value) continue
+    const ok = await store.dispatch('buddyChat/claim', n.nid)
+    if (!ok) continue
+    if (n.kind === 'sessions-changed') {
+      bus.emit('omnibuddy:sessions-changed')
+    } else if (n.kind === 'success') {
+      message.success(n.text)
+    } else if (n.kind === 'warning') {
+      message.warning(n.text)
+    } else if (n.kind === 'info') {
+      message.info(n.text)
+    }
+  }
+}
+// ===== 滚动 =====
+function onMsgScroll() {
+  const b = body.value
+  if (!b || !sess.value) return
+  // 距底 40px 内视为「在底部」（新消息自动跟滚）
+  const atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 40
+  if (sess.value.atBottom !== atBottom) {
+    store.commit('buddyChat/PATCH', { id: sessionId.value, patch: { atBottom } })
+  }
+}
+// 内容块收起等尺寸变化：贴底语义下补偿滚动
+function onContentResize() {
+  followBottom()
+}
+function followBottom() {
+  if (sess.value && sess.value.atBottom) scrollToBottom()
+}
+function scrollToBottom() {
+  nextTick(() => {
+    const b = body.value
+    if (b) b.scrollTop = b.scrollHeight
+  })
+}
+// 跳转模型管理页（Buddy 视图内独立管理页）
+function openBuddySettings() {
+  close()
+  if (route.name !== 'OmniBuddyProviders') {
+    router.push('/omnibuddy/providers')
   }
 }
 </script>

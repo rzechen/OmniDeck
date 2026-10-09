@@ -135,220 +135,232 @@
   </transition>
 </template>
 
-<script>
+<script setup>
 // 编辑 / 导入 Skill：编辑模式（抽屉）读取 SKILL.md 回填表单；
 // 导入模式（小弹窗）为 ZIP 上传 → 自动验证 → 导入（同名二次确认覆盖）；凭据统一在「我的凭据」管理
+import { ref, reactive, computed, watch } from 'vue'
 import { buddyApi } from '@/utils/buddy/buddy-api'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'SkillImportDialog',
-  props: {
-    // 弹窗显隐（父级 .sync 控制）
-    visible: {
-      type: Boolean,
-      default: false
-    },
-    // 编辑中的 Skill（null 表示新建 / ZIP 导入）
-    editing: {
-      type: Object,
-      default: null
-    }
+defineOptions({ name: 'SkillImportDialog' })
+
+const props = defineProps({
+  // 弹窗显隐（父级 .sync 控制）
+  visible: {
+    type: Boolean,
+    default: false
   },
-  data() {
-    return {
-      skillForm: { name: '', description: '', content: '', envKeys: '' },
-      // ZIP 导入：文件持有 / 拖拽高亮 / 验证状态 / 导入中
-      zipFile: null,
-      zipDragOver: false,
-      zipValidating: false,
-      zipValidation: null,
-      zipImporting: false
-    }
+  // 编辑中的 Skill（null 表示新建 / ZIP 导入）
+  editing: {
+    type: Object,
+    default: null
+  }
+})
+
+const emit = defineEmits(['update:visible', 'saved'])
+
+const { message, confirm } = useFeedback()
+
+const skillForm = reactive({ name: '', description: '', content: '', envKeys: '' })
+// ZIP 导入：文件持有 / 拖拽高亮 / 验证状态 / 导入中
+const zipFile = ref(null)
+const zipDragOver = ref(false)
+const zipValidating = ref(false)
+const zipValidation = ref(null)
+const zipImporting = ref(false)
+const zipInput = ref(null)
+
+// 是否编辑模式（编辑时名称不可改，且不展示 ZIP 导入区）
+const isEdit = computed(() => {
+  return !!props.editing
+})
+
+// 弹窗显隐代理（transition 无 .sync，手动透传给父级）
+const dialogVisible = computed({
+  get() {
+    return props.visible
   },
-  computed: {
-    // 是否编辑模式（编辑时名称不可改，且不展示 ZIP 导入区）
-    isEdit() {
-      return !!this.editing
-    },
-    // 弹窗显隐代理（transition 无 .sync，手动透传给父级）
-    dialogVisible: {
-      get() {
-        return this.visible
-      },
-      set(v) {
-        this.$emit('update:visible', v)
-      }
-    },
-    // ZIP 验证结果文案（通过：名称 + 描述 + 文件数 + 覆盖提示；失败：原因）
-    zipValidationText() {
-      const v = this.zipValidation
-      if (!v) return ''
-      if (!v.ok) return v.error || '校验失败'
-      let text = '通过：' + v.skillName
-      if (v.description) text += ' · ' + v.description
-      text += ' · ' + (v.fileCount || 0) + ' 个文件'
-      if (v.exists) text += '（同名已存在，导入时将询问覆盖）'
-      return text
-    }
-  },
-  watch: {
-    // 弹窗打开时按 editing 初始化（编辑读取远端内容 / 导入重置 ZIP 状态）
-    visible(val) {
-      if (val) this.initForm()
-    }
-  },
-  methods: {
-    initForm() {
-      if (this.editing) {
-        this.loadSkill()
-      } else {
-        this.skillForm = { name: '', description: '', content: '', envKeys: '' }
-        this.zipFile = null
-        this.zipValidation = null
-        this.zipDragOver = false
-      }
-    },
-    // 编辑 Skill：读取 SKILL.md 内容回填抽屉（名称作为目录标识不可改）
-    loadSkill() {
-      const api = buddyApi()
-      if (!api) {
-        this.$message.error('技能管理仅桌面端可用')
-        this.dialogVisible = false
-        return
-      }
-      const target = this.editing
-      api.getSkill(target.dir).then(res => {
-        if (res && res.ok && res.skill) {
-          this.skillForm = {
-            name: res.skill.name || target.name,
-            description: res.skill.description || '',
-            content: res.skill.content || '',
-            envKeys: (res.skill.envKeys || []).join(', ')
-          }
-        } else {
-          this.$message.error((res && res.error) || '读取 Skill 失败')
-          this.dialogVisible = false
-        }
-      })
-    },
-    pickZip() {
-      if (this.$refs.zipInput) this.$refs.zipInput.click()
-    },
-    onZipDrop(e) {
-      this.zipDragOver = false
-      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]
-      if (f) this.holdZip(f)
-    },
-    onZipPicked(e) {
-      const f = e.target && e.target.files && e.target.files[0]
-      if (f) this.holdZip(f)
-      e.target.value = ''
-    },
-    // 持有 ZIP 文件：格式与大小校验，选择后立即自动验证
-    holdZip(file) {
-      if (!/\.zip$/i.test(file.name)) {
-        this.$message.error('仅支持 .zip 文件')
-        return
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        this.$message.error('文件大小不能超过 10MB')
-        return
-      }
-      this.zipFile = file
-      this.zipValidation = null
-      // 自动验证（上传即校验，无需手动点按钮）
-      this.validateZipFile()
-    },
-    formatSize(bytes) {
-      if (bytes < 1024) return bytes + ' B'
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-      return (bytes / 1024 / 1024).toFixed(1) + ' MB'
-    },
-    // File → Uint8Array（IPC 结构化克隆传输）
-    async zipBytes() {
-      return new Uint8Array(await this.zipFile.arrayBuffer())
-    },
-    async validateZipFile() {
-      if (!this.zipFile) return
-      const api = buddyApi()
-      if (!api || !api.validateSkillZip) {
-        this.$message.error('技能管理仅桌面端可用')
-        return
-      }
-      this.zipValidating = true
-      try {
-        this.zipValidation = await api.validateSkillZip(await this.zipBytes())
-      } catch (e) {
-        this.zipValidation = { ok: false, error: (e && e.message) || '校验失败' }
-      } finally {
-        this.zipValidating = false
-      }
-    },
-    // 导入：同名已存在时二次确认覆盖（凭据统一在「我的资料 → 我的凭据」绑定）
-    async importZipFile(overwrite) {
-      const v = this.zipValidation
-      if (!v || !v.ok) return
-      if (v.exists && !overwrite) {
-        this.$confirm('同名 Skill「' + v.skillName + '」已存在，导入将覆盖其内容。继续吗？', '覆盖导入', {
-          confirmButtonText: '覆盖导入',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }).then(() => this.importZipFile(true)).catch(() => {})
-        return
-      }
-      const api = buddyApi()
-      this.zipImporting = true
-      try {
-        const res = await api.importSkillZip({ data: await this.zipBytes(), overwrite: !!overwrite })
-        if (!res || !res.ok) {
-          this.$message.error((res && res.error) || '导入失败')
-          return
-        }
-        // 多 skill 包：包内子技能已随包平铺安装（pi 只扫一级目录，嵌套不生效）
-        const extra = (res.extraSkills && res.extraSkills.length)
-          ? '，附带安装子技能：' + res.extraSkills.join('、')
-          : ''
-        const skipped = (res.skippedSkills && res.skippedSkills.length)
-          ? '；已存在跳过：' + res.skippedSkills.join('、') + '（覆盖导入可更新）'
-          : ''
-        this.$message.success('Skill「' + res.skill.name + '」导入成功（' + res.skill.files + ' 个文件）' + extra + skipped)
-        this.dialogVisible = false
-        this.$emit('saved')
-      } catch (e) {
-        this.$message.error((e && e.message) || '导入失败')
-      } finally {
-        this.zipImporting = false
-      }
-    },
-    // 保存编辑（新建走 ZIP 导入，表单保存仅用于已有 Skill 的编辑）
-    async saveSkill() {
-      const name = this.skillForm.name.trim()
-      const description = this.skillForm.description.trim()
-      if (!name || !description) {
-        this.$message.warning('请填写名称与描述')
-        return
-      }
-      const api = buddyApi()
-      if (!api) {
-        this.$message.error('技能管理仅桌面端可用')
-        return
-      }
-      const res = await api.updateSkill({
-        name,
-        description,
-        content: this.skillForm.content,
-        envKeys: this.skillForm.envKeys.split(/[,，]/).map(s => s.trim()).filter(Boolean)
-      })
-      if (res && res.ok) {
-        this.dialogVisible = false
-        this.$message.success('Skill 已更新，新会话生效')
-        this.$emit('saved')
-      } else {
-        this.$message.error((res && res.error) || '更新失败')
-      }
-    }
+  set(v) {
+    emit('update:visible', v)
+  }
+})
+
+// ZIP 验证结果文案（通过：名称 + 描述 + 文件数 + 覆盖提示；失败：原因）
+const zipValidationText = computed(() => {
+  const v = zipValidation.value
+  if (!v) return ''
+  if (!v.ok) return v.error || '校验失败'
+  let text = '通过：' + v.skillName
+  if (v.description) text += ' · ' + v.description
+  text += ' · ' + (v.fileCount || 0) + ' 个文件'
+  if (v.exists) text += '（同名已存在，导入时将询问覆盖）'
+  return text
+})
+
+function initForm() {
+  if (props.editing) {
+    loadSkill()
+  } else {
+    Object.assign(skillForm, { name: '', description: '', content: '', envKeys: '' })
+    zipFile.value = null
+    zipValidation.value = null
+    zipDragOver.value = false
   }
 }
+
+// 编辑 Skill：读取 SKILL.md 内容回填抽屉（名称作为目录标识不可改）
+function loadSkill() {
+  const api = buddyApi()
+  if (!api) {
+    message.error('技能管理仅桌面端可用')
+    dialogVisible.value = false
+    return
+  }
+  const target = props.editing
+  api.getSkill(target.dir).then(res => {
+    if (res && res.ok && res.skill) {
+      Object.assign(skillForm, {
+        name: res.skill.name || target.name,
+        description: res.skill.description || '',
+        content: res.skill.content || '',
+        envKeys: (res.skill.envKeys || []).join(', ')
+      })
+    } else {
+      message.error((res && res.error) || '读取 Skill 失败')
+      dialogVisible.value = false
+    }
+  })
+}
+
+function pickZip() {
+  if (zipInput.value) zipInput.value.click()
+}
+
+function onZipDrop(e) {
+  zipDragOver.value = false
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]
+  if (f) holdZip(f)
+}
+
+function onZipPicked(e) {
+  const f = e.target && e.target.files && e.target.files[0]
+  if (f) holdZip(f)
+  e.target.value = ''
+}
+
+// 持有 ZIP 文件：格式与大小校验，选择后立即自动验证
+function holdZip(file) {
+  if (!/\.zip$/i.test(file.name)) {
+    message.error('仅支持 .zip 文件')
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    message.error('文件大小不能超过 10MB')
+    return
+  }
+  zipFile.value = file
+  zipValidation.value = null
+  // 自动验证（上传即校验，无需手动点按钮）
+  validateZipFile()
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+}
+
+// File → Uint8Array（IPC 结构化克隆传输）
+async function zipBytes() {
+  return new Uint8Array(await zipFile.value.arrayBuffer())
+}
+
+async function validateZipFile() {
+  if (!zipFile.value) return
+  const api = buddyApi()
+  if (!api || !api.validateSkillZip) {
+    message.error('技能管理仅桌面端可用')
+    return
+  }
+  zipValidating.value = true
+  try {
+    zipValidation.value = await api.validateSkillZip(await zipBytes())
+  } catch (e) {
+    zipValidation.value = { ok: false, error: (e && e.message) || '校验失败' }
+  } finally {
+    zipValidating.value = false
+  }
+}
+
+// 导入：同名已存在时二次确认覆盖（凭据统一在「我的资料 → 我的凭据」绑定）
+async function importZipFile(overwrite) {
+  const v = zipValidation.value
+  if (!v || !v.ok) return
+  if (v.exists && !overwrite) {
+    confirm('同名 Skill「' + v.skillName + '」已存在，导入将覆盖其内容。继续吗？', '覆盖导入', {
+      confirmButtonText: '覆盖导入',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }).then(() => importZipFile(true)).catch(() => {})
+    return
+  }
+  const api = buddyApi()
+  zipImporting.value = true
+  try {
+    const res = await api.importSkillZip({ data: await zipBytes(), overwrite: !!overwrite })
+    if (!res || !res.ok) {
+      message.error((res && res.error) || '导入失败')
+      return
+    }
+    // 多 skill 包：包内子技能已随包平铺安装（pi 只扫一级目录，嵌套不生效）
+    const extra = (res.extraSkills && res.extraSkills.length)
+      ? '，附带安装子技能：' + res.extraSkills.join('、')
+      : ''
+    const skipped = (res.skippedSkills && res.skippedSkills.length)
+      ? '；已存在跳过：' + res.skippedSkills.join('、') + '（覆盖导入可更新）'
+      : ''
+    message.success('Skill「' + res.skill.name + '」导入成功（' + res.skill.files + ' 个文件）' + extra + skipped)
+    dialogVisible.value = false
+    emit('saved')
+  } catch (e) {
+    message.error((e && e.message) || '导入失败')
+  } finally {
+    zipImporting.value = false
+  }
+}
+
+// 保存编辑（新建走 ZIP 导入，表单保存仅用于已有 Skill 的编辑）
+async function saveSkill() {
+  const name = skillForm.name.trim()
+  const description = skillForm.description.trim()
+  if (!name || !description) {
+    message.warning('请填写名称与描述')
+    return
+  }
+  const api = buddyApi()
+  if (!api) {
+    message.error('技能管理仅桌面端可用')
+    return
+  }
+  const res = await api.updateSkill({
+    name,
+    description,
+    content: skillForm.content,
+    envKeys: skillForm.envKeys.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+  })
+  if (res && res.ok) {
+    dialogVisible.value = false
+    message.success('Skill 已更新，新会话生效')
+    emit('saved')
+  } else {
+    message.error((res && res.error) || '更新失败')
+  }
+}
+
+// 弹窗打开时按 editing 初始化（编辑读取远端内容 / 导入重置 ZIP 状态）
+watch(() => props.visible, val => {
+  if (val) initForm()
+})
 </script>
 
 <style lang="scss" scoped>

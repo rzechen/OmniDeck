@@ -87,8 +87,11 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onMounted } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
+
+defineOptions({ name: 'ConvertRegex' })
 
 const EXAMPLE_TEXT = `联系方式：
 邮箱：support@omnideck.app
@@ -109,99 +112,87 @@ function escapeHtml(s) {
   return s.replace(/[&<>]/g, c => HTML_ESCAPE[c])
 }
 
-export default {
-  name: 'ConvertRegex',
-  components: { ToolShell },
-  data() {
-    return {
-      pattern: '[\\w.+-]+@[\\w-]+\\.[\\w.]+',
-      flags: 'g',
-      testText: EXAMPLE_TEXT,
-      regexError: '',
-      matches: [],
-      flagList: [
-        { key: 'g', desc: '全局匹配' },
-        { key: 'i', desc: '忽略大小写' },
-        { key: 'm', desc: '多行模式 ^ $ 匹配行首尾' },
-        { key: 's', desc: '点号匹配换行' },
-        { key: 'u', desc: 'Unicode 模式' }
-      ]
+const pattern = ref('[\\w.+-]+@[\\w-]+\\.[\\w.]+')
+const flags = ref('g')
+const testText = ref(EXAMPLE_TEXT)
+const regexError = ref('')
+const matches = ref([])
+const flagList = [
+  { key: 'g', desc: '全局匹配' },
+  { key: 'i', desc: '忽略大小写' },
+  { key: 'm', desc: '多行模式 ^ $ 匹配行首尾' },
+  { key: 's', desc: '点号匹配换行' },
+  { key: 'u', desc: 'Unicode 模式' }
+]
+
+const matchCount = computed(() => matches.value.length)
+const groups = computed(() => matches.value.filter(m => m.groups && m.groups.length > 1))
+// 按匹配区间拼接高亮 HTML（单次遍历，无误伤）
+const highlighted = computed(() => {
+  if (!matches.value.length) return escapeHtml(testText.value)
+  let html = ''
+  let last = 0
+  matches.value.forEach(m => {
+    html += escapeHtml(testText.value.slice(last, m.index))
+    const g = m.raw.length > 1
+      ? ` title="分组：${m.raw.map((s, i) => i === 0 ? s : `$${i}=${s || ''}`).join('  ')}"`
+      : ''
+    html += `<mark class="rx-hit"${g}>${escapeHtml(m.raw[0])}</mark>`
+    last = m.index + m.raw[0].length
+  })
+  html += escapeHtml(testText.value.slice(last))
+  return html
+})
+
+function toggleFlag(f) {
+  // g 标志必须有（matchAll 需要），只能切换其余
+  if (f === 'g') return
+  flags.value = flags.value.includes(f)
+    ? flags.value.replace(f, '')
+    : flags.value + f
+}
+
+function runTest() {
+  regexError.value = ''
+  matches.value = []
+  if (!pattern.value) return
+  let reg
+  try {
+    // matchAll 要求 g 标志
+    reg = new RegExp(pattern.value, flags.value.includes('g') ? flags.value : flags.value + 'g')
+  } catch (e) {
+    regexError.value = e.message
+    return
+  }
+  if (!testText.value) return
+  try {
+    matches.value = [...testText.value.matchAll(reg)].map(m => ({
+      index: m.index,
+      raw: [...m]
+    }))
+    // 匹配数上限保护（防止灾难性回溯卡 UI）
+    if (matches.value.length > 5000) {
+      matches.value = matches.value.slice(0, 5000)
     }
-  },
-  computed: {
-    matchCount() {
-      return this.matches.length
-    },
-    groups() {
-      return this.matches.filter(m => m.groups && m.groups.length > 1)
-    },
-    // 按匹配区间拼接高亮 HTML（单次遍历，无误伤）
-    highlighted() {
-      if (!this.matches.length) return escapeHtml(this.testText)
-      let html = ''
-      let last = 0
-      this.matches.forEach(m => {
-        html += escapeHtml(this.testText.slice(last, m.index))
-        const g = m.raw.length > 1
-          ? ` title="分组：${m.raw.map((s, i) => i === 0 ? s : `$${i}=${s || ''}`).join('  ')}"`
-          : ''
-        html += `<mark class="rx-hit"${g}>${escapeHtml(m.raw[0])}</mark>`
-        last = m.index + m.raw[0].length
-      })
-      html += escapeHtml(this.testText.slice(last))
-      return html
-    }
-  },
-  watch: {
-    flags() {
-      this.runTest()
-    }
-  },
-  mounted() {
-    this.runTest()
-  },
-  methods: {
-    toggleFlag(f) {
-      // g 标志必须有（matchAll 需要），只能切换其余
-      if (f === 'g') return
-      this.flags = this.flags.includes(f)
-        ? this.flags.replace(f, '')
-        : this.flags + f
-    },
-    runTest() {
-      this.regexError = ''
-      this.matches = []
-      if (!this.pattern) return
-      let reg
-      try {
-        // matchAll 要求 g 标志
-        reg = new RegExp(this.pattern, this.flags.includes('g') ? this.flags : this.flags + 'g')
-      } catch (e) {
-        this.regexError = e.message
-        return
-      }
-      if (!this.testText) return
-      try {
-        this.matches = [...this.testText.matchAll(reg)].map(m => ({
-          index: m.index,
-          raw: [...m]
-        }))
-        // 匹配数上限保护（防止灾难性回溯卡 UI）
-        if (this.matches.length > 5000) {
-          this.matches = this.matches.slice(0, 5000)
-        }
-      } catch (e) {
-        this.regexError = e.message
-      }
-    },
-    clearAll() {
-      this.pattern = ''
-      this.testText = ''
-      this.regexError = ''
-      this.matches = []
-    }
+  } catch (e) {
+    regexError.value = e.message
   }
 }
+
+function clearAll() {
+  pattern.value = ''
+  testText.value = ''
+  regexError.value = ''
+  matches.value = []
+}
+
+watch(flags, () => {
+  runTest()
+})
+
+onMounted(() => {
+  runTest()
+})
 </script>
 
 <style lang="scss" scoped>

@@ -102,7 +102,7 @@
         </div>
         <p class="empty-title">还没有收藏工具</p>
         <p class="empty-tip">点击工具卡片上的星标，即可收藏到这里</p>
-        <el-button class="empty-btn" size="small" round @click="$router.push('/home')">
+        <el-button class="empty-btn" size="small" round @click="router.push('/home')">
           去逛逛工具
         </el-button>
       </div>
@@ -155,7 +155,7 @@
         </div>
         <p class="empty-title">还没有剪贴板收藏</p>
         <p class="empty-tip">在剪贴板页点击星标，把常用内容收藏到这里</p>
-        <el-button class="empty-btn" size="small" round @click="$router.push('/clipboard')">
+        <el-button class="empty-btn" size="small" round @click="router.push('/clipboard')">
           去剪贴板看看
         </el-button>
       </div>
@@ -246,7 +246,7 @@
       :close-on-click-modal="false"
     >
       <el-form
-        ref="siteForm"
+        ref="siteFormRef"
         :model="siteForm"
         :rules="rules"
         label-width="56px"
@@ -350,10 +350,14 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, reactive, computed, watch, nextTick, onMounted, onActivated, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 import draggable from 'vuedraggable'
 import { toolCategories } from '@/config/tools'
 import { getItem, setItem } from '@/utils/storage/db'
+import { useFeedback } from '@/composables/useFeedback'
 
 // 全量工具扁平列表（带分类色），用于按 path 反查收藏的完整信息
 const allTools = []
@@ -387,570 +391,570 @@ const TAB_META = {
 // 全部合法 Tab key（用于持久化顺序的校验与补齐）
 const TAB_KEYS = ['tool', 'site', 'clip']
 
-export default {
-  name: 'Favorites',
-  components: { draggable },
-  data() {
-    // Tab 顺序：从 IndexedDB 恢复（过滤非法 key，并补齐新增 Tab，兼容旧版仅两项的值）
-    const tabOrder = (() => {
-      const saved = getItem('favTabOrder', null)
-      const list = (Array.isArray(saved) ? saved : []).filter(k => TAB_KEYS.includes(k))
-      TAB_KEYS.forEach(k => {
-        if (!list.includes(k)) list.push(k)
-      })
-      return list
-    })()
-    return {
-      activeTab: tabOrder[0], // 默认选中排序后的第一个 Tab
-      tabOrder,
-      tabMeta: TAB_META,
-      keyword: '',
-      siteFavorites: [], // { name, url, domain, category, iconFailed? }
-      siteCategories: [], // 有序自定义分组名列表
-      groups: [], // 渲染用分组视图：[{ name: ''|自定义, sites: [] }]
-      favClips: [], // 剪贴板收藏：[{ id, kind, text?|width/height/thumb, createdAt, favedAt }]
-      clipPreviewVisible: false, // 图片预览弹窗
-      clipPreviewData: '',
-      clipPreviewRec: null,
-      clipTextVisible: false, // 文本详情弹窗
-      clipTextRec: null,
-      showAddDialog: false,
-      checking: false, // 保存时可访问性检测中
-      editingSite: null, // 编辑模式下的原对象
-      nameManuallyEdited: false, // 名称被手动编辑后不再自动覆盖
-      urlChecking: false, // URL 自动获取元信息中
-      urlMeta: null, // 自动获取结果 { ok, title, url }
-      urlStatus: null, // URL 下方状态行 { type: 'ok'|'bad', text }
-      suppressClick: false, // 拖拽结束后短暂抑制 click，防止误触打开卡片
-      siteForm: {
-        name: '',
-        url: '',
-        category: ''
-      },
-      rules: {
-        name: [
-          { required: true, message: '请输入网站名称', trigger: 'blur' }
-        ],
-        url: [
-          { required: true, message: '请输入网址', trigger: 'blur' },
-          { validator: validateUrl, trigger: 'blur' }
-        ]
-      }
-    }
-  },
-  computed: {
-    // 剪贴板收藏 IPC（仅桌面端提供）
-    favApi() {
-      return (window.electronAPI && window.electronAPI.captureFav) || null
-    },
-    // 已收藏工具：按 store 中的收藏顺序渲染
-    toolFavorites() {
-      const paths = this.$store.state.toolFavorites
-      return paths.map(p => allTools.find(t => t.path === p)).filter(Boolean)
-    },
-    // 按关键字过滤工具收藏（名称匹配）
-    filteredToolFavorites() {
-      if (!this.keyword) return this.toolFavorites
-      const q = this.keyword.toLowerCase()
-      return this.toolFavorites.filter(t => t.name.toLowerCase().includes(q))
-    },
-    // 关键字过滤后的网站总数（跨分组）
-    filteredSiteCount() {
-      return this.visibleGroups.reduce((n, g) => n + g.sites.length, 0)
-    },
-    // 分组视图：搜索时返回过滤副本（拖拽已禁用）；平时返回原引用供 v-model 写入
-    visibleGroups() {
-      if (!this.keyword) return this.groups
-      const q = this.keyword.toLowerCase()
-      return this.groups
-        .map(g => ({
-          ...g,
-          sites: g.sites.filter(
-            s =>
-              s.name.toLowerCase().includes(q) ||
-              (s.url || '').toLowerCase().includes(q)
-          )
-        }))
-        .filter(g => g.sites.length)
-    },
-    // 拖拽排序：get 返回展示列表；set 回写 store 并持久化
-    dragTools: {
-      get() {
-        return this.filteredToolFavorites
-      },
-      set(list) {
-        const paths = list.map(t => t.path)
-        this.$store.commit('SET_TOOL_FAVORITES', paths)
-        setItem('toolFavorites', paths)
-      }
-    },
-    // 按关键字过滤剪贴板收藏（文本匹配内容，图片匹配「图片 + 分辨率」）
-    filteredFavClips() {
-      if (!this.keyword) return this.favClips
-      const q = this.keyword.trim().toLowerCase()
-      return this.favClips.filter(c => {
-        const hay = c.kind === 'text'
-          ? (c.text || '')
-          : `图片 ${c.width} × ${c.height}`
-        return hay.toLowerCase().includes(q)
-      })
-    },
-    // 搜索框计数：当前 Tab 的 匹配数/总数
-    searchCount() {
-      if (this.activeTab === 'tool') {
-        return `${this.filteredToolFavorites.length}/${this.toolFavorites.length}`
-      }
-      if (this.activeTab === 'site') {
-        return `${this.filteredSiteCount}/${this.siteFavorites.length}`
-      }
-      return `${this.filteredFavClips.length}/${this.favClips.length}`
-    }
-  },
-  watch: {
-    // URL 输入防抖自动获取：可达性 + 标题 + favicon 预览
-    'siteForm.url'(val) {
-      // 编辑模式预填原 URL：不触发自动获取
-      if (this.editingSite && val === this.editingSite.url) return
-      clearTimeout(this._urlTimer)
-      this.urlChecking = false
-      this.urlStatus = null
-      this.urlMeta = null
-      if (!val || !val.trim()) return
-      this._urlTimer = setTimeout(() => this.autoFetchMeta(), 600)
-    }
-  },
-  created() {
-    // 加载网站收藏与分组（补齐 category 字段，兼容旧数据）
-    this.siteFavorites = (getItem('siteFavorites', []) || []).map(s => ({
-      ...s,
-      category: s.category || ''
-    }))
-    this.siteCategories = getItem('siteCategories', [])
-    this.rebuildGroups()
-  },
-  mounted() {
-    // 剪贴板收藏来自主进程内存池，挂载时拉取 + 窗口聚焦刷新
-    this.loadFavClips()
-    this.onWinFocus = () => this.loadFavClips()
-    window.addEventListener('focus', this.onWinFocus)
-  },
-  // keep-alive 缓存：从剪贴板页切回时立即同步新增/取消的收藏
-  activated() {
-    this.loadFavClips()
-  },
-  beforeUnmount() {
-    clearTimeout(this._urlTimer)
-    window.removeEventListener('focus', this.onWinFocus)
-  },
-  methods: {
-    // ===== 通用 =====
-    // Tab 徽标计数：搜索时显示「x/y」，平时显示「y」
-    countLabel(filtered, total) {
-      return this.keyword ? `${filtered}/${total}` : `${total}`
-    },
-    // 单个 Tab 的徽标计数文案
-    tabCount(key) {
-      if (key === 'tool') {
-        return this.countLabel(this.filteredToolFavorites.length, this.toolFavorites.length)
-      }
-      if (key === 'site') {
-        return this.countLabel(this.filteredSiteCount, this.siteFavorites.length)
-      }
-      return this.countLabel(this.filteredFavClips.length, this.favClips.length)
-    },
-    // Tab 拖拽排序结束：持久化顺序
-    onTabDragEnd() {
-      setItem('favTabOrder', this.tabOrder)
-    },
-    // 拖拽开始/结束：结束后短暂抑制 click（浏览器会在 mouseup 后补发 click）
-    onDragStart() {
-      this.suppressClick = true
-    },
-    onDragEnd() {
-      setTimeout(() => {
-        this.suppressClick = false
-      }, 0)
-    },
-    // 点击收藏项直达：工具跳转路由，网站打开链接
-    openFavorite(item, type) {
-      if (this.suppressClick) return
-      if (type === 'tool' && item.path) {
-        this.$router.push(item.path)
-      } else if (type === 'site' && item.url) {
-        window.open(item.url, '_blank')
-      }
-    },
+defineOptions({ name: 'Favorites' })
 
-    // ===== 工具收藏 =====
-    // 取消收藏
-    removeFavorite(item) {
-      this.$store.commit('TOGGLE_TOOL_FAVORITE', item.path)
-      setItem('toolFavorites', this.$store.state.toolFavorites)
-      this.$message({
-        message: `已取消收藏「${item.name}」`,
-        type: 'success',
-        duration: 1500
-      })
-    },
+const router = useRouter()
+const store = useStore()
+const { message, confirm, prompt } = useFeedback()
 
-    // ===== 网站收藏：分组视图 =====
-    // 由 siteCategories + siteFavorites 重建渲染分组
-    // 未分类组仅在有内容时显示；自定义分组始终显示（支持空分组投放）
-    rebuildGroups() {
-      const uncategorized = { name: '', sites: [] }
-      const custom = this.siteCategories.map(name => ({ name, sites: [] }))
-      this.siteFavorites.forEach(s => {
-        const g = custom.find(g => g.name === s.category)
-        ;(g || uncategorized).sites.push(s)
-      })
-      this.groups = uncategorized.sites.length
-        ? [uncategorized, ...custom]
-        : custom
-    },
-    // 网站 chips 拖拽结束：从分组视图拍平回 siteFavorites（保留对象引用）并持久化
-    onSiteDragEnd() {
-      this.onDragEnd()
-      const list = []
-      this.groups.forEach(g => {
-        const cat = g.name
-        g.sites.forEach(s => {
-          if (s.category !== cat) s.category = cat
-          list.push(s)
-        })
-      })
-      this.siteFavorites = list
-      setItem('siteFavorites', list)
-    },
-    // favicon 地址：优先保存时抓取到的 <link rel=icon> 真实地址，
-    // 回退站点根 /favicon.ico，加载失败由 @error 回退首字母头像
-    faviconUrl(item) {
-      if (item.icon) return item.icon
-      try {
-        return new URL(item.url).origin + '/favicon.ico'
-      } catch (e) {
-        return ''
-      }
-    },
-    onFaviconError(item) {
-      // 自定义图标加载失败：先回退根路径 /favicon.ico 再试一次
-      if (item.icon) {
-        item.icon = ''
-      } else {
-        item.iconFailed = true
-      }
-    },
+// Tab 顺序：从 IndexedDB 恢复（过滤非法 key，并补齐新增 Tab，兼容旧版仅两项的值）
+const tabOrder = ref((() => {
+  const saved = getItem('favTabOrder', null)
+  const list = (Array.isArray(saved) ? saved : []).filter(k => TAB_KEYS.includes(k))
+  TAB_KEYS.forEach(k => {
+    if (!list.includes(k)) list.push(k)
+  })
+  return list
+})())
+const activeTab = ref(tabOrder.value[0]) // 默认选中排序后的第一个 Tab
+const tabMeta = TAB_META
+const keyword = ref('')
+const siteFavorites = ref([]) // { name, url, domain, category, iconFailed? }
+const siteCategories = ref([]) // 有序自定义分组名列表
+const groups = ref([]) // 渲染用分组视图：[{ name: ''|自定义, sites: [] }]
+const favClips = ref([]) // 剪贴板收藏：[{ id, kind, text?|width/height/thumb, createdAt, favedAt }]
+const clipPreviewVisible = ref(false) // 图片预览弹窗
+const clipPreviewData = ref('')
+const clipPreviewRec = ref(null)
+const clipTextVisible = ref(false) // 文本详情弹窗
+const clipTextRec = ref(null)
+const showAddDialog = ref(false)
+const checking = ref(false) // 保存时可访问性检测中
+const editingSite = ref(null) // 编辑模式下的原对象
+const nameManuallyEdited = ref(false) // 名称被手动编辑后不再自动覆盖
+const urlChecking = ref(false) // URL 自动获取元信息中
+const urlMeta = ref(null) // 自动获取结果 { ok, title, url }
+const urlStatus = ref(null) // URL 下方状态行 { type: 'ok'|'bad', text }
+const suppressClick = ref(false) // 拖拽结束后短暂抑制 click，防止误触打开卡片
+const siteForm = reactive({
+  name: '',
+  url: '',
+  category: ''
+})
+const rules = {
+  name: [
+    { required: true, message: '请输入网站名称', trigger: 'blur' }
+  ],
+  url: [
+    { required: true, message: '请输入网址', trigger: 'blur' },
+    { validator: validateUrl, trigger: 'blur' }
+  ]
+}
+// 表单实例（与表单数据 siteForm 区分命名）
+const siteFormRef = ref(null)
 
-    // ===== 网站收藏：增删改 =====
-    // 移除网站收藏
-    removeSite(item) {
-      this.siteFavorites = this.siteFavorites.filter(s => s.url !== item.url)
-      setItem('siteFavorites', this.siteFavorites)
-      this.rebuildGroups()
-      this.$message({
-        message: `已移除「${item.name}」`,
-        type: 'success',
-        duration: 1500
-      })
-    },
-    // 打开添加弹窗（可预选分组）：重置表单与自动获取状态
-    openAddDialog(category) {
-      this.editingSite = null
-      this.siteForm = { name: '', url: '', category: category || '' }
-      this.resetMetaState()
-      this.showAddDialog = true
-      this.$nextTick(() => {
-        this.$refs.siteForm && this.$refs.siteForm.clearValidate()
-      })
-    },
-    // 打开编辑弹窗：预填原值
-    openEditDialog(item) {
-      this.editingSite = item
-      this.siteForm = {
-        name: item.name,
-        url: item.url,
-        category: item.category || ''
-      }
-      this.resetMetaState()
-      // 编辑时直接展示可达状态（不重新请求）
-      this.urlStatus = { type: 'ok', text: item.url }
-      this.showAddDialog = true
-      this.$nextTick(() => {
-        this.$refs.siteForm && this.$refs.siteForm.clearValidate()
-      })
-    },
-    resetMetaState() {
-      clearTimeout(this._urlTimer)
-      this.urlChecking = false
-      this.urlMeta = null
-      this.urlStatus = null
-      this.nameManuallyEdited = false
-    },
-    // 名称手动输入后，自动获取不再覆盖
-    onNameInput() {
-      this.nameManuallyEdited = true
-    },
-    // 抓取网站元信息：优先主进程 IPC（可读 title），回退 no-cors fetch（仅可达性）
-    async fetchMeta(url) {
-      if (window.electronAPI && window.electronAPI.fetchSiteMeta) {
-        try {
-          return await window.electronAPI.fetchSiteMeta(url)
-        } catch (e) {
-          return { ok: false, title: '' }
-        }
-      }
-      try {
-        await fetch(url, { mode: 'no-cors', cache: 'no-store' })
-        return { ok: true, title: '' }
-      } catch (e) {
-        return { ok: false, title: '' }
-      }
-    },
-    // URL 防抖后自动获取：可达性 + 标题回填 + favicon 预览
-    async autoFetchMeta() {
-      const raw = (this.siteForm.url || '').trim()
-      if (!raw) return
-      let url = raw
-      if (!/^https?:\/\//i.test(url)) url = 'https://' + url
-      let normalized
-      try {
-        normalized = new URL(url).href
-        const u = new URL(normalized)
-        if (!u.hostname || !(u.hostname.includes('.') || u.hostname === 'localhost')) {
-          return
-        }
-      } catch (e) {
-        return
-      }
-      this.urlChecking = true
-      const meta = await this.fetchMeta(normalized)
-      // 竞态保护：输入已变化则丢弃本次结果
-      const current = (this.siteForm.url || '').trim()
-      let currentUrl = current
-      if (currentUrl && !/^https?:\/\//i.test(currentUrl)) currentUrl = 'https://' + currentUrl
-      let currentNorm = currentUrl
-      try {
-        currentNorm = new URL(currentUrl).href
-      } catch (e) {
-        currentNorm = currentUrl
-      }
-      this.urlChecking = false
-      if (currentNorm !== normalized) return
+// URL 防抖定时器（非响应式）
+let urlTimer = null
+let onWinFocus = null
 
-      this.urlMeta = { ...meta, url: normalized }
-      if (meta.ok) {
-        this.urlStatus = {
-          type: 'ok',
-          text: '网站可访问'
-        }
-        // 标题回填：未被手动编辑时自动填充（截断至 30 字）
-        if (meta.title && !this.nameManuallyEdited && !this.editingSite) {
-          this.siteForm.name = meta.title.slice(0, 30)
-        }
-      } else {
-        this.urlStatus = { type: 'bad', text: '无法访问该网址，请检查网络或网址' }
-      }
-    },
-    // 保存（添加/编辑）：校验 → 去重 → 注册新分组 → 可达性兜底 → 落库
-    saveSite() {
-      this.$refs.siteForm.validate(async valid => {
-        if (!valid) return
-        const name = this.siteForm.name.trim()
-        let url = this.siteForm.url.trim()
-        if (!/^https?:\/\//i.test(url)) url = 'https://' + url
-        url = new URL(url).href
-        if (this.siteFavorites.some(s => s.url === url && s !== this.editingSite)) {
-          this.$message({
-            message: '该网站已在收藏列表中',
-            type: 'warning',
-            duration: 1500
-          })
-          return
-        }
-        // 新输入的分组名：注册到分组列表
-        const category = (this.siteForm.category || '').trim()
-        if (category && !this.siteCategories.includes(category)) {
-          this.siteCategories.push(category)
-          setItem('siteCategories', this.siteCategories)
-        }
-        // 可达性：优先复用自动获取结果（含 favicon），否则现场抓取
-        let meta
-        if (this.urlMeta && this.urlMeta.url === url) {
-          meta = this.urlMeta
-        } else {
-          this.checking = true
-          meta = await this.fetchMeta(url)
-          this.checking = false
-        }
-        // 编辑模式下 URL 未变：保留原 favicon，避免被空值覆盖
-        const keepIcon = this.editingSite && url === this.editingSite.url
-        const icon = keepIcon ? this.editingSite.icon : (meta.favicon || '')
-        if (!meta.ok) {
-          this.$confirm(`无法访问「${url}」，可能是网络原因或网址有误。`, '网站暂不可达', {
-            confirmButtonText: '仍要收藏',
-            cancelButtonText: '取消',
-            type: 'warning'
-          })
-            .then(() => this.persistSite(name, url, category, icon))
-            .catch(() => {})
-          return
-        }
-        this.persistSite(name, url, category, icon)
-      })
-    },
-    // 落库并关闭弹窗
-    persistSite(name, url, category, icon) {
-      if (this.editingSite) {
-        const s = this.editingSite
-        s.name = name
-        s.url = url
-        s.category = category
-        s.icon = icon || ''
-        s.iconFailed = false
-      } else {
-        this.siteFavorites.push({ name, url, category, icon: icon || '' })
-      }
-      setItem('siteFavorites', this.siteFavorites)
-      this.rebuildGroups()
-      this.showAddDialog = false
-      this.$message({
-        message: this.editingSite ? '已更新收藏' : `已收藏「${name}」`,
-        type: 'success',
-        duration: 1500
-      })
-    },
-
-    // ===== 分组管理 =====
-    // 新建分组
-    createGroup() {
-      this.$prompt('输入分组名称', '新建分组', {
-        confirmButtonText: '创建',
-        cancelButtonText: '取消',
-        inputPlaceholder: '如：开发 / 设计 / 文档',
-        inputPattern: /\S+/,
-        inputErrorMessage: '名称不能为空'
-      })
-        .then(({ value }) => {
-          const name = value.trim()
-          if (name === '未分类') {
-            this.$message({ message: '「未分类」为保留名称', type: 'warning', duration: 1500 })
-            return
-          }
-          if (this.siteCategories.includes(name)) {
-            this.$message({ message: '分组已存在', type: 'warning', duration: 1500 })
-            return
-          }
-          this.siteCategories.push(name)
-          setItem('siteCategories', this.siteCategories)
-          this.rebuildGroups()
-          this.$message({ message: `已创建分组「${name}」`, type: 'success', duration: 1500 })
-        })
-        .catch(() => {})
-    },
-    // 重命名分组：同步更新分组列表与网站归属
-    renameGroup(g) {
-      this.$prompt('输入新的分组名称', '重命名分组', {
-        confirmButtonText: '保存',
-        cancelButtonText: '取消',
-        inputValue: g.name,
-        inputPattern: /\S+/,
-        inputErrorMessage: '名称不能为空'
-      })
-        .then(({ value }) => {
-          const name = value.trim()
-          if (name === g.name) return
-          if (name === '未分类' || this.siteCategories.includes(name)) {
-            this.$message({ message: '名称不可用或已存在', type: 'warning', duration: 1500 })
-            return
-          }
-          const i = this.siteCategories.indexOf(g.name)
-          if (i > -1) this.siteCategories.splice(i, 1, name)
-          this.siteFavorites.forEach(s => {
-            if (s.category === g.name) s.category = name
-          })
-          setItem('siteCategories', this.siteCategories)
-          setItem('siteFavorites', this.siteFavorites)
-          this.rebuildGroups()
-          this.$message({ message: '分组已重命名', type: 'success', duration: 1500 })
-        })
-        .catch(() => {})
-    },
-    // 删除分组：组内网站移至未分类
-    deleteGroup(g) {
-      const count = g.sites.length
-      this.$confirm(
-        count ? `删除分组「${g.name}」？组内 ${count} 个网站将移至未分类。` : `删除空分组「${g.name}」？`,
-        '删除分组',
-        {
-          confirmButtonText: '删除',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
+// 剪贴板收藏 IPC（仅桌面端提供）
+const favApi = computed(() => {
+  return (window.electronAPI && window.electronAPI.captureFav) || null
+})
+// 已收藏工具：按 store 中的收藏顺序渲染
+const toolFavorites = computed(() => {
+  const paths = store.state.toolFavorites
+  return paths.map(p => allTools.find(t => t.path === p)).filter(Boolean)
+})
+// 按关键字过滤工具收藏（名称匹配）
+const filteredToolFavorites = computed(() => {
+  if (!keyword.value) return toolFavorites.value
+  const q = keyword.value.toLowerCase()
+  return toolFavorites.value.filter(t => t.name.toLowerCase().includes(q))
+})
+// 关键字过滤后的网站总数（跨分组）
+const filteredSiteCount = computed(() => {
+  return visibleGroups.value.reduce((n, g) => n + g.sites.length, 0)
+})
+// 分组视图：搜索时返回过滤副本（拖拽已禁用）；平时返回原引用供 v-model 写入
+const visibleGroups = computed(() => {
+  if (!keyword.value) return groups.value
+  const q = keyword.value.toLowerCase()
+  return groups.value
+    .map(g => ({
+      ...g,
+      sites: g.sites.filter(
+        s =>
+          s.name.toLowerCase().includes(q) ||
+          (s.url || '').toLowerCase().includes(q)
       )
-        .then(() => {
-          this.siteCategories = this.siteCategories.filter(c => c !== g.name)
-          this.siteFavorites.forEach(s => {
-            if (s.category === g.name) s.category = ''
-          })
-          setItem('siteCategories', this.siteCategories)
-          setItem('siteFavorites', this.siteFavorites)
-          this.rebuildGroups()
-          this.$message({ message: '分组已删除', type: 'success', duration: 1500 })
-        })
-        .catch(() => {})
-    },
+    }))
+    .filter(g => g.sites.length)
+})
+// 拖拽排序：get 返回展示列表；set 回写 store 并持久化
+const dragTools = computed({
+  get() {
+    return filteredToolFavorites.value
+  },
+  set(list) {
+    const paths = list.map(t => t.path)
+    store.commit('SET_TOOL_FAVORITES', paths)
+    setItem('toolFavorites', paths)
+  }
+})
+// 按关键字过滤剪贴板收藏（文本匹配内容，图片匹配「图片 + 分辨率」）
+const filteredFavClips = computed(() => {
+  if (!keyword.value) return favClips.value
+  const q = keyword.value.trim().toLowerCase()
+  return favClips.value.filter(c => {
+    const hay = c.kind === 'text'
+      ? (c.text || '')
+      : `图片 ${c.width} × ${c.height}`
+    return hay.toLowerCase().includes(q)
+  })
+})
+// 搜索框计数：当前 Tab 的 匹配数/总数
+const searchCount = computed(() => {
+  if (activeTab.value === 'tool') {
+    return `${filteredToolFavorites.value.length}/${toolFavorites.value.length}`
+  }
+  if (activeTab.value === 'site') {
+    return `${filteredSiteCount.value}/${siteFavorites.value.length}`
+  }
+  return `${filteredFavClips.value.length}/${favClips.value.length}`
+})
 
-    // ===== 剪贴板收藏 =====
-    // 拉取收藏列表（主进程按收藏时间倒序返回）
-    async loadFavClips() {
-      if (!this.favApi || !this.favApi.list) return
-      const res = await this.favApi.list()
-      if (res && res.ok) this.favClips = res.items || []
-    },
-    // 点击行：文本看详情（保留格式），图片直接复制
-    onClipClick(c) {
-      if (this.suppressClick) return
-      if (c.kind === 'text') this.previewClipText(c)
-      else this.copyClip(c)
-    },
-    async copyClip(c) {
-      if (!c || !this.favApi) return
-      const res = await this.favApi.copy(c.id)
-      if (res && res.ok) this.$message.success('已复制到剪贴板')
-    },
-    // 文本详情弹窗：保留换行与缩进
-    previewClipText(c) {
-      this.clipTextRec = c
-      this.clipTextVisible = true
-    },
-    // 图片大图预览
-    async previewClip(c) {
-      if (!c || c.kind !== 'image' || !this.favApi) return
-      this.clipPreviewRec = c
-      this.clipPreviewVisible = true
-      this.clipPreviewData = ''
-      const res = await this.favApi.data(c.id)
-      if (res && res.ok) this.clipPreviewData = res.data
-    },
-    // 取消收藏（仅移除收藏池，不影响剪贴板历史）
-    async removeClip(c) {
-      if (!c || !this.favApi) return
-      await this.favApi.remove(c.id)
-      this.loadFavClips()
-      this.$message({ message: '已取消收藏', type: 'success', duration: 1500 })
-    },
-    // 图片另存为 PNG
-    async saveClip(c) {
-      if (!c || c.kind !== 'image' || !this.favApi) return
-      const res = await this.favApi.saveAs(c.id)
-      if (res && res.ok) this.$message.success('已保存：' + res.filePath)
-    },
-    // 收藏时间：月-日 时:分
-    fmtFavTime(ts) {
-      const d = new Date(ts)
-      const pad = n => String(n).padStart(2, '0')
-      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+// URL 输入防抖自动获取：可达性 + 标题 + favicon 预览
+watch(() => siteForm.url, val => {
+  // 编辑模式预填原 URL：不触发自动获取
+  if (editingSite.value && val === editingSite.value.url) return
+  clearTimeout(urlTimer)
+  urlChecking.value = false
+  urlStatus.value = null
+  urlMeta.value = null
+  if (!val || !val.trim()) return
+  urlTimer = setTimeout(() => autoFetchMeta(), 600)
+})
+
+// created：加载网站收藏与分组（补齐 category 字段，兼容旧数据）
+siteFavorites.value = (getItem('siteFavorites', []) || []).map(s => ({
+  ...s,
+  category: s.category || ''
+}))
+siteCategories.value = getItem('siteCategories', [])
+rebuildGroups()
+
+onMounted(() => {
+  // 剪贴板收藏来自主进程内存池，挂载时拉取 + 窗口聚焦刷新
+  loadFavClips()
+  onWinFocus = () => loadFavClips()
+  window.addEventListener('focus', onWinFocus)
+})
+// keep-alive 缓存：从剪贴板页切回时立即同步新增/取消的收藏
+onActivated(() => {
+  loadFavClips()
+})
+onBeforeUnmount(() => {
+  clearTimeout(urlTimer)
+  window.removeEventListener('focus', onWinFocus)
+})
+
+// ===== 通用 =====
+// Tab 徽标计数：搜索时显示「x/y」，平时显示「y」
+function countLabel(filtered, total) {
+  return keyword.value ? `${filtered}/${total}` : `${total}`
+}
+// 单个 Tab 的徽标计数文案
+function tabCount(key) {
+  if (key === 'tool') {
+    return countLabel(filteredToolFavorites.value.length, toolFavorites.value.length)
+  }
+  if (key === 'site') {
+    return countLabel(filteredSiteCount.value, siteFavorites.value.length)
+  }
+  return countLabel(filteredFavClips.value.length, favClips.value.length)
+}
+// Tab 拖拽排序结束：持久化顺序
+function onTabDragEnd() {
+  setItem('favTabOrder', tabOrder.value)
+}
+// 拖拽开始/结束：结束后短暂抑制 click（浏览器会在 mouseup 后补发 click）
+function onDragStart() {
+  suppressClick.value = true
+}
+function onDragEnd() {
+  setTimeout(() => {
+    suppressClick.value = false
+  }, 0)
+}
+// 点击收藏项直达：工具跳转路由，网站打开链接
+function openFavorite(item, type) {
+  if (suppressClick.value) return
+  if (type === 'tool' && item.path) {
+    router.push(item.path)
+  } else if (type === 'site' && item.url) {
+    window.open(item.url, '_blank')
+  }
+}
+
+// ===== 工具收藏 =====
+// 取消收藏
+function removeFavorite(item) {
+  store.commit('TOGGLE_TOOL_FAVORITE', item.path)
+  setItem('toolFavorites', store.state.toolFavorites)
+  message({
+    message: `已取消收藏「${item.name}」`,
+    type: 'success',
+    duration: 1500
+  })
+}
+
+// ===== 网站收藏：分组视图 =====
+// 由 siteCategories + siteFavorites 重建渲染分组
+// 未分类组仅在有内容时显示；自定义分组始终显示（支持空分组投放）
+function rebuildGroups() {
+  const uncategorized = { name: '', sites: [] }
+  const custom = siteCategories.value.map(name => ({ name, sites: [] }))
+  siteFavorites.value.forEach(s => {
+    const g = custom.find(g => g.name === s.category)
+    ;(g || uncategorized).sites.push(s)
+  })
+  groups.value = uncategorized.sites.length
+    ? [uncategorized, ...custom]
+    : custom
+}
+// 网站 chips 拖拽结束：从分组视图拍平回 siteFavorites（保留对象引用）并持久化
+function onSiteDragEnd() {
+  onDragEnd()
+  const list = []
+  groups.value.forEach(g => {
+    const cat = g.name
+    g.sites.forEach(s => {
+      if (s.category !== cat) s.category = cat
+      list.push(s)
+    })
+  })
+  siteFavorites.value = list
+  setItem('siteFavorites', list)
+}
+// favicon 地址：优先保存时抓取到的 <link rel=icon> 真实地址，
+// 回退站点根 /favicon.ico，加载失败由 @error 回退首字母头像
+function faviconUrl(item) {
+  if (item.icon) return item.icon
+  try {
+    return new URL(item.url).origin + '/favicon.ico'
+  } catch (e) {
+    return ''
+  }
+}
+function onFaviconError(item) {
+  // 自定义图标加载失败：先回退根路径 /favicon.ico 再试一次
+  if (item.icon) {
+    item.icon = ''
+  } else {
+    item.iconFailed = true
+  }
+}
+
+// ===== 网站收藏：增删改 =====
+// 移除网站收藏
+function removeSite(item) {
+  siteFavorites.value = siteFavorites.value.filter(s => s.url !== item.url)
+  setItem('siteFavorites', siteFavorites.value)
+  rebuildGroups()
+  message({
+    message: `已移除「${item.name}」`,
+    type: 'success',
+    duration: 1500
+  })
+}
+// 打开添加弹窗（可预选分组）：重置表单与自动获取状态
+function openAddDialog(category) {
+  editingSite.value = null
+  Object.assign(siteForm, { name: '', url: '', category: category || '' })
+  resetMetaState()
+  showAddDialog.value = true
+  nextTick(() => {
+    siteFormRef.value && siteFormRef.value.clearValidate()
+  })
+}
+// 打开编辑弹窗：预填原值
+function openEditDialog(item) {
+  editingSite.value = item
+  Object.assign(siteForm, {
+    name: item.name,
+    url: item.url,
+    category: item.category || ''
+  })
+  resetMetaState()
+  // 编辑时直接展示可达状态（不重新请求）
+  urlStatus.value = { type: 'ok', text: item.url }
+  showAddDialog.value = true
+  nextTick(() => {
+    siteFormRef.value && siteFormRef.value.clearValidate()
+  })
+}
+function resetMetaState() {
+  clearTimeout(urlTimer)
+  urlChecking.value = false
+  urlMeta.value = null
+  urlStatus.value = null
+  nameManuallyEdited.value = false
+}
+// 名称手动输入后，自动获取不再覆盖
+function onNameInput() {
+  nameManuallyEdited.value = true
+}
+// 抓取网站元信息：优先主进程 IPC（可读 title），回退 no-cors fetch（仅可达性）
+async function fetchMeta(url) {
+  if (window.electronAPI && window.electronAPI.fetchSiteMeta) {
+    try {
+      return await window.electronAPI.fetchSiteMeta(url)
+    } catch (e) {
+      return { ok: false, title: '' }
     }
   }
+  try {
+    await fetch(url, { mode: 'no-cors', cache: 'no-store' })
+    return { ok: true, title: '' }
+  } catch (e) {
+    return { ok: false, title: '' }
+  }
+}
+// URL 防抖后自动获取：可达性 + 标题回填 + favicon 预览
+async function autoFetchMeta() {
+  const raw = (siteForm.url || '').trim()
+  if (!raw) return
+  let url = raw
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url
+  let normalized
+  try {
+    normalized = new URL(url).href
+    const u = new URL(normalized)
+    if (!u.hostname || !(u.hostname.includes('.') || u.hostname === 'localhost')) {
+      return
+    }
+  } catch (e) {
+    return
+  }
+  urlChecking.value = true
+  const meta = await fetchMeta(normalized)
+  // 竞态保护：输入已变化则丢弃本次结果
+  const current = (siteForm.url || '').trim()
+  let currentUrl = current
+  if (currentUrl && !/^https?:\/\//i.test(currentUrl)) currentUrl = 'https://' + currentUrl
+  let currentNorm = currentUrl
+  try {
+    currentNorm = new URL(currentUrl).href
+  } catch (e) {
+    currentNorm = currentUrl
+  }
+  urlChecking.value = false
+  if (currentNorm !== normalized) return
+
+  urlMeta.value = { ...meta, url: normalized }
+  if (meta.ok) {
+    urlStatus.value = {
+      type: 'ok',
+      text: '网站可访问'
+    }
+    // 标题回填：未被手动编辑时自动填充（截断至 30 字）
+    if (meta.title && !nameManuallyEdited.value && !editingSite.value) {
+      siteForm.name = meta.title.slice(0, 30)
+    }
+  } else {
+    urlStatus.value = { type: 'bad', text: '无法访问该网址，请检查网络或网址' }
+  }
+}
+// 保存（添加/编辑）：校验 → 去重 → 注册新分组 → 可达性兜底 → 落库
+function saveSite() {
+  siteFormRef.value.validate(async valid => {
+    if (!valid) return
+    const name = siteForm.name.trim()
+    let url = siteForm.url.trim()
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url
+    url = new URL(url).href
+    if (siteFavorites.value.some(s => s.url === url && s !== editingSite.value)) {
+      message({
+        message: '该网站已在收藏列表中',
+        type: 'warning',
+        duration: 1500
+      })
+      return
+    }
+    // 新输入的分组名：注册到分组列表
+    const category = (siteForm.category || '').trim()
+    if (category && !siteCategories.value.includes(category)) {
+      siteCategories.value.push(category)
+      setItem('siteCategories', siteCategories.value)
+    }
+    // 可达性：优先复用自动获取结果（含 favicon），否则现场抓取
+    let meta
+    if (urlMeta.value && urlMeta.value.url === url) {
+      meta = urlMeta.value
+    } else {
+      checking.value = true
+      meta = await fetchMeta(url)
+      checking.value = false
+    }
+    // 编辑模式下 URL 未变：保留原 favicon，避免被空值覆盖
+    const keepIcon = editingSite.value && url === editingSite.value.url
+    const icon = keepIcon ? editingSite.value.icon : (meta.favicon || '')
+    if (!meta.ok) {
+      confirm(`无法访问「${url}」，可能是网络原因或网址有误。`, '网站暂不可达', {
+        confirmButtonText: '仍要收藏',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+        .then(() => persistSite(name, url, category, icon))
+        .catch(() => {})
+      return
+    }
+    persistSite(name, url, category, icon)
+  })
+}
+// 落库并关闭弹窗
+function persistSite(name, url, category, icon) {
+  if (editingSite.value) {
+    const s = editingSite.value
+    s.name = name
+    s.url = url
+    s.category = category
+    s.icon = icon || ''
+    s.iconFailed = false
+  } else {
+    siteFavorites.value.push({ name, url, category, icon: icon || '' })
+  }
+  setItem('siteFavorites', siteFavorites.value)
+  rebuildGroups()
+  showAddDialog.value = false
+  message({
+    message: editingSite.value ? '已更新收藏' : `已收藏「${name}」`,
+    type: 'success',
+    duration: 1500
+  })
+}
+
+// ===== 分组管理 =====
+// 新建分组
+function createGroup() {
+  prompt('输入分组名称', '新建分组', {
+    confirmButtonText: '创建',
+    cancelButtonText: '取消',
+    inputPlaceholder: '如：开发 / 设计 / 文档',
+    inputPattern: /\S+/,
+    inputErrorMessage: '名称不能为空'
+  })
+    .then(({ value }) => {
+      const name = value.trim()
+      if (name === '未分类') {
+        message({ message: '「未分类」为保留名称', type: 'warning', duration: 1500 })
+        return
+      }
+      if (siteCategories.value.includes(name)) {
+        message({ message: '分组已存在', type: 'warning', duration: 1500 })
+        return
+      }
+      siteCategories.value.push(name)
+      setItem('siteCategories', siteCategories.value)
+      rebuildGroups()
+      message({ message: `已创建分组「${name}」`, type: 'success', duration: 1500 })
+    })
+    .catch(() => {})
+}
+// 重命名分组：同步更新分组列表与网站归属
+function renameGroup(g) {
+  prompt('输入新的分组名称', '重命名分组', {
+    confirmButtonText: '保存',
+    cancelButtonText: '取消',
+    inputValue: g.name,
+    inputPattern: /\S+/,
+    inputErrorMessage: '名称不能为空'
+  })
+    .then(({ value }) => {
+      const name = value.trim()
+      if (name === g.name) return
+      if (name === '未分类' || siteCategories.value.includes(name)) {
+        message({ message: '名称不可用或已存在', type: 'warning', duration: 1500 })
+        return
+      }
+      const i = siteCategories.value.indexOf(g.name)
+      if (i > -1) siteCategories.value.splice(i, 1, name)
+      siteFavorites.value.forEach(s => {
+        if (s.category === g.name) s.category = name
+      })
+      setItem('siteCategories', siteCategories.value)
+      setItem('siteFavorites', siteFavorites.value)
+      rebuildGroups()
+      message({ message: '分组已重命名', type: 'success', duration: 1500 })
+    })
+    .catch(() => {})
+}
+// 删除分组：组内网站移至未分类
+function deleteGroup(g) {
+  const count = g.sites.length
+  confirm(
+    count ? `删除分组「${g.name}」？组内 ${count} 个网站将移至未分类。` : `删除空分组「${g.name}」？`,
+    '删除分组',
+    {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  )
+    .then(() => {
+      siteCategories.value = siteCategories.value.filter(c => c !== g.name)
+      siteFavorites.value.forEach(s => {
+        if (s.category === g.name) s.category = ''
+      })
+      setItem('siteCategories', siteCategories.value)
+      setItem('siteFavorites', siteFavorites.value)
+      rebuildGroups()
+      message({ message: '分组已删除', type: 'success', duration: 1500 })
+    })
+    .catch(() => {})
+}
+
+// ===== 剪贴板收藏 =====
+// 拉取收藏列表（主进程按收藏时间倒序返回）
+async function loadFavClips() {
+  if (!favApi.value || !favApi.value.list) return
+  const res = await favApi.value.list()
+  if (res && res.ok) favClips.value = res.items || []
+}
+// 点击行：文本看详情（保留格式），图片直接复制
+function onClipClick(c) {
+  if (suppressClick.value) return
+  if (c.kind === 'text') previewClipText(c)
+  else copyClip(c)
+}
+async function copyClip(c) {
+  if (!c || !favApi.value) return
+  const res = await favApi.value.copy(c.id)
+  if (res && res.ok) message.success('已复制到剪贴板')
+}
+// 文本详情弹窗：保留换行与缩进
+function previewClipText(c) {
+  clipTextRec.value = c
+  clipTextVisible.value = true
+}
+// 图片大图预览
+async function previewClip(c) {
+  if (!c || c.kind !== 'image' || !favApi.value) return
+  clipPreviewRec.value = c
+  clipPreviewVisible.value = true
+  clipPreviewData.value = ''
+  const res = await favApi.value.data(c.id)
+  if (res && res.ok) clipPreviewData.value = res.data
+}
+// 取消收藏（仅移除收藏池，不影响剪贴板历史）
+async function removeClip(c) {
+  if (!c || !favApi.value) return
+  await favApi.value.remove(c.id)
+  loadFavClips()
+  message({ message: '已取消收藏', type: 'success', duration: 1500 })
+}
+// 图片另存为 PNG
+async function saveClip(c) {
+  if (!c || c.kind !== 'image' || !favApi.value) return
+  const res = await favApi.value.saveAs(c.id)
+  if (res && res.ok) message.success('已保存：' + res.filePath)
+}
+// 收藏时间：月-日 时:分
+function fmtFavTime(ts) {
+  const d = new Date(ts)
+  const pad = n => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 </script>
 

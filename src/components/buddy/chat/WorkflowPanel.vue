@@ -53,11 +53,12 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 深度研究进度卡片面板（消息级）：消费 tool item 的 workflow 对象
 //   { runId, background, snapshot?, progress? }
 // - 实时：主进程 1s 轮询 run 落盘状态 → workflow_progress 事件 → store 写 progress
 // - 历史：无 progress 的条目（后台运行的历史记录）mounted 时经 IPC 拉取最终状态回填
+import { computed, watch, onMounted } from 'vue'
 import { buddyApi } from '@/utils/buddy/buddy-api'
 
 // 内置任务名 → 中文名（净化文案，不向用户暴露英文模式名）
@@ -81,136 +82,135 @@ const BADGE_MAP = {
   missing: { text: '已结束', icon: 'clock', cls: 'abort' }
 }
 
-export default {
-  name: 'WorkflowPanel',
-  props: {
-    // workflow 对象数组（tool item 的 workflow 字段，store 内对象引用，可回写 progress）
-    workflows: {
-      type: Array,
-      default: () => []
-    },
-    // 所属会话 id（历史回放 IPC 拉取定位运行记录）
-    sessionId: {
-      type: String,
-      default: ''
-    }
+defineOptions({ name: 'WorkflowPanel' })
+
+const props = defineProps({
+  // workflow 对象数组（tool item 的 workflow 字段，store 内对象引用，可回写 progress）
+  workflows: {
+    type: Array,
+    default: () => []
   },
-  data() {
-    return {
-      // 已尝试拉取的 runId（避免 watch 重入反复请求；非渲染态无需响应式）
-      fetched: {}
-    }
-  },
-  computed: {
-    // 卡片视图模型：progress（实时/回放）> snapshot（前台快照）> 缺省 running
-    cards() {
-      return this.workflows
-        .filter(wf => wf && wf.runId)
-        .map(wf => {
-          const p = wf.progress || wf.snapshot || { runId: wf.runId, status: 'running', counts: {} }
-          const status = p.status || 'running'
-          const counts = p.counts || {}
-          const total = counts.total || 0
-          const done = counts.done || 0
-          const error = counts.error || 0
-          const skipped = counts.skipped || 0
-          // 完成度：已结束的代理（完成/失败/跳过）占比，运行中也按完成一半折算让进度条有动感
-          const finished = done + error + skipped
-          const runningHalf = (counts.running || 0) * 0.5
-          const percent = total
-            ? Math.min(100, Math.max(0, Math.round(((finished + runningHalf) / total) * 100)))
-            : 0
-          const parts = []
-          const tokens = this.tokensOf(p)
-          if (tokens) parts.push(tokens)
-          const dur = this.durationOf(p, status)
-          if (dur) parts.push(dur)
-          return {
-            runId: wf.runId,
-            name: NAME_MAP[p.name] || p.name || '深度研究任务',
-            status,
-            badge: BADGE_MAP[status] || BADGE_MAP.running,
-            total,
-            done,
-            counts,
-            percent,
-            phase: p.currentPhase || '',
-            activeLabels: Array.isArray(p.activeLabels) ? p.activeLabels : [],
-            metaText: parts.join(' · '),
-            hint: this.hintOf(p, status)
-          }
-        })
-    }
-  },
-  watch: {
-    // 历史加载完成（messages 整体替换）或新增 workflow 条目时触发回放补全
-    workflows() {
-      this.hydrate()
-    }
-  },
-  mounted() {
-    this.hydrate()
-  },
-  methods: {
-    // 历史回放：无 progress / snapshot 的后台运行条目经 IPC 拉取最终状态
-    async hydrate() {
-      const api = buddyApi()
-      if (!api || !api.workflowStatus || !this.sessionId) return
-      for (const wf of this.workflows) {
-        if (!wf || !wf.runId || wf.progress || wf.snapshot) continue
-        if (this.fetched[wf.runId]) continue
-        this.fetched[wf.runId] = true
-        try {
-          const res = await api.workflowStatus({ runId: wf.runId, chatId: this.sessionId })
-          if (res && res.ok && res.workflow) {
-            wf.progress = res.workflow
-          } else {
-            // 运行记录不存在（已清理/跨设备）：中性「已结束」态，不报错打扰
-            wf.progress = { runId: wf.runId, status: 'missing', counts: {} }
-          }
-        } catch (e) { /* 拉取失败保持静默，卡片按缺省运行中渲染 */ }
-      }
-    },
-    // 状态提示行（终态结果指引 / 失败原因 / 等待说明）
-    hintOf(p, status) {
-      if (status === 'completed') return '任务完成，结果已回注对话'
-      if (status === 'failed') return p.error || '任务执行失败'
-      if (status === 'aborted' || status === 'stopped') return '任务已中止'
-      if (status === 'waiting') return '已在关键节点暂停，等待模型确认后继续'
-      if (status === 'paused') return p.pauseReason ? '已暂停：' + p.pauseReason : '任务已暂停'
-      if (status === 'missing') return '运行记录已过期，结果见对话内容'
-      return ''
-    },
-    // token 用量（合计缩写）
-    tokensOf(p) {
-      const u = p.tokenUsage || {}
-      const total = u.total || ((u.input || 0) + (u.output || 0))
-      if (!total) return ''
-      return this.fmtTokens(total) + ' tokens'
-    },
-    // 用时：终态取 durationMs；运行中按 startedAt 实时推算（progress 每 1s 刷新自然走表）
-    durationOf(p, status) {
-      let ms = p.durationMs
-      if (!ms && p.startedAt && (status === 'running' || status === 'waiting')) {
-        const t = Date.parse(p.startedAt)
-        if (!isNaN(t)) ms = Date.now() - t
-      }
-      if (!ms || ms < 0) return ''
-      return this.fmtDuration(ms)
-    },
-    fmtTokens(n) {
-      const v = Number(n) || 0
-      return v >= 10000 ? (v / 1000).toFixed(1) + 'k' : String(v)
-    },
-    fmtDuration(ms) {
-      const v = Math.max(1, Math.round(ms / 1000))
-      if (v < 60) return v + ' 秒'
-      const m = Math.floor(v / 60)
-      const s = v % 60
-      if (m < 60) return s ? m + ' 分 ' + s + ' 秒' : m + ' 分钟'
-      return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分'
-    }
+  // 所属会话 id（历史回放 IPC 拉取定位运行记录）
+  sessionId: {
+    type: String,
+    default: ''
   }
+})
+
+// 已尝试拉取的 runId（避免 watch 重入反复请求；非渲染态无需响应式）
+const fetched = {}
+
+// 卡片视图模型：progress（实时/回放）> snapshot（前台快照）> 缺省 running
+const cards = computed(() => {
+  return props.workflows
+    .filter(wf => wf && wf.runId)
+    .map(wf => {
+      const p = wf.progress || wf.snapshot || { runId: wf.runId, status: 'running', counts: {} }
+      const status = p.status || 'running'
+      const counts = p.counts || {}
+      const total = counts.total || 0
+      const done = counts.done || 0
+      const error = counts.error || 0
+      const skipped = counts.skipped || 0
+      // 完成度：已结束的代理（完成/失败/跳过）占比，运行中也按完成一半折算让进度条有动感
+      const finished = done + error + skipped
+      const runningHalf = (counts.running || 0) * 0.5
+      const percent = total
+        ? Math.min(100, Math.max(0, Math.round(((finished + runningHalf) / total) * 100)))
+        : 0
+      const parts = []
+      const tokens = tokensOf(p)
+      if (tokens) parts.push(tokens)
+      const dur = durationOf(p, status)
+      if (dur) parts.push(dur)
+      return {
+        runId: wf.runId,
+        name: NAME_MAP[p.name] || p.name || '深度研究任务',
+        status,
+        badge: BADGE_MAP[status] || BADGE_MAP.running,
+        total,
+        done,
+        counts,
+        percent,
+        phase: p.currentPhase || '',
+        activeLabels: Array.isArray(p.activeLabels) ? p.activeLabels : [],
+        metaText: parts.join(' · '),
+        hint: hintOf(p, status)
+      }
+    })
+})
+
+// 历史加载完成（messages 整体替换）或新增 workflow 条目时触发回放补全
+watch(() => props.workflows, () => {
+  hydrate()
+})
+
+onMounted(() => {
+  hydrate()
+})
+
+// 历史回放：无 progress / snapshot 的后台运行条目经 IPC 拉取最终状态
+async function hydrate() {
+  const api = buddyApi()
+  if (!api || !api.workflowStatus || !props.sessionId) return
+  for (const wf of props.workflows) {
+    if (!wf || !wf.runId || wf.progress || wf.snapshot) continue
+    if (fetched[wf.runId]) continue
+    fetched[wf.runId] = true
+    try {
+      const res = await api.workflowStatus({ runId: wf.runId, chatId: props.sessionId })
+      if (res && res.ok && res.workflow) {
+        wf.progress = res.workflow
+      } else {
+        // 运行记录不存在（已清理/跨设备）：中性「已结束」态，不报错打扰
+        wf.progress = { runId: wf.runId, status: 'missing', counts: {} }
+      }
+    } catch (e) { /* 拉取失败保持静默，卡片按缺省运行中渲染 */ }
+  }
+}
+
+// 状态提示行（终态结果指引 / 失败原因 / 等待说明）
+function hintOf(p, status) {
+  if (status === 'completed') return '任务完成，结果已回注对话'
+  if (status === 'failed') return p.error || '任务执行失败'
+  if (status === 'aborted' || status === 'stopped') return '任务已中止'
+  if (status === 'waiting') return '已在关键节点暂停，等待模型确认后继续'
+  if (status === 'paused') return p.pauseReason ? '已暂停：' + p.pauseReason : '任务已暂停'
+  if (status === 'missing') return '运行记录已过期，结果见对话内容'
+  return ''
+}
+
+// token 用量（合计缩写）
+function tokensOf(p) {
+  const u = p.tokenUsage || {}
+  const total = u.total || ((u.input || 0) + (u.output || 0))
+  if (!total) return ''
+  return fmtTokens(total) + ' tokens'
+}
+
+// 用时：终态取 durationMs；运行中按 startedAt 实时推算（progress 每 1s 刷新自然走表）
+function durationOf(p, status) {
+  let ms = p.durationMs
+  if (!ms && p.startedAt && (status === 'running' || status === 'waiting')) {
+    const t = Date.parse(p.startedAt)
+    if (!isNaN(t)) ms = Date.now() - t
+  }
+  if (!ms || ms < 0) return ''
+  return fmtDuration(ms)
+}
+
+function fmtTokens(n) {
+  const v = Number(n) || 0
+  return v >= 10000 ? (v / 1000).toFixed(1) + 'k' : String(v)
+}
+
+function fmtDuration(ms) {
+  const v = Math.max(1, Math.round(ms / 1000))
+  if (v < 60) return v + ' 秒'
+  const m = Math.floor(v / 60)
+  const s = v % 60
+  if (m < 60) return s ? m + ' 分 ' + s + ' 秒' : m + ' 分钟'
+  return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分'
 }
 </script>
 

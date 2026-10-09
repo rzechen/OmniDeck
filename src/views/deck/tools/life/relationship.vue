@@ -74,49 +74,47 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref } from 'vue'
 import relationship from 'relationship.js'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'LifeRelationship',
-  components: { ToolShell },
-  data() {
-    return {
-      text: '',
-      sex: 1,
-      reverse: false,
-      type: 'default',
-      results: [],
-      calculated: false,
-      examples: ['爸爸的哥哥', '妈妈的弟弟', '外婆的姐姐', '儿子的老婆', '女儿的儿子', '哥哥的儿子', '姐姐的女儿', '老婆的爸爸']
-    }
-  },
-  methods: {
-    calculate() {
-      this.calculated = true
-      if (!this.text.trim()) {
-        this.results = []
-        return
-      }
-      try {
-        const res = relationship({
-          text: this.text,
-          sex: this.sex,
-          type: this.type,
-          reverse: this.reverse
-        })
-        this.results = Array.isArray(res) ? res : [res]
-      } catch (e) {
-        this.results = []
-      }
-    },
-    copy(t) {
-      navigator.clipboard.writeText(String(t)).then(() => {
-        this.$message({ message: `已复制：${t}`, type: 'success', duration: 1200 })
-      })
-    }
+defineOptions({ name: 'LifeRelationship' })
+
+const { message } = useFeedback()
+
+const text = ref('')
+const sex = ref(1)
+const reverse = ref(false)
+const type = ref('default')
+const results = ref([])
+const calculated = ref(false)
+const examples = ['爸爸的哥哥', '妈妈的弟弟', '外婆的姐姐', '儿子的老婆', '女儿的儿子', '哥哥的儿子', '姐姐的女儿', '老婆的爸爸']
+
+function calculate() {
+  calculated.value = true
+  if (!text.value.trim()) {
+    results.value = []
+    return
   }
+  try {
+    const res = relationship({
+      text: text.value,
+      sex: sex.value,
+      type: type.value,
+      reverse: reverse.value
+    })
+    results.value = Array.isArray(res) ? res : [res]
+  } catch (e) {
+    results.value = []
+  }
+}
+
+function copy(t) {
+  navigator.clipboard.writeText(String(t)).then(() => {
+    message({ message: `已复制：${t}`, type: 'success', duration: 1200 })
+  })
 }
 </script>
 

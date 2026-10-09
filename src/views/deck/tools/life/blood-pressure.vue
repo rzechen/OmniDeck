@@ -72,7 +72,8 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 
 // 成人血压分级（中国标准）
@@ -85,54 +86,49 @@ const LEVELS = [
   { label: '3级高血压（重度）', color: '#CF1322', desc: '重度高血压', advice: '请立即就医！' }
 ]
 
-export default {
-  name: 'LifeBloodPressure',
-  components: { ToolShell },
-  data() {
-    return {
-      systolic: 120,
-      diastolic: 80,
-      tableRows: [
-        { label: '偏低', color: '#722ED1', sys: '< 90', and: '和/或', dia: '< 60' },
-        { label: '正常', color: 'var(--success-color)', sys: '90 ~ 119', and: '和', dia: '60 ~ 79' },
-        { label: '正常高值', color: 'var(--warning-color)', sys: '120 ~ 139', and: '和/或', dia: '80 ~ 89' },
-        { label: '1级高血压（轻度）', color: '#FA8C16', sys: '140 ~ 159', and: '和/或', dia: '90 ~ 99' },
-        { label: '2级高血压（中度）', color: 'var(--danger-color)', sys: '160 ~ 179', and: '和/或', dia: '100 ~ 109' },
-        { label: '3级高血压（重度）', color: '#CF1322', sys: '≥ 180', and: '和/或', dia: '≥ 110' }
-      ]
-    }
-  },
-  computed: {
-    result() {
-      const s = this.systolic
-      const d = this.diastolic
-      if (!s || !d || s <= 0 || d <= 0) return null
-      // 取收缩压与舒张压中较高的分级
-      let idxS
-      let idxD
-      if (s < 90 || d < 60) return LEVELS[0]
-      if (s >= 180 || d >= 110) idxS = idxD = 5
-      else if (s >= 160 || d >= 100) idxS = idxD = 4
-      else if (s >= 140 || d >= 90) idxS = idxD = 3
-      else if (s >= 120 || d >= 80) idxS = idxD = 2
-      else idxS = idxD = 1
-      void idxS
-      void idxD
-      return LEVELS[Math.max(idxS, idxD)]
-    },
-    pulsePressure() {
-      if (!this.systolic || !this.diastolic) return null
-      return this.systolic - this.diastolic
-    },
-    ppHint() {
-      const pp = this.pulsePressure
-      if (pp === null) return ''
-      if (pp > 60) return '（偏大，关注血管弹性）'
-      if (pp < 30) return '（偏小，建议咨询医生）'
-      return '（正常 30~60）'
-    }
-  }
-}
+defineOptions({ name: 'LifeBloodPressure' })
+
+const systolic = ref(120)
+const diastolic = ref(80)
+const tableRows = ref([
+  { label: '偏低', color: '#722ED1', sys: '< 90', and: '和/或', dia: '< 60' },
+  { label: '正常', color: 'var(--success-color)', sys: '90 ~ 119', and: '和', dia: '60 ~ 79' },
+  { label: '正常高值', color: 'var(--warning-color)', sys: '120 ~ 139', and: '和/或', dia: '80 ~ 89' },
+  { label: '1级高血压（轻度）', color: '#FA8C16', sys: '140 ~ 159', and: '和/或', dia: '90 ~ 99' },
+  { label: '2级高血压（中度）', color: 'var(--danger-color)', sys: '160 ~ 179', and: '和/或', dia: '100 ~ 109' },
+  { label: '3级高血压（重度）', color: '#CF1322', sys: '≥ 180', and: '和/或', dia: '≥ 110' }
+])
+
+const result = computed(() => {
+  const s = systolic.value
+  const d = diastolic.value
+  if (!s || !d || s <= 0 || d <= 0) return null
+  // 取收缩压与舒张压中较高的分级
+  let idxS
+  let idxD
+  if (s < 90 || d < 60) return LEVELS[0]
+  if (s >= 180 || d >= 110) idxS = idxD = 5
+  else if (s >= 160 || d >= 100) idxS = idxD = 4
+  else if (s >= 140 || d >= 90) idxS = idxD = 3
+  else if (s >= 120 || d >= 80) idxS = idxD = 2
+  else idxS = idxD = 1
+  void idxS
+  void idxD
+  return LEVELS[Math.max(idxS, idxD)]
+})
+
+const pulsePressure = computed(() => {
+  if (!systolic.value || !diastolic.value) return null
+  return systolic.value - diastolic.value
+})
+
+const ppHint = computed(() => {
+  const pp = pulsePressure.value
+  if (pp === null) return ''
+  if (pp > 60) return '（偏大，关注血管弹性）'
+  if (pp < 30) return '（偏小，建议咨询医生）'
+  return '（正常 30~60）'
+})
 </script>
 
 <style lang="scss" scoped>

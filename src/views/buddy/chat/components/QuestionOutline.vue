@@ -10,7 +10,7 @@
         class="ob-qnav-dot"
         :class="[q.status, { active: q.id === activeId }]"
         :title="q.text"
-        @click="$emit('locate', q)"
+        @click="emit('locate', q)"
       ></span>
       <span v-if="!questions.length" class="ob-qnav-none"></span>
     </div>
@@ -27,7 +27,7 @@
           :key="q.id || i"
           class="ob-qnav-item"
           :class="[{ active: q.id === activeId }, q.status]"
-          @click="$emit('locate', q)"
+          @click="emit('locate', q)"
           @mouseenter="onItemEnter"
           @mouseleave="onItemLeave"
         >
@@ -41,50 +41,52 @@
   </aside>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 问题导航指示器（圆点 + 悬停面板）
 // questions：[{ id：用户消息 id, text：截断后的问题文本, status：done|stopped|running|pending }]
 // activeId：当前视口所在的轮次（页面根据滚动位置计算）
-export default {
-  name: 'QuestionOutline',
-  props: {
-    questions: {
-      type: Array,
-      default: () => []
-    },
-    activeId: {
-      type: String,
-      default: ''
-    }
+defineOptions({ name: 'QuestionOutline' })
+
+defineProps({
+  questions: {
+    type: Array,
+    default: () => []
   },
-  methods: {
-    statusLabel(s) {
-      return {
-        done: '已完成',
-        stopped: '已终止',
-        running: '输出中',
-        pending: '等待回答'
-      }[s] || ''
-    },
-    // ===== 问题文本 hover 滚动（超长从右向左滚完，同任务列表标题的交互） =====
-    onItemEnter(e) {
-      const wrap = e.currentTarget.querySelector('.ob-qnav-text')
-      const inner = wrap && wrap.firstElementChild
-      if (!wrap || !inner) return
-      const diff = inner.scrollWidth - wrap.clientWidth
-      wrap.classList.remove('scrolling')
-      if (diff > 4) {
-        // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
-        wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
-        void wrap.offsetWidth // 强制 reflow 以重启动画
-        wrap.classList.add('scrolling')
-      }
-    },
-    onItemLeave(e) {
-      const wrap = e.currentTarget.querySelector('.ob-qnav-text')
-      if (wrap) wrap.classList.remove('scrolling')
-    }
+  activeId: {
+    type: String,
+    default: ''
   }
+})
+
+const emit = defineEmits(['locate'])
+
+function statusLabel(s) {
+  return {
+    done: '已完成',
+    stopped: '已终止',
+    running: '输出中',
+    pending: '等待回答'
+  }[s] || ''
+}
+
+// ===== 问题文本 hover 滚动（超长从右向左滚完，同任务列表标题的交互） =====
+function onItemEnter(e) {
+  const wrap = e.currentTarget.querySelector('.ob-qnav-text')
+  const inner = wrap && wrap.firstElementChild
+  if (!wrap || !inner) return
+  const diff = inner.scrollWidth - wrap.clientWidth
+  wrap.classList.remove('scrolling')
+  if (diff > 4) {
+    // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
+    wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
+    void wrap.offsetWidth // 强制 reflow 以重启动画
+    wrap.classList.add('scrolling')
+  }
+}
+
+function onItemLeave(e) {
+  const wrap = e.currentTarget.querySelector('.ob-qnav-text')
+  if (wrap) wrap.classList.remove('scrolling')
 }
 </script>
 

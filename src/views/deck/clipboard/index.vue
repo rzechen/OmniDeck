@@ -143,235 +143,235 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onMounted, onActivated, onBeforeUnmount } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'ClipboardHistory',
-  components: { ToolShell },
-  data() {
-    return {
-      history: [],
-      keyword: '',
-      visibleCount: 40,
-      PAGE_SIZE: 40,
-      favMap: {}, // 已收藏映射：histId -> favId（空表示未收藏）
-      favMapKey: '', // 上次映射的序列化值，避免轮询时无谓重渲染
-      // 图片预览
-      previewVisible: false,
-      previewData: '',
-      previewRec: null,
-      // 文本预览
-      textPreviewVisible: false,
-      textPreviewRec: null
+defineOptions({ name: 'ClipboardHistory' })
+
+const { message } = useFeedback()
+
+const history = ref([])
+const keyword = ref('')
+const visibleCount = ref(40)
+const PAGE_SIZE = 40
+const favMap = ref({}) // 已收藏映射：histId -> favId（空表示未收藏）
+const favMapKey = ref('') // 上次映射的序列化值，避免轮询时无谓重渲染
+// 图片预览
+const previewVisible = ref(false)
+const previewData = ref('')
+const previewRec = ref(null)
+// 文本预览
+const textPreviewVisible = ref(false)
+const textPreviewRec = ref(null)
+
+// 滚动容器
+const pane = ref(null)
+// focus 监听与轮询定时器（非响应式）
+let onWinFocus = null
+let timer = null
+
+const api = computed(() => {
+  return (window.electronAPI && window.electronAPI.capture) || null
+})
+// 剪贴板收藏 IPC（仅桌面端提供）
+const favApi = computed(() => {
+  return (window.electronAPI && window.electronAPI.captureFav) || null
+})
+const previewTitle = computed(() => {
+  const r = previewRec.value
+  return r ? `图片预览 · ${r.width} × ${r.height}` : '图片预览'
+})
+const statusText = '自动记录并本地保存'
+const filteredHistory = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) return history.value
+  return history.value.filter(c => {
+    if (c.kind === 'text') return (c.text || '').toLowerCase().indexOf(kw) >= 0
+    const tag = c.source === 'capture' ? '截图' : (c.kind === 'scroll' ? '长图' : '图片')
+    return tag.indexOf(keyword.value.trim()) >= 0
+  })
+})
+const groups = computed(() => {
+  const out = []
+  const today = new Date()
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const map = {}
+  for (const c of filteredHistory.value) {
+    const key = dayKey(c.createdAt)
+    if (!map[key]) {
+      map[key] = {
+        key,
+        label: dayLabel(c.createdAt, t0),
+        items: []
+      }
+      out.push(map[key])
     }
-  },
-  computed: {
-    api() {
-      return (window.electronAPI && window.electronAPI.capture) || null
-    },
-    // 剪贴板收藏 IPC（仅桌面端提供）
-    favApi() {
-      return (window.electronAPI && window.electronAPI.captureFav) || null
-    },
-    previewTitle() {
-      const r = this.previewRec
-      return r ? `图片预览 · ${r.width} × ${r.height}` : '图片预览'
-    },
-    statusText() {
-      return '自动记录并本地保存'
-    },
-    filteredHistory() {
-      const kw = this.keyword.trim().toLowerCase()
-      if (!kw) return this.history
-      return this.history.filter(c => {
-        if (c.kind === 'text') return (c.text || '').toLowerCase().indexOf(kw) >= 0
-        const tag = c.source === 'capture' ? '截图' : (c.kind === 'scroll' ? '长图' : '图片')
-        return tag.indexOf(this.keyword.trim()) >= 0
-      })
-    },
-    groups() {
-      const out = []
-      const today = new Date()
-      const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
-      const map = {}
-      for (const c of this.filteredHistory) {
-        const key = this.dayKey(c.createdAt)
-        if (!map[key]) {
-          map[key] = {
-            key,
-            label: this.dayLabel(c.createdAt, t0),
-            items: []
-          }
-          out.push(map[key])
-        }
-        map[key].items.push(c)
-      }
-      return out
-    },
-    visibleGroups() {
-      let rest = this.visibleCount
-      const out = []
-      for (const g of this.groups) {
-        if (rest <= 0) break
-        if (g.items.length <= rest) {
-          out.push(g)
-          rest -= g.items.length
-        } else {
-          out.push({ ...g, items: g.items.slice(0, rest) })
-          rest = 0
-        }
-      }
-      return out
-    },
-    hasMore() {
-      return this.visibleCount < this.filteredHistory.length
-    }
-  },
-  watch: {
-    keyword() {
-      this.visibleCount = this.PAGE_SIZE
-    }
-  },
-  mounted() {
-    this.loadHistory()
-    this.loadFavIds()
-    this.onWinFocus = () => {
-      this.loadHistory()
-      this.loadFavIds()
-    }
-    window.addEventListener('focus', this.onWinFocus)
-    this.timer = setInterval(() => {
-      if (document.hasFocus && document.hasFocus()) {
-        this.loadHistory()
-        this.loadFavIds()
-      }
-    }, 2000)
-  },
-  // keep-alive 缓存：从收藏页切回时立即同步收藏状态
-  activated() {
-    this.loadFavIds()
-  },
-  beforeUnmount() {
-    window.removeEventListener('focus', this.onWinFocus)
-    if (this.timer) { clearInterval(this.timer); this.timer = null }
-  },
-  methods: {
-    async loadHistory() {
-      if (!this.api || !this.api.historyList) return
-      const res = await this.api.historyList()
-      if (res && res.ok) this.history = res.items || []
-    },
-    onScroll() {
-      const el = this.$refs.pane
-      if (!el || !this.hasMore) return
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
-        this.visibleCount += this.PAGE_SIZE
-      }
-    },
-    // 条目点击触发逻辑：文本弹出文本详情；图片复制
-    onItemClick(c) {
-      if (c.kind === 'text') {
-        this.previewText(c)
-      } else {
-        this.copyItem(c)
-      }
-    },
-    previewText(c) {
-      this.textPreviewRec = c
-      this.textPreviewVisible = true
-    },
-    async copyItem(c) {
-      if (!c || !this.api) return
-      const res = await this.api.historyCopy(c.id)
-      if (res && res.ok) this.$message.success('已复制到剪贴板')
-    },
-    async removeItem(c) {
-      if (!c || !this.api) return
-      await this.api.historyRemove(c.id)
-      this.loadHistory()
-    },
-    // 拉取已收藏映射（轻量，轮询/fl聚焦时同步；收藏页删除后此处会自动恢复空心）
-    async loadFavIds() {
-      if (!this.favApi || !this.favApi.ids) return
-      const res = await this.favApi.ids()
-      if (!res || !res.ok) return
-      const map = res.map || {}
-      const key = JSON.stringify(map)
-      if (key === this.favMapKey) return
-      this.favMapKey = key
-      this.favMap = map
-    },
-    // 该历史记录是否已收藏
-    isFaved(c) {
-      return !!(c && this.favMap[c.id])
-    },
-    // 收藏切换：未收藏 → 加入收藏；已收藏 → 取消收藏
-    async toggleFav(c) {
-      if (!c) return
-      const favApi = this.favApi
-      if (!favApi || !favApi.add) { this.$message.info('收藏功能需要 OmniDeck 桌面端'); return }
-      const favId = this.favMap[c.id]
-      if (favId) {
-        const res = await favApi.remove(favId)
-        if (res && res.ok) {
-          this.favMapKey = ''
-          this.loadFavIds()
-          this.$message({ message: '已取消收藏', type: 'success', duration: 1500 })
-        } else {
-          this.$message.error('取消收藏失败')
-        }
-        return
-      }
-      const res = await favApi.add(c.id)
-      if (res && res.ok) {
-        this.favMapKey = ''
-        this.loadFavIds()
-        this.$message.success('已加入收藏')
-      } else if (res && res.reason === 'full') {
-        this.$message.warning(`收藏已满（${res.limit} 条）`)
-      } else {
-        this.$message.error('加入收藏失败')
-      }
-    },
-    async clearHistory() {
-      if (!this.api) return
-      await this.api.historyClear()
-      this.loadHistory()
-    },
-    async saveItem(c) {
-      if (!c || c.kind !== 'image' || !this.api) return
-      const res = await this.api.historySaveAs(c.id)
-      if (res && res.ok) this.$message.success('已保存：' + res.filePath)
-    },
-    async preview(c) {
-      if (!c || c.kind !== 'image' || !this.api) return
-      this.previewRec = c
-      this.previewVisible = true
-      this.previewData = ''
-      const res = await this.api.historyData(c.id)
-      if (res && res.ok) this.previewData = res.data
-    },
-    fmtTime(ts) {
-      const d = new Date(ts)
-      const pad = n => String(n).padStart(2, '0')
-      return `${pad(d.getHours())}:${pad(d.getMinutes())}`
-    },
-    dayKey(ts) {
-      const d = new Date(ts)
-      return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate()
-    },
-    dayLabel(ts, todayStart) {
-      const d = new Date(ts)
-      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-      const diff = Math.round((todayStart - dayStart) / 86400000)
-      if (diff === 0) return '今天'
-      if (diff === 1) return '昨天'
-      const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
-      const base = `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 周${week}`
-      return d.getFullYear() === new Date(todayStart).getFullYear() ? base : `${d.getFullYear()} 年 ` + base
+    map[key].items.push(c)
+  }
+  return out
+})
+const visibleGroups = computed(() => {
+  let rest = visibleCount.value
+  const out = []
+  for (const g of groups.value) {
+    if (rest <= 0) break
+    if (g.items.length <= rest) {
+      out.push(g)
+      rest -= g.items.length
+    } else {
+      out.push({ ...g, items: g.items.slice(0, rest) })
+      rest = 0
     }
   }
+  return out
+})
+const hasMore = computed(() => {
+  return visibleCount.value < filteredHistory.value.length
+})
+
+watch(keyword, () => {
+  visibleCount.value = PAGE_SIZE
+})
+
+onMounted(() => {
+  loadHistory()
+  loadFavIds()
+  onWinFocus = () => {
+    loadHistory()
+    loadFavIds()
+  }
+  window.addEventListener('focus', onWinFocus)
+  timer = setInterval(() => {
+    if (document.hasFocus && document.hasFocus()) {
+      loadHistory()
+      loadFavIds()
+    }
+  }, 2000)
+})
+// keep-alive 缓存：从收藏页切回时立即同步收藏状态
+onActivated(() => {
+  loadFavIds()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', onWinFocus)
+  if (timer) { clearInterval(timer); timer = null }
+})
+
+async function loadHistory() {
+  if (!api.value || !api.value.historyList) return
+  const res = await api.value.historyList()
+  if (res && res.ok) history.value = res.items || []
+}
+function onScroll() {
+  const el = pane.value
+  if (!el || !hasMore.value) return
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
+    visibleCount.value += PAGE_SIZE
+  }
+}
+// 条目点击触发逻辑：文本弹出文本详情；图片复制
+function onItemClick(c) {
+  if (c.kind === 'text') {
+    previewText(c)
+  } else {
+    copyItem(c)
+  }
+}
+function previewText(c) {
+  textPreviewRec.value = c
+  textPreviewVisible.value = true
+}
+async function copyItem(c) {
+  if (!c || !api.value) return
+  const res = await api.value.historyCopy(c.id)
+  if (res && res.ok) message.success('已复制到剪贴板')
+}
+async function removeItem(c) {
+  if (!c || !api.value) return
+  await api.value.historyRemove(c.id)
+  loadHistory()
+}
+// 拉取已收藏映射（轻量，轮询/fl聚焦时同步；收藏页删除后此处会自动恢复空心）
+async function loadFavIds() {
+  if (!favApi.value || !favApi.value.ids) return
+  const res = await favApi.value.ids()
+  if (!res || !res.ok) return
+  const map = res.map || {}
+  const key = JSON.stringify(map)
+  if (key === favMapKey.value) return
+  favMapKey.value = key
+  favMap.value = map
+}
+// 该历史记录是否已收藏
+function isFaved(c) {
+  return !!(c && favMap.value[c.id])
+}
+// 收藏切换：未收藏 → 加入收藏；已收藏 → 取消收藏
+async function toggleFav(c) {
+  if (!c) return
+  const fav = favApi.value
+  if (!fav || !fav.add) { message.info('收藏功能需要 OmniDeck 桌面端'); return }
+  const favId = favMap.value[c.id]
+  if (favId) {
+    const res = await fav.remove(favId)
+    if (res && res.ok) {
+      favMapKey.value = ''
+      loadFavIds()
+      message({ message: '已取消收藏', type: 'success', duration: 1500 })
+    } else {
+      message.error('取消收藏失败')
+    }
+    return
+  }
+  const res = await fav.add(c.id)
+  if (res && res.ok) {
+    favMapKey.value = ''
+    loadFavIds()
+    message.success('已加入收藏')
+  } else if (res && res.reason === 'full') {
+    message.warning(`收藏已满（${res.limit} 条）`)
+  } else {
+    message.error('加入收藏失败')
+  }
+}
+async function clearHistory() {
+  if (!api.value) return
+  await api.value.historyClear()
+  loadHistory()
+}
+async function saveItem(c) {
+  if (!c || c.kind !== 'image' || !api.value) return
+  const res = await api.value.historySaveAs(c.id)
+  if (res && res.ok) message.success('已保存：' + res.filePath)
+}
+async function preview(c) {
+  if (!c || c.kind !== 'image' || !api.value) return
+  previewRec.value = c
+  previewVisible.value = true
+  previewData.value = ''
+  const res = await api.value.historyData(c.id)
+  if (res && res.ok) previewData.value = res.data
+}
+function fmtTime(ts) {
+  const d = new Date(ts)
+  const pad = n => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+function dayKey(ts) {
+  const d = new Date(ts)
+  return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate()
+}
+function dayLabel(ts, todayStart) {
+  const d = new Date(ts)
+  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const diff = Math.round((todayStart - dayStart) / 86400000)
+  if (diff === 0) return '今天'
+  if (diff === 1) return '昨天'
+  const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
+  const base = `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 周${week}`
+  return d.getFullYear() === new Date(todayStart).getFullYear() ? base : `${d.getFullYear()} 年 ` + base
 }
 </script>
 <style lang="scss" scoped>

@@ -111,160 +111,158 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import AnimatedNumber from '@/components/deck/AnimatedNumber.vue'
 import { GOLD_API, GOLD_VARIETIES, GOLD_GROUPS, OZ_TO_GRAM } from '@/config/gold-api'
 import { fetchGoldQuotes } from '@/utils/finance/gold'
 
-export default {
-  name: 'FinanceGold',
-  components: { ToolShell, AnimatedNumber },
-  data() {
-    return {
-      booting: true,
-      loadError: '',
-      quotes: {},
-      usdCny: null,
-      // 最后刷新时间：年-月-日 时:分:秒
-      updateTime: '',
-      // 涨跌闪烁方向：{ key: 'up' | 'down' }
-      flash: {},
-      // 循环倒计时状态机（与基金页同模式）：counting(倒数) → refreshing(刷新中) → success(成功2s) → counting
-      cdState: 'counting',
-      cdSec: 29
-    }
-  },
-  computed: {
-    // 伦敦金折人民币克价：XAU(美元/盎司) / 金衡盎司 * USDCNY
-    cnGold() {
-      const xau = this.quotes && this.quotes.hf_XAU
-      if (!xau || this.usdCny === null) return null
-      return Math.round((xau.price / OZ_TO_GRAM) * this.usdCny * 100) / 100
-    },
-    usdCnyText() {
-      return this.usdCny === null ? '—' : this.usdCny.toFixed(4)
-    },
-    autdText() {
-      const q = this.quotes && this.quotes.gds_AUTD
-      return q ? q.price.toFixed(2) : '—'
-    },
-    hasData() {
-      return Object.keys(this.quotes).length > 0
-    },
-    groupsWithData() {
-      return GOLD_GROUPS.filter(g => this.varietiesOf(g).length > 0)
-    },
-    /* ============ 倒计时按钮文案（与基金页同模式） ============ */
-    cdText() {
-      if (this.cdState === 'refreshing') return '刷新中...'
-      if (this.cdState === 'success') return '已更新'
-      if (this.cdState === 'fail') return '刷新失败'
-      return this.cdSec + 's'
-    },
-    cdTitle() {
-      if (this.cdState === 'refreshing') return '正在获取最新行情…'
-      if (this.cdState === 'success') return '行情已更新'
-      return '点击立即刷新 · ' + this.cdSec + 's 后自动刷新'
-    }
-  },
-  mounted() {
-    // 非 data 实例属性（Vue 3 不代理 _ 前缀 data key，勿放入 data）
-    this.tickTimer = null
-    this.flashTimers = {}
-    this.startRefresh()
-    // 统一 1s tick 驱动倒计时状态机
-    this.tickTimer = setInterval(this.onTick, 1000)
-  },
-  beforeUnmount() {
-    clearInterval(this.tickTimer)
-    Object.values(this.flashTimers || {}).forEach(clearTimeout)
-  },
-  methods: {
-    varietiesOf(group) {
-      return GOLD_VARIETIES.filter(v => v.group === group && this.quotes[v.key])
-    },
-    onTick() {
-      if (this.cdState === 'counting') {
-        this.cdSec--
-        if (this.cdSec <= 0) this.startRefresh()
-      }
-    },
-    // 触发一轮刷新（倒计时归零或手动点击）
-    startRefresh() {
-      if (this.cdState === 'refreshing') return
-      this.cdState = 'refreshing'
-      this.refresh().then(() => {
-        // 有失败显示失败态，否则成功态；均停留 2s 后回到倒数
-        this.cdState = this.loadError ? 'fail' : 'success'
-        clearTimeout(this._cdTimer)
-        this._cdTimer = setTimeout(() => {
-          this.cdState = 'counting'
-          this.cdSec = Math.floor(GOLD_API.refresh / 1000) - 1
-        }, 2000)
-      })
-    },
-    manualRefresh() {
-      if (this.cdState === 'refreshing') return
-      this.startRefresh()
-    },
-    async refresh() {
-      // 记录刷新前价格，用于涨跌闪烁方向判断
-      const prev = {}
-      Object.keys(this.quotes).forEach(k => {
-        if (this.quotes[k]) prev[k] = this.quotes[k].price
-      })
-      try {
-        const data = await fetchGoldQuotes(true)
-        if (!data || !data.quotes) throw new Error('行情数据解析失败')
-        const now = new Date()
-        const pad = n => String(n).padStart(2, '0')
-        this.updateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
-        this.usdCny = data.usdCny
-        Object.keys(data.quotes).forEach(k => {
-          if (prev[k] !== undefined && data.quotes[k].price !== prev[k]) {
-            this.setFlash(k, data.quotes[k].price > prev[k] ? 'up' : 'down')
-          }
-        })
-        this.quotes = data.quotes
-        this.loadError = ''
-      } catch (e) {
-        this.loadError = (e && e.message) || '行情获取失败'
-      } finally {
-        this.booting = false
-      }
-    },
-    setFlash(key, dir) {
-      // 红涨绿跌闪烁（与基金页同模式）：0.9s 后清除
-      this.flash[key] = dir
-      clearTimeout(this.flashTimers[key])
-      this.flashTimers[key] = setTimeout(() => {
-        delete this.flash[key]
-      }, 900)
-    },
-    flashClass(key) {
-      const d = this.flash[key]
-      return d === 'up' ? 'is-flash-up' : (d === 'down' ? 'is-flash-down' : '')
-    },
-    pctClass(pct) {
-      return pct > 0 ? 'is-up' : (pct < 0 ? 'is-down' : 'is-flat')
-    },
-    pctText(pct, change) {
-      const sign = pct > 0 ? '+' : ''
-      return `${sign}${pct.toFixed(2)}%${change !== null && change !== undefined ? ' ' + sign + change : ''}`
-    },
-    fmtNum(v, digits, dashZero) {
-      if (v === null || v === undefined) return '—'
-      if (dashZero && !v) return '—'
-      return Number(v).toFixed(digits)
-    },
-    // 行情时间：年-月-日 时:分:秒
-    quoteTime(key) {
-      const q = this.quotes && this.quotes[key]
-      if (!q || !q.date) return ''
-      return `${q.date} ${q.time || ''}`.trim()
-    }
+defineOptions({ name: 'FinanceGold' })
+
+const booting = ref(true)
+const loadError = ref('')
+const quotes = ref({})
+const usdCny = ref(null)
+// 最后刷新时间：年-月-日 时:分:秒
+const updateTime = ref('')
+// 涨跌闪烁方向：{ key: 'up' | 'down' }
+const flash = ref({})
+// 循环倒计时状态机（与基金页同模式）：counting(倒数) → refreshing(刷新中) → success(成功2s) → counting
+const cdState = ref('counting')
+const cdSec = ref(29)
+
+// 定时器句柄（非响应式）
+let tickTimer = null
+let cdTimer = null
+let flashTimers = {}
+
+// 伦敦金折人民币克价：XAU(美元/盎司) / 金衡盎司 * USDCNY
+const cnGold = computed(() => {
+  const xau = quotes.value && quotes.value.hf_XAU
+  if (!xau || usdCny.value === null) return null
+  return Math.round((xau.price / OZ_TO_GRAM) * usdCny.value * 100) / 100
+})
+const usdCnyText = computed(() => {
+  return usdCny.value === null ? '—' : usdCny.value.toFixed(4)
+})
+const autdText = computed(() => {
+  const q = quotes.value && quotes.value.gds_AUTD
+  return q ? q.price.toFixed(2) : '—'
+})
+const hasData = computed(() => {
+  return Object.keys(quotes.value).length > 0
+})
+const groupsWithData = computed(() => {
+  return GOLD_GROUPS.filter(g => varietiesOf(g).length > 0)
+})
+/* ============ 倒计时按钮文案（与基金页同模式） ============ */
+const cdText = computed(() => {
+  if (cdState.value === 'refreshing') return '刷新中...'
+  if (cdState.value === 'success') return '已更新'
+  if (cdState.value === 'fail') return '刷新失败'
+  return cdSec.value + 's'
+})
+const cdTitle = computed(() => {
+  if (cdState.value === 'refreshing') return '正在获取最新行情…'
+  if (cdState.value === 'success') return '行情已更新'
+  return '点击立即刷新 · ' + cdSec.value + 's 后自动刷新'
+})
+
+onMounted(() => {
+  startRefresh()
+  // 统一 1s tick 驱动倒计时状态机
+  tickTimer = setInterval(onTick, 1000)
+})
+
+onBeforeUnmount(() => {
+  clearInterval(tickTimer)
+  clearTimeout(cdTimer)
+  Object.values(flashTimers || {}).forEach(clearTimeout)
+})
+
+function varietiesOf(group) {
+  return GOLD_VARIETIES.filter(v => v.group === group && quotes.value[v.key])
+}
+function onTick() {
+  if (cdState.value === 'counting') {
+    cdSec.value--
+    if (cdSec.value <= 0) startRefresh()
   }
+}
+// 触发一轮刷新（倒计时归零或手动点击）
+function startRefresh() {
+  if (cdState.value === 'refreshing') return
+  cdState.value = 'refreshing'
+  refresh().then(() => {
+    // 有失败显示失败态，否则成功态；均停留 2s 后回到倒数
+    cdState.value = loadError.value ? 'fail' : 'success'
+    clearTimeout(cdTimer)
+    cdTimer = setTimeout(() => {
+      cdState.value = 'counting'
+      cdSec.value = Math.floor(GOLD_API.refresh / 1000) - 1
+    }, 2000)
+  })
+}
+function manualRefresh() {
+  if (cdState.value === 'refreshing') return
+  startRefresh()
+}
+async function refresh() {
+  // 记录刷新前价格，用于涨跌闪烁方向判断
+  const prev = {}
+  Object.keys(quotes.value).forEach(k => {
+    if (quotes.value[k]) prev[k] = quotes.value[k].price
+  })
+  try {
+    const data = await fetchGoldQuotes(true)
+    if (!data || !data.quotes) throw new Error('行情数据解析失败')
+    const now = new Date()
+    const pad = n => String(n).padStart(2, '0')
+    updateTime.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+    usdCny.value = data.usdCny
+    Object.keys(data.quotes).forEach(k => {
+      if (prev[k] !== undefined && data.quotes[k].price !== prev[k]) {
+        setFlash(k, data.quotes[k].price > prev[k] ? 'up' : 'down')
+      }
+    })
+    quotes.value = data.quotes
+    loadError.value = ''
+  } catch (e) {
+    loadError.value = (e && e.message) || '行情获取失败'
+  } finally {
+    booting.value = false
+  }
+}
+function setFlash(key, dir) {
+  // 红涨绿跌闪烁（与基金页同模式）：0.9s 后清除
+  flash.value[key] = dir
+  clearTimeout(flashTimers[key])
+  flashTimers[key] = setTimeout(() => {
+    delete flash.value[key]
+  }, 900)
+}
+function flashClass(key) {
+  const d = flash.value[key]
+  return d === 'up' ? 'is-flash-up' : (d === 'down' ? 'is-flash-down' : '')
+}
+function pctClass(pct) {
+  return pct > 0 ? 'is-up' : (pct < 0 ? 'is-down' : 'is-flat')
+}
+function pctText(pct, change) {
+  const sign = pct > 0 ? '+' : ''
+  return `${sign}${pct.toFixed(2)}%${change !== null && change !== undefined ? ' ' + sign + change : ''}`
+}
+function fmtNum(v, digits, dashZero) {
+  if (v === null || v === undefined) return '—'
+  if (dashZero && !v) return '—'
+  return Number(v).toFixed(digits)
+}
+// 行情时间：年-月-日 时:分:秒
+function quoteTime(key) {
+  const q = quotes.value && quotes.value[key]
+  if (!q || !q.date) return ''
+  return `${q.date} ${q.time || ''}`.trim()
 }
 </script>
 

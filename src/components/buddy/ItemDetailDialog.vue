@@ -104,98 +104,100 @@
   </transition>
 </template>
 
-<script>
+<script setup>
 // 市场页与技能页共享的资源详情弹窗：
 // 徽标头 + 信息卡 + 描述（Markdown 渲染）+ 标签；操作按钮经 actions slot 注入
 // v4 索引新增：内联图标 / 官方认证 / 运营统计 / AI 五维评分
+import { computed } from 'vue'
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'ItemDetailDialog',
-  props: {
-    visible: { type: Boolean, default: false },
-    // { name, type, version, updatedAt, details, description, tags, changelog, author, categoryLabel,
-    //   verified, authorHandle, downloads, favorites, comments, aiScore, aiDimensions, iconBase64, iconMime, requiresApiKey }
-    item: { type: Object, default: null }
+defineOptions({ name: 'ItemDetailDialog' })
+
+const props = defineProps({
+  visible: { type: Boolean, default: false },
+  // { name, type, version, updatedAt, details, description, tags, changelog, author, categoryLabel,
+  //   verified, authorHandle, downloads, favorites, comments, aiScore, aiDimensions, iconBase64, iconMime, requiresApiKey }
+  item: { type: Object, default: null }
+})
+
+const emit = defineEmits(['update:visible'])
+const { message } = useFeedback()
+
+const localVisible = computed({
+  get() {
+    return props.visible
   },
-  computed: {
-    localVisible: {
-      get() {
-        return this.visible
-      },
-      set(val) {
-        this.$emit('update:visible', val)
-      }
-    },
-    // 描述区 Markdown 渲染结果（纯文本亦兼容：换行保留）
-    renderedDetails() {
-      return renderMarkdown(this.item.details || this.item.description || '暂无详细描述')
-    },
-    // v4 图标：iconBase64 内联 data URL；旧数据回落类型图标
-    iconSrc() {
-      if (!this.item || !this.item.iconBase64) return ''
-      const mime = this.item.iconMime || 'image/png'
-      return `data:${mime};base64,${this.item.iconBase64}`
-    },
-    // v4 运营统计是否至少一项可展示
-    hasStats() {
-      const it = this.item || {}
-      return !!(it.downloads || it.favorites || it.comments || it.aiScore)
-    },
-    // TRACE 五维 → 展示列表（维度缺失时自动跳过）
-    aiDimensionList() {
-      const dims = this.item && this.item.aiDimensions
-      if (!dims) return []
-      const labels = {
-        trust: '可信度',
-        reliability: '可靠性',
-        adaptability: '适应性',
-        convention: '规范性',
-        effectiveness: '有效性'
-      }
-      return Object.keys(labels)
-        .filter(k => Number(dims[k]) > 0)
-        .map(k => ({ key: k, label: labels[k], value: Number(dims[k]) }))
-    },
-    typeOf() {
-      const t = this.item && this.item.type
-      if (t === 'connector' || t === 'mcp') return 'connector'
-      if (t === 'agent') return 'agent'
-      return 'skill'
-    },
-    iconOf() {
-      return this.typeOf === 'connector' ? 'mcp' : this.typeOf === 'agent' ? 'subagent' : 'skill'
-    },
-    typeLabel() {
-      const map = { skill: '技能', agent: '子代理', connector: '连接器', mcp: '连接器' }
-      return map[(this.item && this.item.type) || 'skill'] || '技能'
-    }
-  },
-  methods: {
-    // Markdown 区点击委托：代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
-    onMdClick(e) {
-      handleCodeCopy(e).then(ok => {
-        if (ok) this.$message.success('已复制')
-      })
-      handleTableCsv(e).then(ok => {
-        if (ok) this.$message.success('已下载 CSV')
-      })
-    },
-    formatDate(v) {
-      if (!v) return ''
-      const d = new Date(v)
-      if (isNaN(d.getTime())) return String(v)
-      const pad = n => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-    },
-    // 数量缩写：1.8 万式中文展示
-    formatCount(n) {
-      const num = Number(n) || 0
-      if (num >= 100000000) return (num / 100000000).toFixed(1).replace(/\.0$/, '') + ' 亿'
-      if (num >= 10000) return (num / 10000).toFixed(1).replace(/\.0$/, '') + ' 万'
-      return String(num)
-    }
+  set(val) {
+    emit('update:visible', val)
   }
+})
+// 描述区 Markdown 渲染结果（纯文本亦兼容：换行保留）
+const renderedDetails = computed(() => {
+  return renderMarkdown(props.item.details || props.item.description || '暂无详细描述')
+})
+// v4 图标：iconBase64 内联 data URL；旧数据回落类型图标
+const iconSrc = computed(() => {
+  if (!props.item || !props.item.iconBase64) return ''
+  const mime = props.item.iconMime || 'image/png'
+  return `data:${mime};base64,${props.item.iconBase64}`
+})
+// v4 运营统计是否至少一项可展示
+const hasStats = computed(() => {
+  const it = props.item || {}
+  return !!(it.downloads || it.favorites || it.comments || it.aiScore)
+})
+// TRACE 五维 → 展示列表（维度缺失时自动跳过）
+const aiDimensionList = computed(() => {
+  const dims = props.item && props.item.aiDimensions
+  if (!dims) return []
+  const labels = {
+    trust: '可信度',
+    reliability: '可靠性',
+    adaptability: '适应性',
+    convention: '规范性',
+    effectiveness: '有效性'
+  }
+  return Object.keys(labels)
+    .filter(k => Number(dims[k]) > 0)
+    .map(k => ({ key: k, label: labels[k], value: Number(dims[k]) }))
+})
+const typeOf = computed(() => {
+  const t = props.item && props.item.type
+  if (t === 'connector' || t === 'mcp') return 'connector'
+  if (t === 'agent') return 'agent'
+  return 'skill'
+})
+const iconOf = computed(() => {
+  return typeOf.value === 'connector' ? 'mcp' : typeOf.value === 'agent' ? 'subagent' : 'skill'
+})
+const typeLabel = computed(() => {
+  const map = { skill: '技能', agent: '子代理', connector: '连接器', mcp: '连接器' }
+  return map[(props.item && props.item.type) || 'skill'] || '技能'
+})
+
+// Markdown 区点击委托：代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+function onMdClick(e) {
+  handleCodeCopy(e).then(ok => {
+    if (ok) message.success('已复制')
+  })
+  handleTableCsv(e).then(ok => {
+    if (ok) message.success('已下载 CSV')
+  })
+}
+function formatDate(v) {
+  if (!v) return ''
+  const d = new Date(v)
+  if (isNaN(d.getTime())) return String(v)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+// 数量缩写：1.8 万式中文展示
+function formatCount(n) {
+  const num = Number(n) || 0
+  if (num >= 100000000) return (num / 100000000).toFixed(1).replace(/\.0$/, '') + ' 亿'
+  if (num >= 10000) return (num / 10000).toFixed(1).replace(/\.0$/, '') + ' 万'
+  return String(num)
 }
 </script>
 
@@ -373,7 +375,7 @@ export default {
   margin-bottom: 18px;
 }
 
-/* 信息格：加 ::v-deep 使 cells slot 传入的页面侧格子（如安装状态）同样命中
+/* 信息格：加 :deep() 使 cells slot 传入的页面侧格子（如安装状态）同样命中
    —— slot 内容只带父组件 scope 属性，普通 scoped 选择器匹配不到 */
 :deep(.ob-detail-cell){
   padding: 10px 12px;

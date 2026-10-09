@@ -9,22 +9,20 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // 键盘符号读法速查：数据迁移自旧项目 keyboardSymbol 模块
-export default {
-  name: 'OtherKeyboardSymbol',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherKeyboardSymbol' })
+
+const columns = [
         { key: 'symbol', title: '符号', tag: true },
         { key: 'zh', title: '中文' },
         { key: 'en', title: '英文' }
-      ],
-      rows: [
+]
+
+const rows = [
         { symbol: '~', zh: '波浪号', en: 'tilde' },
         { symbol: '`', zh: '反引号,重音号', en: 'backquote,backtick,grave accent' },
         { symbol: '#', zh: '井号', en: 'number sign,pound sign,hash mark' },
@@ -58,9 +56,6 @@ export default {
         { symbol: ',', zh: '逗号', en: 'comma' },
         { symbol: '?', zh: '问好', en: 'question mark' },
         { symbol: '^', zh: '折音号', en: 'circumflex,caret' },
-        { symbol: '<>', zh: '尖括号', en: 'angle brackets' },
-      ]
-    }
-  }
-}
+        { symbol: '<>', zh: '尖括号', en: 'angle brackets' }
+]
 </script>

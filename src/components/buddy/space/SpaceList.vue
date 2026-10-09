@@ -12,9 +12,9 @@
       :key="en.name"
       class="sp-row"
       :class="{ selected: selected.includes(en.name), hidden: en.hidden }"
-      @click="$emit('select', en.name, $event)"
-      @dblclick="$emit('open', en)"
-      @contextmenu.prevent="$emit('menu', $event, en)"
+      @click="emit('select', en.name, $event)"
+      @dblclick="emit('open', en)"
+      @contextmenu.prevent="emit('menu', $event, en)"
     >
       <span class="col-name">
         <span class="sp-row-icon"><img :src="iconOf(en)" class="sp-row-img" alt="" /></span>
@@ -23,31 +23,31 @@
       <span class="col-size">{{ en.isDir ? '—' : formatSize(en.size) }}</span>
       <span class="col-time">{{ formatTime(en.mtime) }}</span>
       <span class="col-act">
-        <svg-icon icon-class="more" title="更多操作" @click.stop="$emit('menu', $event, en)" />
+        <svg-icon icon-class="more" title="更多操作" @click.stop="emit('menu', $event, en)" />
       </span>
     </div>
   </div>
 </template>
 
-<script>
+<script setup>
 // 空间页列表视图
 import { iconOf, formatSize, formatTime } from '@/utils/ui/file-meta'
 
-export default {
-  name: 'SpaceList',
-  props: {
-    entries: {
-      type: Array,
-      default: () => []
-    },
-    // 当前选中项名集合（多选，高亮）
-    selected: {
-      type: Array,
-      default: () => []
-    }
+defineOptions({ name: 'SpaceList' })
+
+defineProps({
+  entries: {
+    type: Array,
+    default: () => []
   },
-  methods: { iconOf, formatSize, formatTime }
-}
+  // 当前选中项名集合（多选，高亮）
+  selected: {
+    type: Array,
+    default: () => []
+  }
+})
+
+const emit = defineEmits(['select', 'open', 'menu'])
 </script>
 
 <style lang="scss" scoped>

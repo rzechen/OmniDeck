@@ -25,7 +25,7 @@
         :is-thinking="!!message.isThinking"
         :is-streaming="!!message.streaming"
         :perm-pending="permPending"
-        @ask-answer="(msg, value) => $emit('ask-answer', msg, value)"
+        @ask-answer="(msg, value) => emit('ask-answer', msg, value)"
       />
 
       <!-- 助手：模型/供应商调用错误（原封不动展示，便于排查） -->
@@ -98,7 +98,7 @@
         <span
           class="ob-branch-arrow"
           title="上一条分支"
-          @click="$emit('switch-branch', { headId: branchInfo.headId, dir: -1 })"
+          @click="emit('switch-branch', { headId: branchInfo.headId, dir: -1 })"
         >
           <svg-icon icon-class="arrow-right" class="ob-flip" />
         </span>
@@ -106,7 +106,7 @@
         <span
           class="ob-branch-arrow"
           title="下一条分支"
-          @click="$emit('switch-branch', { headId: branchInfo.headId, dir: 1 })"
+          @click="emit('switch-branch', { headId: branchInfo.headId, dir: 1 })"
         >
           <svg-icon icon-class="arrow-right" />
         </span>
@@ -156,7 +156,7 @@
         >
           <svg-icon :icon-class="message.feedback === 'dislike' ? 'notlike-fill' : 'notlike'" />
         </span>
-        <span v-if="message.id" class="ob-meta-act" title="以此为分叉点复制完整上下文，创建新会话（当前会话保留）" @click="$emit('branch')">
+        <span v-if="message.id" class="ob-meta-act" title="以此为分叉点复制完整上下文，创建新会话（当前会话保留）" @click="emit('branch')">
           <svg-icon icon-class="fork" />
         </span>
         <!-- 导出本条回答：点击弹格式菜单（Markdown 前端直下 / Word·PDF·HTML 走 pandoc 管线） -->
@@ -212,312 +212,344 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标 + meta 行）
+import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
 import ThinkingSection from './ThinkingSection.vue'
 import FileChangesPanel from './FileChangesPanel.vue'
 import ArtifactPanel from './ArtifactPanel.vue'
 import WorkflowPanel from './WorkflowPanel.vue'
 import { buddyApi } from '@/utils/buddy/buddy-api'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'MessageBubble',
-  components: { ThinkingSection, FileChangesPanel, ArtifactPanel, WorkflowPanel },
-  props: {
-    message: {
-      type: Object,
-      required: true
-    },
-    // 会话是否正在流式生成（控制光标与 hover 操作）
-    streaming: {
-      type: Boolean,
-      default: false
-    },
-    // 队首待确认权限（透传给思考区工具卡片显示"等待授权"状态）
-    permPending: {
-      type: Object,
-      default: null
-    },
-    // 所属会话 id（透传给深度研究进度卡片：历史回放拉取运行状态）
-    sessionId: {
-      type: String,
-      default: ''
-    }
+defineOptions({ name: 'MessageBubble' })
+
+const props = defineProps({
+  message: {
+    type: Object,
+    required: true
   },
-  data() {
-    return {
-      // 编辑重问（会话内分支）：编辑态与草稿
-      editing: false,
-      editText: '',
-      // 中文输入法组合中（组合态回车 = 确认候选词，不触发提交）
-      isComposing: false,
-      // 导出格式菜单（meta 行导出按钮；开启期间挂 document 点击监听关闭）
-      exportMenu: false,
-      // 压缩摘要展开态（默认收起为一行分割线，点击展开）
-      compactionOpen: false
-    }
+  // 会话是否正在流式生成（控制光标与 hover 操作）
+  streaming: {
+    type: Boolean,
+    default: false
   },
-  watch: {
-    // 切换分支变体 / 消息变化时退出编辑态
-    'message.id'() {
-      this.editing = false
-    },
-    // 菜单开启期间监听全局点击（任意处点击即关闭；按钮自身 .stop 防误关）
-    exportMenu(open) {
-      if (open) document.addEventListener('click', this.closeExportMenu)
-      else document.removeEventListener('click', this.closeExportMenu)
-    }
+  // 队首待确认权限（透传给思考区工具卡片显示"等待授权"状态）
+  permPending: {
+    type: Object,
+    default: null
   },
-  beforeUnmount() {
-    document.removeEventListener('click', this.closeExportMenu)
-  },
-  computed: {
-    // 分支信息（仅用户消息的组头位置携带：{ headId, total, index }，多分支才显示切换器）
-    branchInfo() {
-      const b = this.message._branch
-      return (b && b.total > 1) ? b : null
-    },
-    // 实际渲染/复制的正文：压缩摘要为兼容旧落盘数据，剔除误留的系统注入块（如 <read-files>…</read-files>）
-    displayContent() {
-      let text = String(this.message.content || '')
-      if (this.message.compaction) {
-        text = text
-          .replace(/<read-files>[\s\S]*?<\/read-files>/gi, '')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim()
-      }
-      return text
-    },
-    rendered() {
-      return renderMarkdown(this.displayContent)
-    },
-    // 是否展示深度思考区（已有内容块）
-    hasSection() {
-      return this.message.role === 'assistant' &&
-        !!(this.message.items && this.message.items.length > 0)
-    },
-    // 尚无任何内容块时，退回「思考中 Ns」占位
-    showThinkingPlaceholder() {
-      return this.message.role === 'assistant' &&
-        !!this.message.thinking && !this.message.content && !this.hasSection
-    },
-    // 正文流式光标（思考中由深度思考区自己渲染）
-    showCursor() {
-      return this.message.role === 'assistant' &&
-        !!this.message.streaming && !!this.message.content && !this.message.isThinking
-    },
-    // token 用量（直接文字展示：输入 / 输出，单位 tokens；万位以上缩写为 k）
-    tokensText() {
-      const u = this.message.usage
-      if (!u || (!u.input && !u.output)) return ''
-      return '输入 ' + this.formatTokens(u.input) + ' tokens · 输出 ' + this.formatTokens(u.output) + ' tokens'
-    },
-    // 上下文占用文字（tokens / 窗口）
-    contextText() {
-      const u = this.message.usage
-      if (!u || !u.contextTokens || !u.contextWindow) return ''
-      return '上下文 ' + this.formatTokens(u.contextTokens) + ' / ' + this.formatTokens(u.contextWindow)
-    },
-    // 上下文占用百分比（0-100，钳制；无数据时 0）
-    contextPercent() {
-      const u = this.message.usage
-      if (!u || !u.contextTokens || !u.contextWindow) return 0
-      return Math.min(100, Math.max(0, Math.round((u.contextTokens / u.contextWindow) * 100)))
-    },
-    // 用量条颜色档位（<60% 正常 / <85% 警示 / 高危）
-    ctxLevel() {
-      const p = this.contextPercent
-      if (p >= 85) return 'danger'
-      if (p >= 60) return 'warn'
-      return 'ok'
-    },
-    // 压缩摘要 meta（token 前后对比）
-    compactionText() {
-      const c = this.message.compaction
-      if (!c || (!c.tokensBefore && !c.tokensAfter)) return ''
-      return '上下文 ' + this.formatTokens(c.tokensBefore) + ' → ' + this.formatTokens(c.tokensAfter) + ' tokens'
-    },
-    // 消息时间（统一 mm-dd HH:mm:ss）
-    timeText() {
-      return this.formatTime(this.message.createdAt)
-    },
-    // 文件附件列表（仅用户消息有）
-    fileAttachmentList() {
-      if (this.message.role !== 'user' || !Array.isArray(this.message.fileAttachments)) return []
-      return this.message.fileAttachments
-    },
-    // 本轮文件变更列表（工具条目的 fileChange，实时与历史归一化路径均写入 items）
-    fileChanges() {
-      if (this.message.role !== 'assistant' || !Array.isArray(this.message.items)) return []
-      return this.message.items.filter(it => it.type === 'tool' && it.fileChange).map(it => it.fileChange)
-    },
-    // 本轮深度研究运行列表（工具条目的 workflow：后台 runId + 轮询进度 / 前台快照）
-    workflows() {
-      if (this.message.role !== 'assistant' || !Array.isArray(this.message.items)) return []
-      return this.message.items.filter(it => it.type === 'tool' && it.workflow).map(it => it.workflow)
-    },
-    // 本轮导出产物清单（工具条目的 artifacts，doc_export / preview_export 交付文件）
-    artifacts() {
-      if (this.message.role !== 'assistant' || !Array.isArray(this.message.items)) return []
-      return this.message.items
-        .filter(it => it.type === 'tool' && Array.isArray(it.artifacts))
-        .reduce((acc, it) => acc.concat(it.artifacts), [])
-    }
-  },
-  methods: {
-    // Markdown 区点击委托：链接拦截 + 代码块复制/放大按钮（v-html 内容不归 Vue 管，走事件委托）
-    onMdClick(e) {
-      // 链接不导航应用窗口（伪链接如 http://entries.md 会白屏）：合法外链交系统浏览器
-      const anchor = e.target.closest && e.target.closest('a')
-      if (anchor) {
-        e.preventDefault()
-        const href = anchor.getAttribute('href') || ''
-        if (/^https?:\/\//i.test(href)) window.open(href, '_blank')
-        return
-      }
-      // 代码块「放大」：内容与语言标记经全局总线送右栏预览面板（页面层监听）
-      const zoom = e.target.closest && e.target.closest('.ob-code-zoom')
-      if (zoom) {
-        const box = zoom.closest('.ob-code')
-        if (box) {
-          const langEl = box.querySelector('.ob-code-lang')
-          const codeEl = box.querySelector('pre code')
-          this.$bus.emit('chat:artifact-preview', {
-            kind: 'code',
-            lang: langEl ? langEl.textContent.trim() : '',
-            code: codeEl ? codeEl.textContent : ''
-          })
-        }
-        return
-      }
-      handleCodeCopy(e).then(ok => {
-        if (ok) this.$message.success('已复制')
-      })
-      handleTableCsv(e).then(ok => {
-        if (ok) this.$message.success('已下载 CSV')
-      })
-    },
-    // ===== 编辑重问（会话内分支）=====
-    // 进入编辑态：预填当前问题文本并聚焦
-    startEdit() {
-      this.editText = this.message.content || ''
-      this.editing = true
-      this.$nextTick(() => {
-        const box = this.$refs.editBox
-        if (box) {
-          box.focus()
-          // 光标置于末尾
-          const len = box.value.length
-          try { box.setSelectionRange(len, len) } catch (e) { /* 忽略 */ }
-        }
-      })
-    },
-    // 焦点移出编辑区：退出编辑恢复原气泡（点击输入框外任意区域即取消）。
-    // relatedTarget 仍在编辑区内（textarea ↔ 按钮间切换）不取消；
-    // 点击不可聚焦区域（空白处/图标）时 relatedTarget 为 null → 取消
-    onEditFocusout(e) {
-      const to = e.relatedTarget
-      if (to && e.currentTarget.contains(to)) return
-      this.editing = false
-    },
-    // 回车提交编辑：输入法组合中（确认候选词）不提交
-    onEnterEdit(e) {
-      if (this.isComposing || e.isComposing) return
-      this.submitEdit()
-    },
-    // 提交编辑：上抛页面层（创建分支变体并重新提问）
-    submitEdit() {
-      const text = String(this.editText || '').trim()
-      if (!text) {
-        this.$message.warning('内容不能为空')
-        return
-      }
-      this.editing = false
-      this.$emit('edit-resend', { message: this.message, text })
-    },
-    formatTokens(n) {
-      const v = Number(n) || 0
-      return v >= 10000 ? (v / 1000).toFixed(1) + 'k' : String(v)
-    },
-    // 文件大小人性化（B/KB/MB）
-    formatSize(n) {
-      const v = Number(n) || 0
-      if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB'
-      if (v >= 1024) return (v / 1024).toFixed(1) + ' KB'
-      return v + ' B'
-    },
-    fileKindLabel(kind) {
-      if (kind === 'pdf') return 'PDF'
-      if (kind === 'image') return '图片'
-      return '文本'
-    },
-    formatTime(ts) {
-      if (!ts) return ''
-      const d = new Date(ts)
-      const pad = x => String(x).padStart(2, '0')
-      return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
-        pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
-    },
-    // 复制助手正文
-    copyContent() {
-      const text = this.displayContent
-      if (!text) return
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(
-          () => this.$message.success('已复制'),
-          () => this.$message.error('复制失败')
-        )
-      } else {
-        this.$message.error('当前环境不支持复制')
-      }
-    },
-    // 点赞 / 点踩（互斥切换，再次点击取消）：本地即时生效并提示，
-    // 有落盘 id 时上抛页面层持久化到主进程（重开会话仍保留）
-    setFeedback(v) {
-      const next = this.message.feedback === v ? '' : v
-      this.message.feedback = next
-      this.$message.success(next === 'like' ? '已点赞' : next === 'dislike' ? '已点踩，感谢反馈' : '已取消')
-      if (this.message.id) this.$emit('feedback', { message: this.message, value: next })
-    },
-    // 关闭导出格式菜单（document 点击监听回调，引用须稳定供 removeEventListener）
-    closeExportMenu() {
-      this.exportMenu = false
-    },
-    // 导出本条回答为 Markdown 文件（渲染层 Blob 下载）
-    exportContent() {
-      const text = this.message.content || ''
-      if (!text) return
-      const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'OmniBuddy-' + this.formatTime(this.message.createdAt).replace(/[: ]/g, '-') + '.md'
-      a.click()
-      URL.revokeObjectURL(url)
-      this.$message.success('已导出')
-    },
-    // 按格式导出本条回答（文档交付）：
-    // Markdown 前端 Blob 直下；Word / PDF / HTML 走主进程 pandoc 管线（弹保存对话框）
-    async exportAs(format) {
-      this.exportMenu = false
-      const text = this.message.content || ''
-      if (!text) return this.$message.warning('内容为空，无可导出内容')
-      if (format === 'markdown') return this.exportContent()
-      const api = buddyApi()
-      if (!api || !api.messageExport) return this.$message.warning('当前环境不支持该格式导出')
-      const base = 'OmniBuddy-' + this.formatTime(this.message.createdAt).replace(/[: ]/g, '-')
-      let res
-      try {
-        res = await api.messageExport({ content: text, format, filename: base })
-      } catch (e) {
-        return this.$message.error('导出失败：' + (e.message || e))
-      }
-      if (!res) return
-      if (res.ok) this.$message.success('已导出：' + res.filePath)
-      else if (!res.canceled) this.$message.error('导出失败：' + (res.error || '未知错误'))
-    }
+  // 所属会话 id（透传给深度研究进度卡片：历史回放拉取运行状态）
+  sessionId: {
+    type: String,
+    default: ''
   }
+})
+
+const emit = defineEmits(['ask-answer', 'switch-branch', 'branch', 'feedback', 'edit-resend'])
+
+const { message: feedback } = useFeedback()
+
+// 编辑重问（会话内分支）：编辑态与草稿
+const editing = ref(false)
+const editText = ref('')
+// 中文输入法组合中（组合态回车 = 确认候选词，不触发提交）
+const isComposing = ref(false)
+// 导出格式菜单（meta 行导出按钮；开启期间挂 document 点击监听关闭）
+const exportMenu = ref(false)
+// 压缩摘要展开态（默认收起为一行分割线，点击展开）
+const compactionOpen = ref(false)
+
+// 编辑框（进入编辑态聚焦并把光标置于末尾）
+const editBox = ref(null)
+
+// 切换分支变体 / 消息变化时退出编辑态
+watch(() => props.message.id, () => {
+  editing.value = false
+})
+
+// 菜单开启期间监听全局点击（任意处点击即关闭；按钮自身 .stop 防误关）
+watch(exportMenu, (open) => {
+  if (open) document.addEventListener('click', closeExportMenu)
+  else document.removeEventListener('click', closeExportMenu)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeExportMenu)
+})
+
+// 分支信息（仅用户消息的组头位置携带：{ headId, total, index }，多分支才显示切换器）
+const branchInfo = computed(() => {
+  const b = props.message._branch
+  return (b && b.total > 1) ? b : null
+})
+
+// 实际渲染/复制的正文：压缩摘要为兼容旧落盘数据，剔除误留的系统注入块（如 <read-files>…</read-files>）
+const displayContent = computed(() => {
+  let text = String(props.message.content || '')
+  if (props.message.compaction) {
+    text = text
+      .replace(/<read-files>[\s\S]*?<\/read-files>/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+  return text
+})
+
+const rendered = computed(() => {
+  return renderMarkdown(displayContent.value)
+})
+
+// 是否展示深度思考区（已有内容块）
+const hasSection = computed(() => {
+  return props.message.role === 'assistant' &&
+    !!(props.message.items && props.message.items.length > 0)
+})
+
+// 尚无任何内容块时，退回「思考中 Ns」占位
+const showThinkingPlaceholder = computed(() => {
+  return props.message.role === 'assistant' &&
+    !!props.message.thinking && !props.message.content && !hasSection.value
+})
+
+// 正文流式光标（思考中由深度思考区自己渲染）
+const showCursor = computed(() => {
+  return props.message.role === 'assistant' &&
+    !!props.message.streaming && !!props.message.content && !props.message.isThinking
+})
+
+// token 用量（直接文字展示：输入 / 输出，单位 tokens；万位以上缩写为 k）
+const tokensText = computed(() => {
+  const u = props.message.usage
+  if (!u || (!u.input && !u.output)) return ''
+  return '输入 ' + formatTokens(u.input) + ' tokens · 输出 ' + formatTokens(u.output) + ' tokens'
+})
+
+// 上下文占用文字（tokens / 窗口）
+const contextText = computed(() => {
+  const u = props.message.usage
+  if (!u || !u.contextTokens || !u.contextWindow) return ''
+  return '上下文 ' + formatTokens(u.contextTokens) + ' / ' + formatTokens(u.contextWindow)
+})
+
+// 上下文占用百分比（0-100，钳制；无数据时 0）
+const contextPercent = computed(() => {
+  const u = props.message.usage
+  if (!u || !u.contextTokens || !u.contextWindow) return 0
+  return Math.min(100, Math.max(0, Math.round((u.contextTokens / u.contextWindow) * 100)))
+})
+
+// 用量条颜色档位（<60% 正常 / <85% 警示 / 高危）
+const ctxLevel = computed(() => {
+  const p = contextPercent.value
+  if (p >= 85) return 'danger'
+  if (p >= 60) return 'warn'
+  return 'ok'
+})
+
+// 压缩摘要 meta（token 前后对比）
+const compactionText = computed(() => {
+  const c = props.message.compaction
+  if (!c || (!c.tokensBefore && !c.tokensAfter)) return ''
+  return '上下文 ' + formatTokens(c.tokensBefore) + ' → ' + formatTokens(c.tokensAfter) + ' tokens'
+})
+
+// 消息时间（统一 mm-dd HH:mm:ss）
+const timeText = computed(() => {
+  return formatTime(props.message.createdAt)
+})
+
+// 文件附件列表（仅用户消息有）
+const fileAttachmentList = computed(() => {
+  if (props.message.role !== 'user' || !Array.isArray(props.message.fileAttachments)) return []
+  return props.message.fileAttachments
+})
+
+// 本轮文件变更列表（工具条目的 fileChange，实时与历史归一化路径均写入 items）
+const fileChanges = computed(() => {
+  if (props.message.role !== 'assistant' || !Array.isArray(props.message.items)) return []
+  return props.message.items.filter(it => it.type === 'tool' && it.fileChange).map(it => it.fileChange)
+})
+
+// 本轮深度研究运行列表（工具条目的 workflow：后台 runId + 轮询进度 / 前台快照）
+const workflows = computed(() => {
+  if (props.message.role !== 'assistant' || !Array.isArray(props.message.items)) return []
+  return props.message.items.filter(it => it.type === 'tool' && it.workflow).map(it => it.workflow)
+})
+
+// 本轮导出产物清单（工具条目的 artifacts，doc_export / preview_export 交付文件）
+const artifacts = computed(() => {
+  if (props.message.role !== 'assistant' || !Array.isArray(props.message.items)) return []
+  return props.message.items
+    .filter(it => it.type === 'tool' && Array.isArray(it.artifacts))
+    .reduce((acc, it) => acc.concat(it.artifacts), [])
+})
+
+// Markdown 区点击委托：链接拦截 + 代码块复制/放大按钮（v-html 内容不归 Vue 管，走事件委托）
+function onMdClick(e) {
+  // 链接不导航应用窗口（伪链接如 http://entries.md 会白屏）：合法外链交系统浏览器
+  const anchor = e.target.closest && e.target.closest('a')
+  if (anchor) {
+    e.preventDefault()
+    const href = anchor.getAttribute('href') || ''
+    if (/^https?:\/\//i.test(href)) window.open(href, '_blank')
+    return
+  }
+  // 代码块「放大」：内容与语言标记经全局总线送右栏预览面板（页面层监听）
+  const zoom = e.target.closest && e.target.closest('.ob-code-zoom')
+  if (zoom) {
+    const box = zoom.closest('.ob-code')
+    if (box) {
+      const langEl = box.querySelector('.ob-code-lang')
+      const codeEl = box.querySelector('pre code')
+      bus.emit('chat:artifact-preview', {
+        kind: 'code',
+        lang: langEl ? langEl.textContent.trim() : '',
+        code: codeEl ? codeEl.textContent : ''
+      })
+    }
+    return
+  }
+  handleCodeCopy(e).then(ok => {
+    if (ok) feedback.success('已复制')
+  })
+  handleTableCsv(e).then(ok => {
+    if (ok) feedback.success('已下载 CSV')
+  })
+}
+
+// ===== 编辑重问（会话内分支）=====
+// 进入编辑态：预填当前问题文本并聚焦
+function startEdit() {
+  editText.value = props.message.content || ''
+  editing.value = true
+  nextTick(() => {
+    const box = editBox.value
+    if (box) {
+      box.focus()
+      // 光标置于末尾
+      const len = box.value.length
+      try { box.setSelectionRange(len, len) } catch (e) { /* 忽略 */ }
+    }
+  })
+}
+
+// 焦点移出编辑区：退出编辑恢复原气泡（点击输入框外任意区域即取消）。
+// relatedTarget 仍在编辑区内（textarea ↔ 按钮间切换）不取消；
+// 点击不可聚焦区域（空白处/图标）时 relatedTarget 为 null → 取消
+function onEditFocusout(e) {
+  const to = e.relatedTarget
+  if (to && e.currentTarget.contains(to)) return
+  editing.value = false
+}
+
+// 回车提交编辑：输入法组合中（确认候选词）不提交
+function onEnterEdit(e) {
+  if (isComposing.value || e.isComposing) return
+  submitEdit()
+}
+
+// 提交编辑：上抛页面层（创建分支变体并重新提问）
+function submitEdit() {
+  const text = String(editText.value || '').trim()
+  if (!text) {
+    feedback.warning('内容不能为空')
+    return
+  }
+  editing.value = false
+  emit('edit-resend', { message: props.message, text })
+}
+
+function formatTokens(n) {
+  const v = Number(n) || 0
+  return v >= 10000 ? (v / 1000).toFixed(1) + 'k' : String(v)
+}
+
+// 文件大小人性化（B/KB/MB）
+function formatSize(n) {
+  const v = Number(n) || 0
+  if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB'
+  if (v >= 1024) return (v / 1024).toFixed(1) + ' KB'
+  return v + ' B'
+}
+
+function fileKindLabel(kind) {
+  if (kind === 'pdf') return 'PDF'
+  if (kind === 'image') return '图片'
+  return '文本'
+}
+
+function formatTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const pad = x => String(x).padStart(2, '0')
+  return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+    pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+}
+
+// 复制助手正文
+function copyContent() {
+  const text = displayContent.value
+  if (!text) return
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => feedback.success('已复制'),
+      () => feedback.error('复制失败')
+    )
+  } else {
+    feedback.error('当前环境不支持复制')
+  }
+}
+
+// 点赞 / 点踩（互斥切换，再次点击取消）：本地即时生效并提示，
+// 有落盘 id 时上抛页面层持久化到主进程（重开会话仍保留）
+function setFeedback(v) {
+  const next = props.message.feedback === v ? '' : v
+  props.message.feedback = next
+  feedback.success(next === 'like' ? '已点赞' : next === 'dislike' ? '已点踩，感谢反馈' : '已取消')
+  if (props.message.id) emit('feedback', { message: props.message, value: next })
+}
+
+// 关闭导出格式菜单（document 点击监听回调，引用须稳定供 removeEventListener）
+function closeExportMenu() {
+  exportMenu.value = false
+}
+
+// 导出本条回答为 Markdown 文件（渲染层 Blob 下载）
+function exportContent() {
+  const text = props.message.content || ''
+  if (!text) return
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'OmniBuddy-' + formatTime(props.message.createdAt).replace(/[: ]/g, '-') + '.md'
+  a.click()
+  URL.revokeObjectURL(url)
+  feedback.success('已导出')
+}
+
+// 按格式导出本条回答（文档交付）：
+// Markdown 前端 Blob 直下；Word / PDF / HTML 走主进程 pandoc 管线（弹保存对话框）
+async function exportAs(format) {
+  exportMenu.value = false
+  const text = props.message.content || ''
+  if (!text) return feedback.warning('内容为空，无可导出内容')
+  if (format === 'markdown') return exportContent()
+  const api = buddyApi()
+  if (!api || !api.messageExport) return feedback.warning('当前环境不支持该格式导出')
+  const base = 'OmniBuddy-' + formatTime(props.message.createdAt).replace(/[: ]/g, '-')
+  let res
+  try {
+    res = await api.messageExport({ content: text, format, filename: base })
+  } catch (e) {
+    return feedback.error('导出失败：' + (e.message || e))
+  }
+  if (!res) return
+  if (res.ok) feedback.success('已导出：' + res.filePath)
+  else if (!res.canceled) feedback.error('导出失败：' + (res.error || '未知错误'))
 }
 </script>
 

@@ -9,21 +9,19 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // 公共 DNS 服务器速查：数据迁移自旧项目 dns 模块（IP 列表合并为字符串）
-export default {
-  name: 'OtherDns',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherDns' })
+
+const columns = [
         { key: 'name', title: '名称', tag: true },
         { key: 'ips', title: 'DNS 服务器 IP（点击复制）', mono: true, copy: true }
-      ],
-      rows: [
+]
+
+const rows = [
         { name: '114 DNS', ips: '114.114.114.114, 114.114.115.115' },
         { name: '阿里 AliDNS', ips: '223.5.5.5, 223.6.6.6' },
         { name: '百度 BaiduDNS', ips: '180.76.76.76' },
@@ -79,9 +77,6 @@ export default {
         { name: '江苏移动 DNS', ips: '221.131.143.69, 112.4.0.55' },
         { name: '安徽移动 DNS', ips: '211.138.180.2, 211.138.180.3' },
         { name: '山东移动 DNS', ips: '218.201.96.130, 211.137.191.26' },
-        { name: '114 DNS', ips: '114.114.114.114, 114.114.115.115' },
-      ]
-    }
-  }
-}
+        { name: '114 DNS', ips: '114.114.114.114, 114.114.115.115' }
+]
 </script>

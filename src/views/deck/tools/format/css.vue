@@ -80,136 +80,139 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { css as beautifyCss } from 'js-beautify'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/ui/download'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'FormatCss' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/format/css'
 
 const EXAMPLE = `.card{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.06)}.card:hover{transform:translateY(-2px);transition:all .2s ease}`
 
-export default {
-  name: 'FormatCss',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      rawInput: EXAMPLE,
-      formattedOutput: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  computed: {
-    lineCount() {
-      return this.rawInput ? this.rawInput.split('\n').length : 0
-    },
-    ruleCount() {
-      const m = this.rawInput.match(/\{/g)
-      return m ? m.length : 0
-    }
-  },
-  watch: {
-    rawInput() {
-      clearTimeout(this._timer)
-      this._timer = setTimeout(() => this.formatContent(), 250)
-    }
-  },
-  mounted() {
-    this.formatContent()
-  },
-  beforeUnmount() {
-    clearTimeout(this._timer)
-  },
-  methods: {
-    formatContent() {
-      if (!this.rawInput.trim()) {
-        this.formattedOutput = ''
-        return
-      }
-      try {
-        this.formattedOutput = beautifyCss(this.rawInput, { indent_size: 2 })
-        // 仅按钮触发记录（防抖自动格式化不记录）
-        if (this._manual) {
-          this._manual = false
-          record(TOOL_PATH, {
-            input: this.rawInput,
-            output: this.formattedOutput,
-            options: { action: 'format' }
-          })
-        }
-      } catch (e) {
-        this.$message.error('格式化失败：' + e.message)
-      }
-    },
-    minifyContent() {
-      if (!this.rawInput.trim()) return
-      // 去注释 → 合并空白 → 压缩花括号/分号/冒号周围空格
-      this.formattedOutput = this.rawInput
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\s+/g, ' ')
-        .replace(/\s*\{\s*/g, '{')
-        .replace(/\s*\}\s*/g, '}')
-        .replace(/\s*;\s*/g, ';')
-        .replace(/\s*:\s*/g, ':')
-        .replace(/;\}/g, '}')
-        .replace(/\s*,\s*/g, ',')
-        .trim()
+const rawInput = ref(EXAMPLE)
+const formattedOutput = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+// 防抖定时器 / 手动格式化标记（非响应式）
+let timer = null
+let manual = false
+
+const lineCount = computed(() => (rawInput.value ? rawInput.value.split('\n').length : 0))
+const ruleCount = computed(() => {
+  const m = rawInput.value.match(/\{/g)
+  return m ? m.length : 0
+})
+
+function formatContent() {
+  if (!rawInput.value.trim()) {
+    formattedOutput.value = ''
+    return
+  }
+  try {
+    formattedOutput.value = beautifyCss(rawInput.value, { indent_size: 2 })
+    // 仅按钮触发记录（防抖自动格式化不记录）
+    if (manual) {
+      manual = false
       record(TOOL_PATH, {
-        input: this.rawInput,
-        output: this.formattedOutput,
-        options: { action: 'minify' }
+        input: rawInput.value,
+        output: formattedOutput.value,
+        options: { action: 'format' }
       })
-    },
-    copyOutput() {
-      if (!this.formattedOutput.trim()) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.formattedOutput).then(() => {
-        this.$message.success('复制成功')
-        record(TOOL_PATH, {
-          input: this.rawInput,
-          output: this.formattedOutput,
-          options: { action: 'copy' }
-        })
-      })
-    },
-    // 手动点击「格式化」按钮（区别于防抖自动触发）
-    onFormatClick() {
-      this._manual = true
-      this.formatContent()
-    },
-    // 从历史恢复：回填输入并触发格式化
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.rawInput = full.input || ''
-      this.$nextTick(() => {
-        this.formatContent()
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    exportOutput() {
-      if (!this.formattedOutput.trim()) {
-        this.$message.warning('没有可下载的内容')
-        return
-      }
-      downloadText('export.css', this.formattedOutput, 'text/css;charset=utf-8')
-    },
-    clearAll() {
-      this.rawInput = ''
-      this.formattedOutput = ''
-      this.$refs.inputEditor.focus()
     }
+  } catch (e) {
+    message.error('格式化失败：' + e.message)
   }
 }
+
+function minifyContent() {
+  if (!rawInput.value.trim()) return
+  // 去注释 → 合并空白 → 压缩花括号/分号/冒号周围空格
+  formattedOutput.value = rawInput.value
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*\{\s*/g, '{')
+    .replace(/\s*\}\s*/g, '}')
+    .replace(/\s*;\s*/g, ';')
+    .replace(/\s*:\s*/g, ':')
+    .replace(/;\}/g, '}')
+    .replace(/\s*,\s*/g, ',')
+    .trim()
+  record(TOOL_PATH, {
+    input: rawInput.value,
+    output: formattedOutput.value,
+    options: { action: 'minify' }
+  })
+}
+
+function copyOutput() {
+  if (!formattedOutput.value.trim()) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(formattedOutput.value).then(() => {
+    message.success('复制成功')
+    record(TOOL_PATH, {
+      input: rawInput.value,
+      output: formattedOutput.value,
+      options: { action: 'copy' }
+    })
+  })
+}
+
+// 手动点击「格式化」按钮（区别于防抖自动触发）
+function onFormatClick() {
+  manual = true
+  formatContent()
+}
+
+// 从历史恢复：回填输入并触发格式化
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  rawInput.value = full.input || ''
+  await nextTick()
+  formatContent()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function exportOutput() {
+  if (!formattedOutput.value.trim()) {
+    message.warning('没有可下载的内容')
+    return
+  }
+  downloadText('export.css', formattedOutput.value, 'text/css;charset=utf-8')
+}
+
+function clearAll() {
+  rawInput.value = ''
+  formattedOutput.value = ''
+  inputEditor.value.focus()
+}
+
+watch(rawInput, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => formatContent(), 250)
+})
+
+onMounted(() => {
+  formatContent()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
 </script>

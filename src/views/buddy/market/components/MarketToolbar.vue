@@ -17,28 +17,30 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { computed } from 'vue'
+
 // 市场右侧工具栏（搜索框支持 v-model，清空/ESC 由组件内部 emit update:modelValue 完成）
-export default {
-  name: 'MarketToolbar',
-  props: {
-    // 搜索关键词（v-model）
-    modelValue: { type: String, default: '' },
-    // 当前筛选结果数量（filteredItems.length）
-    resultCount: { type: Number, default: 0 }
+defineOptions({ name: 'MarketToolbar' })
+
+const props = defineProps({
+  // 搜索关键词（v-model）
+  modelValue: { type: String, default: '' },
+  // 当前筛选结果数量（filteredItems.length）
+  resultCount: { type: Number, default: 0 }
+})
+
+const emit = defineEmits(['update:modelValue'])
+
+// v-model 代理：写入时向父组件 emit update:modelValue
+const localKeyword = computed({
+  get() {
+    return props.modelValue
   },
-  computed: {
-    // v-model 代理：写入时向父组件 emit update:modelValue
-    localKeyword: {
-      get() {
-        return this.modelValue
-      },
-      set(val) {
-        this.$emit('update:modelValue', val)
-      }
-    }
+  set(val) {
+    emit('update:modelValue', val)
   }
-}
+})
 </script>
 
 <style lang="scss" scoped>

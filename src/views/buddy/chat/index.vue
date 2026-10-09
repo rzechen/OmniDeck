@@ -240,7 +240,12 @@
   </div>
 </template>
 
-<script>
+<script setup>
+// OmniBuddy 对话主区：pi Agent 流式对话
+// 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import ChatPlaceholder from '@/components/buddy/chat/ChatPlaceholder.vue'
@@ -253,947 +258,942 @@ import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
 import { getItem, setItem } from '@/utils/storage/db'
 import { computeBranchView } from '@/utils/buddy/branchView'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
 
-// OmniBuddy 对话主区：pi Agent 流式对话
-// 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
-export default {
-  name: 'OmniBuddyChat',
-  components: { BuddyComposer, BuddySkeleton, ChatPlaceholder, ComposerPicker, SelectionToolbar, ChatMessageList, ArtifactPreview, TodoCard, QuestionOutline, CheckpointDrawer },
-  data() {
-    return {
-      // 实例绑定的会话 id：初始化时快照路由 query.s（keep-alive 一签一实例，
-      // 不再 watch 全局路由 —— 切走页面时本值不变，会话状态池不被误清；
-      // 放在 data 而非 created 赋值：notice watch immediate 早于 created 触发）
-      sid: this.$route ? (this.$route.query.s || '') : '',
-      // 以下均为「视图层/全局偏好」状态；会话态（消息/流式/权限队列/草稿/附件/
-      // 空间绑定）在 store 的 buddyChat 会话池中，切页签/重建实例均可恢复
-      providers: [],
-      currentProviderId: '',
-      // 已登记工作空间列表（上拉选择器数据源）
-      workspaces: [],
-      // 当前展开的选择面板（'workspace' | 'provider' | 'permission' | ''）
-      openSelect: '',
-      // ===== 权限模式（只读 / 自动 / 每次确认），主进程持久化 =====
-      permissionMode: 'confirm',
-      // ===== 联网开关（web_search / fetch_content），主进程持久化 =====
-      webEnabled: true,
-      // ===== 检查点（N4）：抽屉开关（列表加载与回滚在 CheckpointDrawer 内自治） =====
-      cpDrawer: false,
-      // ===== 右栏预览：当前预览目标（产物文件 / 放大代码块），null 为关闭 =====
-      preview: null,
-      // ===== 本实例是否为当前激活页签（keep-alive 后台实例不响应预览唤起） =====
-      tabActive: true,
-      // ===== 问题导航：当前视口所在轮次 id（滚动时更新） =====
-      outlineActiveId: ''
+defineOptions({ name: 'OmniBuddyChat' })
+
+const { message, confirm } = useFeedback()
+const store = useStore()
+const route = useRoute()
+const router = useRouter()
+
+// 实例绑定的会话 id：初始化时快照路由 query.s（keep-alive 一签一实例，
+// 不再 watch 全局路由 —— 切走页面时本值不变，会话状态池不被误清；
+// 赋值须早于 notice watch immediate 触发）
+const sid = ref(route ? (route.query.s || '') : '')
+// 以下均为「视图层/全局偏好」状态；会话态（消息/流式/权限队列/草稿/附件/
+// 空间绑定）在 store 的 buddyChat 会话池中，切页签/重建实例均可恢复
+const providers = ref([])
+const currentProviderId = ref('')
+// 已登记工作空间列表（上拉选择器数据源）
+const workspaces = ref([])
+// 当前展开的选择面板（'workspace' | 'provider' | 'permission' | ''）
+const openSelect = ref('')
+// ===== 权限模式（只读 / 自动 / 每次确认），主进程持久化 =====
+const permissionMode = ref('confirm')
+// ===== 联网开关（web_search / fetch_content），主进程持久化 =====
+const webEnabled = ref(true)
+// ===== 检查点（N4）：抽屉开关（列表加载与回滚在 CheckpointDrawer 内自治） =====
+const cpDrawer = ref(false)
+// ===== 右栏预览：当前预览目标（产物文件 / 放大代码块），null 为关闭 =====
+const preview = ref(null)
+// ===== 本实例是否为当前激活页签（keep-alive 后台实例不响应预览唤起） =====
+const tabActive = ref(true)
+// ===== 问题导航：当前视口所在轮次 id（滚动时更新） =====
+const outlineActiveId = ref('')
+
+// ===== 模板 ref（滚动容器 / 输入框 / 划选工具条 / 检查点抽屉） =====
+const body = ref(null)
+const composer = ref(null)
+const selbar = ref(null)
+const cp = ref(null)
+// 本实例的会话状态（store 会话池；模板/子组件经下方代理读取）
+const sess = computed(() => store.getters['buddyChat/session'](sid.value))
+// 历史加载中（会话已创建但历史未拉完）：显示对话骨架而非欢迎占位
+const historyLoading = computed(() => !!(sess.value && sid.value && !sess.value.loaded))
+// 模板兼容：会话 id（实例绑定值，不随全局路由变化）
+const sessionId = computed(() => sid.value)
+// 全量消息（会话池：含各分支线路的全部记录，含实时乐观消息）
+const rawMessages = computed(() => (sess.value && sess.value.messages) || [])
+// 分支视图：按当前激活线路过滤显示（多分支时组头位置显示激活变体）；
+// anchors = 当前线路路径（发送新消息时作为线路标记传给主进程）
+const branchView = computed(() => computeBranchView(rawMessages.value, (sess.value && sess.value.branchActive) || {}))
+const messages = computed(() => branchView.value.list)
+// 任务清单：取当前分支视图里唯一的 todo 消息（固定面板展示，不进消息流）
+const todoTodos = computed(() => {
+  const m = messages.value.find(x => x.role === 'todo')
+  return m ? m.todos : null
+})
+// 问题导航（时间线）：当前分支视图内全部问答轮次。
+// status 由其后紧邻的助手消息推导：error=红（终止）/ 工具中断=红 /
+// streaming=黄（输出中）/ 无回答=灰（等待）/ 其余=绿（已完成）
+const questions = computed(() => {
+  const list = messages.value
+  const out = []
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i]
+    if (m.role !== 'user' || !m.id) continue
+    // 找到该问题后的首条助手消息（本轮回答）
+    let ans = null
+    for (let j = i + 1; j < list.length && !ans; j++) {
+      if (list[j].role === 'assistant') ans = list[j]
+      else if (list[j].role === 'user') break
     }
+    out.push({ id: m.id, text: excerpt(m.content || ''), status: turnStatus(ans) })
+  }
+  return out
+})
+const streaming = computed(() => !!(sess.value && sess.value.streaming))
+// 离开底部（用户手动上滚）时显示「回到底部」悬浮按钮
+const showBackToBottom = computed(() => !!(sess.value && !sess.value.atBottom))
+// 待发送文件附件（[{id,name,size,kind,thumb,path}]）
+const fileAttachments = computed(() => (sess.value && sess.value.fileAttachments) || [])
+// 输入框草稿（v-model 双向代理到会话池，切页签/重开不丢）
+const draft = computed({
+  get() {
+    return (sess.value && sess.value.draft) || ''
   },
-  computed: {
-    // 本实例的会话状态（store 会话池；模板/子组件经下方代理读取）
-    sess() {
-      return this.$store.getters['buddyChat/session'](this.sid)
-    },
-    // 历史加载中（会话已创建但历史未拉完）：显示对话骨架而非欢迎占位
-    historyLoading() {
-      return !!(this.sess && this.sid && !this.sess.loaded)
-    },
-    // 模板兼容：会话 id（实例绑定值，不随全局路由变化）
-    sessionId() {
-      return this.sid
-    },
-    // 全量消息（会话池：含各分支线路的全部记录，含实时乐观消息）
-    rawMessages() {
-      return (this.sess && this.sess.messages) || []
-    },
-    // 分支视图：按当前激活线路过滤显示（多分支时组头位置显示激活变体）；
-    // anchors = 当前线路路径（发送新消息时作为线路标记传给主进程）
-    branchView() {
-      return computeBranchView(this.rawMessages, (this.sess && this.sess.branchActive) || {})
-    },
-    messages() {
-      return this.branchView.list
-    },
-    // 任务清单：取当前分支视图里唯一的 todo 消息（固定面板展示，不进消息流）
-    todoTodos() {
-      const m = this.messages.find(x => x.role === 'todo')
-      return m ? m.todos : null
-    },
-    // 问题导航（时间线）：当前分支视图内全部问答轮次。
-    // status 由其后紧邻的助手消息推导：error=红（终止）/ 工具中断=红 /
-    // streaming=黄（输出中）/ 无回答=灰（等待）/ 其余=绿（已完成）
-    questions() {
-      const list = this.messages
-      const out = []
-      for (let i = 0; i < list.length; i++) {
-        const m = list[i]
-        if (m.role !== 'user' || !m.id) continue
-        // 找到该问题后的首条助手消息（本轮回答）
-        let ans = null
-        for (let j = i + 1; j < list.length && !ans; j++) {
-          if (list[j].role === 'assistant') ans = list[j]
-          else if (list[j].role === 'user') break
-        }
-        out.push({ id: m.id, text: this.excerpt(m.content || ''), status: this.turnStatus(ans) })
-      }
-      return out
-    },
-    streaming() {
-      return !!(this.sess && this.sess.streaming)
-    },
-    // 离开底部（用户手动上滚）时显示「回到底部」悬浮按钮
-    showBackToBottom() {
-      return !!(this.sess && !this.sess.atBottom)
-    },
-    // 待发送文件附件（[{id,name,size,kind,thumb,path}]）
-    fileAttachments() {
-      return (this.sess && this.sess.fileAttachments) || []
-    },
-    // 输入框草稿（v-model 双向代理到会话池，切页签/重开不丢）
-    draft: {
-      get() {
-        return (this.sess && this.sess.draft) || ''
-      },
-      set(v) {
-        this.commitPatch({ draft: v })
-      }
-    },
-    // 划选追问引用（消息区划选后点「追问」写入会话池，随下条消息拼发）
-    quote() {
-      return (this.sess && this.sess.quote) || ''
-    },
-    // 关联的本地磁盘路径三元组（dir/name/workspaceId）
-    workspaceLink() {
-      return (this.sess && this.sess.workspaceLink) || { dir: '', name: '', workspaceId: '' }
-    },
-    // 会话已绑定工作空间：锁定输入框的空间切换器（pi 会话上下文与空间绑定，中途切换无效）
-    workspaceLocked() {
-      return !!(this.sess && this.sess.workspaceLocked)
-    },
-    currentProvider() {
-      return this.providers.find(p => p.id === this.currentProviderId) || null
-    },
-    // 深度研究：三档模型映射（providers 页为供应商配置 tier 字段），
-    // 随 provider 透传主进程注册（未配置档位由主进程回落主模型）
-    tierMapping() {
-      const map = {}
-      this.providers.forEach(p => {
-        if (p.tier && p.baseUrl && p.model) {
-          map[p.tier] = { baseUrl: p.baseUrl, apiKey: p.apiKey || '', model: p.model }
-        }
-      })
-      return map
-    },
-    // 模型选择器选项
-    providerItems() {
-      return this.providers.map(p => ({
-        value: p.id,
-        label: p.name + ' · ' + (p.displayName || p.model),
-        svg: 'llm'
-      }))
-    },
-    // 工作空间触发 chip 文案：展示名 → 末级目录名 → 占位
-    workspaceLabel() {
-      const link = this.workspaceLink
-      if (!link.dir) return '选择工作空间'
-      if (link.name) return link.name
-      return String(link.dir).replace(/\/+$/, '').split(/[\\/]/).pop() || link.dir
-    },
-    // ===== 权限模式选择器 =====
-    permissionModeLabel() {
-      return { readonly: '只读', auto: '自动', confirm: '每次确认' }[this.permissionMode] || '权限模式'
-    },
-    permissionModeItems() {
-      return [
-        { value: 'readonly', label: '只读', svg: 'view', tag: '仅查看' },
-        { value: 'auto', label: '自动', svg: 'magic-stick', tag: '自主执行' },
-        { value: 'confirm', label: '每次确认', svg: 'key', tag: '推荐' }
-      ]
-    },
-    // ===== 联网开关选择器 =====
-    webItems() {
-      return [
-        { value: 'on', label: '开启', svg: 'search', tag: '免密钥可用' },
-        { value: 'off', label: '关闭', svg: 'circle_close', tag: '屏蔽联网工具' }
-      ]
-    },
-    // 待确认浮动条：展示队列首条
-    permQueue() {
-      return (this.sess && this.sess.permQueue) || []
-    },
-    pendingPerm() {
-      return this.permQueue.length ? this.permQueue[0] : null
-    },
-    permQueueCount() {
-      return this.permQueue.length
-    },
-    pendingPermIcon() {
-      const s = (this.pendingPerm && this.pendingPerm.surface) || ''
-      if (s === 'bash') return 'monitor'
-      if (s === 'python') return 'code'
-      if (s === 'curl' || s === 'network') return 'link'
-      if (s === 'external_directory_write') return 'edit'
-      if (['write', 'edit', 'multi_edit', 'append', 'mkdir'].indexOf(s) >= 0) return 'edit'
-      return 'key'
-    },
-    // 权限确认问题文案（按工具面区分场景）
-    permQuestion() {
-      const s = (this.pendingPerm && this.pendingPerm.surface) || ''
-      if (['bash', 'python', 'node', 'curl'].indexOf(s) >= 0) return '是否允许运行这个命令？'
-      if (['write', 'edit', 'multi_edit', 'append', 'mkdir'].indexOf(s) >= 0) return '是否允许修改这个文件？'
-      if (s === 'external_directory' || s === 'external_directory_read' || s === 'external_directory_write') {
-        return s === 'external_directory_write' ? '是否允许写入工作空间外的路径？' : '是否允许访问工作空间外的路径？'
-      }
-      if (s === 'network') return '是否允许沙箱内命令访问该网络地址？'
-      return '是否允许执行此操作？'
-    },
-    // 工作空间选择器选项（仅保留目录仍存在的项）
-    workspaceItems() {
-      return this.workspaces.map(w => ({
-        value: w.id,
-        label: w.name || String(w.path || '').replace(/\/+$/, '').split(/[\\/]/).pop() || w.path,
-        svg: 'folder'
-      }))
+  set(v) {
+    commitPatch({ draft: v })
+  }
+})
+// 划选追问引用（消息区划选后点「追问」写入会话池，随下条消息拼发）
+const quote = computed(() => (sess.value && sess.value.quote) || '')
+// 关联的本地磁盘路径三元组（dir/name/workspaceId）
+const workspaceLink = computed(() => (sess.value && sess.value.workspaceLink) || { dir: '', name: '', workspaceId: '' })
+// 会话已绑定工作空间：锁定输入框的空间切换器（pi 会话上下文与空间绑定，中途切换无效）
+const workspaceLocked = computed(() => !!(sess.value && sess.value.workspaceLocked))
+const currentProvider = computed(() => providers.value.find(p => p.id === currentProviderId.value) || null)
+// 深度研究：三档模型映射（providers 页为供应商配置 tier 字段），
+// 随 provider 透传主进程注册（未配置档位由主进程回落主模型）
+const tierMapping = computed(() => {
+  const map = {}
+  providers.value.forEach(p => {
+    if (p.tier && p.baseUrl && p.model) {
+      map[p.tier] = { baseUrl: p.baseUrl, apiKey: p.apiKey || '', model: p.model }
     }
-  },
-  watch: {
-    // 右栏预览开合：联动 BuddyLayout 临时收起侧栏（对齐豆包：对话与预览各占一半，
-    // 侧栏收起腾出阅读宽度；关闭预览恢复用户原侧栏状态）
-    preview(v) {
-      this.$bus.emit('buddy:sidebar-hold', !!v)
-      // 同步消息流内代码块「放大→缩小」按钮标记
-      this.markZoomingCode()
-    },
-    // 消息条数变化（用户消息/新占位/非流式新消息）：
-    // 仅在「贴底」时自动跟滚 —— 用户手动上滚后（atBottom=false）以用户操作为最高优先级，
-    // 不再强制滚到底，回看历史不被新内容打断
-    'messages.length'() {
-      if (this.sess && this.sess.atBottom) this.scrollToBottom()
-      // 气泡重渲染会重建代码块 DOM（zooming 标记丢失）：兜底重新标记
-      this.markZoomingCode()
-    },
-    // 本轮消息内容更新（delta 正文 / 思考块 / 工具块，均不改 messages.length）：
-    // 同样只在贴底时跟滚，保证用户上滚后输出不打扰回看
-    'sess.turnMsg': {
-      deep: true,
-      handler() {
-        if (this.sess && this.sess.atBottom) this.scrollToBottom()
-      }
-    },
-    // 流式结束：末轮气泡渲染完成，恢复可能被重建 DOM 冲掉的 zooming 标记
-    streaming(v) {
-      if (!v) this.$nextTick(() => this.markZoomingCode())
-    },
-    // store 会话池的 UI 事件（$message / $root 广播 / 检查点刷新）：
-    // 多个缓存实例同时 watch，经 claim 认领保证每条只被消费一次
-    '$store.state.buddyChat.notice': {
-      immediate: true,
-      deep: true,
-      handler(list) {
-        this.consumeNotices(list)
-      }
+  })
+  return map
+})
+// 模型选择器选项
+const providerItems = computed(() => providers.value.map(p => ({
+  value: p.id,
+  label: p.name + ' · ' + (p.displayName || p.model),
+  svg: 'llm'
+})))
+// 工作空间触发 chip 文案：展示名 → 末级目录名 → 占位
+const workspaceLabel = computed(() => {
+  const link = workspaceLink.value
+  if (!link.dir) return '选择工作空间'
+  if (link.name) return link.name
+  return String(link.dir).replace(/\/+$/, '').split(/[\\/]/).pop() || link.dir
+})
+// ===== 权限模式选择器 =====
+const permissionModeLabel = computed(() => ({ readonly: '只读', auto: '自动', confirm: '每次确认' }[permissionMode.value] || '权限模式'))
+const permissionModeItems = computed(() => [
+  { value: 'readonly', label: '只读', svg: 'view', tag: '仅查看' },
+  { value: 'auto', label: '自动', svg: 'magic-stick', tag: '自主执行' },
+  { value: 'confirm', label: '每次确认', svg: 'key', tag: '推荐' }
+])
+// ===== 联网开关选择器 =====
+const webItems = computed(() => [
+  { value: 'on', label: '开启', svg: 'search', tag: '免密钥可用' },
+  { value: 'off', label: '关闭', svg: 'circle_close', tag: '屏蔽联网工具' }
+])
+// 待确认浮动条：展示队列首条
+const permQueue = computed(() => (sess.value && sess.value.permQueue) || [])
+const pendingPerm = computed(() => permQueue.value.length ? permQueue.value[0] : null)
+const permQueueCount = computed(() => permQueue.value.length)
+const pendingPermIcon = computed(() => {
+  const s = (pendingPerm.value && pendingPerm.value.surface) || ''
+  if (s === 'bash') return 'monitor'
+  if (s === 'python') return 'code'
+  if (s === 'curl' || s === 'network') return 'link'
+  if (s === 'external_directory_write') return 'edit'
+  if (['write', 'edit', 'multi_edit', 'append', 'mkdir'].indexOf(s) >= 0) return 'edit'
+  return 'key'
+})
+// 权限确认问题文案（按工具面区分场景）
+const permQuestion = computed(() => {
+  const s = (pendingPerm.value && pendingPerm.value.surface) || ''
+  if (['bash', 'python', 'node', 'curl'].indexOf(s) >= 0) return '是否允许运行这个命令？'
+  if (['write', 'edit', 'multi_edit', 'append', 'mkdir'].indexOf(s) >= 0) return '是否允许修改这个文件？'
+  if (s === 'external_directory' || s === 'external_directory_read' || s === 'external_directory_write') {
+    return s === 'external_directory_write' ? '是否允许写入工作空间外的路径？' : '是否允许访问工作空间外的路径？'
+  }
+  if (s === 'network') return '是否允许沙箱内命令访问该网络地址？'
+  return '是否允许执行此操作？'
+})
+// 工作空间选择器选项（仅保留目录仍存在的项）
+const workspaceItems = computed(() => workspaces.value.map(w => ({
+  value: w.id,
+  label: w.name || String(w.path || '').replace(/\/+$/, '').split(/[\\/]/).pop() || w.path,
+  svg: 'folder'
+})))
+// 右栏预览开合：联动 BuddyLayout 临时收起侧栏（对齐豆包：对话与预览各占一半，
+// 侧栏收起腾出阅读宽度；关闭预览恢复用户原侧栏状态）
+watch(preview, v => {
+  bus.emit('buddy:sidebar-hold', !!v)
+  // 同步消息流内代码块「放大→缩小」按钮标记
+  markZoomingCode()
+})
+// 消息条数变化（用户消息/新占位/非流式新消息）：
+// 仅在「贴底」时自动跟滚 —— 用户手动上滚后（atBottom=false）以用户操作为最高优先级，
+// 不再强制滚到底，回看历史不被新内容打断
+watch(() => messages.value.length, () => {
+  if (sess.value && sess.value.atBottom) scrollToBottom()
+  // 气泡重渲染会重建代码块 DOM（zooming 标记丢失）：兜底重新标记
+  markZoomingCode()
+})
+// 本轮消息内容更新（delta 正文 / 思考块 / 工具块，均不改 messages.length）：
+// 同样只在贴底时跟滚，保证用户上滚后输出不打扰回看
+watch(() => sess.value && sess.value.turnMsg, () => {
+  if (sess.value && sess.value.atBottom) scrollToBottom()
+}, { deep: true })
+// 流式结束：末轮气泡渲染完成，恢复可能被重建 DOM 冲掉的 zooming 标记
+watch(streaming, v => {
+  if (!v) nextTick(() => markZoomingCode())
+})
+// store 会话池的 UI 事件（$message / $root 广播 / 检查点刷新）：
+// 多个缓存实例同时 watch，经 claim 认领保证每条只被消费一次
+watch(() => store.state.buddyChat.notice, list => {
+  consumeNotices(list)
+}, { immediate: true, deep: true })
+
+// created：进入页面即拉取历史 / 模型 / 工作空间等
+store.dispatch('buddyChat/loadHistory', { id: sid.value })
+loadProviders()
+loadWorkspaces()
+restoreWorkspaceLink()
+loadPermissionMode()
+loadWebEnabled()
+// 工作空间重命名后同步底部空间名：主进程已级联更新会话快照与登记表
+bus.on('omnibuddy:workspaces-changed', onWorkspacesChanged)
+// 右栏预览唤起（消息流内产物卡片点击 / 代码块「放大」按钮经全局总线上抛）
+bus.on('chat:artifact-preview', onArtifactPreview)
+
+onBeforeUnmount(() => {
+  bus.off('omnibuddy:workspaces-changed', onWorkspacesChanged)
+  bus.off('chat:artifact-preview', onArtifactPreview)
+  // 页签销毁：释放侧栏临时收起
+  bus.emit('buddy:sidebar-hold', false)
+  // 仅移除全局监听；不打断流式 —— 主进程继续执行并落盘，回来自会话池/历史恢复
+  window.removeEventListener('keydown', onPermKeydown)
+  document.removeEventListener('mousedown', onDocMouseDown)
+})
+
+onMounted(() => {
+  // 首次挂载：流式中或已在底部语义下滚到底（历史异步到达时由 watch 跟滚）
+  if (streaming.value || (sess.value && sess.value.atBottom)) scrollToBottom()
+  // 问题导航侧栏常驻：初始即计算当前高亮轮次（此后随滚动事件更新）
+  nextTick(() => updateOutlineActive())
+  // 消息区划选工具条开始监听（同一函数引用重复注册无害）
+  if (selbar.value) selbar.value.setup()
+})
+
+onActivated(() => {
+  // keep-alive 页签切回：标记激活（预览唤起仅当前页签响应），模型/工作空间可能在
+  // 其他页签（模型管理、工作空间）有增删，重新加载列表（loadProviders 内部会
+  // 保留当前选中，不会打断已选模型）
+  tabActive.value = true
+  loadProviders()
+  loadWorkspaces()
+  // 会话池可能因删除会话被清理，补拉（loaded 命中时为空操作）
+  store.dispatch('buddyChat/loadHistory', { id: sid.value })
+  // 切回补滚：流式中始终到底；池已加载时 length 不变需手动补
+  if (streaming.value || (sess.value && sess.value.atBottom)) scrollToBottom()
+  // 权限面板键盘 1-4 快捷应答（仅本页签激活时生效；同引用重复注册无害）
+  window.addEventListener('keydown', onPermKeydown)
+  document.addEventListener('mousedown', onDocMouseDown)
+  // 划选工具条恢复监听
+  if (selbar.value) selbar.value.setup()
+  // 预览随页签保留：切回时若仍开着，恢复侧栏临时收起
+  if (preview.value) bus.emit('buddy:sidebar-hold', true)
+})
+
+onDeactivated(() => {
+  // keep-alive 页签切走：移除快捷键/面板外点击，避免在其他页签误触
+  tabActive.value = false
+  window.removeEventListener('keydown', onPermKeydown)
+  document.removeEventListener('mousedown', onDocMouseDown)
+  // 划选工具条停止监听并隐藏
+  if (selbar.value) selbar.value.teardown()
+  // 切走释放侧栏临时收起（其它页面不受预览影响）
+  bus.emit('buddy:sidebar-hold', false)
+})
+function api() {
+  const electronApi = window.electronAPI && window.electronAPI.omnibuddy
+  return electronApi || {
+    onEvent: () => () => {},
+    listSessions: async () => [],
+    getMessages: async () => [],
+    createSession: async () => null,
+    sendMessage: async () => ({ ok: false, error: '对话能力需要 OmniDeck 桌面端' }),
+    interrupt: () => {},
+    renameSession: async () => null,
+    replyAskUser: async () => ({ ok: false }),
+    replyPermission: async () => ({ ok: false }),
+    setFeedback: async () => ({ ok: false }),
+    truncateSession: async () => ({ ok: false, error: '仅桌面端可用' }),
+    branchSession: async () => ({ ok: false, error: '仅桌面端可用' }),
+    createVariant: async () => ({ ok: false, error: '仅桌面端可用' }),
+    listWorkspaces: async () => [],
+    addWorkspace: async () => ({ ok: false, canceled: true }),
+    removeWorkspace: async () => ({ ok: false }),
+    renameWorkspace: async () => ({ ok: false }),
+    sessionMeta: async () => null,
+    pickAttachments: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
+    importAttachment: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
+    listCheckpoints: async () => ({ ok: true, items: [] }),
+    rollbackCheckpoint: async () => ({ ok: false, error: '检查点需要 OmniDeck 桌面端' })
+  }
+}
+
+// ===== 右栏预览 =====
+// 全局总线唤起：仅当前激活页签响应（keep-alive 后台实例静默忽略）
+function onArtifactPreview(payload) {
+  if (!tabActive.value) return
+  const next = Object.assign({ kind: '', path: '', name: '', format: '', lang: '', code: '' }, payload)
+  // 再次点击同一目标（代码块按钮已显示「缩小」）：关闭预览
+  if (preview.value && preview.value.kind === next.kind && preview.value.lang === next.lang &&
+      preview.value.code === next.code && preview.value.path === next.path) {
+    preview.value = null
+    return
+  }
+  preview.value = next
+}
+
+function closePreview() {
+  preview.value = null
+}
+
+// 标记正在右栏放大的代码块：v-html 渲染的 DOM 不受 Vue 管理，
+// 用类标记驱动按钮「缩小」文案（比对 lang + code 定位目标块）
+function markZoomingCode() {
+  const root = body.value
+  if (!root) return
+  root.querySelectorAll('.ob-code.zooming').forEach(el => el.classList.remove('zooming'))
+  const p = preview.value
+  if (!p || p.kind !== 'code') return
+  root.querySelectorAll('.ob-code').forEach(el => {
+    const langEl = el.querySelector('.ob-code-lang')
+    const codeEl = el.querySelector('pre code')
+    if (langEl && codeEl && langEl.textContent.trim() === p.lang && codeEl.textContent === p.code) {
+      el.classList.add('zooming')
     }
-  },
-  created() {
-    this.$store.dispatch('buddyChat/loadHistory', { id: this.sid })
-    this.loadProviders()
-    this.loadWorkspaces()
-    this.restoreWorkspaceLink()
-    this.loadPermissionMode()
-    this.loadWebEnabled()
-    // 工作空间重命名后同步底部空间名：主进程已级联更新会话快照与登记表
-    this.$bus.on('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
-    // 右栏预览唤起（消息流内产物卡片点击 / 代码块「放大」按钮经全局总线上抛）
-    this.$bus.on('chat:artifact-preview', this.onArtifactPreview)
-  },
-  beforeUnmount() {
-    this.$bus.off('omnibuddy:workspaces-changed', this.onWorkspacesChanged)
-    this.$bus.off('chat:artifact-preview', this.onArtifactPreview)
-    // 页签销毁：释放侧栏临时收起
-    this.$bus.emit('buddy:sidebar-hold', false)
-    // 仅移除全局监听；不打断流式 —— 主进程继续执行并落盘，回来自会话池/历史恢复
-    window.removeEventListener('keydown', this.onPermKeydown)
-    document.removeEventListener('mousedown', this.onDocMouseDown)
-  },
-  mounted() {
-    // 首次挂载：流式中或已在底部语义下滚到底（历史异步到达时由 watch 跟滚）
-    if (this.streaming || (this.sess && this.sess.atBottom)) this.scrollToBottom()
-    // 问题导航侧栏常驻：初始即计算当前高亮轮次（此后随滚动事件更新）
-    this.$nextTick(() => this.updateOutlineActive())
-    // 消息区划选工具条开始监听（同一函数引用重复注册无害）
-    if (this.$refs.selbar) this.$refs.selbar.setup()
-  },
-  activated() {
-    // keep-alive 页签切回：标记激活（预览唤起仅当前页签响应），模型/工作空间可能在
-    // 其他页签（模型管理、工作空间）有增删，重新加载列表（loadProviders 内部会
-    // 保留当前选中，不会打断已选模型）
-    this.tabActive = true
-    this.loadProviders()
-    this.loadWorkspaces()
-    // 会话池可能因删除会话被清理，补拉（loaded 命中时为空操作）
-    this.$store.dispatch('buddyChat/loadHistory', { id: this.sid })
-    // 切回补滚：流式中始终到底；池已加载时 length 不变需手动补
-    if (this.streaming || (this.sess && this.sess.atBottom)) this.scrollToBottom()
-    // 权限面板键盘 1-4 快捷应答（仅本页签激活时生效；同引用重复注册无害）
-    window.addEventListener('keydown', this.onPermKeydown)
-    document.addEventListener('mousedown', this.onDocMouseDown)
-    // 划选工具条恢复监听
-    if (this.$refs.selbar) this.$refs.selbar.setup()
-    // 预览随页签保留：切回时若仍开着，恢复侧栏临时收起
-    if (this.preview) this.$bus.emit('buddy:sidebar-hold', true)
-  },
-  deactivated() {
-    // keep-alive 页签切走：移除快捷键/面板外点击，避免在其他页签误触
-    this.tabActive = false
-    window.removeEventListener('keydown', this.onPermKeydown)
-    document.removeEventListener('mousedown', this.onDocMouseDown)
-    // 划选工具条停止监听并隐藏
-    if (this.$refs.selbar) this.$refs.selbar.teardown()
-    // 切走释放侧栏临时收起（其它页面不受预览影响）
-    this.$bus.emit('buddy:sidebar-hold', false)
-  },
-  methods: {
-    api() {
-      const api = window.electronAPI && window.electronAPI.omnibuddy
-      return api || {
-        onEvent: () => () => {},
-        listSessions: async () => [],
-        getMessages: async () => [],
-        createSession: async () => null,
-        sendMessage: async () => ({ ok: false, error: '对话能力需要 OmniDeck 桌面端' }),
-        interrupt: () => {},
-        renameSession: async () => null,
-        replyAskUser: async () => ({ ok: false }),
-        replyPermission: async () => ({ ok: false }),
-        setFeedback: async () => ({ ok: false }),
-        truncateSession: async () => ({ ok: false, error: '仅桌面端可用' }),
-        branchSession: async () => ({ ok: false, error: '仅桌面端可用' }),
-        createVariant: async () => ({ ok: false, error: '仅桌面端可用' }),
-        listWorkspaces: async () => [],
-        addWorkspace: async () => ({ ok: false, canceled: true }),
-        removeWorkspace: async () => ({ ok: false }),
-        renameWorkspace: async () => ({ ok: false }),
-        sessionMeta: async () => null,
-        pickAttachments: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
-        importAttachment: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
-        listCheckpoints: async () => ({ ok: true, items: [] }),
-        rollbackCheckpoint: async () => ({ ok: false, error: '检查点需要 OmniDeck 桌面端' })
-      }
-    },
-    // ===== 右栏预览 =====
-    // 全局总线唤起：仅当前激活页签响应（keep-alive 后台实例静默忽略）
-    onArtifactPreview(payload) {
-      if (!this.tabActive) return
-      const next = Object.assign({ kind: '', path: '', name: '', format: '', lang: '', code: '' }, payload)
-      // 再次点击同一目标（代码块按钮已显示「缩小」）：关闭预览
-      if (this.preview && this.preview.kind === next.kind && this.preview.lang === next.lang &&
-          this.preview.code === next.code && this.preview.path === next.path) {
-        this.preview = null
-        return
-      }
-      this.preview = next
-    },
-    closePreview() {
-      this.preview = null
-    },
-    // 标记正在右栏放大的代码块：v-html 渲染的 DOM 不受 Vue 管理，
-    // 用类标记驱动按钮「缩小」文案（比对 lang + code 定位目标块）
-    markZoomingCode() {
-      const root = this.$refs.body
-      if (!root) return
-      root.querySelectorAll('.ob-code.zooming').forEach(el => el.classList.remove('zooming'))
-      const p = this.preview
-      if (!p || p.kind !== 'code') return
-      root.querySelectorAll('.ob-code').forEach(el => {
-        const langEl = el.querySelector('.ob-code-lang')
-        const codeEl = el.querySelector('pre code')
-        if (langEl && codeEl && langEl.textContent.trim() === p.lang && codeEl.textContent === p.code) {
-          el.classList.add('zooming')
-        }
-      })
-    },
-    loadProviders() {
-      const list = getItem('aiProviderList', [])
-      const all = Array.isArray(list) ? list : []
-      // 对话模型仅列文本生成模型（图像模型专用生图，不参与对话）
-      this.providers = all.filter(p => p && p.type !== 'image')
-      // 优先保留当前选中（切回页签刷新列表时不打断已选模型）；
-      // 否则恢复上次持久化的选择；都无效则回落默认模型
-      const savedId = getItem('omnibuddy:providerId', '')
-      const keep = this.providers.find(p => p.id === (this.currentProviderId || savedId))
-      if (keep) {
-        this.currentProviderId = keep.id
-      } else {
-        const def = this.providers.find(p => p.isDefault) || this.providers[0]
-        this.currentProviderId = def ? def.id : ''
-      }
-      // 同步模型列表镜像到主进程：定时任务按 providerId 绑定执行模型（IndexedDB 主进程不可读）。
-      // 注意 JSON 拷贝穿透响应式 Proxy —— IPC 结构化克隆无法序列化 Proxy；
-      // 镜像须全量（含 type:'image' 图像条目，pi 侧 generate_image 注册依赖镜像）
-      const auto = (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.automation) || null
-      if (auto && auto.syncProviders) {
-        Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(all)))).catch(() => {})
-      }
-    },
-    onSelectProvider(id) {
-      this.openSelect = ''
-      this.currentProviderId = id
-      // 持久化选中模型，切换页面后自动恢复
-      setItem('omnibuddy:providerId', id)
-    },
-    // ===== 会话池写入助手（会话态都在 store，组件只做视图层调度） =====
-    commitPatch(patch) {
-      this.$store.commit('buddyChat/PATCH', { id: this.sid, patch })
-    },
-    // 认领并消费 store 转发的 UI 事件（claim 返回 Promise<布尔>，await 后
-    // 多实例并发 watch 时保证每条只被消费一次）
-    async consumeNotices(list) {
-      for (const n of (list || []).slice()) {
-        // perm-pending 由 BuddyLayout 消费（全局通知引导），此处跳过不认领
-        if (n.kind === 'perm-pending') continue
-        if (n.sessionId && n.sessionId !== this.sid) continue
-        const ok = await this.$store.dispatch('buddyChat/claim', n.nid)
-        if (!ok) continue
-        if (n.kind === 'sessions-changed') {
-          this.$bus.emit('omnibuddy:sessions-changed')
-        } else if (n.kind === 'rolled_back') {
-          this.$bus.emit('omnibuddy:sessions-changed')
-          this.$message.success('已回滚到检查点')
-          if (this.cpDrawer && this.$refs.cp) this.$refs.cp.loadCheckpoints()
-        } else if (n.kind === 'success') {
-          this.$message.success(n.text)
-        } else if (n.kind === 'warning') {
-          this.$message.warning(n.text)
-        } else if (n.kind === 'info') {
-          this.$message.info(n.text)
-        }
-      }
-    },
-    // 滚动位置写入会话池：距底 40px 内视为「在底部」（新消息自动跟滚）
-    onBodyScroll() {
-      const b = this.$refs.body
-      if (!b) return
-      const atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 40
-      if ((this.sess && this.sess.atBottom) !== atBottom) this.commitPatch({ atBottom })
-      this.updateOutlineActive()
-    },
-    // ===== 问题导航 =====
-    // 问题缩略文本：剥离 markdown 标记后取首行 60 字
-    excerpt(text) {
-      const plain = String(text)
-        .replace(/[#>*`~\[\]()!]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-      return plain.length > 60 ? plain.slice(0, 60) + '…' : plain
-    },
-    // 轮次结束状态：error（模型终止）> streaming（输出中）> 工具中断痕迹 > 完成/等待
-    turnStatus(ans) {
-      if (!ans) return 'pending'
-      if (ans.error) return 'stopped'
-      if (ans.streaming) return 'running'
-      if ((ans.items || []).some(it => it.type === 'tool' && it.result === '已停止生成')) return 'stopped'
-      return 'done'
-    },
-    // 大纲面板点击定位：滚动到问题消息顶部（略留呼吸间距），并立即高亮
-    locateQuestion(q) {
-      const b = this.$refs.body
-      if (!b || !q || !q.id) return
-      const el = b.querySelector('[data-mid="' + q.id + '"]')
-      if (!el) return
-      // rect 差值计算（offsetTop 的 offsetParent 未必是滚动容器）
-      const top = b.scrollTop + el.getBoundingClientRect().top - b.getBoundingClientRect().top
-      b.scrollTo({ top: Math.max(0, top - 12), behavior: 'smooth' })
-      this.outlineActiveId = q.id
-    },
-    // 滚动时计算当前视口所在的轮次（首个顶部越过视口上沿 1/4 处的问题；侧栏常驻）
-    updateOutlineActive() {
-      if (!this.questions.length) return
-      const b = this.$refs.body
-      if (!b) return
-      const bTop = b.getBoundingClientRect().top
-      const line = b.scrollTop + b.clientHeight * 0.25
-      let active = ''
-      for (const q of this.questions) {
-        const el = b.querySelector('[data-mid="' + q.id + '"]')
-        if (!el) continue
-        const top = b.scrollTop + el.getBoundingClientRect().top - bTop
-        if (top <= line) active = q.id
-      }
-      this.outlineActiveId = active || this.questions[0].id
-    },
-    // ===== 文件附件 =====
-    // “+”按钮：系统文件选择框（多选）
-    async pickAttachments() {
-      if (this.streaming) return
-      const res = await this.api().pickAttachments()
-      if (!res || !res.ok) {
-        if (res && res.error) this.$message.warning(res.error)
-        return
-      }
-      for (const a of res.attachments) {
-        this.$store.commit('buddyChat/ATTACH_PUSH', { id: this.sid, item: a })
-      }
-    },
-    // 拖拽/粘贴导入：主进程落盘后入待发送列表
-    async importFile(filePath) {
-      if (this.streaming) return
-      const res = await this.api().importAttachment(filePath)
-      if (!res || !res.ok) {
-        this.$message.warning((res && res.error) || '附件导入失败')
-        return
-      }
-      this.$store.commit('buddyChat/ATTACH_PUSH', { id: this.sid, item: res.attachment })
-    },
-    removeFileAttachment(i) {
-      this.$store.commit('buddyChat/ATTACH_REMOVE', { id: this.sid, index: i })
-    },
-    // ===== 划选追问（消息区划选 → 工具条「追问」）=====
-    // 消息滚动容器（划选工具条作用域，函数实时取值）
-    getSelArea() {
-      return this.$refs.body
-    },
-    // 选中文本写入会话池引用态（切页签不丢）并聚焦输入框续问
-    onQuote(text) {
-      this.commitPatch({ quote: text })
-      if (this.$refs.composer) this.$refs.composer.focus()
-    },
-    // 关闭引用条
-    removeQuote() {
-      this.commitPatch({ quote: '' })
-    },
-    async send() {
-      const draft = this.draft.trim()
-      const files = this.fileAttachments.slice()
-      // 仍以「有无输入/附件」判定可发送（纯引用不发）；引用随消息拼发，
-      // 气泡显示 / 主进程落盘 / 发送文本三者一致
-      if (!draft && !files.length) return
-      // 流式态分流：纯文本走运行中插话（pi steer，不打断当前回答，
-      // 当前工具轮结束后送达）；带附件时保持原忽略行为（steer 暂不支持附件）
-      if (this.streaming) {
-        if (!draft || files.length || !this.sid) return
-        const quote = this.quote
-        const text = quote ? ('引用：\n' + quote + '\n\n' + draft) : draft
-        const api = this.api()
-        if (!api || !api.steer) {
-          this.$message.info('当前版本不支持运行中插话，请等待回答完成')
-          return
-        }
-        this.commitPatch({ draft: '', quote: '' })
-        // 乐观展示（steered 标记插话身份）；主进程 user_message 回执回填 id
-        this.$store.commit('buddyChat/PUSH_MSG', {
-          id: this.sid,
-          msg: {
-            role: 'user',
-            content: text,
-            steered: true,
-            anchors: this.branchView.anchors.length ? this.branchView.anchors.slice() : undefined,
-            createdAt: Date.now()
-          }
-        })
-        this.scrollToBottom()
-        const res = await api.steer({ id: this.sid, text })
-        if (!res.ok) this.$message.warning(res.error || '插话失败')
-        return
-      }
-      const quote = this.quote
-      const text = quote ? ('引用：\n' + quote + '\n\n' + draft) : draft
-      if (!window.electronAPI || !window.electronAPI.omnibuddy) {
-        this.$message.info('对话能力需要 OmniDeck 桌面端')
-        this.commitPatch({ draft: '' })
-        return
-      }
-      // 发送前必须选定工作空间（必填）：未选定时展开上拉选择器
-      if (!this.workspaceLink.dir || !this.workspaceLink.workspaceId) {
-        this.$message.warning('请先选择工作空间后再发送')
-        this.openSelect = 'workspace'
-        return
-      }
-      this.commitPatch({ draft: '', fileAttachments: [], quote: '' })
+  })
+}
 
-      // 当前分支线路（消息全量按线路过滤显示，新消息归属当前显示线）
-      const anchors = this.branchView.anchors.slice()
-      this.commitPatch({ turnAnchors: anchors })
+function loadProviders() {
+  const list = getItem('aiProviderList', [])
+  const all = Array.isArray(list) ? list : []
+  // 对话模型仅列文本生成模型（图像模型专用生图，不参与对话）
+  providers.value = all.filter(p => p && p.type !== 'image')
+  // 优先保留当前选中（切回页签刷新列表时不打断已选模型）；
+  // 否则恢复上次持久化的选择；都无效则回落默认模型
+  const savedId = getItem('omnibuddy:providerId', '')
+  const keep = providers.value.find(p => p.id === (currentProviderId.value || savedId))
+  if (keep) {
+    currentProviderId.value = keep.id
+  } else {
+    const def = providers.value.find(p => p.isDefault) || providers.value[0]
+    currentProviderId.value = def ? def.id : ''
+  }
+  // 同步模型列表镜像到主进程：定时任务按 providerId 绑定执行模型（IndexedDB 主进程不可读）。
+  // 注意 JSON 拷贝穿透响应式 Proxy —— IPC 结构化克隆无法序列化 Proxy；
+  // 镜像须全量（含 type:'image' 图像条目，pi 侧 generate_image 注册依赖镜像）
+  const auto = (window.electronAPI && window.electronAPI.omnibuddy && window.electronAPI.omnibuddy.automation) || null
+  if (auto && auto.syncProviders) {
+    Promise.resolve(auto.syncProviders(JSON.parse(JSON.stringify(all)))).catch(() => {})
+  }
+}
 
-      let sid = this.sid
-      if (!sid) {
-        // 创建会话：快照当前关联的磁盘路径与展示名（左侧列表按展示名分组）
-        const session = await this.api().createSession({
-          workspaceId: this.workspaceLink.workspaceId,
-          workspaceDir: this.workspaceLink.dir,
-          displayName: this.workspaceLink.name
-        })
-        sid = session.id
-        // 会话创建即绑定空间快照：锁定切换器（此后本会话不可换空间）
-        this.commitPatch({ workspaceLocked: true })
-        // 状态整体迁移到正式会话（消息/草稿/空间绑定全保留），
-        // 实例原位改绑 sid —— 组件不重建，首轮流式不中断
-        this.$store.dispatch('buddyChat/migrate', { from: '', to: sid })
-        this.sid = sid
-        // 页签原位重绑（保留 uid → keep-alive key 不变 → 实例不重建），
-        // 再 replace 地址；afterEach 登记时查重命中，不会新增页签
-        this.$store.commit('tagsView/REBIND_TAB', {
-          side: 'buddy',
-          from: '/omnibuddy',
-          to: '/omnibuddy?s=' + sid
-        })
-        this.$router.replace({ query: { s: sid } })
-        this.$bus.emit('omnibuddy:sessions-changed')
-      }
+function onSelectProvider(id) {
+  openSelect.value = ''
+  currentProviderId.value = id
+  // 持久化选中模型，切换页面后自动恢复
+  setItem('omnibuddy:providerId', id)
+}
 
-      this.$store.commit('buddyChat/PUSH_MSG', {
-        id: sid,
-        msg: {
-          role: 'user',
-          content: text,
-          fileAttachments: files.length ? files : undefined,
-          anchors: anchors.length ? anchors : undefined,
-          createdAt: Date.now()
-        }
-      })
-      // 立即显示「思考中」占位（光标闪烁 + 秒计时）；内容块到达后转为深度思考区
-      const placeholder = {
-        role: 'assistant',
-        content: '',
-        streaming: true,
-        isThinking: false,
-        thinking: true,
-        seconds: 0,
-        createdAt: Date.now(),
-        items: [],
-        anchors: anchors.length ? anchors : undefined
-      }
-      this.$store.commit('buddyChat/PUSH_MSG', { id: sid, msg: placeholder })
-      this.$store.commit('buddyChat/PATCH', {
-        id: sid,
-        patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, atBottom: true }
-      })
-      this.scrollToBottom()
+// ===== 会话池写入助手（会话态都在 store，组件只做视图层调度） =====
+function commitPatch(patch) {
+  store.commit('buddyChat/PATCH', { id: sid.value, patch })
+}
 
-      const res = await this.api().sendMessage({
-        id: sid,
-        text,
-        attachments: files,
-        // provider 浅拷贝附加档位映射（不污染本地供应商存储）
-        provider: Object.assign({}, this.currentProvider, { tiers: this.tierMapping }),
-        workspaceId: this.workspaceLink.workspaceId,
-        displayName: this.workspaceLink.name,
-        anchors
-      })
-      if (!res.ok) {
-        this.$store.commit('buddyChat/PATCH', { id: sid, patch: { streaming: false } })
-        this.$store.dispatch('buddyChat/finishTurn', sid)
-        this.$message.error(res.error || '发送失败')
-      }
-    },
-    // 点赞/点踩持久化（MessageBubble 已本地生效并提示，此处写主进程消息记录）
-    async onFeedback({ message, value }) {
-      if (!this.sid || !message.id) return
-      const res = await this.api().setFeedback({ id: this.sid, messageId: message.id, feedback: value })
-      if (!res || !res.ok) this.$message.error((res && res.error) || '反馈保存失败')
-    },
-    // 回答 ask_user 表单
-    async answerAsk(m, value) {
-      const answer = String(value || '').trim()
-      if (!answer) return
-      m.answered = true
-      m.answer = answer
-      await this.api().replyAskUser({
-        sessionId: this.sid,
-        callId: m.callId,
-        value: answer
-      })
-    },
-    // 回答权限确认（浮动条）：仅本次 / 本会话内 / 始终允许 / 拒绝；处理后出队
-    async answerPermission(m, action) {
-      const idx = this.permQueue.indexOf(m)
-      if (idx < 0) return
-      this.$store.commit('buddyChat/PERM_REMOVE', { id: this.sid, index: idx })
-      await this.api().replyPermission({
-        sessionId: this.sid,
-        askId: m.askId,
-        action
-      })
-    },
-    // 权限面板键盘快捷键：1 仅本次 / 2 本会话 / 3 始终 / 4 拒绝（可输入元素内不拦截）
-    onPermKeydown(e) {
-      if (!this.pendingPerm) return
-      const map = { 1: 'allow', 2: 'allow_session', 3: 'allow_always', 4: 'deny' }
-      const action = map[e.key]
-      if (!action) return
-      const tag = e.target && e.target.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      e.preventDefault()
-      this.answerPermission(this.pendingPerm, action)
-    },
-    // 权限模式（只读 / 自动 / 每次确认）：切换即时生效，主进程持久化
-    async loadPermissionMode() {
-      const api = this.api()
-      if (!api || !api.getPermissionMode) return
-      const res = await api.getPermissionMode()
-      if (res && res.ok && res.mode) this.permissionMode = res.mode
-    },
-    async onSelectPermissionMode(mode) {
-      if (mode === this.permissionMode) return
-      this.permissionMode = mode
-      await this.api().setPermissionMode(mode)
-      const name = { readonly: '只读', auto: '自动', confirm: '每次确认' }[mode] || mode
-      this.$message.success('权限模式：' + name)
-    },
-    // ===== 联网开关：切换即时持久化（新建会话按新状态装载/屏蔽 web 工具） =====
-    async loadWebEnabled() {
-      const api = this.api().webSearch
-      if (!api || !api.get) return
-      try {
-        const cfg = await api.get()
-        this.webEnabled = !!cfg.enabled
-      } catch (e) { /* 保持默认开启 */ }
-    },
-    async onSelectWeb(v) {
-      const next = v === 'on'
-      if (next === this.webEnabled) return
-      this.webEnabled = next
-      const api = this.api().webSearch
-      if (api) await api.setEnabled(next)
-      this.$message.success(next ? '已开启联网：新对话可搜索与抓取网页' : '已关闭联网：新对话屏蔽联网工具')
-    },
-    // 停止生成（仅用户显式触发；切页签/返回 deck/关页签不再中断，主进程继续执行）
-    interrupt() {
-      if (this.sid) this.api().interrupt(this.sid)
-    },
-    // ===== 关联本地磁盘路径（必填；选路径的同时登记为工作空间） =====
-    // 恢复上次关联（新会话页）：返回 Buddy 不丢失；已有会话按会话快照恢复
-    async restoreWorkspaceLink() {
-      if (this.sid) {
-        const meta = await this.api().sessionMeta(this.sid)
-        if (meta && meta.workspaceDir) {
-          // 会话已关联：回显该会话快照的路径与展示名，并锁定空间切换
-          this.commitPatch({
-            workspaceLink: {
-              dir: meta.workspaceDir,
-              name: meta.displayName || '',
-              workspaceId: meta.workspaceId || ''
-            },
-            workspaceLocked: true
-          })
-          return
-        }
-      }
-      // 新会话（或未绑定空间的旧会话）：可自由选择
-      this.commitPatch({ workspaceLocked: false })
-      const saved = getItem('omnibuddy:workspace-link', null)
-      if (saved && saved.dir) this.commitPatch({ workspaceLink: saved })
-    },
-    // 加载已登记工作空间（仅保留目录仍存在的项）
-    async loadWorkspaces() {
-      const list = await this.api().listWorkspaces()
-      this.workspaces = (list || []).filter(w => w.available)
-      this.validateWorkspaceLink()
-    },
-    // 空间被解绑后的回落：未锁定会话的关联三元组失效时清空（锁定会话存路径快照，不受影响）
-    validateWorkspaceLink() {
-      if (this.workspaceLocked) return
-      const link = this.workspaceLink
-      if (link.workspaceId && !this.workspaces.some(w => w.id === link.workspaceId)) {
-        this.commitPatch({ workspaceLink: { dir: '', name: '', workspaceId: '' } })
-        setItem('omnibuddy:workspace-link', this.workspaceLink)
-      }
-    },
-    // 工作空间重命名后同步底部空间名：
-    // 锁定会话 → 重读主进程快照（rename 已级联更新）；
-    // 未锁定 → 从重载后的登记表按 id 取新名
-    async onWorkspacesChanged() {
-      await this.loadWorkspaces()
-      if (this.workspaceLocked && this.sid) {
-        await this.restoreWorkspaceLink()
-        return
-      }
-      const link = this.workspaceLink
-      if (!link.workspaceId) return
-      const ws = this.workspaces.find(w => w.id === link.workspaceId)
-      if (ws && ws.name !== link.name) {
-        this.commitPatch({ workspaceLink: { dir: ws.path, name: ws.name || '', workspaceId: ws.id } })
-        setItem('omnibuddy:workspace-link', this.workspaceLink)
-      }
-    },
-    // 上拉选择已登记工作空间：同步关联三元组并持久化（会话已锁定时不可切换）
-    onSelectWorkspace(id) {
-      if (this.workspaceLocked) return
-      const ws = this.workspaces.find(w => w.id === id)
-      if (!ws) return
-      this.openSelect = ''
-      this.commitPatch({ workspaceLink: { dir: ws.path, name: ws.name || '', workspaceId: ws.id } })
-      setItem('omnibuddy:workspace-link', this.workspaceLink)
-    },
-    // 浮层底部「关联新路径」：系统目录选择框 → 登记并直接选中（展示名默认末级目录名）
-    async linkNewWorkspace() {
-      if (this.workspaceLocked) return
-      this.openSelect = ''
-      const res = await this.api().addWorkspace()
-      if (res && res.ok && res.workspace) {
-        // 展示名缺省截取末级目录名（与关联弹窗行为一致，便于会话列表分组）
-        const ws = res.workspace
-        if (!ws.name) {
-          const lastSeg = String(ws.path || '').replace(/\/+$/, '').split(/[\\/]/).pop()
-          if (lastSeg) {
-            ws.name = lastSeg
-            this.api().renameWorkspace({ id: ws.id, name: lastSeg })
-          }
-        }
-        await this.loadWorkspaces()
-        this.commitPatch({ workspaceLink: { dir: ws.path, name: ws.name || '', workspaceId: ws.id } })
-        setItem('omnibuddy:workspace-link', this.workspaceLink)
-        this.$bus.emit('omnibuddy:workspaces-changed')
-        this.$message.success('已关联：' + ws.path)
-      } else if (res && !res.canceled && res.error) {
-        this.$message.error(res.error)
-      }
-    },
-    // ===== 选择面板（打开状态集中管理，同时只展开一个） =====
-    toggleSelect(key) {
-      this.openSelect = this.openSelect === key ? '' : key
-    },
-    // 点击面板外关闭
-    onDocMouseDown(e) {
-      if (!this.openSelect) return
-      if (e.target.closest('.ob-select')) return
-      this.openSelect = ''
-    },
-    // ===== 回退与分支 =====
-    branchAt(m) {
-      this.$confirm('将以此处为分叉点复制完整上下文创建新会话，当前会话保留。继续吗？', '创建分叉', {
-        confirmButtonText: '创建分叉',
-        cancelButtonText: '取消',
-        type: 'info'
-      }).then(async () => {
-        const res = await this.api().branchSession({ id: this.sid, messageId: m.id })
-        if (res && res.ok && res.session) {
-          this.$message.success('分叉已创建，请在左侧列表打开')
-          this.$bus.emit('omnibuddy:sessions-changed')
-        } else {
-          this.$message.error((res && res.error) || '创建失败')
-        }
-      }).catch(() => {})
-    },
-    // ===== 会话内分支（branch）=====
-    // 分支切换：组内循环切换激活变体（缺省激活最新，切换后整线随之切换显示）
-    // 流式回复进行中禁止切换（本轮输出归属发送时的线路，切换会导致输出不可见）
-    switchBranch({ headId, dir }) {
-      if (this.streaming) {
-        this.$message.warning('回复完成后再切换分支')
-        return
-      }
-      const g = this.branchView.groups[headId]
-      if (!g || g.variants.length < 2) return
-      const active = this.sess.branchActive || {}
-      const cur = (active[headId] && g.variants.indexOf(active[headId]) >= 0)
-        ? active[headId]
-        : g.variants[g.variants.length - 1]
-      const i = g.variants.indexOf(cur)
-      const next = g.variants[(i + dir + g.variants.length) % g.variants.length]
-      this.commitPatch({ branchActive: Object.assign({}, active, { [headId]: next }) })
-      this.scrollToBottom()
-    },
-    // 编辑重问：以原问题为锚点创建新分支变体并重新发起提问（原分支保留）
-    // 流程：createVariant 落盘变体（拿到真实 id）→ 激活新变体 → 触发回答（userMessageId 复用）
-    async editResend({ message, text }) {
-      if (this.streaming) {
-        this.$message.warning('当前会话正在回复中，请稍候')
-        return
-      }
-      if (!this.sid || !message.id) return
-      if (!window.electronAPI || !window.electronAPI.omnibuddy) {
-        this.$message.info('对话能力需要 OmniDeck 桌面端')
-        return
-      }
-      if (!this.workspaceLink.dir || !this.workspaceLink.workspaceId) {
-        this.$message.warning('请先选择工作空间后再发送')
-        this.openSelect = 'workspace'
-        return
-      }
-      if (!this.currentProvider) {
-        this.$message.warning('请先选择模型')
-        return
-      }
-      // 组头 = 最初的问题消息（message 可能已是激活变体，_branch.headId 为组头）
-      const headId = (message._branch && message._branch.headId) || message.id
-      const res = await this.api().createVariant({ id: this.sid, messageId: headId, text })
-      if (!res || !res.ok || !res.message) {
-        this.$message.error((res && res.error) || '创建分支失败')
-        return
-      }
-      const variant = res.message
-      // 激活新变体并注入全量列表（过滤视图会将其显示在组头位置）
-      this.commitPatch({
-        branchActive: Object.assign({}, this.sess.branchActive, { [headId]: variant.id })
-      })
-      this.$store.commit('buddyChat/PUSH_MSG', { id: this.sid, msg: variant })
-      // 新分支线路 = 组头路径 + [变体id]，本轮回答与其后续消息都归属该线
-      const anchors = (variant.anchors || []).concat([variant.id])
-      const placeholder = {
-        role: 'assistant',
-        content: '',
-        streaming: true,
-        isThinking: false,
-        thinking: true,
-        seconds: 0,
-        createdAt: Date.now(),
-        items: [],
-        anchors
-      }
-      this.$store.commit('buddyChat/PUSH_MSG', { id: this.sid, msg: placeholder })
-      this.$store.commit('buddyChat/PATCH', {
-        id: this.sid,
-        patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, turnAnchors: anchors, atBottom: true }
-      })
-      this.scrollToBottom()
-
-      const sendRes = await this.api().sendMessage({
-        id: this.sid,
-        text,
-        provider: this.currentProvider,
-        workspaceId: this.workspaceLink.workspaceId,
-        displayName: this.workspaceLink.name,
-        anchors,
-        userMessageId: variant.id
-      })
-      if (!sendRes.ok) {
-        this.$store.commit('buddyChat/PATCH', { id: this.sid, patch: { streaming: false } })
-        this.$store.dispatch('buddyChat/finishTurn', this.sid)
-        this.$message.error(sendRes.error || '发送失败')
-      }
-    },
-    // ===== 检查点 / 回滚（N4）：入口暂移除（恢复时在 composer 工具区加回入口按钮）；
-    // 抽屉与回滚广播处理保留，列表加载与回滚在 CheckpointDrawer 内自治 =====
-    // 抽屉内回滚成功：兜底刷新消息（主进程亦会广播 rolled_back 统一处理）
-    onCheckpointRolledBack() {
-      this.$store.dispatch('buddyChat/loadHistory', { id: this.sid, force: true })
-      this.$bus.emit('omnibuddy:sessions-changed')
-    },
-    scrollToBottom() {
-      this.$nextTick(() => {
-        const body = this.$refs.body
-        if (body) body.scrollTop = body.scrollHeight
-      })
-    },
-    // 列表内容尺寸变化（思考区/工具详情折叠展开等非 store 驱动的局部高度变化）：
-    // 仅贴底时补偿滚动（流式中用户上滚回看同样以 atBottom=false 为最高优先级，
-    // 不强制拉回），保证末尾内容（任务清单）始终贴住输入框。
-    // 收起后内容可能整页放得下（无滚动条，scroll 事件不触发）：直接视为贴底，
-    // 避免 atBottom 残留 false 导致后续流式输出停止跟滚
-    onContentResize() {
-      const b = this.$refs.body
-      if (b && b.scrollHeight <= b.clientHeight && this.sess && !this.sess.atBottom) {
-        this.commitPatch({ atBottom: true })
-      }
-      if (this.sess && this.sess.atBottom) this.scrollToBottom()
-    },
-    // 回到底部（悬浮按钮）：恢复贴底标记（此后新内容恢复自动跟滚）+ 平滑滚动
-    backToBottom() {
-      this.commitPatch({ atBottom: true })
-      this.$nextTick(() => {
-        const body = this.$refs.body
-        if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' })
-      })
+// 认领并消费 store 转发的 UI 事件（claim 返回 Promise<布尔>，await 后
+// 多实例并发 watch 时保证每条只被消费一次）
+async function consumeNotices(list) {
+  for (const n of (list || []).slice()) {
+    // perm-pending 由 BuddyLayout 消费（全局通知引导），此处跳过不认领
+    if (n.kind === 'perm-pending') continue
+    if (n.sessionId && n.sessionId !== sid.value) continue
+    const ok = await store.dispatch('buddyChat/claim', n.nid)
+    if (!ok) continue
+    if (n.kind === 'sessions-changed') {
+      bus.emit('omnibuddy:sessions-changed')
+    } else if (n.kind === 'rolled_back') {
+      bus.emit('omnibuddy:sessions-changed')
+      message.success('已回滚到检查点')
+      if (cpDrawer.value && cp.value) cp.value.loadCheckpoints()
+    } else if (n.kind === 'success') {
+      message.success(n.text)
+    } else if (n.kind === 'warning') {
+      message.warning(n.text)
+    } else if (n.kind === 'info') {
+      message.info(n.text)
     }
   }
+}
+
+// 滚动位置写入会话池：距底 40px 内视为「在底部」（新消息自动跟滚）
+function onBodyScroll() {
+  const b = body.value
+  if (!b) return
+  const atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 40
+  if ((sess.value && sess.value.atBottom) !== atBottom) commitPatch({ atBottom })
+  updateOutlineActive()
+}
+
+// ===== 问题导航 =====
+// 问题缩略文本：剥离 markdown 标记后取首行 60 字
+function excerpt(text) {
+  const plain = String(text)
+    .replace(/[#>*`~\[\]()!]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return plain.length > 60 ? plain.slice(0, 60) + '…' : plain
+}
+
+// 轮次结束状态：error（模型终止）> streaming（输出中）> 工具中断痕迹 > 完成/等待
+function turnStatus(ans) {
+  if (!ans) return 'pending'
+  if (ans.error) return 'stopped'
+  if (ans.streaming) return 'running'
+  if ((ans.items || []).some(it => it.type === 'tool' && it.result === '已停止生成')) return 'stopped'
+  return 'done'
+}
+
+// 大纲面板点击定位：滚动到问题消息顶部（略留呼吸间距），并立即高亮
+function locateQuestion(q) {
+  const b = body.value
+  if (!b || !q || !q.id) return
+  const el = b.querySelector('[data-mid="' + q.id + '"]')
+  if (!el) return
+  // rect 差值计算（offsetTop 的 offsetParent 未必是滚动容器）
+  const top = b.scrollTop + el.getBoundingClientRect().top - b.getBoundingClientRect().top
+  b.scrollTo({ top: Math.max(0, top - 12), behavior: 'smooth' })
+  outlineActiveId.value = q.id
+}
+
+// 滚动时计算当前视口所在的轮次（首个顶部越过视口上沿 1/4 处的问题；侧栏常驻）
+function updateOutlineActive() {
+  if (!questions.value.length) return
+  const b = body.value
+  if (!b) return
+  const bTop = b.getBoundingClientRect().top
+  const line = b.scrollTop + b.clientHeight * 0.25
+  let active = ''
+  for (const q of questions.value) {
+    const el = b.querySelector('[data-mid="' + q.id + '"]')
+    if (!el) continue
+    const top = b.scrollTop + el.getBoundingClientRect().top - bTop
+    if (top <= line) active = q.id
+  }
+  outlineActiveId.value = active || questions.value[0].id
+}
+
+// ===== 文件附件 =====
+// “+”按钮：系统文件选择框（多选）
+async function pickAttachments() {
+  if (streaming.value) return
+  const res = await api().pickAttachments()
+  if (!res || !res.ok) {
+    if (res && res.error) message.warning(res.error)
+    return
+  }
+  for (const a of res.attachments) {
+    store.commit('buddyChat/ATTACH_PUSH', { id: sid.value, item: a })
+  }
+}
+
+// 拖拽/粘贴导入：主进程落盘后入待发送列表
+async function importFile(filePath) {
+  if (streaming.value) return
+  const res = await api().importAttachment(filePath)
+  if (!res || !res.ok) {
+    message.warning((res && res.error) || '附件导入失败')
+    return
+  }
+  store.commit('buddyChat/ATTACH_PUSH', { id: sid.value, item: res.attachment })
+}
+
+function removeFileAttachment(i) {
+  store.commit('buddyChat/ATTACH_REMOVE', { id: sid.value, index: i })
+}
+
+// ===== 划选追问（消息区划选 → 工具条「追问」）=====
+// 消息滚动容器（划选工具条作用域，函数实时取值）
+function getSelArea() {
+  return body.value
+}
+
+// 选中文本写入会话池引用态（切页签不丢）并聚焦输入框续问
+function onQuote(text) {
+  commitPatch({ quote: text })
+  if (composer.value) composer.value.focus()
+}
+
+// 关闭引用条
+function removeQuote() {
+  commitPatch({ quote: '' })
+}
+async function send() {
+  const draftText = draft.value.trim()
+  const files = fileAttachments.value.slice()
+  // 仍以「有无输入/附件」判定可发送（纯引用不发）；引用随消息拼发，
+  // 气泡显示 / 主进程落盘 / 发送文本三者一致
+  if (!draftText && !files.length) return
+  // 流式态分流：纯文本走运行中插话（pi steer，不打断当前回答，
+  // 当前工具轮结束后送达）；带附件时保持原忽略行为（steer 暂不支持附件）
+  if (streaming.value) {
+    if (!draftText || files.length || !sid.value) return
+    const quoteText = quote.value
+    const text = quoteText ? ('引用：\n' + quoteText + '\n\n' + draftText) : draftText
+    const inst = api()
+    if (!inst || !inst.steer) {
+      message.info('当前版本不支持运行中插话，请等待回答完成')
+      return
+    }
+    commitPatch({ draft: '', quote: '' })
+    // 乐观展示（steered 标记插话身份）；主进程 user_message 回执回填 id
+    store.commit('buddyChat/PUSH_MSG', {
+      id: sid.value,
+      msg: {
+        role: 'user',
+        content: text,
+        steered: true,
+        anchors: branchView.value.anchors.length ? branchView.value.anchors.slice() : undefined,
+        createdAt: Date.now()
+      }
+    })
+    scrollToBottom()
+    const res = await inst.steer({ id: sid.value, text })
+    if (!res.ok) message.warning(res.error || '插话失败')
+    return
+  }
+  const quoteText = quote.value
+  const text = quoteText ? ('引用：\n' + quoteText + '\n\n' + draftText) : draftText
+  if (!window.electronAPI || !window.electronAPI.omnibuddy) {
+    message.info('对话能力需要 OmniDeck 桌面端')
+    commitPatch({ draft: '' })
+    return
+  }
+  // 发送前必须选定工作空间（必填）：未选定时展开上拉选择器
+  if (!workspaceLink.value.dir || !workspaceLink.value.workspaceId) {
+    message.warning('请先选择工作空间后再发送')
+    openSelect.value = 'workspace'
+    return
+  }
+  commitPatch({ draft: '', fileAttachments: [], quote: '' })
+
+  // 当前分支线路（消息全量按线路过滤显示，新消息归属当前显示线）
+  const anchors = branchView.value.anchors.slice()
+  commitPatch({ turnAnchors: anchors })
+
+  let sessId = sid.value
+  if (!sessId) {
+    // 创建会话：快照当前关联的磁盘路径与展示名（左侧列表按展示名分组）
+    const session = await api().createSession({
+      workspaceId: workspaceLink.value.workspaceId,
+      workspaceDir: workspaceLink.value.dir,
+      displayName: workspaceLink.value.name
+    })
+    sessId = session.id
+    // 会话创建即绑定空间快照：锁定切换器（此后本会话不可换空间）
+    commitPatch({ workspaceLocked: true })
+    // 状态整体迁移到正式会话（消息/草稿/空间绑定全保留），
+    // 实例原位改绑 sid —— 组件不重建，首轮流式不中断
+    store.dispatch('buddyChat/migrate', { from: '', to: sessId })
+    sid.value = sessId
+    // 页签原位重绑（保留 uid → keep-alive key 不变 → 实例不重建），
+    // 再 replace 地址；afterEach 登记时查重命中，不会新增页签
+    store.commit('tagsView/REBIND_TAB', {
+      side: 'buddy',
+      from: '/omnibuddy',
+      to: '/omnibuddy?s=' + sessId
+    })
+    router.replace({ query: { s: sessId } })
+    bus.emit('omnibuddy:sessions-changed')
+  }
+
+  store.commit('buddyChat/PUSH_MSG', {
+    id: sessId,
+    msg: {
+      role: 'user',
+      content: text,
+      fileAttachments: files.length ? files : undefined,
+      anchors: anchors.length ? anchors : undefined,
+      createdAt: Date.now()
+    }
+  })
+  // 立即显示「思考中」占位（光标闪烁 + 秒计时）；内容块到达后转为深度思考区
+  const placeholder = {
+    role: 'assistant',
+    content: '',
+    streaming: true,
+    isThinking: false,
+    thinking: true,
+    seconds: 0,
+    createdAt: Date.now(),
+    items: [],
+    anchors: anchors.length ? anchors : undefined
+  }
+  store.commit('buddyChat/PUSH_MSG', { id: sessId, msg: placeholder })
+  store.commit('buddyChat/PATCH', {
+    id: sessId,
+    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, atBottom: true }
+  })
+  scrollToBottom()
+
+  const res = await api().sendMessage({
+    id: sessId,
+    text,
+    attachments: files,
+    // provider 浅拷贝附加档位映射（不污染本地供应商存储）
+    provider: Object.assign({}, currentProvider.value, { tiers: tierMapping.value }),
+    workspaceId: workspaceLink.value.workspaceId,
+    displayName: workspaceLink.value.name,
+    anchors
+  })
+  if (!res.ok) {
+    store.commit('buddyChat/PATCH', { id: sessId, patch: { streaming: false } })
+    store.dispatch('buddyChat/finishTurn', sessId)
+    message.error(res.error || '发送失败')
+  }
+}
+
+// 点赞/点踩持久化（MessageBubble 已本地生效并提示，此处写主进程消息记录）
+async function onFeedback({ message: msg, value }) {
+  if (!sid.value || !msg.id) return
+  const res = await api().setFeedback({ id: sid.value, messageId: msg.id, feedback: value })
+  if (!res || !res.ok) message.error((res && res.error) || '反馈保存失败')
+}
+
+// 回答 ask_user 表单
+async function answerAsk(m, value) {
+  const answer = String(value || '').trim()
+  if (!answer) return
+  m.answered = true
+  m.answer = answer
+  await api().replyAskUser({
+    sessionId: sid.value,
+    callId: m.callId,
+    value: answer
+  })
+}
+
+// 回答权限确认（浮动条）：仅本次 / 本会话内 / 始终允许 / 拒绝；处理后出队
+async function answerPermission(m, action) {
+  const idx = permQueue.value.indexOf(m)
+  if (idx < 0) return
+  store.commit('buddyChat/PERM_REMOVE', { id: sid.value, index: idx })
+  await api().replyPermission({
+    sessionId: sid.value,
+    askId: m.askId,
+    action
+  })
+}
+
+// 权限面板键盘快捷键：1 仅本次 / 2 本会话 / 3 始终 / 4 拒绝（可输入元素内不拦截）
+function onPermKeydown(e) {
+  if (!pendingPerm.value) return
+  const map = { 1: 'allow', 2: 'allow_session', 3: 'allow_always', 4: 'deny' }
+  const action = map[e.key]
+  if (!action) return
+  const tag = e.target && e.target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return
+  e.preventDefault()
+  answerPermission(pendingPerm.value, action)
+}
+
+// 权限模式（只读 / 自动 / 每次确认）：切换即时生效，主进程持久化
+async function loadPermissionMode() {
+  const inst = api()
+  if (!inst || !inst.getPermissionMode) return
+  const res = await inst.getPermissionMode()
+  if (res && res.ok && res.mode) permissionMode.value = res.mode
+}
+
+async function onSelectPermissionMode(mode) {
+  if (mode === permissionMode.value) return
+  permissionMode.value = mode
+  await api().setPermissionMode(mode)
+  const name = { readonly: '只读', auto: '自动', confirm: '每次确认' }[mode] || mode
+  message.success('权限模式：' + name)
+}
+
+// ===== 联网开关：切换即时持久化（新建会话按新状态装载/屏蔽 web 工具） =====
+async function loadWebEnabled() {
+  const webApi = api().webSearch
+  if (!webApi || !webApi.get) return
+  try {
+    const cfg = await webApi.get()
+    webEnabled.value = !!cfg.enabled
+  } catch (e) { /* 保持默认开启 */ }
+}
+
+async function onSelectWeb(v) {
+  const next = v === 'on'
+  if (next === webEnabled.value) return
+  webEnabled.value = next
+  const webApi = api().webSearch
+  if (webApi) await webApi.setEnabled(next)
+  message.success(next ? '已开启联网：新对话可搜索与抓取网页' : '已关闭联网：新对话屏蔽联网工具')
+}
+
+// 停止生成（仅用户显式触发；切页签/返回 deck/关页签不再中断，主进程继续执行）
+function interrupt() {
+  if (sid.value) api().interrupt(sid.value)
+}
+// ===== 关联本地磁盘路径（必填；选路径的同时登记为工作空间） =====
+// 恢复上次关联（新会话页）：返回 Buddy 不丢失；已有会话按会话快照恢复
+async function restoreWorkspaceLink() {
+  if (sid.value) {
+    const meta = await api().sessionMeta(sid.value)
+    if (meta && meta.workspaceDir) {
+      // 会话已关联：回显该会话快照的路径与展示名，并锁定空间切换
+      commitPatch({
+        workspaceLink: {
+          dir: meta.workspaceDir,
+          name: meta.displayName || '',
+          workspaceId: meta.workspaceId || ''
+        },
+        workspaceLocked: true
+      })
+      return
+    }
+  }
+  // 新会话（或未绑定空间的旧会话）：可自由选择
+  commitPatch({ workspaceLocked: false })
+  const saved = getItem('omnibuddy:workspace-link', null)
+  if (saved && saved.dir) commitPatch({ workspaceLink: saved })
+}
+
+// 加载已登记工作空间（仅保留目录仍存在的项）
+async function loadWorkspaces() {
+  const list = await api().listWorkspaces()
+  workspaces.value = (list || []).filter(w => w.available)
+  validateWorkspaceLink()
+}
+
+// 空间被解绑后的回落：未锁定会话的关联三元组失效时清空（锁定会话存路径快照，不受影响）
+function validateWorkspaceLink() {
+  if (workspaceLocked.value) return
+  const link = workspaceLink.value
+  if (link.workspaceId && !workspaces.value.some(w => w.id === link.workspaceId)) {
+    commitPatch({ workspaceLink: { dir: '', name: '', workspaceId: '' } })
+    setItem('omnibuddy:workspace-link', workspaceLink.value)
+  }
+}
+
+// 工作空间重命名后同步底部空间名：
+// 锁定会话 → 重读主进程快照（rename 已级联更新）；
+// 未锁定 → 从重载后的登记表按 id 取新名
+async function onWorkspacesChanged() {
+  await loadWorkspaces()
+  if (workspaceLocked.value && sid.value) {
+    await restoreWorkspaceLink()
+    return
+  }
+  const link = workspaceLink.value
+  if (!link.workspaceId) return
+  const ws = workspaces.value.find(w => w.id === link.workspaceId)
+  if (ws && ws.name !== link.name) {
+    commitPatch({ workspaceLink: { dir: ws.path, name: ws.name || '', workspaceId: ws.id } })
+    setItem('omnibuddy:workspace-link', workspaceLink.value)
+  }
+}
+
+// 上拉选择已登记工作空间：同步关联三元组并持久化（会话已锁定时不可切换）
+function onSelectWorkspace(id) {
+  if (workspaceLocked.value) return
+  const ws = workspaces.value.find(w => w.id === id)
+  if (!ws) return
+  openSelect.value = ''
+  commitPatch({ workspaceLink: { dir: ws.path, name: ws.name || '', workspaceId: ws.id } })
+  setItem('omnibuddy:workspace-link', workspaceLink.value)
+}
+
+// 浮层底部「关联新路径」：系统目录选择框 → 登记并直接选中（展示名默认末级目录名）
+async function linkNewWorkspace() {
+  if (workspaceLocked.value) return
+  openSelect.value = ''
+  const res = await api().addWorkspace()
+  if (res && res.ok && res.workspace) {
+    // 展示名缺省截取末级目录名（与关联弹窗行为一致，便于会话列表分组）
+    const ws = res.workspace
+    if (!ws.name) {
+      const lastSeg = String(ws.path || '').replace(/\/+$/, '').split(/[\\/]/).pop()
+      if (lastSeg) {
+        ws.name = lastSeg
+        api().renameWorkspace({ id: ws.id, name: lastSeg })
+      }
+    }
+    await loadWorkspaces()
+    commitPatch({ workspaceLink: { dir: ws.path, name: ws.name || '', workspaceId: ws.id } })
+    setItem('omnibuddy:workspace-link', workspaceLink.value)
+    bus.emit('omnibuddy:workspaces-changed')
+    message.success('已关联：' + ws.path)
+  } else if (res && !res.canceled && res.error) {
+    message.error(res.error)
+  }
+}
+
+// ===== 选择面板（打开状态集中管理，同时只展开一个） =====
+function toggleSelect(key) {
+  openSelect.value = openSelect.value === key ? '' : key
+}
+
+// 点击面板外关闭
+function onDocMouseDown(e) {
+  if (!openSelect.value) return
+  if (e.target.closest('.ob-select')) return
+  openSelect.value = ''
+}
+
+// ===== 回退与分支 =====
+function branchAt(m) {
+  confirm('将以此处为分叉点复制完整上下文创建新会话，当前会话保留。继续吗？', '创建分叉', {
+    confirmButtonText: '创建分叉',
+    cancelButtonText: '取消',
+    type: 'info'
+  }).then(async () => {
+    const res = await api().branchSession({ id: sid.value, messageId: m.id })
+    if (res && res.ok && res.session) {
+      message.success('分叉已创建，请在左侧列表打开')
+      bus.emit('omnibuddy:sessions-changed')
+    } else {
+      message.error((res && res.error) || '创建失败')
+    }
+  }).catch(() => {})
+}
+
+// ===== 会话内分支（branch）=====
+// 分支切换：组内循环切换激活变体（缺省激活最新，切换后整线随之切换显示）
+// 流式回复进行中禁止切换（本轮输出归属发送时的线路，切换会导致输出不可见）
+function switchBranch({ headId, dir }) {
+  if (streaming.value) {
+    message.warning('回复完成后再切换分支')
+    return
+  }
+  const g = branchView.value.groups[headId]
+  if (!g || g.variants.length < 2) return
+  const active = sess.value.branchActive || {}
+  const cur = (active[headId] && g.variants.indexOf(active[headId]) >= 0)
+    ? active[headId]
+    : g.variants[g.variants.length - 1]
+  const i = g.variants.indexOf(cur)
+  const next = g.variants[(i + dir + g.variants.length) % g.variants.length]
+  commitPatch({ branchActive: Object.assign({}, active, { [headId]: next }) })
+  scrollToBottom()
+}
+
+// 编辑重问：以原问题为锚点创建新分支变体并重新发起提问（原分支保留）
+// 流程：createVariant 落盘变体（拿到真实 id）→ 激活新变体 → 触发回答（userMessageId 复用）
+async function editResend({ message: msg, text }) {
+  if (streaming.value) {
+    message.warning('当前会话正在回复中，请稍候')
+    return
+  }
+  if (!sid.value || !msg.id) return
+  if (!window.electronAPI || !window.electronAPI.omnibuddy) {
+    message.info('对话能力需要 OmniDeck 桌面端')
+    return
+  }
+  if (!workspaceLink.value.dir || !workspaceLink.value.workspaceId) {
+    message.warning('请先选择工作空间后再发送')
+    openSelect.value = 'workspace'
+    return
+  }
+  if (!currentProvider.value) {
+    message.warning('请先选择模型')
+    return
+  }
+  // 组头 = 最初的问题消息（msg 可能已是激活变体，_branch.headId 为组头）
+  const headId = (msg._branch && msg._branch.headId) || msg.id
+  const res = await api().createVariant({ id: sid.value, messageId: headId, text })
+  if (!res || !res.ok || !res.message) {
+    message.error((res && res.error) || '创建分支失败')
+    return
+  }
+  const variant = res.message
+  // 激活新变体并注入全量列表（过滤视图会将其显示在组头位置）
+  commitPatch({
+    branchActive: Object.assign({}, sess.value.branchActive, { [headId]: variant.id })
+  })
+  store.commit('buddyChat/PUSH_MSG', { id: sid.value, msg: variant })
+  // 新分支线路 = 组头路径 + [变体id]，本轮回答与其后续消息都归属该线
+  const anchors = (variant.anchors || []).concat([variant.id])
+  const placeholder = {
+    role: 'assistant',
+    content: '',
+    streaming: true,
+    isThinking: false,
+    thinking: true,
+    seconds: 0,
+    createdAt: Date.now(),
+    items: [],
+    anchors
+  }
+  store.commit('buddyChat/PUSH_MSG', { id: sid.value, msg: placeholder })
+  store.commit('buddyChat/PATCH', {
+    id: sid.value,
+    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, turnAnchors: anchors, atBottom: true }
+  })
+  scrollToBottom()
+
+  const sendRes = await api().sendMessage({
+    id: sid.value,
+    text,
+    provider: currentProvider.value,
+    workspaceId: workspaceLink.value.workspaceId,
+    displayName: workspaceLink.value.name,
+    anchors,
+    userMessageId: variant.id
+  })
+  if (!sendRes.ok) {
+    store.commit('buddyChat/PATCH', { id: sid.value, patch: { streaming: false } })
+    store.dispatch('buddyChat/finishTurn', sid.value)
+    message.error(sendRes.error || '发送失败')
+  }
+}
+
+// ===== 检查点 / 回滚（N4）：入口暂移除（恢复时在 composer 工具区加回入口按钮）；
+// 抽屉与回滚广播处理保留，列表加载与回滚在 CheckpointDrawer 内自治 =====
+// 抽屉内回滚成功：兜底刷新消息（主进程亦会广播 rolled_back 统一处理）
+function onCheckpointRolledBack() {
+  store.dispatch('buddyChat/loadHistory', { id: sid.value, force: true })
+  bus.emit('omnibuddy:sessions-changed')
+}
+
+function scrollToBottom() {
+  nextTick(() => {
+    const el = body.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+// 列表内容尺寸变化（思考区/工具详情折叠展开等非 store 驱动的局部高度变化）：
+// 仅贴底时补偿滚动（流式中用户上滚回看同样以 atBottom=false 为最高优先级，
+// 不强制拉回），保证末尾内容（任务清单）始终贴住输入框。
+// 收起后内容可能整页放得下（无滚动条，scroll 事件不触发）：直接视为贴底，
+// 避免 atBottom 残留 false 导致后续流式输出停止跟滚
+function onContentResize() {
+  const b = body.value
+  if (b && b.scrollHeight <= b.clientHeight && sess.value && !sess.value.atBottom) {
+    commitPatch({ atBottom: true })
+  }
+  if (sess.value && sess.value.atBottom) scrollToBottom()
+}
+
+// 回到底部（悬浮按钮）：恢复贴底标记（此后新内容恢复自动跟滚）+ 平滑滚动
+function backToBottom() {
+  commitPatch({ atBottom: true })
+  nextTick(() => {
+    const el = body.value
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  })
 }
 </script>
 

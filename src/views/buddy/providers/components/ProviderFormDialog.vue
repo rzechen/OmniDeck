@@ -324,9 +324,12 @@
   </transition>
 </template>
 
-<script>
+<script setup>
 // 新建/编辑模型抽屉：基础必填项 + 高级配置平铺设置组，
 // 失焦校验、保存前真实请求测试连接、组装数据交父级持久化
+import { ref, reactive, computed, watch } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
+
 let uid = Date.now()
 
 // 上下文窗口快捷选项（输入 / 输出各档）
@@ -350,438 +353,453 @@ const SAMPLING_LEVELS = [
   { key: 'high', label: '开启档', tempKey: 'samplingHighTemp', topPKey: 'samplingHighTopP' }
 ]
 
-export default {
-  name: 'ProviderFormDialog',
-  props: {
-    // 弹窗显隐（父级 .sync 控制）
-    visible: {
-      type: Boolean,
-      default: false
-    },
-    // 编辑中的模型 id（null 表示新建）
-    editingId: {
-      type: [String, Number],
-      default: null
-    },
-    // 编辑回填的模型对象（null 表示新建）
-    editingProvider: {
-      type: Object,
-      default: null
-    },
-    // 当前模型列表（判断"首个自动设默认"用，只读不改）
-    list: {
-      type: Array,
-      default: () => []
-    },
-    // 新建模式：'chat' 文本生成模型 / 'image' 图像生成模型（编辑时按条目 type 覆盖）
-    mode: {
-      type: String,
-      default: 'chat'
-    }
+defineOptions({ name: 'ProviderFormDialog' })
+
+const props = defineProps({
+  // 弹窗显隐（父级 .sync 控制）
+  visible: {
+    type: Boolean,
+    default: false
   },
-  data() {
-    return {
-      form: this.emptyForm(),
-      inputChips: INPUT_CHIPS,
-      outputChips: OUTPUT_CHIPS,
-      samplingLevels: SAMPLING_LEVELS,
-      // 必填字段失焦校验的错误提示
-      errors: {
-        baseUrl: '',
-        model: '',
-        apiKey: ''
-      },
-      // 表单模式：'chat' 文本 / 'image' 图像（initForm 按 prop 与编辑条目 type 判定）
-      formMode: 'chat',
-      // 保存前的连接测试状态
-      testing: false
-    }
+  // 编辑中的模型 id（null 表示新建）
+  editingId: {
+    type: [String, Number],
+    default: null
   },
-  computed: {
-    // 弹窗显隐代理（.sync 透传给父级）
-    dialogVisible: {
-      get() {
-        return this.visible
-      },
-      set(v) {
-        this.$emit('update:visible', v)
-      }
-    },
-    // 图像生成模型模式（新建由 prop mode 决定，编辑按条目 type 判定）
-    isImage() {
-      return this.formMode === 'image'
-    },
-    dialogTitle() {
-      if (this.isImage) return this.editingId ? '编辑图像生成模型' : '新建图像生成模型'
-      return this.editingId ? '编辑模型' : '新建模型'
-    },
-    baseUrlLabel() {
-      if (this.isImage) return '图像接口地址'
-      return this.form.apiFormat === 'openai' ? '自定义请求地址' : '请求地址'
-    },
-    // 请求地址占位文案（按 API 格式）
-    baseUrlPlaceholder() {
-      if (this.form.apiFormat === 'anthropic') return '输入接口地址，如 https://api.anthropic.com'
-      return '输入接口地址，如 https://api.openai.com/v1'
-    },
-    // 同档位占用者（编辑自己时排除自身；用于档位冲突提示）
-    tierOccupiedBy() {
-      const tier = this.form.tier
-      if (!tier) return null
-      const owner = this.list.find(p => p.tier === tier && p.id !== this.editingId)
-      return owner || null
-    }
+  // 编辑回填的模型对象（null 表示新建）
+  editingProvider: {
+    type: Object,
+    default: null
   },
-  watch: {
-    // 弹窗打开时按 editingProvider 初始化表单（新建重置 / 编辑回填）
-    visible(val) {
-      if (val) this.initForm()
-    }
+  // 当前模型列表（判断"首个自动设默认"用，只读不改）
+  list: {
+    type: Array,
+    default: () => []
   },
-  methods: {
-    // 新建空白表单（含各字段默认值）
-    emptyForm() {
-      return {
-        type: 'custom',
-        apiFormat: 'openai',
-        baseUrl: '',
-        model: '',
-        displayName: '',
-        apiKey: '',
-        tier: '',
-        modelSeries: 'default',
-        contextWindowInput: '',
-        contextWindowOutput: '',
-        toolTurns: 500,
-        imageInput: true,
-        thinkingMode: 'follow',
-        samplingOffTemp: '',
-        samplingOffTopP: '',
-        samplingMedTemp: '',
-        samplingMedTopP: '',
-        samplingHighTemp: '',
-        samplingHighTopP: ''
-      }
-    },
-    // 表单初始化：新建全部为空（失焦校验）；编辑回填
-    initForm() {
-      const p = this.editingProvider
-      // 模式：编辑按条目 type 判定（图像条目进图像表单）；新建按父级传入的 mode
-      this.formMode = p
-        ? (p.type === 'image' ? 'image' : 'chat')
-        : (this.mode === 'image' ? 'image' : 'chat')
-      this.form = p
-        ? {
-          type: p.type || 'custom',
-          apiFormat: p.apiFormat || 'openai',
-          apiKey: p.apiKey || '',
-          baseUrl: p.baseUrl || '',
-          model: p.model || '',
-          displayName: p.displayName || '',
-          tier: p.tier || '',
-          modelSeries: p.modelSeries || 'default',
-          contextWindowInput: p.contextWindowInput != null ? String(p.contextWindowInput) : '',
-          contextWindowOutput: p.contextWindowOutput != null ? String(p.contextWindowOutput) : '',
-          toolTurns: p.toolTurns != null ? p.toolTurns : 500,
-          imageInput: p.imageInput !== false,
-          thinkingMode: p.thinkingMode || 'follow',
-          // 采样参数回填（sampling: { off/medium/high: {temperature, top_p} } → 扁平表单键）
-          samplingOffTemp: this.sampVal(p.sampling, 'off', 'temperature'),
-          samplingOffTopP: this.sampVal(p.sampling, 'off', 'top_p'),
-          samplingMedTemp: this.sampVal(p.sampling, 'medium', 'temperature'),
-          samplingMedTopP: this.sampVal(p.sampling, 'medium', 'top_p'),
-          samplingHighTemp: this.sampVal(p.sampling, 'high', 'temperature'),
-          samplingHighTopP: this.sampVal(p.sampling, 'high', 'top_p')
-        }
-        : this.emptyForm()
-      this.resetErrors()
-    },
-    // 重置：恢复打开时的初始值（新建→空白默认；编辑→回填数据）
-    resetForm() {
-      this.initForm()
-      this.$message.info('已重置')
-    },
-    // 切换 API 格式：清掉地址错误提示（校验文案按格式变化）
-    onFormatChange() {
-      this.clearFieldError('baseUrl')
-    },
-    closeDialog() {
-      // 连接测试进行中不允许关闭，避免测试结果落空
-      if (this.testing) return
-      this.dialogVisible = false
-    },
-    // ===== 必填字段失焦校验 =====
-    resetErrors() {
-      this.errors.baseUrl = ''
-      this.errors.model = ''
-      this.errors.apiKey = ''
-    },
-    validateField(field) {
-      const val = (this.form[field] || '').trim()
-      if (!val) {
-        const msgs = {
-          apiFormat: '请选择 API 格式',
-          baseUrl: '请输入接口地址',
-          model: '请输入模型 ID',
-          apiKey: '请输入 API 密钥'
-        }
-        this.errors[field] = msgs[field]
-        return false
-      }
-      this.errors[field] = ''
-      return true
-    },
-    // 重新输入时清除错误提示（失焦时再校验）
-    clearFieldError(field) {
-      if (this.errors[field]) this.errors[field] = ''
-    },
-    // 测试连接：按 API 格式发起一次最小请求，验证地址可达、密钥有效、模型可用
-    // 会消耗少量 Token（max_tokens=1 + 单条 ping 消息）
-    async testConnection() {
-      const baseUrl = this.form.baseUrl.trim().replace(/\/+$/, '')
-      const apiKey = (this.form.apiKey || '').trim()
-      const model = this.form.model.trim()
-      const format = this.form.apiFormat
+  // 新建模式：'chat' 文本生成模型 / 'image' 图像生成模型（编辑时按条目 type 覆盖）
+  mode: {
+    type: String,
+    default: 'chat'
+  }
+})
 
-      // 三种格式的端点路径 / 请求头 / 请求体
-      let url, headers, body
-      if (format === 'anthropic') {
-        // Anthropic：base 含 /v1 则直接拼 /messages，否则补 /v1/messages
-        url = baseUrl + (baseUrl.endsWith('/v1') ? '/messages' : '/v1/messages')
-        headers = {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01'
-        }
-        body = JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
-          stream: false
-        })
-      } else if (format === 'openai-responses') {
-        // OpenAI Responses API：/responses 自动追加，max_output_tokens 最小 16
-        url = baseUrl + '/responses'
-        headers = {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + apiKey
-        }
-        body = JSON.stringify({
-          model,
-          input: 'ping',
-          max_output_tokens: 16,
-          stream: false
-        })
-      } else {
-        // OpenAI Chat Completions：/chat/completions 自动追加
-        url = baseUrl + '/chat/completions'
-        headers = {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + apiKey
-        }
-        body = JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
-          stream: false
-        })
-      }
+const emit = defineEmits(['update:visible', 'saved'])
 
-      let res = null
-      if (window.electronAPI && window.electronAPI.httpRequest) {
-        // 经主进程 net 代理，无 CORS 限制
-        res = await window.electronAPI.httpRequest({ method: 'POST', url, headers, body, timeout: 15000 })
-      } else {
-        // 浏览器兜底（受 CORS 限制）
-        try {
-          const r = await fetch(url, { method: 'POST', headers, body })
-          res = { ok: true, status: r.status, body: await r.text().catch(() => '') }
-        } catch (e) {
-          res = { ok: false, error: e.message }
-        }
-      }
-      if (!res || !res.ok) {
-        return { pass: false, msg: '连接失败：' + ((res && res.error) || '网络错误') }
-      }
-      if (res.status >= 200 && res.status < 300) {
-        return { pass: true }
-      }
-      // 透传服务端错误信息（如 model not found / invalid api key）
-      let detail = ''
-      try {
-        const parsed = JSON.parse(res.body)
-        detail = (parsed.error && (parsed.error.message || parsed.error.type)) || parsed.message || ''
-      } catch (e) { /* 非 JSON 响应忽略 */ }
-      if (detail) detail = '（' + detail + '）'
-      if (res.status === 401 || res.status === 403) {
-        return { pass: false, msg: '连接失败：认证被拒绝（' + res.status + '），请检查 API 密钥' + detail }
-      }
-      if (res.status === 404) {
-        return { pass: false, msg: '连接失败：地址或模型不存在（404），请检查接口地址与模型 ID' + detail }
-      }
-      return { pass: false, msg: '连接失败：服务返回 ' + res.status + detail }
-    },
-    // 数字字段规整：空串→null（留空使用推荐值），非法→null，其余取整
-    toNumOrNull(v) {
-      if (v === '' || v == null) return null
-      const n = parseInt(v, 10)
-      return Number.isFinite(n) && n > 0 ? n : null
-    },
-    // 采样参数读取：持久化对象 → 表单字符串（数值合法才回显，否则置空）
-    sampVal(sampling, level, key) {
-      const v = sampling && sampling[level] && sampling[level][key]
-      const n = parseFloat(v)
-      return Number.isFinite(n) ? String(n) : ''
-    },
-    // 采样参数写入：表单字符串 → 数值（temperature 0~2 / top_p 0~1，空或越界→null 不下发）
-    toSampNum(v, min, max) {
-      if (v === '' || v == null) return null
-      const n = parseFloat(v)
-      return Number.isFinite(n) && n >= min && n <= max ? n : null
-    },
-    // 组装采样参数（null 表示整组未配置）：{ off/medium/high: {temperature?, top_p?} }
-    buildSampling() {
-      const lv = (tempKey, topPKey) => {
-        const o = {}
-        const t = this.toSampNum(this.form[tempKey], 0, 2)
-        const p = this.toSampNum(this.form[topPKey], 0, 1)
-        if (t != null) o.temperature = t
-        if (p != null) o.top_p = p
-        return Object.keys(o).length ? o : null
-      }
-      const s = {
-        off: lv('samplingOffTemp', 'samplingOffTopP'),
-        medium: lv('samplingMedTemp', 'samplingMedTopP'),
-        high: lv('samplingHighTemp', 'samplingHighTopP')
-      }
-      return (s.off || s.medium || s.high) ? s : null
-    },
-    // 保存（新建或更新；先校验必填，再测试连接，组装数据交父级持久化）
-    async saveProvider() {
-      // ===== 图像生成模型分支：字段精简、不走 chat 连通性测试（图像按张计费不自动消耗） =====
-      if (this.isImage) {
-        const baseUrl = this.form.baseUrl.trim().replace(/\/+$/, '')
-        const model = this.form.model.trim()
-        const displayName = this.form.displayName.trim()
-        const apiKey = this.form.apiKey.trim()
-        this.errors.baseUrl = baseUrl ? '' : '请输入图像接口地址'
-        this.errors.model = model ? '' : '请输入图像模型 ID'
-        this.errors.apiKey = apiKey ? '' : '请输入图像 API 密钥'
-        if (!baseUrl || !model || !apiKey) return
-        const name = displayName || model
-        if (this.editingId) {
-          this.$emit('saved', {
-            editingId: this.editingId,
-            values: {
-              type: 'image', name, apiFormat: 'openai', baseUrl, model, displayName, apiKey,
-              tier: '', modelSeries: 'default', contextWindowInput: null, contextWindowOutput: null,
-              toolTurns: 500, imageInput: false, thinkingMode: 'follow', sampling: null,
-              imageModel: model, imageBaseUrl: baseUrl, imageApiKey: apiKey
-            }
-          })
-        } else {
-          this.$emit('saved', {
-            editingId: null,
-            item: {
-              id: 'p' + (uid++),
-              type: 'image',
-              name,
-              apiFormat: 'openai',
-              baseUrl,
-              model,
-              displayName,
-              apiKey,
-              tier: '',
-              modelSeries: 'default',
-              contextWindowInput: null,
-              contextWindowOutput: null,
-              toolTurns: 500,
-              imageInput: false,
-              thinkingMode: 'follow',
-              sampling: null,
-              imageModel: model,
-              imageBaseUrl: baseUrl,
-              imageApiKey: apiKey,
-              isDefault: false
-            }
-          })
-        }
-        this.closeDialog()
-        this.$message.success(this.editingId ? '已更新' : '图像模型已添加')
-        return
-      }
+const { message } = useFeedback()
 
-      const fields = ['apiFormat', 'baseUrl', 'model', 'apiKey']
-      for (const f of fields) {
-        if (!this.validateField(f)) return
-      }
-      if (this.testing) return
-
-      const apiFormat = this.form.apiFormat
-      const baseUrl = this.form.baseUrl.trim().replace(/\/+$/, '')
-      const model = this.form.model.trim()
-      const displayName = this.form.displayName.trim()
-      const apiKey = this.form.apiKey.trim()
-      const tier = this.form.tier || ''
-      const modelSeries = this.form.modelSeries || 'default'
-      const contextWindowInput = this.toNumOrNull(this.form.contextWindowInput)
-      const contextWindowOutput = this.toNumOrNull(this.form.contextWindowOutput)
-      const toolTurns = this.toNumOrNull(this.form.toolTurns) || 500
-      const imageInput = !!this.form.imageInput
-      const thinkingMode = this.form.thinkingMode || 'follow'
-      const sampling = this.buildSampling()
-      // 列表名：展示名优先，未填默认显示模型 ID
-      const name = displayName || model
-
-      // 保存前测试连接（真实请求验证模型可用性）
-      this.testing = true
-      const test = await this.testConnection()
-      this.testing = false
-      if (!test.pass) {
-        this.$message.error(test.msg)
-        return
-      }
-
-      if (this.editingId) {
-        // 编辑：组装更新数据交父级写入
-        this.$emit('saved', {
-          editingId: this.editingId,
-          values: {
-            name, apiFormat, baseUrl, model, displayName, apiKey, tier,
-            modelSeries, contextWindowInput, contextWindowOutput, toolTurns, imageInput, thinkingMode, sampling
-          }
-        })
-      } else {
-        // 新建：组装完整记录（首个自动设默认）交父级写入
-        const isFirst = this.list.length === 0
-        this.$emit('saved', {
-          editingId: null,
-          item: {
-            id: 'p' + (uid++),
-            type: this.form.type,
-            name,
-            apiFormat,
-            baseUrl,
-            model,
-            displayName,
-            apiKey,
-            tier,
-            modelSeries,
-            contextWindowInput,
-            contextWindowOutput,
-            toolTurns,
-            imageInput,
-            thinkingMode,
-            sampling,
-            isDefault: isFirst
-          }
-        })
-      }
-      this.closeDialog()
-      this.$message.success(this.editingId ? '已更新' : '模型已添加')
-    }
+// 新建空白表单（含各字段默认值）
+function emptyForm() {
+  return {
+    type: 'custom',
+    apiFormat: 'openai',
+    baseUrl: '',
+    model: '',
+    displayName: '',
+    apiKey: '',
+    tier: '',
+    modelSeries: 'default',
+    contextWindowInput: '',
+    contextWindowOutput: '',
+    toolTurns: 500,
+    imageInput: true,
+    thinkingMode: 'follow',
+    samplingOffTemp: '',
+    samplingOffTopP: '',
+    samplingMedTemp: '',
+    samplingMedTopP: '',
+    samplingHighTemp: '',
+    samplingHighTopP: ''
   }
 }
+
+const form = ref(emptyForm())
+const inputChips = INPUT_CHIPS
+const outputChips = OUTPUT_CHIPS
+const samplingLevels = SAMPLING_LEVELS
+// 必填字段失焦校验的错误提示
+const errors = reactive({
+  baseUrl: '',
+  model: '',
+  apiKey: ''
+})
+// 表单模式：'chat' 文本 / 'image' 图像（initForm 按 prop 与编辑条目 type 判定）
+const formMode = ref('chat')
+// 保存前的连接测试状态
+const testing = ref(false)
+
+// 弹窗显隐代理（.sync 透传给父级）
+const dialogVisible = computed({
+  get() {
+    return props.visible
+  },
+  set(v) {
+    emit('update:visible', v)
+  }
+})
+
+// 图像生成模型模式（新建由 prop mode 决定，编辑按条目 type 判定）
+const isImage = computed(() => {
+  return formMode.value === 'image'
+})
+
+const dialogTitle = computed(() => {
+  if (isImage.value) return props.editingId ? '编辑图像生成模型' : '新建图像生成模型'
+  return props.editingId ? '编辑模型' : '新建模型'
+})
+
+const baseUrlLabel = computed(() => {
+  if (isImage.value) return '图像接口地址'
+  return form.value.apiFormat === 'openai' ? '自定义请求地址' : '请求地址'
+})
+
+// 请求地址占位文案（按 API 格式）
+const baseUrlPlaceholder = computed(() => {
+  if (form.value.apiFormat === 'anthropic') return '输入接口地址，如 https://api.anthropic.com'
+  return '输入接口地址，如 https://api.openai.com/v1'
+})
+
+// 同档位占用者（编辑自己时排除自身；用于档位冲突提示）
+const tierOccupiedBy = computed(() => {
+  const tier = form.value.tier
+  if (!tier) return null
+  const owner = props.list.find(p => p.tier === tier && p.id !== props.editingId)
+  return owner || null
+})
+
+// 表单初始化：新建全部为空（失焦校验）；编辑回填
+function initForm() {
+  const p = props.editingProvider
+  // 模式：编辑按条目 type 判定（图像条目进图像表单）；新建按父级传入的 mode
+  formMode.value = p
+    ? (p.type === 'image' ? 'image' : 'chat')
+    : (props.mode === 'image' ? 'image' : 'chat')
+  form.value = p
+    ? {
+        type: p.type || 'custom',
+        apiFormat: p.apiFormat || 'openai',
+        apiKey: p.apiKey || '',
+        baseUrl: p.baseUrl || '',
+        model: p.model || '',
+        displayName: p.displayName || '',
+        tier: p.tier || '',
+        modelSeries: p.modelSeries || 'default',
+        contextWindowInput: p.contextWindowInput != null ? String(p.contextWindowInput) : '',
+        contextWindowOutput: p.contextWindowOutput != null ? String(p.contextWindowOutput) : '',
+        toolTurns: p.toolTurns != null ? p.toolTurns : 500,
+        imageInput: p.imageInput !== false,
+        thinkingMode: p.thinkingMode || 'follow',
+        // 采样参数回填（sampling: { off/medium/high: {temperature, top_p} } → 扁平表单键）
+        samplingOffTemp: sampVal(p.sampling, 'off', 'temperature'),
+        samplingOffTopP: sampVal(p.sampling, 'off', 'top_p'),
+        samplingMedTemp: sampVal(p.sampling, 'medium', 'temperature'),
+        samplingMedTopP: sampVal(p.sampling, 'medium', 'top_p'),
+        samplingHighTemp: sampVal(p.sampling, 'high', 'temperature'),
+        samplingHighTopP: sampVal(p.sampling, 'high', 'top_p')
+      }
+    : emptyForm()
+  resetErrors()
+}
+
+// 重置：恢复打开时的初始值（新建→空白默认；编辑→回填数据）
+function resetForm() {
+  initForm()
+  message.info('已重置')
+}
+
+// 切换 API 格式：清掉地址错误提示（校验文案按格式变化）
+function onFormatChange() {
+  clearFieldError('baseUrl')
+}
+
+function closeDialog() {
+  // 连接测试进行中不允许关闭，避免测试结果落空
+  if (testing.value) return
+  dialogVisible.value = false
+}
+
+// ===== 必填字段失焦校验 =====
+function resetErrors() {
+  errors.baseUrl = ''
+  errors.model = ''
+  errors.apiKey = ''
+}
+
+function validateField(field) {
+  const val = (form.value[field] || '').trim()
+  if (!val) {
+    const msgs = {
+      apiFormat: '请选择 API 格式',
+      baseUrl: '请输入接口地址',
+      model: '请输入模型 ID',
+      apiKey: '请输入 API 密钥'
+    }
+    errors[field] = msgs[field]
+    return false
+  }
+  errors[field] = ''
+  return true
+}
+
+// 重新输入时清除错误提示（失焦时再校验）
+function clearFieldError(field) {
+  if (errors[field]) errors[field] = ''
+}
+
+// 测试连接：按 API 格式发起一次最小请求，验证地址可达、密钥有效、模型可用
+// 会消耗少量 Token（max_tokens=1 + 单条 ping 消息）
+async function testConnection() {
+  const baseUrl = form.value.baseUrl.trim().replace(/\/+$/, '')
+  const apiKey = (form.value.apiKey || '').trim()
+  const model = form.value.model.trim()
+  const format = form.value.apiFormat
+
+  // 三种格式的端点路径 / 请求头 / 请求体
+  let url, headers, body
+  if (format === 'anthropic') {
+    // Anthropic：base 含 /v1 则直接拼 /messages，否则补 /v1/messages
+    url = baseUrl + (baseUrl.endsWith('/v1') ? '/messages' : '/v1/messages')
+    headers = {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    }
+    body = JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 1,
+      stream: false
+    })
+  } else if (format === 'openai-responses') {
+    // OpenAI Responses API：/responses 自动追加，max_output_tokens 最小 16
+    url = baseUrl + '/responses'
+    headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + apiKey
+    }
+    body = JSON.stringify({
+      model,
+      input: 'ping',
+      max_output_tokens: 16,
+      stream: false
+    })
+  } else {
+    // OpenAI Chat Completions：/chat/completions 自动追加
+    url = baseUrl + '/chat/completions'
+    headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + apiKey
+    }
+    body = JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 1,
+      stream: false
+    })
+  }
+
+  let res = null
+  if (window.electronAPI && window.electronAPI.httpRequest) {
+    // 经主进程 net 代理，无 CORS 限制
+    res = await window.electronAPI.httpRequest({ method: 'POST', url, headers, body, timeout: 15000 })
+  } else {
+    // 浏览器兜底（受 CORS 限制）
+    try {
+      const r = await fetch(url, { method: 'POST', headers, body })
+      res = { ok: true, status: r.status, body: await r.text().catch(() => '') }
+    } catch (e) {
+      res = { ok: false, error: e.message }
+    }
+  }
+  if (!res || !res.ok) {
+    return { pass: false, msg: '连接失败：' + ((res && res.error) || '网络错误') }
+  }
+  if (res.status >= 200 && res.status < 300) {
+    return { pass: true }
+  }
+  // 透传服务端错误信息（如 model not found / invalid api key）
+  let detail = ''
+  try {
+    const parsed = JSON.parse(res.body)
+    detail = (parsed.error && (parsed.error.message || parsed.error.type)) || parsed.message || ''
+  } catch (e) { /* 非 JSON 响应忽略 */ }
+  if (detail) detail = '（' + detail + '）'
+  if (res.status === 401 || res.status === 403) {
+    return { pass: false, msg: '连接失败：认证被拒绝（' + res.status + '），请检查 API 密钥' + detail }
+  }
+  if (res.status === 404) {
+    return { pass: false, msg: '连接失败：地址或模型不存在（404），请检查接口地址与模型 ID' + detail }
+  }
+  return { pass: false, msg: '连接失败：服务返回 ' + res.status + detail }
+}
+
+// 数字字段规整：空串→null（留空使用推荐值），非法→null，其余取整
+function toNumOrNull(v) {
+  if (v === '' || v == null) return null
+  const n = parseInt(v, 10)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+// 采样参数读取：持久化对象 → 表单字符串（数值合法才回显，否则置空）
+function sampVal(sampling, level, key) {
+  const v = sampling && sampling[level] && sampling[level][key]
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? String(n) : ''
+}
+
+// 采样参数写入：表单字符串 → 数值（temperature 0~2 / top_p 0~1，空或越界→null 不下发）
+function toSampNum(v, min, max) {
+  if (v === '' || v == null) return null
+  const n = parseFloat(v)
+  return Number.isFinite(n) && n >= min && n <= max ? n : null
+}
+
+// 组装采样参数（null 表示整组未配置）：{ off/medium/high: {temperature?, top_p?} }
+function buildSampling() {
+  const lv = (tempKey, topPKey) => {
+    const o = {}
+    const t = toSampNum(form.value[tempKey], 0, 2)
+    const p = toSampNum(form.value[topPKey], 0, 1)
+    if (t != null) o.temperature = t
+    if (p != null) o.top_p = p
+    return Object.keys(o).length ? o : null
+  }
+  const s = {
+    off: lv('samplingOffTemp', 'samplingOffTopP'),
+    medium: lv('samplingMedTemp', 'samplingMedTopP'),
+    high: lv('samplingHighTemp', 'samplingHighTopP')
+  }
+  return (s.off || s.medium || s.high) ? s : null
+}
+
+// 保存（新建或更新；先校验必填，再测试连接，组装数据交父级持久化）
+async function saveProvider() {
+  // ===== 图像生成模型分支：字段精简、不走 chat 连通性测试（图像按张计费不自动消耗） =====
+  if (isImage.value) {
+    const baseUrl = form.value.baseUrl.trim().replace(/\/+$/, '')
+    const model = form.value.model.trim()
+    const displayName = form.value.displayName.trim()
+    const apiKey = form.value.apiKey.trim()
+    errors.baseUrl = baseUrl ? '' : '请输入图像接口地址'
+    errors.model = model ? '' : '请输入图像模型 ID'
+    errors.apiKey = apiKey ? '' : '请输入图像 API 密钥'
+    if (!baseUrl || !model || !apiKey) return
+    const name = displayName || model
+    if (props.editingId) {
+      emit('saved', {
+        editingId: props.editingId,
+        values: {
+          type: 'image', name, apiFormat: 'openai', baseUrl, model, displayName, apiKey,
+          tier: '', modelSeries: 'default', contextWindowInput: null, contextWindowOutput: null,
+          toolTurns: 500, imageInput: false, thinkingMode: 'follow', sampling: null,
+          imageModel: model, imageBaseUrl: baseUrl, imageApiKey: apiKey
+        }
+      })
+    } else {
+      emit('saved', {
+        editingId: null,
+        item: {
+          id: 'p' + (uid++),
+          type: 'image',
+          name,
+          apiFormat: 'openai',
+          baseUrl,
+          model,
+          displayName,
+          apiKey,
+          tier: '',
+          modelSeries: 'default',
+          contextWindowInput: null,
+          contextWindowOutput: null,
+          toolTurns: 500,
+          imageInput: false,
+          thinkingMode: 'follow',
+          sampling: null,
+          imageModel: model,
+          imageBaseUrl: baseUrl,
+          imageApiKey: apiKey,
+          isDefault: false
+        }
+      })
+    }
+    closeDialog()
+    message.success(props.editingId ? '已更新' : '图像模型已添加')
+    return
+  }
+
+  const fields = ['apiFormat', 'baseUrl', 'model', 'apiKey']
+  for (const f of fields) {
+    if (!validateField(f)) return
+  }
+  if (testing.value) return
+
+  const apiFormat = form.value.apiFormat
+  const baseUrl = form.value.baseUrl.trim().replace(/\/+$/, '')
+  const model = form.value.model.trim()
+  const displayName = form.value.displayName.trim()
+  const apiKey = form.value.apiKey.trim()
+  const tier = form.value.tier || ''
+  const modelSeries = form.value.modelSeries || 'default'
+  const contextWindowInput = toNumOrNull(form.value.contextWindowInput)
+  const contextWindowOutput = toNumOrNull(form.value.contextWindowOutput)
+  const toolTurns = toNumOrNull(form.value.toolTurns) || 500
+  const imageInput = !!form.value.imageInput
+  const thinkingMode = form.value.thinkingMode || 'follow'
+  const sampling = buildSampling()
+  // 列表名：展示名优先，未填默认显示模型 ID
+  const name = displayName || model
+
+  // 保存前测试连接（真实请求验证模型可用性）
+  testing.value = true
+  const test = await testConnection()
+  testing.value = false
+  if (!test.pass) {
+    message.error(test.msg)
+    return
+  }
+
+  if (props.editingId) {
+    // 编辑：组装更新数据交父级写入
+    emit('saved', {
+      editingId: props.editingId,
+      values: {
+        name, apiFormat, baseUrl, model, displayName, apiKey, tier,
+        modelSeries, contextWindowInput, contextWindowOutput, toolTurns, imageInput, thinkingMode, sampling
+      }
+    })
+  } else {
+    // 新建：组装完整记录（首个自动设默认）交父级写入
+    const isFirst = props.list.length === 0
+    emit('saved', {
+      editingId: null,
+      item: {
+        id: 'p' + (uid++),
+        type: form.value.type,
+        name,
+        apiFormat,
+        baseUrl,
+        model,
+        displayName,
+        apiKey,
+        tier,
+        modelSeries,
+        contextWindowInput,
+        contextWindowOutput,
+        toolTurns,
+        imageInput,
+        thinkingMode,
+        sampling,
+        isDefault: isFirst
+      }
+    })
+  }
+  closeDialog()
+  message.success(props.editingId ? '已更新' : '模型已添加')
+}
+
+// 弹窗打开时按 editingProvider 初始化表单（新建重置 / 编辑回填）
+watch(() => props.visible, val => {
+  if (val) initForm()
+})
 </script>
 
 <style lang="scss" scoped>

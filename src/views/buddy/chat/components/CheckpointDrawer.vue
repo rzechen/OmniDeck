@@ -5,7 +5,7 @@
     title="检查点"
     size="360px"
     append-to-body
-    @update:model-value="v => $emit('update:visible', v)"
+    @update:model-value="v => emit('update:visible', v)"
   >
     <div v-loading="cpLoading" class="ob-cp-list">
       <div v-if="!cpLoading && !checkpoints.length" class="ob-cp-empty">
@@ -40,87 +40,93 @@
   </el-drawer>
 </template>
 
-<script>
-import { buddyApi } from '@/utils/buddy/buddy-api'
-
+<script setup>
 // OmniBuddy 检查点抽屉（自治组件）：内部加载检查点时间线并执行回滚，
-// 回滚成功后 $emit('rolled-back') 通知页面刷新消息
-export default {
-  name: 'CheckpointDrawer',
-  props: {
-    // 抽屉开关（页面通过 .sync 控制）
-    visible: {
-      type: Boolean,
-      default: false
-    },
-    // 当前会话 ID
-    sessionId: {
-      type: String,
-      default: ''
-    }
+// 回滚成功后 emit('rolled-back') 通知页面刷新消息
+import { ref, watch } from 'vue'
+import { buddyApi } from '@/utils/buddy/buddy-api'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'CheckpointDrawer' })
+
+const props = defineProps({
+  // 抽屉开关（页面通过 v-model:visible 控制）
+  visible: {
+    type: Boolean,
+    default: false
   },
-  data() {
-    return {
-      cpLoading: false,
-      checkpoints: [],
-      rollingBack: 0
-    }
-  },
-  watch: {
-    // 打开抽屉即加载检查点列表
-    visible(val) {
-      if (val && this.sessionId) this.loadCheckpoints()
-    }
-  },
-  methods: {
-    async loadCheckpoints() {
-      if (!this.sessionId) return
-      this.cpLoading = true
-      try {
-        const api = buddyApi()
-        // Web 端无 IPC 桥：与页面原 stub 降级一致，返回空列表
-        const res = api
-          ? await api.listCheckpoints(this.sessionId)
-          : { ok: true, items: [] }
-        this.checkpoints = (res && res.items) || []
-      } finally {
-        this.cpLoading = false
-      }
-    },
-    rollbackTo(cp) {
-      this.$confirm(
-        '将恢复到检查点 #' + cp.n + '：工作空间文件回退到快照状态，之后的对话记录将被截断。继续吗？',
-        '回滚到检查点',
-        { confirmButtonText: '回滚', cancelButtonText: '取消', type: 'warning' }
-      ).then(async () => {
-        this.rollingBack = cp.n
-        try {
-          const api = buddyApi()
-          // Web 端无 IPC 桥：与页面原 stub 降级一致，提示需要桌面端
-          const res = api
-            ? await api.rollbackCheckpoint({ id: this.sessionId, n: cp.n })
-            : { ok: false, error: '检查点需要 OmniDeck 桌面端' }
-          if (res && res.ok) {
-            // 主进程会广播 rolled_back 事件统一刷新，这里兜底关闭抽屉并通知页面
-            this.$emit('update:visible', false)
-            this.$emit('rolled-back')
-          } else {
-            this.$message.error((res && res.error) || '回滚失败')
-          }
-        } finally {
-          this.rollingBack = 0
-        }
-      }).catch(() => {})
-    },
-    cpTime(cp) {
-      const d = new Date(cp.createdAt)
-      const p = n => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-    },
-    cpToolName(tool) {
-      const map = { write: '写文件', edit: '编辑', multi_edit: '批量编辑', mkdir: '建目录', delete: '删除', rollback: '回滚前备份' }
-      return map[tool] || tool
-    }
+  // 当前会话 ID
+  sessionId: {
+    type: String,
+    default: ''
+  }
+})
+
+const emit = defineEmits(['update:visible', 'rolled-back'])
+
+const { message, confirm } = useFeedback()
+
+const cpLoading = ref(false)
+const checkpoints = ref([])
+const rollingBack = ref(0)
+
+// 打开抽屉即加载检查点列表
+watch(() => props.visible, (val) => {
+  if (val && props.sessionId) loadCheckpoints()
+})
+
+async function loadCheckpoints() {
+  if (!props.sessionId) return
+  cpLoading.value = true
+  try {
+    const api = buddyApi()
+    // Web 端无 IPC 桥：与页面原 stub 降级一致，返回空列表
+    const res = api
+      ? await api.listCheckpoints(props.sessionId)
+      : { ok: true, items: [] }
+    checkpoints.value = (res && res.items) || []
+  } finally {
+    cpLoading.value = false
   }
 }
+
+function rollbackTo(cp) {
+  confirm(
+    '将恢复到检查点 #' + cp.n + '：工作空间文件回退到快照状态，之后的对话记录将被截断。继续吗？',
+    '回滚到检查点',
+    { confirmButtonText: '回滚', cancelButtonText: '取消', type: 'warning' }
+  ).then(async () => {
+    rollingBack.value = cp.n
+    try {
+      const api = buddyApi()
+      // Web 端无 IPC 桥：与页面原 stub 降级一致，提示需要桌面端
+      const res = api
+        ? await api.rollbackCheckpoint({ id: props.sessionId, n: cp.n })
+        : { ok: false, error: '检查点需要 OmniDeck 桌面端' }
+      if (res && res.ok) {
+        // 主进程会广播 rolled_back 事件统一刷新，这里兜底关闭抽屉并通知页面
+        emit('update:visible', false)
+        emit('rolled-back')
+      } else {
+        message.error((res && res.error) || '回滚失败')
+      }
+    } finally {
+      rollingBack.value = 0
+    }
+  }).catch(() => {})
+}
+
+function cpTime(cp) {
+  const d = new Date(cp.createdAt)
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function cpToolName(tool) {
+  const map = { write: '写文件', edit: '编辑', multi_edit: '批量编辑', mkdir: '建目录', delete: '删除', rollback: '回滚前备份' }
+  return map[tool] || tool
+}
+
+// 页面层经模板 ref 调用（消费 notice 后刷新检查点列表）
+defineExpose({ loadCheckpoints })
 </script>

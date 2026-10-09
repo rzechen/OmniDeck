@@ -12,11 +12,11 @@
         :streaming="streaming"
         :perm-pending="permPending"
         :session-id="sessionId"
-        @branch="$emit('branch', m)"
-        @feedback="payload => $emit('feedback', payload)"
-        @edit-resend="payload => $emit('edit-resend', payload)"
-        @switch-branch="payload => $emit('switch-branch', payload)"
-        @ask-answer="(msg, value) => $emit('answer', msg, value)"
+        @branch="emit('branch', m)"
+        @feedback="payload => emit('feedback', payload)"
+        @edit-resend="payload => emit('edit-resend', payload)"
+        @switch-branch="payload => emit('switch-branch', payload)"
+        @ask-answer="(msg, value) => emit('answer', msg, value)"
       />
 
       <!-- 权限确认历史（只读状态行：交互在输入框上方浮动条完成，不进消息流） -->
@@ -36,55 +36,62 @@
   </div>
 </template>
 
-<script>
-import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
-
+<script setup>
 // OmniBuddy 消息列表容器：按 role 分发气泡（正文 / 权限历史），交互事件原样上抛给页面处理
 // todo 卡片不在消息流渲染（固定于输入框上方，页面层挂载）
-export default {
-  name: 'ChatMessageList',
-  components: { MessageBubble },
-  props: {
-    // 归一化后的消息数组（user / assistant / todo）
-    messages: {
-      type: Array,
-      required: true
-    },
-    // 会话是否正在流式生成（透传给正文气泡控制光标与 hover 操作）
-    streaming: {
-      type: Boolean,
-      default: false
-    },
-    // 队首待确认权限（透传给工具卡片显示"等待授权"状态；null 表示无）
-    permPending: {
-      type: Object,
-      default: null
-    },
-    // 所属会话 id（透传给气泡内深度研究进度卡片：历史回放拉取运行状态）
-    sessionId: {
-      type: String,
-      default: ''
-    }
+import { getCurrentInstance, onMounted, onBeforeUnmount } from 'vue'
+import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
+
+defineOptions({ name: 'ChatMessageList' })
+
+defineProps({
+  // 归一化后的消息数组（user / assistant / todo）
+  messages: {
+    type: Array,
+    required: true
   },
-  mounted() {
-    // 内容尺寸监听：思考区/工具详情的折叠展开只改组件内部状态（不经 store 数据驱动），
-    // 页面层的贴底跟滚 watch 捕捉不到，收起后末尾内容（任务清单）会脱离输入框；
-    // 观察列表根元素尺寸变化上抛，由页面在贴底语义下补偿滚动
-    if (typeof ResizeObserver !== 'undefined') {
-      this._ro = new ResizeObserver(() => this.$emit('content-resize'))
-      this._ro.observe(this.$el)
-    }
+  // 会话是否正在流式生成（透传给正文气泡控制光标与 hover 操作）
+  streaming: {
+    type: Boolean,
+    default: false
   },
-  beforeUnmount() {
-    if (this._ro) this._ro.disconnect()
+  // 队首待确认权限（透传给工具卡片显示"等待授权"状态；null 表示无）
+  permPending: {
+    type: Object,
+    default: null
   },
-  methods: {
-    // 权限记录有效判定：至少有一项可展示信息，且决定合法（历史空数据行不渲染）
-    hasPermInfo(m) {
-      const decided = ['allow', 'allow_session', 'allow_always', 'deny'].indexOf(m.decided) >= 0
-      return decided && !!(m.surface || m.command || m.path || m.value)
-    }
+  // 所属会话 id（透传给气泡内深度研究进度卡片：历史回放拉取运行状态）
+  sessionId: {
+    type: String,
+    default: ''
   }
+})
+
+const emit = defineEmits(['branch', 'feedback', 'edit-resend', 'switch-branch', 'answer', 'content-resize'])
+
+const inst = getCurrentInstance()
+
+// 内容尺寸监听实例（mounted 创建 / beforeUnmount 断开）
+let ro = null
+
+onMounted(() => {
+  // 内容尺寸监听：思考区/工具详情的折叠展开只改组件内部状态（不经 store 数据驱动），
+  // 页面层的贴底跟滚 watch 捕捉不到，收起后末尾内容（任务清单）会脱离输入框；
+  // 观察列表根元素尺寸变化上抛，由页面在贴底语义下补偿滚动
+  if (typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver(() => emit('content-resize'))
+    ro.observe(inst.proxy.$el)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (ro) ro.disconnect()
+})
+
+// 权限记录有效判定：至少有一项可展示信息，且决定合法（历史空数据行不渲染）
+function hasPermInfo(m) {
+  const decided = ['allow', 'allow_session', 'allow_always', 'deny'].indexOf(m.decided) >= 0
+  return decided && !!(m.surface || m.command || m.path || m.value)
 }
 </script>
 

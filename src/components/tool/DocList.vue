@@ -37,35 +37,36 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
+import { useFeedback } from '@/composables/useFeedback'
+
 // 速查类工具共享组件：搜索 + 表格渲染
 // rows: [{ col1: v, col2: v, ... }]
 // columns: [{ key, title, mono?, copy?, tag? }]
-export default {
-  name: 'DocList',
-  props: {
-    rows: { type: Array, required: true },
-    columns: { type: Array, required: true }
-  },
-  data() {
-    return { keyword: '' }
-  },
-  computed: {
-    filtered() {
-      const k = this.keyword.trim().toLowerCase()
-      if (!k) return this.rows
-      return this.rows.filter(r =>
-        this.columns.some(c => String(r[c.key] ?? '').toLowerCase().includes(k))
-      )
-    }
-  },
-  methods: {
-    copyCell(v) {
-      navigator.clipboard.writeText(String(v)).then(() => {
-        this.$message({ message: `已复制：${v}`, type: 'success', duration: 1200 })
-      })
-    }
-  }
+defineOptions({ name: 'DocList' })
+
+const props = defineProps({
+  rows: { type: Array, required: true },
+  columns: { type: Array, required: true }
+})
+
+const { message } = useFeedback()
+
+const keyword = ref('')
+
+const filtered = computed(() => {
+  const k = keyword.value.trim().toLowerCase()
+  if (!k) return props.rows
+  return props.rows.filter(r =>
+    props.columns.some(c => String(r[c.key] ?? '').toLowerCase().includes(k))
+  )
+})
+
+function copyCell(v) {
+  navigator.clipboard.writeText(String(v)).then(() => {
+    message({ message: `已复制：${v}`, type: 'success', duration: 1200 })
+  })
 }
 </script>
 

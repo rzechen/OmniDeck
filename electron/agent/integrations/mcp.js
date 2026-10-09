@@ -5,6 +5,7 @@
 // 本模块职责：预置配置初始化 / UI 视图列表 / 校验保存（支持凭证注入）/ 旧适配器清理。
 const path = require('path')
 const fs = require('fs')
+const { spawn } = require('child_process')
 const credentials = require('./credentials')
 const runtime = require('../platform/runtime')
 
@@ -91,6 +92,54 @@ function builtinServers() {
   }
 }
 
+// ===== 泄漏 MCP server 子进程清理 =====
+// pi SDK 的 session.dispose() 是纯同步清理、不发射 session_shutdown，而 MCP
+// stdio 子进程唯一的关闭路径在扩展的 shutdown handler 内——会话销毁后
+// playwright MCP server（npm exec + node）残留，持续占用 playwright-profile
+// 的 SingletonLock，阻塞登录向导与 skill 自带 playwright 脚本启动。
+// 本函数按「内置服务独有命令行特征」精准清理：命令行同时含 @playwright/mcp
+// 与本 agentDir 的 playwright-profile 路径（skill 脚本进程、其它应用的 MCP
+// 均不匹配，不会误杀）。仅可在「无活动会话」时调用：有并发会话时无法区分
+// 残留进程归属（每会话各自 spawn MCP 子进程）。
+function cleanupLeakedServers() {
+  const profileDir = path.join(agentDir, 'playwright-profile')
+  return new Promise(resolve => {
+    if (process.platform === 'win32') {
+      try {
+        const wmic = spawn('wmic', ['process', 'where',
+          'CommandLine like "%@playwright/mcp%" and CommandLine like "%' + profileDir + '"',
+          'get', 'ProcessId'], { stdio: ['ignore', 'pipe', 'ignore'] })
+        let out = ''
+        wmic.stdout.on('data', d => { out += d })
+        wmic.on('error', () => resolve())
+        wmic.on('close', () => {
+          out.split(/\r?\n/).map(s => s.trim()).filter(s => /^\d+$/.test(s)).forEach(pid => {
+            try { spawn('taskkill', ['/PID', pid, '/F', '/T'], { stdio: 'ignore' }) } catch (e) { /* 已退出 */ }
+          })
+          resolve()
+        })
+      } catch (e) { resolve() }
+      return
+    }
+    try {
+      const esc = profileDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const pgrep = spawn('pgrep', ['-f', '@playwright/mcp.*' + esc],
+        { stdio: ['ignore', 'pipe', 'ignore'] })
+      let out = ''
+      pgrep.stdout.on('data', d => { out += d })
+      pgrep.on('error', () => resolve())
+      pgrep.on('close', () => {
+        const pids = out.split('\n').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+        pids.forEach(pid => {
+          try { process.kill(Number(pid), 'SIGTERM') } catch (e) { /* 已退出 */ }
+        })
+        console.log('[omnibuddy:mcp] 已清理泄漏 MCP server 子进程 x' + pids.length)
+        resolve()
+      })
+    } catch (e) { resolve() }
+  })
+}
+
 function mcpFile() {
   return path.join(agentDir, 'mcp.json')
 }
@@ -156,6 +205,9 @@ function init(dir) {
   try {
     require('electron').__host.on('browser-ua-updated', () => refreshBuiltinEntry())
   } catch (e) { /* __host 仅 utilityProcess 子进程存在，其他环境忽略 */ }
+  // 启动时清理上次退出/崩溃泄漏的 MCP server 子进程（此时无活动会话，安全；
+  // 详见 cleanupLeakedServers 注释）
+  cleanupLeakedServers()
 }
 
 // 内置服务条目按当前运行时刷新 mcp.json（幂等）：init 启动校正专用——
@@ -310,5 +362,7 @@ module.exports = {
   // 内置服务清单（能力中心用）
   builtinList,
   // 校验并全量保存（含凭证注入）
-  save
+  save,
+  // 清理泄漏的内置 MCP server 子进程（仅无活动会话时调用）
+  cleanupLeakedServers
 }

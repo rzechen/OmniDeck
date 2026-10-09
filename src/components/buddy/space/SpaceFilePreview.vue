@@ -1,7 +1,7 @@
 <template>
   <!-- 空间页文件预览 / 编辑弹窗（CodeMirror 高亮） -->
   <transition name="sp-modal">
-    <div v-if="file.visible" class="sp-overlay" @click.self="$emit('close')">
+    <div v-if="file.visible" class="sp-overlay" @click.self="emit('close')">
       <div class="sp-dialog">
         <header class="sp-dialog-head">
           <div class="sp-dialog-title">
@@ -10,49 +10,44 @@
             <span class="sp-dialog-meta">{{ formatSize(file.size) }} · {{ formatTime(file.mtime) }}</span>
           </div>
           <div class="sp-dialog-acts">
-            <el-button size="small" round @click="$emit('reveal')">
+            <el-button size="small" round @click="emit('reveal')">
               <svg-icon icon-class="monitor" class="sp-btn-svg" />访达
             </el-button>
-            <el-button size="small" round type="primary" :disabled="file.saving" @click="$emit('save')">
+            <el-button size="small" round type="primary" :disabled="file.saving" @click="emit('save')">
               <svg-icon v-if="file.saving" icon-class="loading" class="sp-btn-svg sp-btn-saving" />
               <svg-icon v-else icon-class="check" class="sp-btn-svg" />保存
             </el-button>
-            <svg-icon icon-class="close" class="sp-dialog-close" @click="$emit('close')" />
+            <svg-icon icon-class="close" class="sp-dialog-close" @click="emit('close')" />
           </div>
         </header>
         <div class="sp-dialog-body">
-          <code-editor :model-value="file.content" :mode="mode" :fold="false" @update:model-value="$emit('update:content', $event)" />
+          <code-editor :model-value="file.content" :mode="mode" :fold="false" @update:model-value="emit('update:content', $event)" />
         </div>
       </div>
     </div>
   </transition>
 </template>
 
-<script>
+<script setup>
 // 空间页文件预览 / 编辑弹窗
+import { computed } from 'vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import { fileIcon, modeOf, formatSize, formatTime } from '@/utils/ui/file-meta'
 
-export default {
-  name: 'SpaceFilePreview',
-  components: { CodeEditor },
-  props: {
-    // 预览状态对象 { visible, name, content, size, mtime, saving }
-    file: {
-      type: Object,
-      required: true
-    }
-  },
-  computed: {
-    icon() {
-      return fileIcon(this.file.name)
-    },
-    mode() {
-      return modeOf(this.file.name)
-    }
-  },
-  methods: { formatSize, formatTime }
-}
+defineOptions({ name: 'SpaceFilePreview' })
+
+const props = defineProps({
+  // 预览状态对象 { visible, name, content, size, mtime, saving }
+  file: {
+    type: Object,
+    required: true
+  }
+})
+
+const emit = defineEmits(['update:content', 'save', 'close', 'reveal'])
+
+const icon = computed(() => fileIcon(props.file.name))
+const mode = computed(() => modeOf(props.file.name))
 </script>
 
 <style lang="scss" scoped>

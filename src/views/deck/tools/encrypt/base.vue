@@ -89,100 +89,101 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, nextTick } from 'vue'
 import Base32 from 'hi-base32'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'EncryptBase' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/encrypt/base'
 
-export default {
-  name: 'EncryptBase',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      baseType: 'base64',
-      inputText: 'Hello OmniDeck 你好，世界',
-      outputText: '',
-      errorMsg: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  methods: {
-    encode() {
-      this.errorMsg = ''
-      if (!this.inputText) return
-      const before = this.inputText
-      if (this.baseType === 'base64') {
-        // encodeURIComponent → unescape 兼容中文到 Latin1 范围
-        this.outputText = btoa(unescape(encodeURIComponent(this.inputText)))
-      } else {
-        this.outputText = Base32.encode(new TextEncoder().encode(this.inputText))
-      }
-      record(TOOL_PATH, {
-        input: before,
-        output: this.outputText,
-        options: { action: 'encode', base: this.baseType }
-      })
-    },
-    decode() {
-      this.errorMsg = ''
-      if (!this.inputText) return
-      const before = this.inputText
-      try {
-        if (this.baseType === 'base64') {
-          this.outputText = decodeURIComponent(escape(atob(this.inputText.trim())))
-        } else {
-          const bytes = Base32.decode.asBytes(this.inputText.trim())
-          this.outputText = new TextDecoder().decode(new Uint8Array(bytes))
-        }
-        record(TOOL_PATH, {
-          input: before,
-          output: this.outputText,
-          options: { action: 'decode', base: this.baseType }
-        })
-      } catch (e) {
-        this.errorMsg = `解码失败：不是合法的 ${this.baseType.toUpperCase()} 字符串`
-        this.outputText = ''
-      }
-    },
-    copyOutput() {
-      if (!this.outputText) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.outputText).then(() => {
-        this.$message.success('复制成功')
-        record(TOOL_PATH, {
-          input: this.inputText,
-          output: this.outputText,
-          options: { action: 'copy', base: this.baseType }
-        })
-      })
-    },
-    // 从历史恢复：回填输入（含编码类型）
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      if (full.options && full.options.base) this.baseType = full.options.base
-      this.inputText = full.input || ''
-      this.outputText = full.output || ''
-      this.errorMsg = ''
-      this.$nextTick(() => this.$refs.inputEditor && this.$refs.inputEditor.focus())
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.inputText = ''
-      this.outputText = ''
-      this.$refs.inputEditor.focus()
-    }
+const baseType = ref('base64')
+const inputText = ref('Hello OmniDeck 你好，世界')
+const outputText = ref('')
+const errorMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+function encode() {
+  errorMsg.value = ''
+  if (!inputText.value) return
+  const before = inputText.value
+  if (baseType.value === 'base64') {
+    // encodeURIComponent → unescape 兼容中文到 Latin1 范围
+    outputText.value = btoa(unescape(encodeURIComponent(inputText.value)))
+  } else {
+    outputText.value = Base32.encode(new TextEncoder().encode(inputText.value))
   }
+  record(TOOL_PATH, {
+    input: before,
+    output: outputText.value,
+    options: { action: 'encode', base: baseType.value }
+  })
+}
+
+function decode() {
+  errorMsg.value = ''
+  if (!inputText.value) return
+  const before = inputText.value
+  try {
+    if (baseType.value === 'base64') {
+      outputText.value = decodeURIComponent(escape(atob(inputText.value.trim())))
+    } else {
+      const bytes = Base32.decode.asBytes(inputText.value.trim())
+      outputText.value = new TextDecoder().decode(new Uint8Array(bytes))
+    }
+    record(TOOL_PATH, {
+      input: before,
+      output: outputText.value,
+      options: { action: 'decode', base: baseType.value }
+    })
+  } catch (e) {
+    errorMsg.value = `解码失败：不是合法的 ${baseType.value.toUpperCase()} 字符串`
+    outputText.value = ''
+  }
+}
+
+function copyOutput() {
+  if (!outputText.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(outputText.value).then(() => {
+    message.success('复制成功')
+    record(TOOL_PATH, {
+      input: inputText.value,
+      output: outputText.value,
+      options: { action: 'copy', base: baseType.value }
+    })
+  })
+}
+
+// 从历史恢复：回填输入（含编码类型）
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  if (full.options && full.options.base) baseType.value = full.options.base
+  inputText.value = full.input || ''
+  outputText.value = full.output || ''
+  errorMsg.value = ''
+  await nextTick()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  inputText.value = ''
+  outputText.value = ''
+  inputEditor.value.focus()
 }
 </script>

@@ -14,7 +14,7 @@ const workflows = require('../integrations/workflows')
 const piRuntime = require('../pi')
 const { emit, running, automationTurnErrors, automationHeartbeats,
   isAwaitingUser, AUTOMATION_STALL_TIMEOUT_MS, AUTOMATION_TOOL_STALL_TIMEOUT_MS,
-  AUTOMATION_LONG_TOOLS } = require('../core/chat-state')
+  AUTOMATION_LONG_TOOLS, markHeadlessRun, unmarkHeadlessRun, takeDeniedOps } = require('../core/chat-state')
 const { writeExitSummary } = require('../core/direct-llm')
 
 // 创建自动化执行体（getWindow 由 index.js 注册时注入）
@@ -55,16 +55,21 @@ function createAutomation({ getWindow, handlePiEvent }) {
         sessionId: chatId || ''
       })
       // 通知中心投递（task.notify=false 时跳过系统通知，其余启用渠道照常）
+      const deniedNote = (result.deniedOps && result.deniedOps.length)
+        ? '；无头策略已拦截写操作 ' + result.deniedOps.length + ' 项（详情见运行历史）'
+        : ''
       notify.dispatch(result.ok ? 'task.completed' : 'task.failed', {
         title: result.ok ? '定时任务已完成' : '定时任务失败',
         body: result.ok
-          ? '「' + task.name + '」执行完成，点击查看结果'
-          : '「' + task.name + '」执行失败：' + (result.error || '未知错误'),
+          ? '「' + task.name + '」执行完成，点击查看结果' + deniedNote
+          : '「' + task.name + '」执行失败：' + (result.error || '未知错误') + deniedNote,
         ok: !!result.ok,
         silentSystem: task.notify === false,
         click: () => {
-          // 预检失败无会话可跳转
+          // 预检失败无会话可跳转；会话可能已被用户删除（幽灵引用）——
+          // 跳转前校验存在性，避免 nav:goto 落到不存在的会话
           if (!chatId) return
+          if (!sessions.readMeta(chatId)) return
           // 复用 quick-panel 的 nav:goto 机制（App.vue 监听跳转）：聚焦 + 直达会话
           const win = getWindow()
           if (win && !win.isDestroyed()) {
@@ -111,9 +116,17 @@ function createAutomation({ getWindow, handlePiEvent }) {
       '',
       task.prompt,
       '',
-      '请自动完成上述任务：优先使用联网搜索等只读工具收集信息，独立完成全部步骤，最终以回复正文交付完整结果；' +
-        '写入文件等操作需要授权且可能无人及时应答，请仅在必要时使用。'
+      reason === 'schedule'
+        ? '请自动完成上述任务：本次为无人值守的定时执行——优先使用联网搜索等只读工具收集信息，独立完成全部步骤，最终以回复正文交付完整结果；' +
+          '提问不会得到用户应答（将自动按保守规则决策），写类操作（写文件、有副作用的命令等）会被权限策略默认拒绝，请优先采用只读方案，被拒操作在最终汇报中如实说明。'
+        : '请自动完成上述任务：优先使用联网搜索等只读工具收集信息，独立完成全部步骤，最终以回复正文交付完整结果；' +
+          '写入文件等操作需要授权且可能无人及时应答，请仅在必要时使用。'
     ].join('\n')
+
+    // 无头策略标记：仅计划触发（schedule）标记——无头运行中 ask_user / 权限确认
+    // 不进前端等待管线（无人应答即永久挂起），由 pi-events 无头短路自动决策；
+    // 手动「立即运行」通常有用户在场，保留前端交互链路
+    if (reason === 'schedule') markHeadlessRun(chatId)
 
     // 落盘用户消息（重开会话可见完整请求）+ 广播任务开始
     const { record } = sessions.addMessage(chatId, { role: 'user', content: promptText })
@@ -245,6 +258,11 @@ function createAutomation({ getWindow, handlePiEvent }) {
     running.delete(chatId)
     automationTurnErrors.delete(chatId)
     automationHeartbeats.delete(chatId)
+    // 无头标记与被拒操作收割：deniedOps 随 result 带出（写入运行历史 +
+    // 通知提示），用户据此决定是否在权限管理为对应面预配置允许
+    unmarkHeadlessRun(chatId)
+    const deniedOps = takeDeniedOps(chatId)
+    if (deniedOps.length) result.deniedOps = deniedOps
 
     // 结束：广播（自动化页/侧栏刷新）+ 原生通知 + dock 角标
     return finish(result, chatId)

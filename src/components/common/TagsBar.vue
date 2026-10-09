@@ -1,11 +1,11 @@
 <template>
-  <div v-if="tabs.length" class="tags-bar">
+  <div v-if="tabs.length" ref="root" class="tags-bar">
     <div class="tags-scroll">
       <div
         v-for="tab in tabs"
         :key="tab.uid"
         class="tags-item"
-        :class="{ active: tab.fullPath === $route.fullPath }"
+        :class="{ active: tab.fullPath === route.fullPath }"
         :title="tab.title"
         @click="go(tab)"
         @auxclick="onAuxClick($event, tab)"
@@ -66,7 +66,10 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 import {
   homeItem,
   favoriteItem,
@@ -112,204 +115,216 @@ const buddyIconMap = {
 // 菜单多页签栏：点击菜单/卡片打开的页面登记为页签（登记逻辑在 router.afterEach）
 // 点击页签切换、×/中键关闭；关闭当前页签时跳相邻页签（优先右侧），
 // 全部关完回本侧首页（首页会作为新页签重新登记）
-export default {
-  name: 'TagsBar',
-  props: {
-    // 页签归属侧：'deck'（Layout）/ 'buddy'（BuddyLayout）
-    side: { type: String, required: true }
-  },
-  data() {
-    return {
-      // 右键菜单：visible/x/y 定位，tab/idx 为右键目标页签
-      ctx: { visible: false, x: 0, y: 0, tab: null, idx: -1 }
-    }
-  },
-  computed: {
-    tabs() {
-      return (this.$store.state.tagsView && this.$store.state.tagsView[this.side]) || []
-    }
-  },
-  watch: {
-    // 切换页签后把激活项滚动进可视区（页签过多溢出时）
-    '$route.fullPath'() {
-      this.$nextTick(this.scrollActiveIntoView)
-    }
-  },
-  mounted() {
-    this.scrollActiveIntoView()
-    // 全局点击 / Esc 关闭右键菜单
-    document.addEventListener('mousedown', this.onDocMouseDown)
-    document.addEventListener('keydown', this.onCtxKeydown)
-  },
-  beforeUnmount() {
-    document.removeEventListener('mousedown', this.onDocMouseDown)
-    document.removeEventListener('keydown', this.onCtxKeydown)
-  },
-  methods: {
-    // 页签图标：先精确匹配路径，带参路由（如 /finance/fund/:code）逐级回退父路径
-    iconFor(tab) {
-      const map = this.side === 'buddy' ? buddyIconMap : deckIconMap
-      if (map[tab.path]) return map[tab.path]
-      if (this.side === 'deck') {
-        const segs = tab.path.split('/')
-        for (let i = segs.length - 1; i > 1; i--) {
-          const p = segs.slice(0, i).join('/')
-          if (map[p]) return map[p]
-        }
-      }
-      return ''
-    },
-    go(tab) {
-      if (this.$route.fullPath !== tab.fullPath) {
-        this.$router.push(tab.fullPath).catch(() => {})
-      }
-    },
-    // 中键关闭页签（浏览器页签习惯）
-    onAuxClick(e, tab) {
-      if (e.button === 1) this.close(tab)
-    },
-    // ===== 右键菜单 =====
-    openCtx(e, tab) {
-      // 视口边缘收敛（菜单宽约 170、高约 200）
-      const x = Math.min(e.clientX, window.innerWidth - 185)
-      const y = Math.min(e.clientY, window.innerHeight - 210)
-      this.ctx = { visible: true, x, y, tab, idx: this.tabs.findIndex(t => t.fullPath === tab.fullPath) }
-    },
-    closeCtx() {
-      this.ctx.visible = false
-      this.ctx.tab = null
-      this.ctx.idx = -1
-    },
-    onDocMouseDown(e) {
-      if (this.ctx.visible && !e.target.closest('.tags-ctx')) this.closeCtx()
-    },
-    onCtxKeydown(e) {
-      if (e.key === 'Escape' && this.ctx.visible) this.closeCtx()
-    },
-    // 右键菜单动作：close 单关 / others·left·right 批量关 / all 全关
-    ctxAction(action, tab) {
-      this.closeCtx()
-      if (!tab) return
-      const home = this.side === 'buddy' ? '/omnibuddy' : '/home'
-      if (action === 'close') {
-        this.close(tab)
-        return
-      }
-      if (action === 'others' || action === 'left' || action === 'right') {
-        // 关闭集之外的保留集：others 仅留目标；left 留目标及其右侧；right 留目标及其左侧
-        const i = this.idxOf(tab)
-        const keep = this.tabs
-          .filter((t, j) => (action === 'others' ? j === i : action === 'left' ? j >= i : j <= i))
-          .map(t => t.fullPath)
-        const doClose = () => {
-          if (action === 'others') {
-            this.$store.commit('tagsView/CLOSE_OTHERS', { side: this.side, keepFullPath: tab.fullPath })
-          } else {
-            this.$store.commit('tagsView/CLOSE_SIDE', { side: this.side, fullPath: tab.fullPath, dir: action })
-          }
-        }
-        // 当前路由不在保留集内：先导航到目标页签，完成后再批量关（与 close 同理，
-        // 避免「已删但路由未变」的 keyOf 退化抖动）
-        if (!keep.includes(this.$route.fullPath)) {
-          this.$router.push(tab.fullPath).then(doClose).catch(doClose)
-        } else {
-          doClose()
-        }
-        return
-      }
-      if (action === 'all') {
-        const doCloseAll = () => {
-          this.$store.commit('tagsView/CLOSE_ALL', { side: this.side })
-          // 导航去重（已在首页）时 afterEach 不触发，手动补登记
-          if (this.$route.fullPath === home) {
-            this.$store.commit('tagsView/ADD_TAB', {
-              side: this.side,
-              path: home,
-              fullPath: home,
-              title: this.side === 'buddy' ? '新任务' : '首页'
-            })
-          }
-        }
-        // 先回首页再清空，避免清空后当前路由无页签的 keyOf 退化抖动
-        if (this.$route.fullPath !== home) {
-          this.$router.push(home).then(doCloseAll).catch(doCloseAll)
-        } else {
-          doCloseAll()
-        }
-      }
-    },
-    idxOf(tab) {
-      return this.tabs.findIndex(t => t.fullPath === tab.fullPath)
-    },
-    close(tab) {
-      const tabs = this.tabs
-      const idx = tabs.findIndex(t => t.fullPath === tab.fullPath)
-      // 关闭非当前页签：无路由变化，直接删
-      if (this.$route.fullPath !== tab.fullPath) {
-        this.$store.commit('tagsView/DEL_TAB', { side: this.side, fullPath: tab.fullPath })
-        return
-      }
-      // 关闭的是当前页签：先跳相邻（优先右侧，其次左侧），导航完成后再删。
-      // 若先删后跳，中间态里当前路由已无页签，keyOf 会退化成 fullPath，
-      // 造成 router-view 的 :key 抖动（瞬态卸载/重挂），快速连点时崩溃
-      const next = tabs[idx + 1] || tabs[idx - 1]
-      const home = this.side === 'buddy' ? '/omnibuddy' : '/home'
-      const doDel = () => {
-        this.$store.commit('tagsView/DEL_TAB', { side: this.side, fullPath: tab.fullPath })
-      }
-      this.$router.push(next ? next.fullPath : home).then(doDel).catch(doDel)
-    },
-    // 更多操作：关闭其它（保留当前）/ 关闭全部（回本侧首页）
-    onMoreCommand(cmd) {
-      const home = this.side === 'buddy' ? '/omnibuddy' : '/home'
-      if (cmd === 'others') {
-        this.$store.commit('tagsView/CLOSE_OTHERS', { side: this.side, keepFullPath: this.$route.fullPath })
-      } else if (cmd === 'all') {
-        // 先回首页再清空，避免清空后当前路由无页签的 keyOf 退化抖动（同 ctxAction('all')）
-        const doCloseAll = () => {
-          this.$store.commit('tagsView/CLOSE_ALL', { side: this.side })
-          // 导航去重（已在首页）时 afterEach 不触发，手动补登记
-          if (this.$route.fullPath === home) {
-            this.$store.commit('tagsView/ADD_TAB', {
-              side: this.side,
-              path: home,
-              fullPath: home,
-              title: this.side === 'buddy' ? '新任务' : '首页'
-            })
-          }
-        }
-        if (this.$route.fullPath !== home) {
-          this.$router.push(home).then(doCloseAll).catch(doCloseAll)
-        } else {
-          doCloseAll()
-        }
-      }
-    },
-    scrollActiveIntoView() {
-      // 根节点 v-if 为假时 $el 是注释节点（无 querySelector），需先判空
-      if (!this.$el || !this.$el.querySelector) return
-      const el = this.$el.querySelector('.tags-item.active')
-      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    },
-    // ===== 页签标题 hover 滚动（超长省略号时从右向左滚完展示，与侧栏任务列表同款） =====
-    onTabEnter(e) {
-      const wrap = e.currentTarget.querySelector('.tags-label')
-      const inner = wrap && wrap.firstElementChild
-      if (!wrap || !inner) return
-      const diff = inner.scrollWidth - wrap.clientWidth
-      wrap.classList.remove('scrolling')
-      if (diff > 4) {
-        // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
-        wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
-        void wrap.offsetWidth // 强制 reflow 以重启动画
-        wrap.classList.add('scrolling')
-      }
-    },
-    onTabLeave(e) {
-      const wrap = e.currentTarget.querySelector('.tags-label')
-      if (wrap) wrap.classList.remove('scrolling')
+defineOptions({ name: 'TagsBar' })
+
+const props = defineProps({
+  // 页签归属侧：'deck'（Layout）/ 'buddy'（BuddyLayout）
+  side: { type: String, required: true }
+})
+
+const route = useRoute()
+const router = useRouter()
+const store = useStore()
+
+const root = ref(null)
+// 右键菜单：visible/x/y 定位，tab/idx 为右键目标页签
+const ctx = reactive({ visible: false, x: 0, y: 0, tab: null, idx: -1 })
+
+const tabs = computed(() => (store.state.tagsView && store.state.tagsView[props.side]) || [])
+
+// 切换页签后把激活项滚动进可视区（页签过多溢出时）
+watch(() => route.fullPath, () => {
+  nextTick(scrollActiveIntoView)
+})
+
+onMounted(() => {
+  scrollActiveIntoView()
+  // 全局点击 / Esc 关闭右键菜单
+  document.addEventListener('mousedown', onDocMouseDown)
+  document.addEventListener('keydown', onCtxKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocMouseDown)
+  document.removeEventListener('keydown', onCtxKeydown)
+})
+
+// 页签图标：先精确匹配路径，带参路由（如 /finance/fund/:code）逐级回退父路径
+function iconFor(tab) {
+  const map = props.side === 'buddy' ? buddyIconMap : deckIconMap
+  if (map[tab.path]) return map[tab.path]
+  if (props.side === 'deck') {
+    const segs = tab.path.split('/')
+    for (let i = segs.length - 1; i > 1; i--) {
+      const p = segs.slice(0, i).join('/')
+      if (map[p]) return map[p]
     }
   }
+  return ''
+}
+
+function go(tab) {
+  if (route.fullPath !== tab.fullPath) {
+    router.push(tab.fullPath).catch(() => {})
+  }
+}
+
+// 中键关闭页签（浏览器页签习惯）
+function onAuxClick(e, tab) {
+  if (e.button === 1) close(tab)
+}
+
+// ===== 右键菜单 =====
+function openCtx(e, tab) {
+  // 视口边缘收敛（菜单宽约 170、高约 200）
+  const x = Math.min(e.clientX, window.innerWidth - 185)
+  const y = Math.min(e.clientY, window.innerHeight - 210)
+  Object.assign(ctx, { visible: true, x, y, tab, idx: tabs.value.findIndex(t => t.fullPath === tab.fullPath) })
+}
+
+function closeCtx() {
+  ctx.visible = false
+  ctx.tab = null
+  ctx.idx = -1
+}
+
+function onDocMouseDown(e) {
+  if (ctx.visible && !e.target.closest('.tags-ctx')) closeCtx()
+}
+
+function onCtxKeydown(e) {
+  if (e.key === 'Escape' && ctx.visible) closeCtx()
+}
+
+// 右键菜单动作：close 单关 / others·left·right 批量关 / all 全关
+function ctxAction(action, tab) {
+  closeCtx()
+  if (!tab) return
+  const home = props.side === 'buddy' ? '/omnibuddy' : '/home'
+  if (action === 'close') {
+    close(tab)
+    return
+  }
+  if (action === 'others' || action === 'left' || action === 'right') {
+    // 关闭集之外的保留集：others 仅留目标；left 留目标及其右侧；right 留目标及其左侧
+    const i = idxOf(tab)
+    const keep = tabs.value
+      .filter((t, j) => (action === 'others' ? j === i : action === 'left' ? j >= i : j <= i))
+      .map(t => t.fullPath)
+    const doClose = () => {
+      if (action === 'others') {
+        store.commit('tagsView/CLOSE_OTHERS', { side: props.side, keepFullPath: tab.fullPath })
+      } else {
+        store.commit('tagsView/CLOSE_SIDE', { side: props.side, fullPath: tab.fullPath, dir: action })
+      }
+    }
+    // 当前路由不在保留集内：先导航到目标页签，完成后再批量关（与 close 同理，
+    // 避免「已删但路由未变」的 keyOf 退化抖动）
+    if (!keep.includes(route.fullPath)) {
+      router.push(tab.fullPath).then(doClose).catch(doClose)
+    } else {
+      doClose()
+    }
+    return
+  }
+  if (action === 'all') {
+    const doCloseAll = () => {
+      store.commit('tagsView/CLOSE_ALL', { side: props.side })
+      // 导航去重（已在首页）时 afterEach 不触发，手动补登记
+      if (route.fullPath === home) {
+        store.commit('tagsView/ADD_TAB', {
+          side: props.side,
+          path: home,
+          fullPath: home,
+          title: props.side === 'buddy' ? '新任务' : '首页'
+        })
+      }
+    }
+    // 先回首页再清空，避免清空后当前路由无页签的 keyOf 退化抖动
+    if (route.fullPath !== home) {
+      router.push(home).then(doCloseAll).catch(doCloseAll)
+    } else {
+      doCloseAll()
+    }
+  }
+}
+
+function idxOf(tab) {
+  return tabs.value.findIndex(t => t.fullPath === tab.fullPath)
+}
+
+function close(tab) {
+  const list = tabs.value
+  const idx = list.findIndex(t => t.fullPath === tab.fullPath)
+  // 关闭非当前页签：无路由变化，直接删
+  if (route.fullPath !== tab.fullPath) {
+    store.commit('tagsView/DEL_TAB', { side: props.side, fullPath: tab.fullPath })
+    return
+  }
+  // 关闭的是当前页签：先跳相邻（优先右侧，其次左侧），导航完成后再删。
+  // 若先删后跳，中间态里当前路由已无页签，keyOf 会退化成 fullPath，
+  // 造成 router-view 的 :key 抖动（瞬态卸载/重挂），快速连点时崩溃
+  const next = list[idx + 1] || list[idx - 1]
+  const home = props.side === 'buddy' ? '/omnibuddy' : '/home'
+  const doDel = () => {
+    store.commit('tagsView/DEL_TAB', { side: props.side, fullPath: tab.fullPath })
+  }
+  router.push(next ? next.fullPath : home).then(doDel).catch(doDel)
+}
+
+// 更多操作：关闭其它（保留当前）/ 关闭全部（回本侧首页）
+function onMoreCommand(cmd) {
+  const home = props.side === 'buddy' ? '/omnibuddy' : '/home'
+  if (cmd === 'others') {
+    store.commit('tagsView/CLOSE_OTHERS', { side: props.side, keepFullPath: route.fullPath })
+  } else if (cmd === 'all') {
+    // 先回首页再清空，避免清空后当前路由无页签的 keyOf 退化抖动（同 ctxAction('all')）
+    const doCloseAll = () => {
+      store.commit('tagsView/CLOSE_ALL', { side: props.side })
+      // 导航去重（已在首页）时 afterEach 不触发，手动补登记
+      if (route.fullPath === home) {
+        store.commit('tagsView/ADD_TAB', {
+          side: props.side,
+          path: home,
+          fullPath: home,
+          title: props.side === 'buddy' ? '新任务' : '首页'
+        })
+      }
+    }
+    if (route.fullPath !== home) {
+      router.push(home).then(doCloseAll).catch(doCloseAll)
+    } else {
+      doCloseAll()
+    }
+  }
+}
+
+function scrollActiveIntoView() {
+  // 根节点 v-if 为假时是注释节点（无 querySelector），需先判空
+  const el = root.value
+  if (!el || !el.querySelector) return
+  const active = el.querySelector('.tags-item.active')
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
+
+// ===== 页签标题 hover 滚动（超长省略号时从右向左滚完展示，与侧栏任务列表同款） =====
+function onTabEnter(e) {
+  const wrap = e.currentTarget.querySelector('.tags-label')
+  const inner = wrap && wrap.firstElementChild
+  if (!wrap || !inner) return
+  const diff = inner.scrollWidth - wrap.clientWidth
+  wrap.classList.remove('scrolling')
+  if (diff > 4) {
+    // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
+    wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
+    void wrap.offsetWidth // 强制 reflow 以重启动画
+    wrap.classList.add('scrolling')
+  }
+}
+
+function onTabLeave(e) {
+  const wrap = e.currentTarget.querySelector('.tags-label')
+  if (wrap) wrap.classList.remove('scrolling')
 }
 </script>
 

@@ -69,109 +69,120 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
-import { jsonToCodeMixin } from './code-gen-mixin'
+import { useCodeGen } from './useCodeGen'
 
-export default {
-  name: 'ConvertJsonToTs',
-  // 执行历史 toolPath（mixin 的 recordHistory 读取）
-  toolPath: '/tools/convert/json-to-ts',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  mixins: [jsonToCodeMixin],
-  data() {
-    return {
-      // 面板可访问的工具 path
-      HISTORY_TOOL: '/tools/convert/json-to-ts',
-      example: `{
+defineOptions({ name: 'ConvertJsonToTs' })
+
+// 执行历史 toolPath（useCodeGen 的 recordHistory 读取）
+const TOOL_PATH = '/tools/convert/json-to-ts'
+// 面板可访问的工具 path
+const HISTORY_TOOL = TOOL_PATH
+
+const EXAMPLE = `{
   "name": "OmniDeck",
   "version": "1.0.0",
   "openSource": true,
   "stars": 128,
   "author": { "name": "ranze", "city": "Shanghai" },
   "tags": ["electron", "vue", "tools"]
-}`,
-      ext: 'ts'
-    }
-  },
-  methods: {
-    generate(obj, className) {
-      const map = new Map() // name -> { kind: 'interface'|'class', code }
-      this.genTs(obj, className, map)
-      this.classCount = map.size / 2
-      // 先全部 interface，再全部 class
-      const interfaces = []
-      const classes = []
-      for (const v of map.values()) {
-        if (v.kind === 'interface') interfaces.push(v.code)
-        else classes.push(v.code)
-      }
-      return [...interfaces, ...classes].join('\n\n')
-    },
-    genTs(obj, className, map) {
-      const toCamel = s => s.replace(/_([a-z])/g, (m, p1) => p1.toUpperCase())
-      const toPascal = s => {
-        const c = toCamel(s)
-        return c.charAt(0).toUpperCase() + c.slice(1)
-      }
-      const getType = (value, key) => {
-        if (value === null) return 'null'
-        if (Array.isArray(value)) {
-          if (!value.length) return 'any[]'
-          return `${getType(value[0], key)}[]`
-        }
-        if (typeof value === 'string') return 'string'
-        if (typeof value === 'boolean') return 'boolean'
-        if (typeof value === 'number') return 'number'
-        if (typeof value === 'object') {
-          const nested = toPascal(key)
-          this.genTs(value, nested, map)
-          return nested
-        }
-        return 'any'
-      }
-      const defaultOf = (type, val) => {
-        if (val !== null && val !== undefined) {
-          if (typeof val === 'string') return JSON.stringify(val)
-          if (typeof val === 'boolean' || typeof val === 'number') return String(val)
-          if (Array.isArray(val)) return JSON.stringify(val)
-          return 'undefined'
-        }
-        if (type.includes('string')) return '""'
-        if (type.includes('number')) return '0'
-        if (type.includes('boolean')) return 'false'
-        if (type.includes('[]')) return '[]'
-        return 'undefined'
-      }
-      const ifLines = []
-      const fields = []
-      const params = []
-      const body = []
-      Object.entries(obj).forEach(([key, val]) => {
-        const fn = toCamel(key)
-        let t = getType(val, key)
-        const nullable = val === null
-        if (nullable) t = `${t} | null`
-        const opt = nullable ? '?' : ''
-        ifLines.push(`  /** ${key} (${t}) */\n  ${fn}${opt}: ${t};`)
-        fields.push(`  ${fn}: ${t};`)
-        const dv = defaultOf(t, val)
-        params.push(nullable ? `${fn}?: ${t}` : `${fn}: ${t} = ${dv}`)
-        body.push(`    this.${fn} = ${fn} !== undefined ? ${fn} : ${dv};`)
-      })
-      map.set(className, {
-        kind: 'interface',
-        code: `export interface I${className} {\n${ifLines.join('\n')}\n}`
-      })
-      map.set(className + ':c', {
-        kind: 'class',
-        code: `export class ${className} implements I${className} {\n${fields.join('\n')}\n\n  constructor(${params.join(', ')}) {\n${body.join('\n')}\n  }\n}`
-      })
-    }
+}`
+
+function genTs(obj, className, map) {
+  const toCamel = s => s.replace(/_([a-z])/g, (m, p1) => p1.toUpperCase())
+  const toPascal = s => {
+    const c = toCamel(s)
+    return c.charAt(0).toUpperCase() + c.slice(1)
   }
+  const getType = (value, key) => {
+    if (value === null) return 'null'
+    if (Array.isArray(value)) {
+      if (!value.length) return 'any[]'
+      return `${getType(value[0], key)}[]`
+    }
+    if (typeof value === 'string') return 'string'
+    if (typeof value === 'boolean') return 'boolean'
+    if (typeof value === 'number') return 'number'
+    if (typeof value === 'object') {
+      const nested = toPascal(key)
+      genTs(value, nested, map)
+      return nested
+    }
+    return 'any'
+  }
+  const defaultOf = (type, val) => {
+    if (val !== null && val !== undefined) {
+      if (typeof val === 'string') return JSON.stringify(val)
+      if (typeof val === 'boolean' || typeof val === 'number') return String(val)
+      if (Array.isArray(val)) return JSON.stringify(val)
+      return 'undefined'
+    }
+    if (type.includes('string')) return '""'
+    if (type.includes('number')) return '0'
+    if (type.includes('boolean')) return 'false'
+    if (type.includes('[]')) return '[]'
+    return 'undefined'
+  }
+  const ifLines = []
+  const fields = []
+  const params = []
+  const body = []
+  Object.entries(obj).forEach(([key, val]) => {
+    const fn = toCamel(key)
+    let t = getType(val, key)
+    const nullable = val === null
+    if (nullable) t = `${t} | null`
+    const opt = nullable ? '?' : ''
+    ifLines.push(`  /** ${key} (${t}) */\n  ${fn}${opt}: ${t};`)
+    fields.push(`  ${fn}: ${t};`)
+    const dv = defaultOf(t, val)
+    params.push(nullable ? `${fn}?: ${t}` : `${fn}: ${t} = ${dv}`)
+    body.push(`    this.${fn} = ${fn} !== undefined ? ${fn} : ${dv};`)
+  })
+  map.set(className, {
+    kind: 'interface',
+    code: `export interface I${className} {\n${ifLines.join('\n')}\n}`
+  })
+  map.set(className + ':c', {
+    kind: 'class',
+    code: `export class ${className} implements I${className} {\n${fields.join('\n')}\n\n  constructor(${params.join(', ')}) {\n${body.join('\n')}\n  }\n}`
+  })
 }
+
+const {
+  jsonInput,
+  className,
+  packageName,
+  output,
+  errorMsg,
+  classCount,
+  historyVisible,
+  inputEditor,
+  copyOutput,
+  downloadOutput,
+  restoreFromHistory,
+  clearAll
+} = useCodeGen({
+  toolPath: TOOL_PATH,
+  example: EXAMPLE,
+  ext: 'ts',
+  generate(obj, className) {
+    const map = new Map() // name -> { kind: 'interface'|'class', code }
+    genTs(obj, className, map)
+    classCount.value = map.size / 2
+    // 先全部 interface，再全部 class
+    const interfaces = []
+    const classes = []
+    for (const v of map.values()) {
+      if (v.kind === 'interface') interfaces.push(v.code)
+      else classes.push(v.code)
+    }
+    return [...interfaces, ...classes].join('\n\n')
+  }
+})
 </script>
 
 <style lang="scss" scoped>

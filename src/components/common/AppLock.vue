@@ -82,309 +82,325 @@
   </transition>
 </template>
 
-<script>
-import { getItem } from '@/utils/storage/db'
-import { getShortcut, matchesShortcut } from '@/utils/ui/shortcuts'
-
+<script setup>
 // 应用锁定：全屏遮罩（触控 ID 优先 / 密码解锁）
 // 创意吉祥物：瞳孔跟随鼠标、随机眨眼、输入密码时闭眼「不看」、失败 ><
 // 自动锁定策略：闲置计时 + 窗口失活计时 + 系统锁屏联动
-export default {
-  name: 'AppLock',
-  data() {
-    return {
-      locked: false,
-      password: '',
-      showPwd: false,
-      verifying: false,
-      failedShake: false,
-      failCount: 0,
-      hasPassword: false,
-      biometricAvailable: false,
-      biometricEnabled: false,
-      autoLock: 0, // 分钟，0 = 关闭
-      // 触控 ID 优先
-      showPwdForm: false, // 触控 ID 可用时密码表单默认收起
-      bioVerifying: false,
-      autoBioTimer: null,
-      // 吉祥物眼睛
-      pupil: { x: 0, y: 0 },
-      blinking: false,
-      pwdFocused: false,
-      blinkTimer: null,
-      blinkTimer2: null,
-      noMotion: false,
-      motionObserver: null,
-      // 自动锁定计时
-      lastActive: 0,
-      blurredAt: 0,
-      timer: null,
-      offSystemLocked: null
-    }
-  },
-  computed: {
-    biometricReady() {
-      return this.biometricAvailable && this.biometricEnabled
-    },
-    // 输入密码时闭眼——「我不看」
-    eyeCovered() {
-      return this.pwdFocused || this.password.length > 0
-    },
-    mascotClass() {
-      return {
-        'is-blink': this.blinking,
-        'is-cover': this.eyeCovered,
-        'is-fail': this.failedShake,
-        'is-wait': this.bioVerifying,
-        'no-motion': this.noMotion
-      }
-    },
-    pupilStyle() {
-      // 等待触控 ID：瞳孔期待地向上看
-      if (this.bioVerifying) return { transform: 'translate(0px, -2.5px) scale(1.06)' }
-      return { transform: `translate(${this.pupil.x}px, ${this.pupil.y}px)` }
-    },
-    descText() {
-      if (this.biometricReady && !this.showPwdForm) {
-        return this.bioVerifying ? '正在等待触控 ID 验证…' : '使用触控 ID 解锁，或改用密码'
-      }
-      return '输入应用密码以解锁'
-    }
-  },
-  async mounted() {
-    const api = window.electronAPI && window.electronAPI.appLock
-    if (!api) return
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
+import { getItem } from '@/utils/storage/db'
+import { getShortcut, matchesShortcut } from '@/utils/ui/shortcuts'
 
-    // 读取设置（IndexedDB）
-    this.applySettings()
+defineOptions({ name: 'AppLock' })
 
-    this.hasPassword = await api.hasPassword()
-    this.biometricAvailable = await api.biometricSupported()
+const { message } = useFeedback()
 
-    // 已设置密码：启动即锁定
-    if (this.hasPassword) {
-      this.lock()
-    }
+const locked = ref(false)
+const password = ref('')
+const showPwd = ref(false)
+const verifying = ref(false)
+const failedShake = ref(false)
+const failCount = ref(0)
+const hasPassword = ref(false)
+const biometricAvailable = ref(false)
+const biometricEnabled = ref(false)
+const autoLock = ref(0) // 分钟，0 = 关闭
+// 触控 ID 优先
+const showPwdForm = ref(false) // 触控 ID 可用时密码表单默认收起
+const bioVerifying = ref(false)
+let autoBioTimer = null
+// 吉祥物眼睛
+const mascot = ref(null)
+const pwdInput = ref(null)
+const pupil = reactive({ x: 0, y: 0 })
+const blinking = ref(false)
+const pwdFocused = ref(false)
+let blinkTimer = null
+let blinkTimer2 = null
+const noMotion = ref(false)
+let motionObserver = null
+// 自动锁定计时
+let lastActive = 0
+let blurredAt = 0
+let timer = null
+let offSystemLocked = null
 
-    // 系统（macOS）锁屏 → 立即锁定
-    this.offSystemLocked = api.onSystemLocked(() => {
-      if (this.autoLock > 0) this.lock()
-    })
+const biometricReady = computed(() => biometricAvailable.value && biometricEnabled.value)
 
-    // 设置页改动自动锁定偏好 → 即时生效
-    this.$bus.on('app-lock:settings-changed', this.applySettings)
-    // 设置页「立即锁定」
-    this.$bus.on('app-lock:lock-now', this.lockNow)
+// 输入密码时闭眼——「我不看」
+const eyeCovered = computed(() => pwdFocused.value || password.value.length > 0)
 
-    // 眼睛：跟随鼠标 + 随机眨眼
-    window.addEventListener('mousemove', this.onEyeMove, { passive: true })
-    this.scheduleBlink()
+const mascotClass = computed(() => ({
+  'is-blink': blinking.value,
+  'is-cover': eyeCovered.value,
+  'is-fail': failedShake.value,
+  'is-wait': bioVerifying.value,
+  'no-motion': noMotion.value
+}))
 
-    // 全局快捷键：可配置（默认 ⌘O+L / Ctrl+O+L）立即锁定应用
-    window.addEventListener('keydown', this.onLockHotkey)
+const pupilStyle = computed(() => {
+  // 等待触控 ID：瞳孔期待地向上看
+  if (bioVerifying.value) return { transform: 'translate(0px, -2.5px) scale(1.06)' }
+  return { transform: `translate(${pupil.x}px, ${pupil.y}px)` }
+})
 
-    // 「减弱动态效果」开关（html.reduce-motion）实时同步
-    this.noMotion = document.documentElement.classList.contains('reduce-motion')
-    this.motionObserver = new MutationObserver(() => {
-      this.noMotion = document.documentElement.classList.contains('reduce-motion')
-    })
-    this.motionObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-  },
-  beforeUnmount() {
-    if (this.timer) clearInterval(this.timer)
-    if (this.offSystemLocked) this.offSystemLocked()
-    clearTimeout(this.autoBioTimer)
-    clearTimeout(this.blinkTimer)
-    clearTimeout(this.blinkTimer2)
-    if (this.motionObserver) this.motionObserver.disconnect()
-    window.removeEventListener('mousemove', this.onEyeMove)
-    window.removeEventListener('keydown', this.onLockHotkey)
-    this.$bus.off('app-lock:settings-changed', this.applySettings)
-    this.$bus.off('app-lock:lock-now', this.lockNow)
-    ;['mousemove', 'keydown', 'mousedown', 'wheel'].forEach(ev => {
-      window.removeEventListener(ev, this.markActive)
-    })
-    window.removeEventListener('blur', this.onBlur)
-    window.removeEventListener('focus', this.onFocus)
-  },
-  methods: {
-    // 应用最新锁定偏好（设置页改动即时生效）
-    async applySettings() {
-      const settings = getItem('appLockSettings', null) || {}
-      const autoLock = Number(settings.autoLock) || 0
-      this.biometricEnabled = !!settings.biometric
-      // 密码可能已被设置页设置/清除，同步最新状态（快捷键锁定依赖）
-      const api = window.electronAPI && window.electronAPI.appLock
-      if (api) this.hasPassword = await api.hasPassword()
-      if (autoLock !== this.autoLock) {
-        this.autoLock = autoLock
-        this.stopIdleWatch()
-        if (autoLock > 0) this.startIdleWatch()
-      }
-    },
-    stopIdleWatch() {
-      if (this.timer) {
-        clearInterval(this.timer)
-        this.timer = null
-      }
-      ;['mousemove', 'keydown', 'mousedown', 'wheel'].forEach(ev => {
-        window.removeEventListener(ev, this.markActive)
-      })
-      window.removeEventListener('blur', this.onBlur)
-      window.removeEventListener('focus', this.onFocus)
-    },
-    // ===== 锁定/解锁 =====
-    lock() {
-      if (this.locked) return
-      // 未设置密码时不可锁定（否则无法解锁）
-      if (!this.hasPassword) return
-      this.locked = true
-      this.password = ''
-      this.failCount = 0
-      this.pwdFocused = false
-      this.pupil = { x: 0, y: 0 }
-      // 触控 ID 可用 → 密码表单收起，优先触控 ID
-      this.showPwdForm = !this.biometricReady
-      this.$nextTick(() => {
-        if (this.biometricReady) {
-          // 优先触控 ID：稍候自动唤起系统 Touch ID（避开入场动画）
-          clearTimeout(this.autoBioTimer)
-          this.autoBioTimer = setTimeout(() => {
-            this.unlockBiometric()
-          }, 500)
-        } else if (this.$refs.pwdInput) {
-          this.$refs.pwdInput.focus()
-        }
-      })
-    },
-    expandPwdForm() {
-      clearTimeout(this.autoBioTimer)
-      this.autoBioTimer = null
-      this.showPwdForm = true
-      this.$nextTick(() => {
-        if (this.$refs.pwdInput) this.$refs.pwdInput.focus()
-      })
-    },
-    async unlock() {
-      const api = window.electronAPI && window.electronAPI.appLock
-      if (!api || !this.password || this.verifying) return
-      this.verifying = true
-      try {
-        const res = await api.verify(this.password)
-        if (res && res.ok) {
-          this.locked = false
-          this.failCount = 0
-          this.markActive()
-        } else {
-          this.failCount++
-          this.failedShake = true
-          setTimeout(() => {
-            this.failedShake = false
-          }, 500)
-          this.password = ''
-        }
-      } finally {
-        this.verifying = false
-      }
-    },
-    async unlockBiometric() {
-      const api = window.electronAPI && window.electronAPI.appLock
-      if (!api || !this.locked || this.bioVerifying) return
-      this.bioVerifying = true
-      try {
-        const res = await api.biometricVerify()
-        if (res && res.ok && this.locked) {
-          this.locked = false
-          this.failCount = 0
-          this.markActive()
-        } else if (this.locked) {
-          // 用户取消 / 验证失败 → 回退到密码输入
-          this.showPwdForm = true
-          this.$nextTick(() => {
-            if (this.$refs.pwdInput) this.$refs.pwdInput.focus()
-          })
-        }
-      } finally {
-        this.bioVerifying = false
-      }
-    },
-    // ===== 吉祥物眼睛 =====
-    // 瞳孔朝向鼠标位置（在眼眶内小幅移动）
-    onEyeMove(e) {
-      if (!this.locked) return
-      const el = this.$refs.mascot
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      if (!rect.width) return
-      const cx = rect.left + rect.width / 2
-      const cy = rect.top + rect.height / 2
-      const dx = e.clientX - cx
-      const dy = e.clientY - cy
-      const dist = Math.hypot(dx, dy) || 1
-      const r = 3.4
-      this.pupil = { x: (dx / dist) * r, y: (dy / dist) * r }
-    },
-    // 随机间隔眨眼（「减弱动态效果」开启时不眨）
-    scheduleBlink() {
-      clearTimeout(this.blinkTimer)
-      if (this.noMotion) return
-      this.blinkTimer = setTimeout(() => {
-        this.blinking = true
-        clearTimeout(this.blinkTimer2)
-        this.blinkTimer2 = setTimeout(() => {
-          this.blinking = false
-          this.scheduleBlink()
-        }, 150)
-      }, 2800 + Math.random() * 3400)
-    },
-    // 全局快捷键：可配置（默认 ⌘⌥L / Ctrl+Alt+L），设置页可改键
-    onLockHotkey(e) {
-      if (this.locked) return
-      if (matchesShortcut(e, getShortcut('lock'))) {
-        e.preventDefault()
-        if (!this.hasPassword) {
-          this.$message && this.$message.warning('请先在 设置 → 安全 中设置应用密码')
-          return
-        }
-        this.lock()
-      }
-    },
-    // ===== 自动锁定（闲置 + 失活） =====
-    startIdleWatch() {
-      this.lastActive = Date.now()
-      ;['mousemove', 'keydown', 'mousedown', 'wheel'].forEach(ev => {
-        window.addEventListener(ev, this.markActive, { passive: true })
-      })
-      window.addEventListener('blur', this.onBlur)
-      window.addEventListener('focus', this.onFocus)
-      this.timer = setInterval(this.checkIdle, 10000)
-    },
-    markActive() {
-      this.lastActive = Date.now()
-    },
-    onBlur() {
-      this.blurredAt = Date.now()
-    },
-    onFocus() {
-      // 失活期间超过阈值：回前台立即锁定
-      if (this.blurredAt && this.autoLock > 0 && Date.now() - this.blurredAt >= this.autoLock * 60000) {
-        this.lock()
-      }
-      this.blurredAt = 0
-      this.markActive()
-    },
-    checkIdle() {
-      if (this.locked || this.autoLock <= 0) return
-      if (Date.now() - this.lastActive >= this.autoLock * 60000) {
-        this.lock()
-      }
-    },
-    // 供设置页「立即锁定」调用
-    lockNow() {
-      this.lock()
-    }
+const descText = computed(() => {
+  if (biometricReady.value && !showPwdForm.value) {
+    return bioVerifying.value ? '正在等待触控 ID 验证…' : '使用触控 ID 解锁，或改用密码'
+  }
+  return '输入应用密码以解锁'
+})
+
+// 应用最新锁定偏好（设置页改动即时生效）
+async function applySettings() {
+  const settings = getItem('appLockSettings', null) || {}
+  const al = Number(settings.autoLock) || 0
+  biometricEnabled.value = !!settings.biometric
+  // 密码可能已被设置页设置/清除，同步最新状态（快捷键锁定依赖）
+  const api = window.electronAPI && window.electronAPI.appLock
+  if (api) hasPassword.value = await api.hasPassword()
+  if (al !== autoLock.value) {
+    autoLock.value = al
+    stopIdleWatch()
+    if (al > 0) startIdleWatch()
   }
 }
+
+function stopIdleWatch() {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+  ;['mousemove', 'keydown', 'mousedown', 'wheel'].forEach(ev => {
+    window.removeEventListener(ev, markActive)
+  })
+  window.removeEventListener('blur', onBlur)
+  window.removeEventListener('focus', onFocus)
+}
+
+// ===== 锁定/解锁 =====
+function lock() {
+  if (locked.value) return
+  // 未设置密码时不可锁定（否则无法解锁）
+  if (!hasPassword.value) return
+  locked.value = true
+  password.value = ''
+  failCount.value = 0
+  pwdFocused.value = false
+  pupil.x = 0
+  pupil.y = 0
+  // 触控 ID 可用 → 密码表单收起，优先触控 ID
+  showPwdForm.value = !biometricReady.value
+  nextTick(() => {
+    if (biometricReady.value) {
+      // 优先触控 ID：稍候自动唤起系统 Touch ID（避开入场动画）
+      clearTimeout(autoBioTimer)
+      autoBioTimer = setTimeout(() => {
+        unlockBiometric()
+      }, 500)
+    } else if (pwdInput.value) {
+      pwdInput.value.focus()
+    }
+  })
+}
+
+function expandPwdForm() {
+  clearTimeout(autoBioTimer)
+  autoBioTimer = null
+  showPwdForm.value = true
+  nextTick(() => {
+    if (pwdInput.value) pwdInput.value.focus()
+  })
+}
+
+async function unlock() {
+  const api = window.electronAPI && window.electronAPI.appLock
+  if (!api || !password.value || verifying.value) return
+  verifying.value = true
+  try {
+    const res = await api.verify(password.value)
+    if (res && res.ok) {
+      locked.value = false
+      failCount.value = 0
+      markActive()
+    } else {
+      failCount.value++
+      failedShake.value = true
+      setTimeout(() => {
+        failedShake.value = false
+      }, 500)
+      password.value = ''
+    }
+  } finally {
+    verifying.value = false
+  }
+}
+
+async function unlockBiometric() {
+  const api = window.electronAPI && window.electronAPI.appLock
+  if (!api || !locked.value || bioVerifying.value) return
+  bioVerifying.value = true
+  try {
+    const res = await api.biometricVerify()
+    if (res && res.ok && locked.value) {
+      locked.value = false
+      failCount.value = 0
+      markActive()
+    } else if (locked.value) {
+      // 用户取消 / 验证失败 → 回退到密码输入
+      showPwdForm.value = true
+      nextTick(() => {
+        if (pwdInput.value) pwdInput.value.focus()
+      })
+    }
+  } finally {
+    bioVerifying.value = false
+  }
+}
+
+// ===== 吉祥物眼睛 =====
+// 瞳孔朝向鼠标位置（在眼眶内小幅移动）
+function onEyeMove(e) {
+  if (!locked.value) return
+  const el = mascot.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  if (!rect.width) return
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  const dx = e.clientX - cx
+  const dy = e.clientY - cy
+  const dist = Math.hypot(dx, dy) || 1
+  const r = 3.4
+  pupil.x = (dx / dist) * r
+  pupil.y = (dy / dist) * r
+}
+
+// 随机间隔眨眼（「减弱动态效果」开启时不眨）
+function scheduleBlink() {
+  clearTimeout(blinkTimer)
+  if (noMotion.value) return
+  blinkTimer = setTimeout(() => {
+    blinking.value = true
+    clearTimeout(blinkTimer2)
+    blinkTimer2 = setTimeout(() => {
+      blinking.value = false
+      scheduleBlink()
+    }, 150)
+  }, 2800 + Math.random() * 3400)
+}
+
+// 全局快捷键：可配置（默认 ⌘⌥L / Ctrl+Alt+L），设置页可改键
+function onLockHotkey(e) {
+  if (locked.value) return
+  if (matchesShortcut(e, getShortcut('lock'))) {
+    e.preventDefault()
+    if (!hasPassword.value) {
+      message.warning('请先在 设置 → 安全 中设置应用密码')
+      return
+    }
+    lock()
+  }
+}
+
+// ===== 自动锁定（闲置 + 失活） =====
+function startIdleWatch() {
+  lastActive = Date.now()
+  ;['mousemove', 'keydown', 'mousedown', 'wheel'].forEach(ev => {
+    window.addEventListener(ev, markActive, { passive: true })
+  })
+  window.addEventListener('blur', onBlur)
+  window.addEventListener('focus', onFocus)
+  timer = setInterval(checkIdle, 10000)
+}
+
+function markActive() {
+  lastActive = Date.now()
+}
+
+function onBlur() {
+  blurredAt = Date.now()
+}
+
+function onFocus() {
+  // 失活期间超过阈值：回前台立即锁定
+  if (blurredAt && autoLock.value > 0 && Date.now() - blurredAt >= autoLock.value * 60000) {
+    lock()
+  }
+  blurredAt = 0
+  markActive()
+}
+
+function checkIdle() {
+  if (locked.value || autoLock.value <= 0) return
+  if (Date.now() - lastActive >= autoLock.value * 60000) {
+    lock()
+  }
+}
+
+// 供设置页「立即锁定」调用
+function lockNow() {
+  lock()
+}
+
+onMounted(async () => {
+  const api = window.electronAPI && window.electronAPI.appLock
+  if (!api) return
+
+  // 读取设置（IndexedDB）
+  applySettings()
+
+  hasPassword.value = await api.hasPassword()
+  biometricAvailable.value = await api.biometricSupported()
+
+  // 已设置密码：启动即锁定
+  if (hasPassword.value) {
+    lock()
+  }
+
+  // 系统（macOS）锁屏 → 立即锁定
+  offSystemLocked = api.onSystemLocked(() => {
+    if (autoLock.value > 0) lock()
+  })
+
+  // 设置页改动自动锁定偏好 → 即时生效
+  bus.on('app-lock:settings-changed', applySettings)
+  // 设置页「立即锁定」
+  bus.on('app-lock:lock-now', lockNow)
+
+  // 眼睛：跟随鼠标 + 随机眨眼
+  window.addEventListener('mousemove', onEyeMove, { passive: true })
+  scheduleBlink()
+
+  // 全局快捷键：可配置（默认 ⌘O+L / Ctrl+O+L）立即锁定应用
+  window.addEventListener('keydown', onLockHotkey)
+
+  // 「减弱动态效果」开关（html.reduce-motion）实时同步
+  noMotion.value = document.documentElement.classList.contains('reduce-motion')
+  motionObserver = new MutationObserver(() => {
+    noMotion.value = document.documentElement.classList.contains('reduce-motion')
+  })
+  motionObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+})
+
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer)
+  if (offSystemLocked) offSystemLocked()
+  clearTimeout(autoBioTimer)
+  clearTimeout(blinkTimer)
+  clearTimeout(blinkTimer2)
+  if (motionObserver) motionObserver.disconnect()
+  window.removeEventListener('mousemove', onEyeMove)
+  window.removeEventListener('keydown', onLockHotkey)
+  bus.off('app-lock:settings-changed', applySettings)
+  bus.off('app-lock:lock-now', lockNow)
+  ;['mousemove', 'keydown', 'mousedown', 'wheel'].forEach(ev => {
+    window.removeEventListener(ev, markActive)
+  })
+  window.removeEventListener('blur', onBlur)
+  window.removeEventListener('focus', onFocus)
+})
 </script>
 
 <style lang="scss" scoped>

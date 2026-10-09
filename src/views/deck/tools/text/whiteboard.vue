@@ -99,337 +99,358 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
 const MIN_ZOOM = 0.15
 const MAX_ZOOM = 5
 
-export default {
-  name: 'TextWhiteboard',
-  components: { ToolShell },
-  data() {
-    return {
-      tool: 'pen',
-      lineWidth: 4,
-      color: '#1D1D1F',
-      customColor: '#3366FF',
-      colors: ['#1D1D1F', '#F54A45', '#FA8C16', '#52C41A', '#3366FF', '#722ED1', '#EB2F96'],
-      // 视口状态：zoom=缩放，panX/panY=世界原点在屏幕上的偏移
-      zoom: 1,
-      panX: 0,
-      panY: 0,
-      // 笔画数据（世界坐标），橡皮以 destination-out 方式重放
-      strokes: [],
-      redoStack: [],
-      drawing: false,
-      panning: false,
-      spaceDown: false
-    }
-  },
-  computed: {
-    toolLabel() {
-      return { pen: '画笔', eraser: '橡皮', hand: '抓手' }[this.tool]
-    },
-    canvasCursor() {
-      if (this.panning) return 'is-grabbing'
-      if (this.tool === 'hand' || this.spaceDown) return 'is-grab'
-      return ''
-    }
-  },
-  watch: {
-    customColor(v) {
-      this.color = v
-    }
-  },
-  mounted() {
-    this.resize()
-    window.addEventListener('resize', this.resize)
-    window.addEventListener('keydown', this.onKeyDown)
-    window.addEventListener('keyup', this.onKeyUp)
-  },
-  beforeUnmount() {
-    window.removeEventListener('resize', this.resize)
-    window.removeEventListener('keydown', this.onKeyDown)
-    window.removeEventListener('keyup', this.onKeyUp)
-    if (this._raf) cancelAnimationFrame(this._raf)
-  },
-  methods: {
-    /* ---------- 视口 ---------- */
-    resize() {
-      const canvas = this.$refs.canvas
-      const wrap = this.$refs.wrap
-      if (!canvas || !wrap) return
-      this.viewW = wrap.clientWidth
-      this.viewH = wrap.clientHeight
-      this.dpr = window.devicePixelRatio || 1
-      canvas.width = Math.round(this.viewW * this.dpr)
-      canvas.height = Math.round(this.viewH * this.dpr)
-      this.redraw()
-    },
-    pointer(e) {
-      const rect = this.$refs.wrap.getBoundingClientRect()
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    },
-    toWorld(p) {
-      return { x: (p.x - this.panX) / this.zoom, y: (p.y - this.panY) / this.zoom }
-    },
-    onWheel(e) {
-      if (e.ctrlKey || e.metaKey) {
-        // 触控板捏合 / ⌘+滚轮：以指针为中心缩放
-        this.zoomAt(this.pointer(e), Math.exp(-e.deltaY * 0.01))
-      } else {
-        this.panX -= e.deltaX
-        this.panY -= e.deltaY
-        this.scheduleRedraw()
-      }
-    },
-    zoomAt(p, factor) {
-      const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.zoom * factor))
-      const k = z / this.zoom
-      this.panX = p.x - (p.x - this.panX) * k
-      this.panY = p.y - (p.y - this.panY) * k
-      this.zoom = z
-      this.scheduleRedraw()
-    },
-    zoomBy(f) {
-      this.zoomAt({ x: this.viewW / 2, y: this.viewH / 2 }, f)
-    },
-    resetZoom() {
-      this.zoomAt({ x: this.viewW / 2, y: this.viewH / 2 }, 1 / this.zoom)
-    },
-    // 回到中心：重置缩放与平移，世界原点对齐画布中心
-    resetView() {
-      this.zoom = 1
-      this.panX = 0
-      this.panY = 0
-      this.redraw()
-    },
-    fitContent() {
-      if (!this.strokes.length) {
-        this.zoom = 1
-        this.panX = 0
-        this.panY = 0
-        this.redraw()
-        return
-      }
-      const b = this.bbox()
-      const pad = 40
-      const w = b.maxX - b.minX + pad * 2
-      const h = b.maxY - b.minY + pad * 2
-      const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(this.viewW / w, this.viewH / h)))
-      this.zoom = z
-      this.panX = this.viewW / 2 - ((b.minX + b.maxX) / 2) * z
-      this.panY = this.viewH / 2 - ((b.minY + b.maxY) / 2) * z
-      this.redraw()
-    },
+defineOptions({ name: 'TextWhiteboard' })
 
-    /* ---------- 绘制交互 ---------- */
-    onKeyDown(e) {
-      if (e.code !== 'Space') return
-      const tag = (e.target.tagName || '').toLowerCase()
-      if (tag === 'input' || tag === 'textarea') return
-      e.preventDefault()
-      this.spaceDown = true
-    },
-    onKeyUp(e) {
-      if (e.code === 'Space') this.spaceDown = false
-    },
-    onDown(e) {
-      // 中键 / 空格 / 抓手：平移画布
-      if (e.button === 1 || this.spaceDown || this.tool === 'hand') {
-        this.panning = true
-        this._panStart = this.pointer(e)
-        return
-      }
-      if (e.button !== 0) return
-      const p = this.toWorld(this.pointer(e))
-      this.strokes.push({
-        points: [[p.x, p.y]],
-        color: this.color,
-        width: this.lineWidth,
-        erase: this.tool === 'eraser'
-      })
-      this.redoStack = []
-      this.drawing = true
-    },
-    onMove(e) {
-      const p = this.pointer(e)
-      if (this.panning) {
-        this.panX += p.x - this._panStart.x
-        this.panY += p.y - this._panStart.y
-        this._panStart = p
-        this.scheduleRedraw()
-        return
-      }
-      if (!this.drawing) return
-      const w = this.toWorld(p)
-      const s = this.strokes[this.strokes.length - 1]
-      s.points.push([w.x, w.y])
-      this.drawSegment(s)
-    },
-    onUp() {
-      if (this.panning) {
-        this.panning = false
-        return
-      }
-      if (this.drawing) {
-        this.drawing = false
-        this.redraw()
-      }
-    },
+const { message } = useFeedback()
 
-    /* ---------- 渲染 ---------- */
-    scheduleRedraw() {
-      if (this._raf) return
-      this._raf = requestAnimationFrame(() => {
-        this._raf = null
-        this.redraw()
-      })
-    },
-    setWorldTransform(ctx) {
-      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
-      ctx.translate(this.panX, this.panY)
-      ctx.scale(this.zoom, this.zoom)
-    },
-    // 点状网格：随平移缩放移动，营造无限画布空间感
-    drawGrid(ctx) {
-      let step = 24
-      while (step * this.zoom < 24) step *= 2
-      const wx0 = -this.panX / this.zoom
-      const wy0 = -this.panY / this.zoom
-      const x0 = Math.floor(wx0 / step) * step
-      const y0 = Math.floor(wy0 / step) * step
-      const x1 = wx0 + this.viewW / this.zoom + step
-      const y1 = wy0 + this.viewH / this.zoom + step
-      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
-      ctx.fillStyle = 'rgba(29, 29, 31, 0.16)'
-      for (let x = x0; x <= x1; x += step) {
-        const sx = x * this.zoom + this.panX
-        for (let y = y0; y <= y1; y += step) {
-          ctx.fillRect(sx - 1, y * this.zoom + this.panY - 1, 2, 2)
-        }
-      }
-    },
-    drawStroke(ctx, s) {
-      if (!s.points.length) return
-      ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'
-      ctx.strokeStyle = s.color
-      ctx.fillStyle = s.color
-      ctx.lineWidth = s.width
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-      if (s.points.length === 1) {
-        ctx.beginPath()
-        ctx.arc(s.points[0][0], s.points[0][1], s.width / 2, 0, Math.PI * 2)
-        ctx.fill()
-        return
-      }
-      ctx.beginPath()
-      ctx.moveTo(s.points[0][0], s.points[0][1])
-      for (let i = 1; i < s.points.length; i++) {
-        ctx.lineTo(s.points[i][0], s.points[i][1])
-      }
-      ctx.stroke()
-    },
-    // 绘画过程中的增量线段（不清屏，保证手写跟手）
-    drawSegment(s) {
-      const canvas = this.$refs.canvas
-      if (!canvas || s.points.length < 1) return
-      const ctx = canvas.getContext('2d')
-      ctx.save()
-      this.setWorldTransform(ctx)
-      const pts = s.points
-      if (pts.length === 1) {
-        ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'
-        ctx.fillStyle = s.color
-        ctx.beginPath()
-        ctx.arc(pts[0][0], pts[0][1], s.width / 2, 0, Math.PI * 2)
-        ctx.fill()
-      } else {
-        const a = pts[pts.length - 2]
-        const b = pts[pts.length - 1]
-        ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'
-        ctx.strokeStyle = s.color
-        ctx.lineWidth = s.width
-        ctx.lineCap = 'round'
-        ctx.lineJoin = 'round'
-        ctx.beginPath()
-        ctx.moveTo(a[0], a[1])
-        ctx.lineTo(b[0], b[1])
-        ctx.stroke()
-      }
-      ctx.restore()
-    },
-    redraw() {
-      const canvas = this.$refs.canvas
-      if (!canvas) return
-      const ctx = canvas.getContext('2d')
-      ctx.setTransform(1, 0, 0, 1, 0, 0)
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      this.drawGrid(ctx)
-      this.setWorldTransform(ctx)
-      this.strokes.forEach(s => this.drawStroke(ctx, s))
-      ctx.setTransform(1, 0, 0, 1, 0, 0)
-      ctx.globalCompositeOperation = 'source-over'
-    },
+const tool = ref('pen')
+const lineWidth = ref(4)
+const color = ref('#1D1D1F')
+const customColor = ref('#3366FF')
+const colors = ['#1D1D1F', '#F54A45', '#FA8C16', '#52C41A', '#3366FF', '#722ED1', '#EB2F96']
+// 视口状态：zoom=缩放，panX/panY=世界原点在屏幕上的偏移
+const zoom = ref(1)
+const panX = ref(0)
+const panY = ref(0)
+// 笔画数据（世界坐标），橡皮以 destination-out 方式重放
+const strokes = ref([])
+const redoStack = ref([])
+const drawing = ref(false)
+const panning = ref(false)
+const spaceDown = ref(false)
 
-    /* ---------- 数据操作 ---------- */
-    bbox() {
-      let minX = Infinity
-      let minY = Infinity
-      let maxX = -Infinity
-      let maxY = -Infinity
-      this.strokes.forEach(s => {
-        const half = s.width / 2 + 2
-        s.points.forEach(([x, y]) => {
-          if (x - half < minX) minX = x - half
-          if (y - half < minY) minY = y - half
-          if (x + half > maxX) maxX = x + half
-          if (y + half > maxY) maxY = y + half
-        })
-      })
-      return { minX, minY, maxX, maxY }
-    },
-    undo() {
-      if (!this.strokes.length) return
-      this.redoStack.push(this.strokes.pop())
-      this.redraw()
-    },
-    redo() {
-      if (!this.redoStack.length) return
-      this.strokes.push(this.redoStack.pop())
-      this.redraw()
-    },
-    clearBoard() {
-      if (!this.strokes.length) return
-      this.strokes = []
-      this.redoStack = []
-      this.redraw()
-    },
-    exportPng() {
-      if (!this.strokes.length) {
-        this.$message.warning('画布为空，先画点什么吧')
-        return
-      }
-      const b = this.bbox()
-      const pad = 24
-      const w = Math.ceil(b.maxX - b.minX + pad * 2)
-      const h = Math.ceil(b.maxY - b.minY + pad * 2)
-      const out = document.createElement('canvas')
-      out.width = w
-      out.height = h
-      const ctx = out.getContext('2d')
-      ctx.fillStyle = '#FFFFFF'
-      ctx.fillRect(0, 0, w, h)
-      ctx.translate(pad - b.minX, pad - b.minY)
-      this.strokes.forEach(s => this.drawStroke(ctx, s))
-      const a = document.createElement('a')
-      a.href = out.toDataURL('image/png')
-      a.download = 'whiteboard.png'
-      a.click()
+// 非响应式：canvas 元素、视口尺寸与动画句柄
+const canvas = ref(null)
+const wrap = ref(null)
+let viewW = 0
+let viewH = 0
+let dpr = 1
+let panStart = null
+let raf = null
+
+const toolLabel = computed(() => ({ pen: '画笔', eraser: '橡皮', hand: '抓手' }[tool.value]))
+const canvasCursor = computed(() => {
+  if (panning.value) return 'is-grabbing'
+  if (tool.value === 'hand' || spaceDown.value) return 'is-grab'
+  return ''
+})
+
+watch(customColor, v => {
+  color.value = v
+})
+
+onMounted(() => {
+  resize()
+  window.addEventListener('resize', resize)
+  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('keyup', onKeyUp)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', resize)
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('keyup', onKeyUp)
+  if (raf) cancelAnimationFrame(raf)
+})
+
+/* ---------- 视口 ---------- */
+function resize() {
+  if (!canvas.value || !wrap.value) return
+  viewW = wrap.value.clientWidth
+  viewH = wrap.value.clientHeight
+  dpr = window.devicePixelRatio || 1
+  canvas.value.width = Math.round(viewW * dpr)
+  canvas.value.height = Math.round(viewH * dpr)
+  redraw()
+}
+
+function pointer(e) {
+  const rect = wrap.value.getBoundingClientRect()
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+}
+
+function toWorld(p) {
+  return { x: (p.x - panX.value) / zoom.value, y: (p.y - panY.value) / zoom.value }
+}
+
+function onWheel(e) {
+  if (e.ctrlKey || e.metaKey) {
+    // 触控板捏合 / ⌘+滚轮：以指针为中心缩放
+    zoomAt(pointer(e), Math.exp(-e.deltaY * 0.01))
+  } else {
+    panX.value -= e.deltaX
+    panY.value -= e.deltaY
+    scheduleRedraw()
+  }
+}
+
+function zoomAt(p, factor) {
+  const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom.value * factor))
+  const k = z / zoom.value
+  panX.value = p.x - (p.x - panX.value) * k
+  panY.value = p.y - (p.y - panY.value) * k
+  zoom.value = z
+  scheduleRedraw()
+}
+
+function zoomBy(f) {
+  zoomAt({ x: viewW / 2, y: viewH / 2 }, f)
+}
+
+function resetZoom() {
+  zoomAt({ x: viewW / 2, y: viewH / 2 }, 1 / zoom.value)
+}
+
+// 回到中心：重置缩放与平移，世界原点对齐画布中心
+function resetView() {
+  zoom.value = 1
+  panX.value = 0
+  panY.value = 0
+  redraw()
+}
+
+function fitContent() {
+  if (!strokes.value.length) {
+    zoom.value = 1
+    panX.value = 0
+    panY.value = 0
+    redraw()
+    return
+  }
+  const b = bbox()
+  const pad = 40
+  const w = b.maxX - b.minX + pad * 2
+  const h = b.maxY - b.minY + pad * 2
+  const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(viewW / w, viewH / h)))
+  zoom.value = z
+  panX.value = viewW / 2 - ((b.minX + b.maxX) / 2) * z
+  panY.value = viewH / 2 - ((b.minY + b.maxY) / 2) * z
+  redraw()
+}
+
+/* ---------- 绘制交互 ---------- */
+function onKeyDown(e) {
+  if (e.code !== 'Space') return
+  const tag = (e.target.tagName || '').toLowerCase()
+  if (tag === 'input' || tag === 'textarea') return
+  e.preventDefault()
+  spaceDown.value = true
+}
+
+function onKeyUp(e) {
+  if (e.code === 'Space') spaceDown.value = false
+}
+
+function onDown(e) {
+  // 中键 / 空格 / 抓手：平移画布
+  if (e.button === 1 || spaceDown.value || tool.value === 'hand') {
+    panning.value = true
+    panStart = pointer(e)
+    return
+  }
+  if (e.button !== 0) return
+  const p = toWorld(pointer(e))
+  strokes.value.push({
+    points: [[p.x, p.y]],
+    color: color.value,
+    width: lineWidth.value,
+    erase: tool.value === 'eraser'
+  })
+  redoStack.value = []
+  drawing.value = true
+}
+
+function onMove(e) {
+  const p = pointer(e)
+  if (panning.value) {
+    panX.value += p.x - panStart.x
+    panY.value += p.y - panStart.y
+    panStart = p
+    scheduleRedraw()
+    return
+  }
+  if (!drawing.value) return
+  const w = toWorld(p)
+  const s = strokes.value[strokes.value.length - 1]
+  s.points.push([w.x, w.y])
+  drawSegment(s)
+}
+
+function onUp() {
+  if (panning.value) {
+    panning.value = false
+    return
+  }
+  if (drawing.value) {
+    drawing.value = false
+    redraw()
+  }
+}
+
+/* ---------- 渲染 ---------- */
+function scheduleRedraw() {
+  if (raf) return
+  raf = requestAnimationFrame(() => {
+    raf = null
+    redraw()
+  })
+}
+
+function setWorldTransform(ctx) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.translate(panX.value, panY.value)
+  ctx.scale(zoom.value, zoom.value)
+}
+
+// 点状网格：随平移缩放移动，营造无限画布空间感
+function drawGrid(ctx) {
+  let step = 24
+  while (step * zoom.value < 24) step *= 2
+  const wx0 = -panX.value / zoom.value
+  const wy0 = -panY.value / zoom.value
+  const x0 = Math.floor(wx0 / step) * step
+  const y0 = Math.floor(wy0 / step) * step
+  const x1 = wx0 + viewW / zoom.value + step
+  const y1 = wy0 + viewH / zoom.value + step
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.fillStyle = 'rgba(29, 29, 31, 0.16)'
+  for (let x = x0; x <= x1; x += step) {
+    const sx = x * zoom.value + panX.value
+    for (let y = y0; y <= y1; y += step) {
+      ctx.fillRect(sx - 1, y * zoom.value + panY.value - 1, 2, 2)
     }
   }
+}
+
+function drawStroke(ctx, s) {
+  if (!s.points.length) return
+  ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'
+  ctx.strokeStyle = s.color
+  ctx.fillStyle = s.color
+  ctx.lineWidth = s.width
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  if (s.points.length === 1) {
+    ctx.beginPath()
+    ctx.arc(s.points[0][0], s.points[0][1], s.width / 2, 0, Math.PI * 2)
+    ctx.fill()
+    return
+  }
+  ctx.beginPath()
+  ctx.moveTo(s.points[0][0], s.points[0][1])
+  for (let i = 1; i < s.points.length; i++) {
+    ctx.lineTo(s.points[i][0], s.points[i][1])
+  }
+  ctx.stroke()
+}
+
+// 绘画过程中的增量线段（不清屏，保证手写跟手）
+function drawSegment(s) {
+  if (!canvas.value || s.points.length < 1) return
+  const ctx = canvas.value.getContext('2d')
+  ctx.save()
+  setWorldTransform(ctx)
+  const pts = s.points
+  if (pts.length === 1) {
+    ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'
+    ctx.fillStyle = s.color
+    ctx.beginPath()
+    ctx.arc(pts[0][0], pts[0][1], s.width / 2, 0, Math.PI * 2)
+    ctx.fill()
+  } else {
+    const a = pts[pts.length - 2]
+    const b = pts[pts.length - 1]
+    ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'
+    ctx.strokeStyle = s.color
+    ctx.lineWidth = s.width
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(a[0], a[1])
+    ctx.lineTo(b[0], b[1])
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+function redraw() {
+  if (!canvas.value) return
+  const ctx = canvas.value.getContext('2d')
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, canvas.value.width, canvas.value.height)
+  drawGrid(ctx)
+  setWorldTransform(ctx)
+  strokes.value.forEach(s => drawStroke(ctx, s))
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalCompositeOperation = 'source-over'
+}
+
+/* ---------- 数据操作 ---------- */
+function bbox() {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  strokes.value.forEach(s => {
+    const half = s.width / 2 + 2
+    s.points.forEach(([x, y]) => {
+      if (x - half < minX) minX = x - half
+      if (y - half < minY) minY = y - half
+      if (x + half > maxX) maxX = x + half
+      if (y + half > maxY) maxY = y + half
+    })
+  })
+  return { minX, minY, maxX, maxY }
+}
+
+function undo() {
+  if (!strokes.value.length) return
+  redoStack.value.push(strokes.value.pop())
+  redraw()
+}
+
+function redo() {
+  if (!redoStack.value.length) return
+  strokes.value.push(redoStack.value.pop())
+  redraw()
+}
+
+function clearBoard() {
+  if (!strokes.value.length) return
+  strokes.value = []
+  redoStack.value = []
+  redraw()
+}
+
+function exportPng() {
+  if (!strokes.value.length) {
+    message.warning('画布为空，先画点什么吧')
+    return
+  }
+  const b = bbox()
+  const pad = 24
+  const w = Math.ceil(b.maxX - b.minX + pad * 2)
+  const h = Math.ceil(b.maxY - b.minY + pad * 2)
+  const out = document.createElement('canvas')
+  out.width = w
+  out.height = h
+  const ctx = out.getContext('2d')
+  ctx.fillStyle = '#FFFFFF'
+  ctx.fillRect(0, 0, w, h)
+  ctx.translate(pad - b.minX, pad - b.minY)
+  strokes.value.forEach(s => drawStroke(ctx, s))
+  const a = document.createElement('a')
+  a.href = out.toDataURL('image/png')
+  a.download = 'whiteboard.png'
+  a.click()
 }
 </script>
 

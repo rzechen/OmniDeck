@@ -9,22 +9,20 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // TCP/UDP 常用端口速查：数据迁移自旧项目 tcpUdp 模块
-export default {
-  name: 'OtherTcpUdp',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherTcpUdp' })
+
+const columns = [
         { key: 'port', title: '端口', mono: true, copy: true, tag: true },
         { key: 'name', title: '名称', mono: true },
         { key: 'description', title: '说明' }
-      ],
-      rows: [
+]
+
+const rows = [
         { port: '1', name: 'tcpmux', description: 'TCP 端口服务多路复用' },
         { port: '5', name: 'rje', description: '远程作业入口' },
         { port: '7', name: 'echo', description: 'Echo 服务' },
@@ -297,9 +295,6 @@ export default {
         { port: '24554', name: 'binkp', description: 'Binkley TCP/IP Fidonet 邮寄程序守护进程' },
         { port: '27374', name: 'asp', description: '地址搜索协议' },
         { port: '60177', name: 'tfido', description: 'Ifmail FidoNet 兼容邮寄服务' },
-        { port: '60179', name: 'fido', description: 'FidoNet 电子邮件和新闻网络' },
-      ]
-    }
-  }
-}
+        { port: '60179', name: 'fido', description: 'FidoNet 电子邮件和新闻网络' }
+]
 </script>

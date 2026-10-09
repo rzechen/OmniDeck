@@ -20,38 +20,38 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 用量数字卡（今日 / 窗口合计 / 任务数）：纯展示，数据由页面 summary 编排传入
-export default {
-  name: 'UsageStatCards',
-  props: {
-    // 主进程聚合结果（today / total / sessionCount）
-    summary: {
-      type: Object,
-      default: () => ({})
-    },
-    // 统计窗口天数（7 / 30），用于合计卡标签
-    days: {
-      type: Number,
-      default: 30
-    }
+import { computed } from 'vue'
+
+defineOptions({ name: 'UsageStatCards' })
+
+const props = defineProps({
+  // 主进程聚合结果（today / total / sessionCount）
+  summary: {
+    type: Object,
+    default: () => ({})
   },
-  computed: {
-    today() {
-      return this.summary.today || { input: 0, output: 0 }
-    },
-    total() {
-      return this.summary.total || { input: 0, output: 0 }
-    }
-  },
-  methods: {
-    fmtTokens(n) {
-      const v = Number(n) || 0
-      if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M'
-      if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k'
-      return String(v)
-    }
+  // 统计窗口天数（7 / 30），用于合计卡标签
+  days: {
+    type: Number,
+    default: 30
   }
+})
+
+const today = computed(() => {
+  return props.summary.today || { input: 0, output: 0 }
+})
+
+const total = computed(() => {
+  return props.summary.total || { input: 0, output: 0 }
+})
+
+function fmtTokens(n) {
+  const v = Number(n) || 0
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M'
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k'
+  return String(v)
 }
 </script>
 

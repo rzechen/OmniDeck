@@ -188,175 +188,171 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'OtherApi',
-  components: { ToolShell },
-  data() {
-    return {
-      showDataSource: false,
-      showConfig: false,
-      showDetail: false,
-      running: false,
-      activeStepIndex: -1,
-      dataSourceRaw: '',
-      steps: [
-        {
-          name: '示例：提交任务',
-          method: 'POST',
-          url: 'https://httpbin.org/post',
-          headers: [{ key: 'Content-Type', value: 'application/json' }],
-          body: '{ "title": "Batch Task", "user": "${input}" }'
-        }
-      ],
-      logs: [],
-      selectedLog: null
-    }
-  },
-  computed: {
-    ipcReady() {
-      return !!(window.electronAPI && window.electronAPI.httpRequest)
-    },
-    dataRows() {
-      return this.dataSourceRaw
-        .split('\n')
-        .map(s => s.trim())
-        .filter(Boolean)
-    },
-    currentStep() {
-      return this.steps[this.activeStepIndex] || null
-    },
-    successCount() {
-      return this.logs.filter(l => l.success).length
-    },
-    failCount() {
-      return this.logs.filter(l => !l.success).length
-    }
-  },
-  methods: {
-    // ---- 步骤管理 ----
-    addStep() {
-      this.steps.push({
-        name: '步骤 ' + (this.steps.length + 1),
-        method: 'GET',
-        url: '',
-        headers: [{ key: 'Content-Type', value: 'application/json' }],
-        body: ''
-      })
-      this.openConfig(this.steps.length - 1)
-    },
-    removeStep(index) {
-      this.steps.splice(index, 1)
-    },
-    openConfig(index) {
-      this.activeStepIndex = index
-      this.showConfig = true
-    },
-    // ---- 模板变量：${input} / ${prev.a.b} ----
-    parseTemplate(tpl, context) {
-      if (!tpl) return ''
-      return tpl.replace(/\$\{(.*?)\}/g, (match, key) => {
-        let val = context
-        for (const k of key.trim().split('.')) {
-          if (val && Object.prototype.hasOwnProperty.call(val, k)) {
-            val = val[k]
-          } else {
-            val = undefined
-            break
-          }
-        }
-        if (val === undefined) return match
-        return typeof val === 'object' ? JSON.stringify(val) : String(val)
-      })
-    },
-    // ---- 发送请求：优先主进程代理，浏览器环境回退 fetch ----
-    async sendRequest({ method, url, headers, body }) {
-      if (this.ipcReady) {
-        return window.electronAPI.httpRequest({ method, url, headers, body: body || '', timeout: 15000 })
+defineOptions({ name: 'OtherApi' })
+
+const { message } = useFeedback()
+
+const showDataSource = ref(false)
+const showConfig = ref(false)
+const showDetail = ref(false)
+const running = ref(false)
+const activeStepIndex = ref(-1)
+const dataSourceRaw = ref('')
+const steps = ref([
+  {
+    name: '示例：提交任务',
+    method: 'POST',
+    url: 'https://httpbin.org/post',
+    headers: [{ key: 'Content-Type', value: 'application/json' }],
+    body: '{ "title": "Batch Task", "user": "${input}" }'
+  }
+])
+const logs = ref([])
+const selectedLog = ref(null)
+
+const ipcReady = computed(() => !!(window.electronAPI && window.electronAPI.httpRequest))
+const dataRows = computed(() =>
+  dataSourceRaw.value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean)
+)
+const currentStep = computed(() => steps.value[activeStepIndex.value] || null)
+const successCount = computed(() => logs.value.filter(l => l.success).length)
+const failCount = computed(() => logs.value.filter(l => !l.success).length)
+
+// ---- 步骤管理 ----
+function addStep() {
+  steps.value.push({
+    name: '步骤 ' + (steps.value.length + 1),
+    method: 'GET',
+    url: '',
+    headers: [{ key: 'Content-Type', value: 'application/json' }],
+    body: ''
+  })
+  openConfig(steps.value.length - 1)
+}
+
+function removeStep(index) {
+  steps.value.splice(index, 1)
+}
+
+function openConfig(index) {
+  activeStepIndex.value = index
+  showConfig.value = true
+}
+
+// ---- 模板变量：${input} / ${prev.a.b} ----
+function parseTemplate(tpl, context) {
+  if (!tpl) return ''
+  return tpl.replace(/\$\{(.*?)\}/g, (match, key) => {
+    let val = context
+    for (const k of key.trim().split('.')) {
+      if (val && Object.prototype.hasOwnProperty.call(val, k)) {
+        val = val[k]
+      } else {
+        val = undefined
+        break
       }
-      // 浏览器兜底（受 CORS 限制）
-      const started = Date.now()
-      try {
-        const res = await fetch(url, {
-          method,
-          headers,
-          body: method === 'GET' ? undefined : body || undefined
+    }
+    if (val === undefined) return match
+    return typeof val === 'object' ? JSON.stringify(val) : String(val)
+  })
+}
+
+// ---- 发送请求：优先主进程代理，浏览器环境回退 fetch ----
+async function sendRequest({ method, url, headers, body }) {
+  if (ipcReady.value) {
+    return window.electronAPI.httpRequest({ method, url, headers, body: body || '', timeout: 15000 })
+  }
+  // 浏览器兜底（受 CORS 限制）
+  const started = Date.now()
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: method === 'GET' ? undefined : body || undefined
+    })
+    const text = await res.text()
+    return { ok: true, status: res.status, statusText: res.statusText, body: text, durationMs: Date.now() - started }
+  } catch (e) {
+    return { ok: false, error: e.message, durationMs: Date.now() - started }
+  }
+}
+
+// ---- 执行流水线：每行数据跑完整条链 ----
+async function executePipeline() {
+  if (!dataRows.value.length) {
+    message.warning('请先在「数据源」中输入批量数据')
+    showDataSource.value = true
+    return
+  }
+  if (!steps.value.length) {
+    message.warning('请先添加请求步骤')
+    return
+  }
+  running.value = true
+  try {
+    for (const inputData of dataRows.value) {
+      let prevResponse = null
+      for (const step of steps.value) {
+        const context = { input: inputData, prev: prevResponse }
+        const url = parseTemplate(step.url, context)
+        const headers = {}
+        step.headers.forEach(h => {
+          if (h.key) headers[h.key] = parseTemplate(h.value, context)
         })
-        const text = await res.text()
-        return { ok: true, status: res.status, statusText: res.statusText, body: text, durationMs: Date.now() - started }
-      } catch (e) {
-        return { ok: false, error: e.message, durationMs: Date.now() - started }
-      }
-    },
-    // ---- 执行流水线：每行数据跑完整条链 ----
-    async executePipeline() {
-      if (!this.dataRows.length) {
-        this.$message.warning('请先在「数据源」中输入批量数据')
-        this.showDataSource = true
-        return
-      }
-      if (!this.steps.length) {
-        this.$message.warning('请先添加请求步骤')
-        return
-      }
-      this.running = true
-      try {
-        for (const inputData of this.dataRows) {
-          let prevResponse = null
-          for (const step of this.steps) {
-            const context = { input: inputData, prev: prevResponse }
-            const url = this.parseTemplate(step.url, context)
-            const headers = {}
-            step.headers.forEach(h => {
-              if (h.key) headers[h.key] = this.parseTemplate(h.value, context)
-            })
-            const body = step.method !== 'GET' ? this.parseTemplate(step.body, context) : ''
+        const body = step.method !== 'GET' ? parseTemplate(step.body, context) : ''
 
-            const res = await this.sendRequest({ method: step.method, url, headers, body })
-            const success = res.ok && res.status >= 200 && res.status < 400
-            this.addLog(inputData, step.name || step.url, success, success ? res.status : 'FAIL', res.durationMs || 0, res.ok ? res.body : res.error)
+        const res = await sendRequest({ method: step.method, url, headers, body })
+        const success = res.ok && res.status >= 200 && res.status < 400
+        addLog(inputData, step.name || step.url, success, success ? res.status : 'FAIL', res.durationMs || 0, res.ok ? res.body : res.error)
 
-            if (!res.ok) break // 当前链中断，进入下一行数据
-            // 记录响应供下一步 ${prev.xxx} 引用
-            try {
-              prevResponse = JSON.parse(res.body)
-            } catch (e) {
-              prevResponse = { raw: res.body }
-            }
-          }
+        if (!res.ok) break // 当前链中断，进入下一行数据
+        // 记录响应供下一步 ${prev.xxx} 引用
+        try {
+          prevResponse = JSON.parse(res.body)
+        } catch (e) {
+          prevResponse = { raw: res.body }
         }
-        this.$message.success('执行完成')
-      } finally {
-        this.running = false
-      }
-    },
-    addLog(row, stepName, success, status, ms, result) {
-      const now = new Date()
-      const pad = n => String(n).padStart(2, '0')
-      this.logs.unshift({
-        time: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
-        row,
-        stepName,
-        success,
-        status,
-        ms,
-        result: String(result || '')
-      })
-      if (this.logs.length > 100) this.logs.pop()
-    },
-    viewDetail(log) {
-      this.selectedLog = log
-      this.showDetail = true
-    },
-    formatJSON(str) {
-      try {
-        return JSON.stringify(JSON.parse(str), null, 2)
-      } catch (e) {
-        return str
       }
     }
+    message.success('执行完成')
+  } finally {
+    running.value = false
+  }
+}
+
+function addLog(row, stepName, success, status, ms, result) {
+  const now = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  logs.value.unshift({
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+    row,
+    stepName,
+    success,
+    status,
+    ms,
+    result: String(result || '')
+  })
+  if (logs.value.length > 100) logs.value.pop()
+}
+
+function viewDetail(log) {
+  selectedLog.value = log
+  showDetail.value = true
+}
+
+function formatJSON(str) {
+  try {
+    return JSON.stringify(JSON.parse(str), null, 2)
+  } catch (e) {
+    return str
   }
 }
 </script>

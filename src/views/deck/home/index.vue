@@ -37,7 +37,7 @@
     <!-- 核心功能入口：我的代办 / 理财 / 我的收藏 -->
     <div class="quick-grid">
       <!-- 我的代办：含今日待办徽标 -->
-      <div class="quick-card stagger-item" style="animation-delay: 40ms" @click="$router.push('/todo')">
+      <div class="quick-card stagger-item" style="animation-delay: 40ms" @click="router.push('/todo')">
         <div class="quick-icon qc-todo">
           <svg-icon icon-class="calendar" class="quick-svg" />
         </div>
@@ -52,7 +52,7 @@
       </div>
 
       <!-- 贵金属 -->
-      <div class="quick-card stagger-item" style="animation-delay: 80ms" @click="$router.push('/finance/gold')">
+      <div class="quick-card stagger-item" style="animation-delay: 80ms" @click="router.push('/finance/gold')">
         <div class="quick-icon qc-fund">
           <svg-icon icon-class="gold" class="quick-svg" />
         </div>
@@ -64,7 +64,7 @@
       </div>
 
       <!-- 我的收藏 -->
-      <div class="quick-card stagger-item" style="animation-delay: 120ms" @click="$router.push('/favorites')">
+      <div class="quick-card stagger-item" style="animation-delay: 120ms" @click="router.push('/favorites')">
         <div class="quick-icon qc-fav">
           <svg-icon icon-class="star" class="quick-svg" />
         </div>
@@ -76,7 +76,7 @@
       </div>
 
       <!-- 本地数据：配额监控 -->
-      <div class="quick-card stagger-item" style="animation-delay: 160ms" @click="$router.push('/settings')">
+      <div class="quick-card stagger-item" style="animation-delay: 160ms" @click="router.push('/settings')">
         <div class="quick-icon qc-storage">
           <svg-icon icon-class="storage" class="quick-svg" />
         </div>
@@ -197,7 +197,7 @@
         :key="cat.path"
         class="cat-chip stagger-item"
         :style="{ animationDelay: 160 + idx * 30 + 'ms' }"
-        @click="$router.push(cat.path)"
+        @click="router.push(cat.path)"
       >
         <span class="cat-dot" :style="{ background: cat.color }">
           <svg-icon :icon-class="cat.iconSvg" class="cat-svg" />
@@ -210,7 +210,9 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { toolCategories } from '@/config/tools'
 import { getItem, getDailyGrowth } from '@/utils/storage/db'
 
@@ -228,246 +230,239 @@ function fmtBytes(n) {
 }
 
 // 首页：宣传位（OmniBuddy 主推）+ 核心功能入口 + 工具集紧凑网格
-export default {
-  name: 'Home',
-  data() {
-    return {
-      toolCategories,
-      now: new Date(),
-      timer: null,
-      todayPending: 0,
-      favToolCount: 0,
-      favSiteCount: 0,
-      // 本地数据配额：{ usage, quota } 字节数，null 表示不可用
-      storageEstimate: null,
-      // 近 30 天 IndexedDB 每日净增长 [{ date, growth }]（旧→新；null = 无采样数据）
-      dailyUsage: [],
-      // 折线悬停索引：{ i }，null 表示未悬停
-      growthHover: null,
-      // 折线图逻辑尺寸（viewBox）
-      GROWTH_W: 560,
-      GROWTH_H: 190
+defineOptions({ name: 'Home' })
+
+const router = useRouter()
+const route = useRoute()
+
+const now = ref(new Date())
+const todayPending = ref(0)
+const favToolCount = ref(0)
+const favSiteCount = ref(0)
+// 本地数据配额：{ usage, quota } 字节数，null 表示不可用
+const storageEstimate = ref(null)
+// 近 30 天 IndexedDB 每日净增长 [{ date, growth }]（旧→新；null = 无采样数据）
+const dailyUsage = ref([])
+// 折线悬停索引：{ i }，null 表示未悬停
+const growthHover = ref(null)
+// 折线图逻辑尺寸（viewBox）
+const GROWTH_W = 560
+const GROWTH_H = 190
+
+// 时钟定时器（非响应式）
+let timer = null
+
+const greeting = computed(() => {
+  const h = now.value.getHours()
+  if (h >= 5 && h < 11) return '早上好'
+  if (h >= 11 && h < 13) return '中午好'
+  if (h >= 13 && h < 18) return '下午好'
+  if (h >= 18 && h < 23) return '晚上好'
+  return '夜深了'
+})
+const dateStr = computed(() => {
+  const d = now.value
+  const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
+  return `${d.getMonth() + 1}月${d.getDate()}日 星期${week}`
+})
+const hourMin = computed(() => {
+  const d = now.value
+  const pad = n => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+})
+const seconds = computed(() => now.value.getSeconds())
+const secStr = computed(() => String(seconds.value).padStart(2, '0'))
+const totalTools = computed(() => {
+  return toolCategories.reduce((sum, c) => sum + c.children.length, 0)
+})
+// 配额已用百分比（0-100；取不到时 0 不渲染进度条）
+const quotaPercent = computed(() => {
+  if (!storageEstimate.value || !storageEstimate.value.quota) return 0
+  return Math.min(100, Math.round((storageEstimate.value.usage / storageEstimate.value.quota) * 100))
+})
+// 用量文案：已用 / 总配额；取不到时提示不可用
+const storageDesc = computed(() => {
+  if (!storageEstimate.value) return '用量统计不可用'
+  const { usage, quota } = storageEstimate.value
+  return `${fmtBytes(usage)} 已用 · 配额 ${fmtBytes(quota)}`
+})
+// ===== 近 30 天 IndexedDB 每日净增长折线 =====
+// 是否有增长数据（任一天有非空采样差值）
+const hasUsage = computed(() => {
+  return dailyUsage.value.some(d => d.growth !== null)
+})
+// 有效增长数据（过滤无采样日）
+const validUsage = computed(() => {
+  return dailyUsage.value.filter(d => d.growth !== null)
+})
+// 折线数据点（viewBox 坐标）：max 归一化；无采样日（null）跳过该点、折线断开
+const growthPoints = computed(() => {
+  const max = Math.max(1, ...validUsage.value.map(d => d.growth))
+  const n = dailyUsage.value.length
+  const W = GROWTH_W
+  const H = GROWTH_H
+  const padT = 10 // 顶部留白，避免线条贴边
+  const padB = 14 // 底部留白，与 x 轴刻度拉开距离
+  return dailyUsage.value.map((d, i) => {
+    const x = n <= 1 ? W / 2 : (i / (n - 1)) * W
+    // 无采样数据的日期：y 置为 null，path 生成时断开
+    if (d.growth === null) return { x, y: null, date: d.date, growth: null }
+    const ratio = d.growth / max
+    const y = padT + (1 - ratio) * (H - padT - padB)
+    return { x, y, date: d.date, growth: d.growth }
+  })
+})
+// 折线 path（null 点断线，用 M 重新起笔）
+const growthLinePath = computed(() => {
+  let d = ''
+  let pen = false // 上一笔是否有效（用于 M/L 切换）
+  growthPoints.value.forEach(p => {
+    if (p.y === null) {
+      pen = false
+      return
     }
-  },
-  computed: {
-    greeting() {
-      const h = this.now.getHours()
-      if (h >= 5 && h < 11) return '早上好'
-      if (h >= 11 && h < 13) return '中午好'
-      if (h >= 13 && h < 18) return '下午好'
-      if (h >= 18 && h < 23) return '晚上好'
-      return '夜深了'
-    },
-    dateStr() {
-      const d = this.now
-      const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
-      return `${d.getMonth() + 1}月${d.getDate()}日 星期${week}`
-    },
-    hourMin() {
-      const d = this.now
-      const pad = n => String(n).padStart(2, '0')
-      return `${pad(d.getHours())}:${pad(d.getMinutes())}`
-    },
-    seconds() {
-      return this.now.getSeconds()
-    },
-    secStr() {
-      return String(this.seconds).padStart(2, '0')
-    },
-    totalTools() {
-      return this.toolCategories.reduce((sum, c) => sum + c.children.length, 0)
-    },
-    // 配额已用百分比（0-100；取不到时 0 不渲染进度条）
-    quotaPercent() {
-      if (!this.storageEstimate || !this.storageEstimate.quota) return 0
-      return Math.min(100, Math.round((this.storageEstimate.usage / this.storageEstimate.quota) * 100))
-    },
-    // 用量文案：已用 / 总配额；取不到时提示不可用
-    storageDesc() {
-      if (!this.storageEstimate) return '用量统计不可用'
-      const { usage, quota } = this.storageEstimate
-      return `${fmtBytes(usage)} 已用 · 配额 ${fmtBytes(quota)}`
-    },
-    // ===== 近 30 天 IndexedDB 每日净增长折线 =====
-    // 是否有增长数据（任一天有非空采样差值）
-    hasUsage() {
-      return this.dailyUsage.some(d => d.growth !== null)
-    },
-    // 有效增长数据（过滤无采样日）
-    validUsage() {
-      return this.dailyUsage.filter(d => d.growth !== null)
-    },
-    // 折线数据点（viewBox 坐标）：max 归一化；无采样日（null）跳过该点、折线断开
-    growthPoints() {
-      const max = Math.max(1, ...this.validUsage.map(d => d.growth))
-      const n = this.dailyUsage.length
-      const W = this.GROWTH_W
-      const H = this.GROWTH_H
-      const padT = 10 // 顶部留白，避免线条贴边
-      const padB = 14 // 底部留白，与 x 轴刻度拉开距离
-      return this.dailyUsage.map((d, i) => {
-        const x = n <= 1 ? W / 2 : (i / (n - 1)) * W
-        // 无采样数据的日期：y 置为 null，path 生成时断开
-        if (d.growth === null) return { x, y: null, date: d.date, growth: null }
-        const ratio = d.growth / max
-        const y = padT + (1 - ratio) * (H - padT - padB)
-        return { x, y, date: d.date, growth: d.growth }
-      })
-    },
-    // 折线 path（null 点断线，用 M 重新起笔）
-    growthLinePath() {
-      let d = ''
-      let pen = false // 上一笔是否有效（用于 M/L 切换）
-      this.growthPoints.forEach(p => {
-        if (p.y === null) {
-          pen = false
-          return
-        }
-        d += `${pen ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)} `
-        pen = true
-      })
-      return d.trim()
-    },
-    // 面积 path（每段折线闭合到底部；无有效点返回空）
-    growthAreaPath() {
-      const H = this.GROWTH_H
-      const pts = this.growthPoints
-      let d = ''
-      let seg = [] // 当前连续段
-      const flush = () => {
-        if (seg.length < 2) { seg = []; return }
-        const head = seg.map((p, i) =>
-          `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`
-        ).join(' ')
-        d += `${head} L${seg[seg.length - 1].x.toFixed(1)},${H} L${seg[0].x.toFixed(1)},${H} Z `
-        seg = []
-      }
-      pts.forEach(p => {
-        if (p.y === null) {
-          flush()
-        } else {
-          seg.push(p)
-        }
-      })
+    d += `${pen ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)} `
+    pen = true
+  })
+  return d.trim()
+})
+// 面积 path（每段折线闭合到底部；无有效点返回空）
+const growthAreaPath = computed(() => {
+  const H = GROWTH_H
+  const pts = growthPoints.value
+  let d = ''
+  let seg = [] // 当前连续段
+  const flush = () => {
+    if (seg.length < 2) { seg = []; return }
+    const head = seg.map((p, i) =>
+      `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`
+    ).join(' ')
+    d += `${head} L${seg[seg.length - 1].x.toFixed(1)},${H} L${seg[0].x.toFixed(1)},${H} Z `
+    seg = []
+  }
+  pts.forEach(p => {
+    if (p.y === null) {
       flush()
-      return d.trim()
-    },
-    // y 轴刻度（4 档：max → 0；与数据点共用归一化坐标）
-    growthTicks() {
-      const max = Math.max(1, ...this.validUsage.map(d => d.growth))
-      const H = this.GROWTH_H
-      const padT = 10
-      const padB = 14
-      return [1, 2 / 3, 1 / 3, 0].map(r => ({
-        y: padT + (1 - r) * (H - padT - padB),
-        label: fmtBytes(Math.round(max * r))
-      }))
-    },
-    // x 轴日期刻度（间隔采样 + 首尾）
-    growthXTicks() {
-      const pts = this.growthPoints
-      const n = pts.length
-      if (!n) return []
-      const step = Math.max(1, Math.ceil(n / 7))
-      const idx = []
-      for (let i = 0; i < n; i += step) idx.push(i)
-      if (idx[idx.length - 1] !== n - 1) idx.push(n - 1)
-      return idx.map(i => ({
-        pct: n <= 1 ? 50 : (i / (n - 1)) * 100,
-        label: pts[i].date.slice(5), // MM-DD
-        first: i === 0,
-        last: i === n - 1
-      }))
-    },
-    // 统计：区间累计增长
-    totalGrowth() {
-      return this.validUsage.reduce((s, d) => s + d.growth, 0)
-    },
-    // 统计：日均增长
-    avgGrowth() {
-      if (!this.validUsage.length) return 0
-      return Math.round(this.totalGrowth / this.validUsage.length)
-    },
-    // 统计：单日峰值增长
-    peakGrowth() {
-      return this.validUsage.length ? Math.max(...this.validUsage.map(d => d.growth)) : 0
-    },
-    // 悬停命中的数据点
-    hoverPoint() {
-      if (!this.growthHover) return null
-      return this.growthPoints[this.growthHover.i] || null
-    },
-    // 悬停 tooltip 定位（x 百分比 clamp 防溢出；点靠上时下移）
-    gcTipStyle() {
-      const p = this.hoverPoint
-      if (!p) return {}
-      const left = Math.min(84, Math.max(16, (p.x / this.GROWTH_W) * 100))
-      const top = Math.max(22, ((p.y === null ? this.GROWTH_H - 24 : p.y) / this.GROWTH_H) * 100)
-      return { left: left + '%', top: top + '%' }
-    },
-    todayKey() {
-      const d = this.now
-      const pad = n => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    } else {
+      seg.push(p)
     }
-  },
-  mounted() {
-    this.timer = setInterval(() => {
-      this.now = new Date()
-    }, 1000)
-    this.loadQuickStats()
-    this.loadStorageEstimate()
-    this.loadDailyUsage()
-  },
-  beforeUnmount() {
-    if (this.timer) clearInterval(this.timer)
-  },
-  methods: {
-    // 字节数人性化：暴露给模板 tooltip 使用
-    fmtBytes,
-    // 核心入口统计：今日待办数 / 收藏数
-    loadQuickStats() {
-      const todos = getItem('todoItems', [])
-      if (Array.isArray(todos)) {
-        this.todayPending = todos.filter(t => !t.done && t.date === this.todayKey).length
-      }
-      const favTools = getItem('toolFavorites', [])
-      this.favToolCount = Array.isArray(favTools) ? favTools.length : 0
-      const sites = getItem('siteFavorites', [])
-      this.favSiteCount = Array.isArray(sites) ? sites.length : 0
-    },
-    // 本地数据配额监控：navigator.storage.estimate()
-    async loadStorageEstimate() {
-      try {
-        if (navigator.storage && navigator.storage.estimate) {
-          const { usage, quota } = await navigator.storage.estimate()
-          this.storageEstimate = { usage: usage || 0, quota: quota || 0 }
-        }
-      } catch (e) { /* 不支持时保持 null，卡片显示「不可用」 */ }
-    },
-    // 近 30 天 IndexedDB 每日净增长（同步读 KV 内存缓存）
-    loadDailyUsage() {
-      try {
-        this.dailyUsage = getDailyGrowth(30)
-      } catch (e) { /* 忽略 */ }
-    },
-    // 图表 mousemove：换算 viewBox x 坐标 → 最近数据点索引
-    onGrowthMove(evt) {
-      const pts = this.growthPoints
-      if (pts.length < 2) return
-      const rect = evt.currentTarget.getBoundingClientRect()
-      const vx = ((evt.clientX - rect.left) / rect.width) * this.GROWTH_W
-      const step = this.GROWTH_W / (pts.length - 1)
-      const i = Math.max(0, Math.min(pts.length - 1, Math.round(vx / step)))
-      if (!this.growthHover || this.growthHover.i !== i) this.growthHover = { i }
-    },
-    goBuddy() {
-      // 恢复 buddy 侧最后所在页面（无记录时回新任务页）
-      const target = this.$router.lastBuddyPath || '/omnibuddy'
-      if (this.$route.fullPath !== target) {
-        this.$router.push(target).catch(() => {})
-      }
+  })
+  flush()
+  return d.trim()
+})
+// y 轴刻度（4 档：max → 0；与数据点共用归一化坐标）
+const growthTicks = computed(() => {
+  const max = Math.max(1, ...validUsage.value.map(d => d.growth))
+  const H = GROWTH_H
+  const padT = 10
+  const padB = 14
+  return [1, 2 / 3, 1 / 3, 0].map(r => ({
+    y: padT + (1 - r) * (H - padT - padB),
+    label: fmtBytes(Math.round(max * r))
+  }))
+})
+// x 轴日期刻度（间隔采样 + 首尾）
+const growthXTicks = computed(() => {
+  const pts = growthPoints.value
+  const n = pts.length
+  if (!n) return []
+  const step = Math.max(1, Math.ceil(n / 7))
+  const idx = []
+  for (let i = 0; i < n; i += step) idx.push(i)
+  if (idx[idx.length - 1] !== n - 1) idx.push(n - 1)
+  return idx.map(i => ({
+    pct: n <= 1 ? 50 : (i / (n - 1)) * 100,
+    label: pts[i].date.slice(5), // MM-DD
+    first: i === 0,
+    last: i === n - 1
+  }))
+})
+// 统计：区间累计增长
+const totalGrowth = computed(() => {
+  return validUsage.value.reduce((s, d) => s + d.growth, 0)
+})
+// 统计：日均增长
+const avgGrowth = computed(() => {
+  if (!validUsage.value.length) return 0
+  return Math.round(totalGrowth.value / validUsage.value.length)
+})
+// 统计：单日峰值增长
+const peakGrowth = computed(() => {
+  return validUsage.value.length ? Math.max(...validUsage.value.map(d => d.growth)) : 0
+})
+// 悬停命中的数据点
+const hoverPoint = computed(() => {
+  if (!growthHover.value) return null
+  return growthPoints.value[growthHover.value.i] || null
+})
+// 悬停 tooltip 定位（x 百分比 clamp 防溢出；点靠上时下移）
+const gcTipStyle = computed(() => {
+  const p = hoverPoint.value
+  if (!p) return {}
+  const left = Math.min(84, Math.max(16, (p.x / GROWTH_W) * 100))
+  const top = Math.max(22, ((p.y === null ? GROWTH_H - 24 : p.y) / GROWTH_H) * 100)
+  return { left: left + '%', top: top + '%' }
+})
+const todayKey = computed(() => {
+  const d = now.value
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+})
+
+onMounted(() => {
+  timer = setInterval(() => {
+    now.value = new Date()
+  }, 1000)
+  loadQuickStats()
+  loadStorageEstimate()
+  loadDailyUsage()
+})
+
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer)
+})
+
+// 核心入口统计：今日待办数 / 收藏数
+function loadQuickStats() {
+  const todos = getItem('todoItems', [])
+  if (Array.isArray(todos)) {
+    todayPending.value = todos.filter(t => !t.done && t.date === todayKey.value).length
+  }
+  const favTools = getItem('toolFavorites', [])
+  favToolCount.value = Array.isArray(favTools) ? favTools.length : 0
+  const sites = getItem('siteFavorites', [])
+  favSiteCount.value = Array.isArray(sites) ? sites.length : 0
+}
+// 本地数据配额监控：navigator.storage.estimate()
+async function loadStorageEstimate() {
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      const { usage, quota } = await navigator.storage.estimate()
+      storageEstimate.value = { usage: usage || 0, quota: quota || 0 }
     }
+  } catch (e) { /* 不支持时保持 null，卡片显示「不可用」 */ }
+}
+// 近 30 天 IndexedDB 每日净增长（同步读 KV 内存缓存）
+function loadDailyUsage() {
+  try {
+    dailyUsage.value = getDailyGrowth(30)
+  } catch (e) { /* 忽略 */ }
+}
+// 图表 mousemove：换算 viewBox x 坐标 → 最近数据点索引
+function onGrowthMove(evt) {
+  const pts = growthPoints.value
+  if (pts.length < 2) return
+  const rect = evt.currentTarget.getBoundingClientRect()
+  const vx = ((evt.clientX - rect.left) / rect.width) * GROWTH_W
+  const step = GROWTH_W / (pts.length - 1)
+  const i = Math.max(0, Math.min(pts.length - 1, Math.round(vx / step)))
+  if (!growthHover.value || growthHover.value.i !== i) growthHover.value = { i }
+}
+function goBuddy() {
+  // 恢复 buddy 侧最后所在页面（无记录时回新任务页）
+  const target = router.lastBuddyPath || '/omnibuddy'
+  if (route.fullPath !== target) {
+    router.push(target).catch(() => {})
   }
 }
 </script>

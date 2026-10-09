@@ -111,109 +111,110 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, reactive, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'EncryptPassword',
-  components: { ToolShell },
-  data() {
-    return {
-      form: {
-        length: 16,
-        count: 5,
-        lower: true,
-        upper: true,
-        digits: true,
-        special: '!@#$%^&*',
-        exclude: '',
-        noRepeat: false
-      },
-      passwords: []
-    }
-  },
-  computed: {
-    poolSize() {
-      return this.buildPool().length
-    }
-  },
-  methods: {
-    buildPool() {
-      let pool = ''
-      if (this.form.lower) pool += 'abcdefghijklmnopqrstuvwxyz'
-      if (this.form.upper) pool += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-      if (this.form.digits) pool += '0123456789'
-      pool += this.form.special || ''
-      if (this.form.exclude) {
-        const ex = new Set(this.form.exclude.split(''))
-        pool = [...pool].filter(c => !ex.has(c)).join('')
-      }
-      return pool
-    },
-    generate() {
-      const pool = this.buildPool()
-      if (!pool.length) {
-        this.$message.error('字符池为空，请至少启用一种字符集')
-        return
-      }
-      if (this.form.noRepeat && this.form.length > pool.length) {
-        this.$message.warning(`字符不重复时长度不能超过 ${pool.length}`)
-        return
-      }
-      // crypto.getRandomValues 生成加密级随机数（比 Math.random 更安全）
-      const rand = new Uint32Array(this.form.length * this.form.count)
-      crypto.getRandomValues(rand)
-      const out = []
-      for (let i = 0; i < this.form.count; i++) {
-        let pwd = ''
-        const used = new Set()
-        for (let j = 0; j < this.form.length; j++) {
-          let c
-          let guard = 0
-          do {
-            c = pool[rand[i * this.form.length + j] % pool.length]
-            guard++
-          } while (this.form.noRepeat && used.has(c) && guard < 100)
-          if (this.form.noRepeat) used.add(c)
-          pwd += c
-        }
-        out.push({ text: pwd, score: this.score(pwd) })
-      }
-      this.passwords = out
-    },
-    // 强度评分 0-4
-    score(pwd) {
-      let v = 0
-      if (pwd.length >= 8) v++
-      if (pwd.length >= 12) v++
-      if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) v++
-      if (/[0-9]/.test(pwd) && /[^a-zA-Z0-9]/.test(pwd)) v++
-      return Math.min(v, 4)
-    },
-    strengthClass(s) {
-      return ['weak', 'weak', 'mid', 'mid', 'strong'][s]
-    },
-    strengthText(s) {
-      return ['极弱', '弱', '一般', '强', '极强'][s]
-    },
-    copyOne(t) {
-      navigator.clipboard.writeText(t).then(() => {
-        this.$message({ message: '密码已复制', type: 'success', duration: 1200 })
-      })
-    },
-    copyAll() {
-      if (!this.passwords.length) {
-        this.$message.warning('请先生成密码')
-        return
-      }
-      navigator.clipboard.writeText(this.passwords.map(p => p.text).join('\n')).then(() => {
-        this.$message.success('已复制全部密码')
-      })
-    },
-    clearResults() {
-      this.passwords = []
-    }
+defineOptions({ name: 'EncryptPassword' })
+
+const { message } = useFeedback()
+
+const form = reactive({
+  length: 16,
+  count: 5,
+  lower: true,
+  upper: true,
+  digits: true,
+  special: '!@#$%^&*',
+  exclude: '',
+  noRepeat: false
+})
+const passwords = ref([])
+
+function buildPool() {
+  let pool = ''
+  if (form.lower) pool += 'abcdefghijklmnopqrstuvwxyz'
+  if (form.upper) pool += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  if (form.digits) pool += '0123456789'
+  pool += form.special || ''
+  if (form.exclude) {
+    const ex = new Set(form.exclude.split(''))
+    pool = [...pool].filter(c => !ex.has(c)).join('')
   }
+  return pool
+}
+
+const poolSize = computed(() => buildPool().length)
+
+function generate() {
+  const pool = buildPool()
+  if (!pool.length) {
+    message.error('字符池为空，请至少启用一种字符集')
+    return
+  }
+  if (form.noRepeat && form.length > pool.length) {
+    message.warning(`字符不重复时长度不能超过 ${pool.length}`)
+    return
+  }
+  // crypto.getRandomValues 生成加密级随机数（比 Math.random 更安全）
+  const rand = new Uint32Array(form.length * form.count)
+  crypto.getRandomValues(rand)
+  const out = []
+  for (let i = 0; i < form.count; i++) {
+    let pwd = ''
+    const used = new Set()
+    for (let j = 0; j < form.length; j++) {
+      let c
+      let guard = 0
+      do {
+        c = pool[rand[i * form.length + j] % pool.length]
+        guard++
+      } while (form.noRepeat && used.has(c) && guard < 100)
+      if (form.noRepeat) used.add(c)
+      pwd += c
+    }
+    out.push({ text: pwd, score: score(pwd) })
+  }
+  passwords.value = out
+}
+
+// 强度评分 0-4
+function score(pwd) {
+  let v = 0
+  if (pwd.length >= 8) v++
+  if (pwd.length >= 12) v++
+  if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) v++
+  if (/[0-9]/.test(pwd) && /[^a-zA-Z0-9]/.test(pwd)) v++
+  return Math.min(v, 4)
+}
+
+function strengthClass(s) {
+  return ['weak', 'weak', 'mid', 'mid', 'strong'][s]
+}
+
+function strengthText(s) {
+  return ['极弱', '弱', '一般', '强', '极强'][s]
+}
+
+function copyOne(t) {
+  navigator.clipboard.writeText(t).then(() => {
+    message({ message: '密码已复制', type: 'success', duration: 1200 })
+  })
+}
+
+function copyAll() {
+  if (!passwords.value.length) {
+    message.warning('请先生成密码')
+    return
+  }
+  navigator.clipboard.writeText(passwords.value.map(p => p.text).join('\n')).then(() => {
+    message.success('已复制全部密码')
+  })
+}
+
+function clearResults() {
+  passwords.value = []
 }
 </script>
 

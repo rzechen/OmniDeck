@@ -1,7 +1,7 @@
 <template>
   <!-- 空间页面包屑：根目录（空间名）+ 子层级，点击跳转 -->
   <nav class="sp-crumbs">
-    <span class="sp-crumb" @click="$emit('go', -1)">
+    <span class="sp-crumb" @click="emit('go', -1)">
       <svg-icon icon-class="folder" class="sp-crumb-svg" />
       {{ rootName }}
     </span>
@@ -10,29 +10,30 @@
       <span
         class="sp-crumb"
         :class="{ last: ci === crumbs.length - 1 }"
-        @click="$emit('go', ci)"
+        @click="emit('go', ci)"
       >{{ c.name }}</span>
     </template>
   </nav>
 </template>
 
-<script>
+<script setup>
 // 空间页面包屑导航
-export default {
-  name: 'SpaceCrumbs',
-  props: {
-    // 根级名称（显示空间名）
-    rootName: {
-      type: String,
-      required: true
-    },
-    // 子层级 [{ name, path }]（含点击跳转所需 path）
-    crumbs: {
-      type: Array,
-      default: () => []
-    }
+defineOptions({ name: 'SpaceCrumbs' })
+
+defineProps({
+  // 根级名称（显示空间名）
+  rootName: {
+    type: String,
+    required: true
+  },
+  // 子层级 [{ name, path }]（含点击跳转所需 path）
+  crumbs: {
+    type: Array,
+    default: () => []
   }
-}
+})
+
+const emit = defineEmits(['go'])
 </script>
 
 <style lang="scss" scoped>

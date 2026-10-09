@@ -100,7 +100,8 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
     const ids = piRuntime.listSessionIds()
     console.log('[omnibuddy] 退出前触发会话记忆摘要（' + ids.length + ' 个活跃会话）…')
     if (!ids.length) {
-      app.exit(0)
+      // 无会话也清理泄漏的 MCP server 子进程（详见 mcp.cleanupLeakedServers）
+      mcp.cleanupLeakedServers().finally(() => app.exit(0))
       return
     }
     const forceExit = setTimeout(() => {
@@ -120,7 +121,9 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
       .catch(() => {})
       .finally(() => {
         clearTimeout(forceExit)
-        app.exit(0)
+        // finalize 的 reload 会触发 MCP 重连（spawn 新子进程），dispose 又不发
+        // session_shutdown——退出前清理泄漏的 MCP server 子进程，清理完成再退
+        mcp.cleanupLeakedServers().finally(() => app.exit(0))
       })
   })
 

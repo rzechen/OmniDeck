@@ -78,48 +78,45 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 
-export default {
-  name: 'LifeBmi',
-  components: { ToolShell },
-  data() {
-    return {
-      height: 170,
-      weight: 65,
-      sex: 'm',
-      levels: [
-        { label: '偏瘦', min: 0, max: 18.5, color: 'var(--warning-color)', range: '< 18.5', flex: 3.5, advice: '体重偏低，注意均衡饮食补充营养' },
-        { label: '正常', min: 18.5, max: 24, color: 'var(--success-color)', range: '18.5 ~ 24', flex: 5.5, advice: '体重正常，请继续保持良好习惯' },
-        { label: '偏胖', min: 24, max: 28, color: '#FA8C16', range: '24 ~ 28', flex: 4, advice: '体重偏高，建议适量运动控制饮食' },
-        { label: '肥胖', min: 28, max: 100, color: 'var(--danger-color)', range: '≥ 28', flex: 8, advice: '已达肥胖标准，建议咨询专业医师' }
-      ]
-    }
-  },
-  computed: {
-    bmi() {
-      if (!this.height || !this.weight || this.height <= 0) return null
-      const h = this.height / 100
-      const v = this.weight / (h * h)
-      return v > 0 && isFinite(v) ? v : null
-    },
-    level() {
-      if (!this.bmi) return { label: '—', color: '#999', range: '', advice: '' }
-      return this.levels.find(l => this.bmi < l.max) || this.levels[3]
-    },
-    // 理想体重区间（BMI 18.5~24）
-    idealWeight() {
-      const h = this.height / 100
-      return [(18.5 * h * h).toFixed(1), (24 * h * h).toFixed(1)]
-    },
-    // 标尺指针位置：15~40 映射 0~100%
-    pointerPos() {
-      if (!this.bmi) return 0
-      return Math.min(100, Math.max(0, ((this.bmi - 15) / 25) * 100))
-    }
-  }
-}
+defineOptions({ name: 'LifeBmi' })
+
+const height = ref(170)
+const weight = ref(65)
+const sex = ref('m')
+const levels = ref([
+  { label: '偏瘦', min: 0, max: 18.5, color: 'var(--warning-color)', range: '< 18.5', flex: 3.5, advice: '体重偏低，注意均衡饮食补充营养' },
+  { label: '正常', min: 18.5, max: 24, color: 'var(--success-color)', range: '18.5 ~ 24', flex: 5.5, advice: '体重正常，请继续保持良好习惯' },
+  { label: '偏胖', min: 24, max: 28, color: '#FA8C16', range: '24 ~ 28', flex: 4, advice: '体重偏高，建议适量运动控制饮食' },
+  { label: '肥胖', min: 28, max: 100, color: 'var(--danger-color)', range: '≥ 28', flex: 8, advice: '已达肥胖标准，建议咨询专业医师' }
+])
+
+const bmi = computed(() => {
+  if (!height.value || !weight.value || height.value <= 0) return null
+  const h = height.value / 100
+  const v = weight.value / (h * h)
+  return v > 0 && isFinite(v) ? v : null
+})
+
+const level = computed(() => {
+  if (!bmi.value) return { label: '—', color: '#999', range: '', advice: '' }
+  return levels.value.find(l => bmi.value < l.max) || levels.value[3]
+})
+
+// 理想体重区间（BMI 18.5~24）
+const idealWeight = computed(() => {
+  const h = height.value / 100
+  return [(18.5 * h * h).toFixed(1), (24 * h * h).toFixed(1)]
+})
+
+// 标尺指针位置：15~40 映射 0~100%
+const pointerPos = computed(() => {
+  if (!bmi.value) return 0
+  return Math.min(100, Math.max(0, ((bmi.value - 15) / 25) * 100))
+})
 </script>
 
 <style lang="scss" scoped>

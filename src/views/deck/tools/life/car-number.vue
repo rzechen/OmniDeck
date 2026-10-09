@@ -15,21 +15,19 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
-export default {
-  name: 'LifeCarNumber',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
-        { key: 'prefix', title: '车牌前缀', tag: true },
-        { key: 'city', title: '归属地' },
-        { key: 'province', title: '省份' }
-      ],
-      rows: [
+defineOptions({ name: 'LifeCarNumber' })
+
+const columns = ref([
+  { key: 'prefix', title: '车牌前缀', tag: true },
+  { key: 'city', title: '归属地' },
+  { key: 'province', title: '省份' }
+])
+const rows = ref([
         { prefix: '京A', city: '北京市', province: '北京' },
         { prefix: '京B', city: '北京市出租车专用', province: '北京' },
         { prefix: '京C', city: '北京市', province: '北京' },
@@ -448,8 +446,5 @@ export default {
         { prefix: '宁C', city: '吴忠市', province: '宁夏' },
         { prefix: '宁D', city: '固原市', province: '宁夏' },
         { prefix: '宁E', city: '中卫市', province: '宁夏' },
-      ]
-    }
-  }
-}
+      ])
 </script>

@@ -49,6 +49,43 @@ const AUTOMATION_STALL_TIMEOUT_MS = 15 * 60 * 1000
 const AUTOMATION_TOOL_STALL_TIMEOUT_MS = 35 * 60 * 1000
 const AUTOMATION_LONG_TOOLS = new Set(['bg_wait', 'subagent', 'workflow'])
 
+// ===== 无头定时执行策略（headless） =====
+// 计划触发（schedule）的定时任务标记为无头：ask_user / permission_ask 不进
+// 前端等待管线（无人应答 = 永久挂起，看门狗对 AWAITING_USER 豁免救不回来），
+// 改为短路自动决策——ask_user 返回"自行决策"指令、权限按只读放行/写拒绝分级。
+// 手动「立即运行」（manual）通常有用户在场，保留原有前端交互链路，不标记
+const headlessRuns = new Set()
+// 无头运行中被权限策略拒绝的操作（chatId -> [{ surface, value, ts }]）：
+// 运行结束随 result 带出 → 写入 runs 历史 + 通知提示，用户据此决定是否
+// 在权限管理中为该面预配置 allow（配置为 allow 的面不会进 ask 链路，不受无头拦截）
+const automationDeniedOps = new Map()
+
+function markHeadlessRun(chatId) {
+  headlessRuns.add(chatId)
+}
+
+function unmarkHeadlessRun(chatId) {
+  headlessRuns.delete(chatId)
+}
+
+function isHeadlessRun(chatId) {
+  return headlessRuns.has(chatId)
+}
+
+function recordDeniedOp(chatId, surface, value) {
+  if (!automationDeniedOps.has(chatId)) automationDeniedOps.set(chatId, [])
+  const list = automationDeniedOps.get(chatId)
+  if (list.length < 50) { // 上限防长任务刷爆通知/历史
+    list.push({ surface: String(surface || ''), value: String(value || '').slice(0, 120), ts: Date.now() })
+  }
+}
+
+function takeDeniedOps(chatId) {
+  const list = automationDeniedOps.get(chatId) || []
+  automationDeniedOps.delete(chatId)
+  return list
+}
+
 // 心跳刷新：任何 pi 事件都算活跃信号；tool_start/tool_end 维护"当前是否有
 // 未终结工具调用"（看门狗据此选择普通/长阻塞阈值）
 function touchAutomationHeartbeat(e) {
@@ -116,6 +153,13 @@ module.exports = {
   AUTOMATION_LONG_TOOLS,
   // 心跳刷新（任何 pi 事件都算活跃信号）
   touchAutomationHeartbeat,
+  // 无头定时执行标记（schedule 触发的运行）：ask/权限短路自动决策的判定依据
+  markHeadlessRun,
+  unmarkHeadlessRun,
+  isHeadlessRun,
+  // 无头运行被拒操作登记与收割（运行结束随 result 带出）
+  recordDeniedOp,
+  takeDeniedOps,
   // AWAITING_USER 判定（三处挂起点任一存在未决询问即等用户）
   isAwaitingUser,
   // 当前轮次分支线路（落盘记录时写入 anchors）

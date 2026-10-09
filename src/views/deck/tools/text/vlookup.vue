@@ -122,176 +122,166 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch } from 'vue'
 import * as XLSX from 'xlsx'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'TextVlookup',
-  components: { ToolShell },
-  data() {
-    return {
-      mainBook: null,
-      mainName: '',
-      mainSheet: '',
-      subBook: null,
-      subName: '',
-      subSheet: '',
-      mainKeyCol: '',
-      subKeyCol: '',
-      subValCol: '',
-      targetCol: '',
-      matchedRows: null,
-      errorMsg: ''
-    }
-  },
-  computed: {
-    mainSheets() {
-      return this.mainBook ? this.mainBook.SheetNames : []
-    },
-    subSheets() {
-      return this.subBook ? this.subBook.SheetNames : []
-    },
-    mainSheetRows() {
-      if (!this.mainBook || !this.mainSheet) return []
-      return XLSX.utils.sheet_to_json(this.mainBook.Sheets[this.mainSheet], { defval: '' })
-    },
-    subSheetRows() {
-      if (!this.subBook || !this.subSheet) return []
-      return XLSX.utils.sheet_to_json(this.subBook.Sheets[this.subSheet], { defval: '' })
-    },
-    mainCols() {
-      return this.mainSheetRows.length ? Object.keys(this.mainSheetRows[0]) : []
-    },
-    subCols() {
-      return this.subSheetRows.length ? Object.keys(this.subSheetRows[0]) : []
-    },
-    canRun() {
-      return (
-        this.mainSheetRows.length &&
-        this.subSheetRows.length &&
-        this.mainKeyCol &&
-        this.subKeyCol &&
-        this.subValCol &&
-        this.targetCol.trim()
-      )
-    },
-    previewCols() {
-      if (!this.matchedRows || !this.matchedRows.length) return []
-      const keys = Object.keys(this.matchedRows[0]).filter(k => !k.endsWith('__miss'))
-      return keys.slice(0, 8)
-    },
-    hitCount() {
-      if (!this.matchedRows) return 0
-      return this.matchedRows.filter(r => !r[this.targetCol + '__miss']).length
-    },
-    statusText() {
-      if (this.matchedRows) return `完成：${this.hitCount} 命中`
-      if (this.canRun) return '规则就绪，点击执行匹配'
-      return '等待配置'
-    }
-  },
-  watch: {
-    mainSheet() {
-      this.mainKeyCol = ''
-      this.matchedRows = null
-    },
-    subSheet() {
-      this.subKeyCol = ''
-      this.subValCol = ''
-      this.matchedRows = null
-    }
-  },
-  methods: {
-    pickMain() {
-      this.pickFile('.xls,.xlsx,.csv', f => {
-        this.mainName = f.name
-        this.mainBook = XLSX.read(new Uint8Array(f._arrayBuffer), { type: 'array' })
-        this.mainSheet = this.mainBook.SheetNames[0] || ''
-        this.matchedRows = null
-      })
-    },
-    pickSub() {
-      this.pickFile('.xls,.xlsx,.csv', f => {
-        this.subName = f.name
-        this.subBook = XLSX.read(new Uint8Array(f._arrayBuffer), { type: 'array' })
-        this.subSheet = this.subBook.SheetNames[0] || ''
-        this.matchedRows = null
-      })
-    },
-    pickFile(accept, cb) {
-      this.errorMsg = ''
-      const input = document.createElement('input')
-      input.type = 'file'
-      input.accept = accept
-      input.onchange = async () => {
-        const f = input.files[0]
-        if (!f) return
-        try {
-          f._arrayBuffer = await f.arrayBuffer()
-          cb(f)
-        } catch (e) {
-          this.errorMsg = '文件读取失败：' + e.message
-        }
-      }
-      input.click()
-    },
-    runMatch() {
-      this.errorMsg = ''
-      try {
-        // 从表建索引：key -> value
-        const index = new Map()
-        this.subSheetRows.forEach(r => {
-          const k = String(r[this.subKeyCol] ?? '').trim()
-          if (k !== '') index.set(k, r[this.subValCol] ?? '')
-        })
-        const target = this.targetCol.trim()
-        const out = this.mainSheetRows.map(r => {
-          const row = { ...r }
-          const k = String(r[this.mainKeyCol] ?? '').trim()
-          if (k !== '' && index.has(k)) {
-            row[target] = index.get(k)
-          } else {
-            row[target] = ''
-            row[target + '__miss'] = true
-          }
-          return row
-        })
-        this.matchedRows = out
-        this.$message.success(`匹配完成：${this.hitCount} / ${out.length} 行命中`)
-      } catch (e) {
-        this.errorMsg = e.message
-      }
-    },
-    exportXlsx() {
-      if (!this.matchedRows) return
-      const clean = this.matchedRows.map(r => {
-        const row = {}
-        Object.entries(r).forEach(([k, v]) => {
-          if (!k.endsWith('__miss')) row[k] = v
-        })
-        return row
-      })
-      const ws = XLSX.utils.json_to_sheet(clean)
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, '匹配结果')
-      XLSX.writeFile(wb, `vlookup_${Date.now()}.xlsx`)
-    },
-    reset() {
-      this.mainBook = null
-      this.subBook = null
-      this.mainName = ''
-      this.subName = ''
-      this.mainSheet = ''
-      this.subSheet = ''
-      this.mainKeyCol = ''
-      this.subKeyCol = ''
-      this.subValCol = ''
-      this.targetCol = ''
-      this.matchedRows = null
-      this.errorMsg = ''
+defineOptions({ name: 'TextVlookup' })
+
+const { message } = useFeedback()
+
+const mainBook = ref(null)
+const mainName = ref('')
+const mainSheet = ref('')
+const subBook = ref(null)
+const subName = ref('')
+const subSheet = ref('')
+const mainKeyCol = ref('')
+const subKeyCol = ref('')
+const subValCol = ref('')
+const targetCol = ref('')
+const matchedRows = ref(null)
+const errorMsg = ref('')
+
+const mainSheets = computed(() => (mainBook.value ? mainBook.value.SheetNames : []))
+const subSheets = computed(() => (subBook.value ? subBook.value.SheetNames : []))
+const mainSheetRows = computed(() => {
+  if (!mainBook.value || !mainSheet.value) return []
+  return XLSX.utils.sheet_to_json(mainBook.value.Sheets[mainSheet.value], { defval: '' })
+})
+const subSheetRows = computed(() => {
+  if (!subBook.value || !subSheet.value) return []
+  return XLSX.utils.sheet_to_json(subBook.value.Sheets[subSheet.value], { defval: '' })
+})
+const mainCols = computed(() => (mainSheetRows.value.length ? Object.keys(mainSheetRows.value[0]) : []))
+const subCols = computed(() => (subSheetRows.value.length ? Object.keys(subSheetRows.value[0]) : []))
+const canRun = computed(() =>
+  mainSheetRows.value.length &&
+  subSheetRows.value.length &&
+  mainKeyCol.value &&
+  subKeyCol.value &&
+  subValCol.value &&
+  targetCol.value.trim()
+)
+const previewCols = computed(() => {
+  if (!matchedRows.value || !matchedRows.value.length) return []
+  const keys = Object.keys(matchedRows.value[0]).filter(k => !k.endsWith('__miss'))
+  return keys.slice(0, 8)
+})
+const hitCount = computed(() => {
+  if (!matchedRows.value) return 0
+  return matchedRows.value.filter(r => !r[targetCol.value + '__miss']).length
+})
+const statusText = computed(() => {
+  if (matchedRows.value) return `完成：${hitCount.value} 命中`
+  if (canRun.value) return '规则就绪，点击执行匹配'
+  return '等待配置'
+})
+
+watch(mainSheet, () => {
+  mainKeyCol.value = ''
+  matchedRows.value = null
+})
+watch(subSheet, () => {
+  subKeyCol.value = ''
+  subValCol.value = ''
+  matchedRows.value = null
+})
+
+function pickMain() {
+  pickFile('.xls,.xlsx,.csv', f => {
+    mainName.value = f.name
+    mainBook.value = XLSX.read(new Uint8Array(f._arrayBuffer), { type: 'array' })
+    mainSheet.value = mainBook.value.SheetNames[0] || ''
+    matchedRows.value = null
+  })
+}
+
+function pickSub() {
+  pickFile('.xls,.xlsx,.csv', f => {
+    subName.value = f.name
+    subBook.value = XLSX.read(new Uint8Array(f._arrayBuffer), { type: 'array' })
+    subSheet.value = subBook.value.SheetNames[0] || ''
+    matchedRows.value = null
+  })
+}
+
+function pickFile(accept, cb) {
+  errorMsg.value = ''
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = accept
+  input.onchange = async () => {
+    const f = input.files[0]
+    if (!f) return
+    try {
+      f._arrayBuffer = await f.arrayBuffer()
+      cb(f)
+    } catch (e) {
+      errorMsg.value = '文件读取失败：' + e.message
     }
   }
+  input.click()
+}
+
+function runMatch() {
+  errorMsg.value = ''
+  try {
+    // 从表建索引：key -> value
+    const index = new Map()
+    subSheetRows.value.forEach(r => {
+      const k = String(r[subKeyCol.value] ?? '').trim()
+      if (k !== '') index.set(k, r[subValCol.value] ?? '')
+    })
+    const target = targetCol.value.trim()
+    const out = mainSheetRows.value.map(r => {
+      const row = { ...r }
+      const k = String(r[mainKeyCol.value] ?? '').trim()
+      if (k !== '' && index.has(k)) {
+        row[target] = index.get(k)
+      } else {
+        row[target] = ''
+        row[target + '__miss'] = true
+      }
+      return row
+    })
+    matchedRows.value = out
+    message.success(`匹配完成：${hitCount.value} / ${out.length} 行命中`)
+  } catch (e) {
+    errorMsg.value = e.message
+  }
+}
+
+function exportXlsx() {
+  if (!matchedRows.value) return
+  const clean = matchedRows.value.map(r => {
+    const row = {}
+    Object.entries(r).forEach(([k, v]) => {
+      if (!k.endsWith('__miss')) row[k] = v
+    })
+    return row
+  })
+  const ws = XLSX.utils.json_to_sheet(clean)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '匹配结果')
+  XLSX.writeFile(wb, `vlookup_${Date.now()}.xlsx`)
+}
+
+function reset() {
+  mainBook.value = null
+  subBook.value = null
+  mainName.value = ''
+  subName.value = ''
+  mainSheet.value = ''
+  subSheet.value = ''
+  mainKeyCol.value = ''
+  subKeyCol.value = ''
+  subValCol.value = ''
+  targetCol.value = ''
+  matchedRows.value = null
+  errorMsg.value = ''
 }
 </script>
 

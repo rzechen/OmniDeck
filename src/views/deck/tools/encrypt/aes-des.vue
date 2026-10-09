@@ -120,153 +120,156 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, nextTick } from 'vue'
 import CryptoJS from 'crypto-js'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'EncryptAesDes' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/encrypt/aes-des'
 
-export default {
-  name: 'EncryptAesDes',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      algorithm: 'AES',
-      algos: ['AES', 'DES', 'TripleDES'],
-      mode: 'CBC',
-      key: '',
-      iv: '',
-      inputText: 'Hello OmniDeck',
-      outputText: '',
-      errorMsg: '',
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  computed: {
-    keyLength() {
-      // CryptoJS 要求：AES 16/24/32 位，DES 8 位，TripleDES 24 位
-      return this.algorithm === 'AES' ? 16 : this.algorithm === 'DES' ? 8 : 24
-    },
-    keyHint() {
-      return `${this.algorithm} 密钥固定 ${this.keyLength} 位（超出截断，不足补 0）`
-    }
-  },
-  methods: {
-    // 密钥规范化：不足补 0、超出截断
-    normalizeKey(s) {
-      return s.length >= this.keyLength
-        ? s.slice(0, this.keyLength)
-        : s + '0'.repeat(this.keyLength - s.length)
-    },
-    validate() {
-      this.errorMsg = ''
-      if (!this.inputText) {
-        this.errorMsg = '请输入内容'
-        return false
-      }
-      if (!this.key) {
-        this.errorMsg = '请输入密钥'
-        return false
-      }
-      if (this.mode === 'CBC' && !this.iv) {
-        this.errorMsg = 'CBC 模式需要输入 IV'
-        return false
-      }
-      return true
-    },
-    buildCfg() {
-      const cfg = {
-        mode: CryptoJS.mode[this.mode],
-        padding: CryptoJS.pad.Pkcs7
-      }
-      if (this.mode === 'CBC') {
-        cfg.iv = CryptoJS.enc.Utf8.parse(this.normalizeKey(this.iv))
-      }
-      return cfg
-    },
-    doEncrypt() {
-      if (!this.validate()) return
-      const before = this.inputText
-      try {
-        const key = CryptoJS.enc.Utf8.parse(this.normalizeKey(this.key))
-        const cipher = CryptoJS[this.algorithm].encrypt(before, key, this.buildCfg())
-        this.outputText = cipher.toString() // Base64
-        record(TOOL_PATH, {
-          input: before,
-          output: this.outputText,
-          options: { action: 'encrypt', algorithm: this.algorithm, mode: this.mode, key: this.key, iv: this.iv }
-        })
-      } catch (e) {
-        this.errorMsg = '加密失败：' + e.message
-      }
-    },
-    doDecrypt() {
-      if (!this.validate()) return
-      const before = this.inputText
-      try {
-        const key = CryptoJS.enc.Utf8.parse(this.normalizeKey(this.key))
-        const input = before.trim()
-        // 密文支持 Hex 或 Base64
-        let ciphertextWA
-        if (/^[0-9a-fA-F]+$/.test(input) && input.length % 2 === 0 && input.length > 16) {
-          ciphertextWA = CryptoJS.enc.Hex.parse(input)
-        } else {
-          ciphertextWA = CryptoJS.enc.Base64.parse(input)
-        }
-        const cipherParams = CryptoJS.lib.CipherParams.create({ ciphertext: ciphertextWA })
-        const decrypted = CryptoJS[this.algorithm].decrypt(cipherParams, key, this.buildCfg())
-        const text = decrypted.toString(CryptoJS.enc.Utf8)
-        if (!text) throw new Error('解密结果为空，请检查密钥 / IV / 密文格式')
-        this.outputText = text
-        record(TOOL_PATH, {
-          input: before,
-          output: this.outputText,
-          options: { action: 'decrypt', algorithm: this.algorithm, mode: this.mode, key: this.key, iv: this.iv }
-        })
-      } catch (e) {
-        this.errorMsg = '解密失败：' + (e.message || '密钥错误或密文无效')
-      }
-    },
-    copyOutput() {
-      if (!this.outputText) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.outputText).then(() => {
-        this.$message.success('复制成功')
-      })
-    },
-    // 从历史恢复：回填输入输出与算法/模式/密钥/IV
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.inputText = full.input || ''
-      this.outputText = full.output || ''
-      if (full.options) {
-        if (full.options.algorithm) this.algorithm = full.options.algorithm
-        if (full.options.mode) this.mode = full.options.mode
-        if (full.options.key) this.key = full.options.key
-        if (full.options.iv) this.iv = full.options.iv
-      }
-      this.errorMsg = ''
-      this.$nextTick(() => this.$refs.inputEditor && this.$refs.inputEditor.focus())
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.inputText = ''
-      this.outputText = ''
-      this.errorMsg = ''
-      this.$refs.inputEditor.focus()
-    }
+const algorithm = ref('AES')
+const algos = ['AES', 'DES', 'TripleDES']
+const mode = ref('CBC')
+const key = ref('')
+const iv = ref('')
+const inputText = ref('Hello OmniDeck')
+const outputText = ref('')
+const errorMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+// CryptoJS 要求：AES 16/24/32 位，DES 8 位，TripleDES 24 位
+const keyLength = computed(() =>
+  algorithm.value === 'AES' ? 16 : algorithm.value === 'DES' ? 8 : 24
+)
+const keyHint = computed(
+  () => `${algorithm.value} 密钥固定 ${keyLength.value} 位（超出截断，不足补 0）`
+)
+
+// 密钥规范化：不足补 0、超出截断
+function normalizeKey(s) {
+  return s.length >= keyLength.value
+    ? s.slice(0, keyLength.value)
+    : s + '0'.repeat(keyLength.value - s.length)
+}
+
+function validate() {
+  errorMsg.value = ''
+  if (!inputText.value) {
+    errorMsg.value = '请输入内容'
+    return false
   }
+  if (!key.value) {
+    errorMsg.value = '请输入密钥'
+    return false
+  }
+  if (mode.value === 'CBC' && !iv.value) {
+    errorMsg.value = 'CBC 模式需要输入 IV'
+    return false
+  }
+  return true
+}
+
+function buildCfg() {
+  const cfg = {
+    mode: CryptoJS.mode[mode.value],
+    padding: CryptoJS.pad.Pkcs7
+  }
+  if (mode.value === 'CBC') {
+    cfg.iv = CryptoJS.enc.Utf8.parse(normalizeKey(iv.value))
+  }
+  return cfg
+}
+
+function doEncrypt() {
+  if (!validate()) return
+  const before = inputText.value
+  try {
+    const keyParsed = CryptoJS.enc.Utf8.parse(normalizeKey(key.value))
+    const cipher = CryptoJS[algorithm.value].encrypt(before, keyParsed, buildCfg())
+    outputText.value = cipher.toString() // Base64
+    record(TOOL_PATH, {
+      input: before,
+      output: outputText.value,
+      options: { action: 'encrypt', algorithm: algorithm.value, mode: mode.value, key: key.value, iv: iv.value }
+    })
+  } catch (e) {
+    errorMsg.value = '加密失败：' + e.message
+  }
+}
+
+function doDecrypt() {
+  if (!validate()) return
+  const before = inputText.value
+  try {
+    const keyParsed = CryptoJS.enc.Utf8.parse(normalizeKey(key.value))
+    const input = before.trim()
+    // 密文支持 Hex 或 Base64
+    let ciphertextWA
+    if (/^[0-9a-fA-F]+$/.test(input) && input.length % 2 === 0 && input.length > 16) {
+      ciphertextWA = CryptoJS.enc.Hex.parse(input)
+    } else {
+      ciphertextWA = CryptoJS.enc.Base64.parse(input)
+    }
+    const cipherParams = CryptoJS.lib.CipherParams.create({ ciphertext: ciphertextWA })
+    const decrypted = CryptoJS[algorithm.value].decrypt(cipherParams, keyParsed, buildCfg())
+    const text = decrypted.toString(CryptoJS.enc.Utf8)
+    if (!text) throw new Error('解密结果为空，请检查密钥 / IV / 密文格式')
+    outputText.value = text
+    record(TOOL_PATH, {
+      input: before,
+      output: outputText.value,
+      options: { action: 'decrypt', algorithm: algorithm.value, mode: mode.value, key: key.value, iv: iv.value }
+    })
+  } catch (e) {
+    errorMsg.value = '解密失败：' + (e.message || '密钥错误或密文无效')
+  }
+}
+
+function copyOutput() {
+  if (!outputText.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(outputText.value).then(() => {
+    message.success('复制成功')
+  })
+}
+
+// 从历史恢复：回填输入输出与算法/模式/密钥/IV
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  inputText.value = full.input || ''
+  outputText.value = full.output || ''
+  if (full.options) {
+    if (full.options.algorithm) algorithm.value = full.options.algorithm
+    if (full.options.mode) mode.value = full.options.mode
+    if (full.options.key) key.value = full.options.key
+    if (full.options.iv) iv.value = full.options.iv
+  }
+  errorMsg.value = ''
+  await nextTick()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  inputText.value = ''
+  outputText.value = ''
+  errorMsg.value = ''
+  inputEditor.value.focus()
 }
 </script>
 

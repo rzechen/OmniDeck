@@ -17,39 +17,36 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 贴屏小窗（iShot「贴到屏幕」）：置顶无边框窗口显示标注结果。
 // 整体可拖动（CSS app-region drag），滚轮/按钮缩放，双击或叉关闭。
 // 图片经 capture-pin:frame?id= 拉取；缩放经 capture-pin:resize 由主进程改窗尺寸。
-export default {
-  name: 'CapturePin',
-  data() {
-    return {
-      src: '',
-      hovering: false
-    }
-  },
-  computed: {
-    api() {
-      return window.electronAPI && window.electronAPI.capturePin
-    }
-  },
-  async mounted() {
-    const id = Number(this.$route.query.id || 0)
-    const res = await this.api.frame(id)
-    if (res && res.ok) this.src = res.data
-  },
-  methods: {
-    onWheel(e) {
-      this.resize(e.deltaY < 0 ? 1.1 : 0.9)
-    },
-    async resize(scale) {
-      if (this.api) await this.api.resize({ scale })
-    },
-    close() {
-      if (this.api) this.api.close()
-    }
-  }
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+
+defineOptions({ name: 'CapturePin' })
+
+const route = useRoute()
+const src = ref('')
+const hovering = ref(false)
+const api = computed(() => window.electronAPI && window.electronAPI.capturePin)
+
+onMounted(async () => {
+  const id = Number(route.query.id || 0)
+  const res = await api.value.frame(id)
+  if (res && res.ok) src.value = res.data
+})
+
+function onWheel(e) {
+  resize(e.deltaY < 0 ? 1.1 : 0.9)
+}
+
+async function resize(scale) {
+  if (api.value) await api.value.resize({ scale })
+}
+
+function close() {
+  if (api.value) api.value.close()
 }
 </script>
 

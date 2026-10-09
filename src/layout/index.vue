@@ -43,54 +43,54 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
+import { bus } from '@/utils/ui/bus'
 import Sidebar from './components/Sidebar.vue'
 import TagsBar from '@/components/common/TagsBar.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 import SetupProgressBanner from '@/components/common/SetupProgressBanner.vue'
 import { getShortcut, matchesShortcut } from '@/utils/ui/shortcuts'
 
-export default {
-  name: 'Layout',
-  components: { Sidebar, TagsBar, GlobalTopbarActions, SetupProgressBanner },
-  computed: {
-    collapsed() {
-      return this.$store.state.sidebarCollapsed
-    },
-    toggleLeft() {
-      // 收起态贴 68px 轨道右缘（与 $sidebar-collapsed-width 同步）
-      return this.collapsed ? '60px' : '200px'
-    },
-    // 页签缓存 key：keep-alive 以 vnode.key 缓存，每个页签独立一份组件实例
-    // （同组件多实例并存，如同时打开两只基金详情页签）
-    deckTabKey() {
-      return this.$store.getters['tagsView/keyOf']('deck', this.$route.fullPath)
+defineOptions({ name: 'Layout' })
+
+const route = useRoute()
+const router = useRouter()
+const store = useStore()
+
+const collapsed = computed(() => store.state.sidebarCollapsed)
+const toggleLeft = computed(() => (collapsed.value ? '60px' : '200px'))
+
+// 页签缓存 key：keep-alive 以 vnode.key 缓存，每个页签独立一份组件实例
+// （同组件多实例并存，如同时打开两只基金详情页签）
+const deckTabKey = computed(() => store.getters['tagsView/keyOf']('deck', route.fullPath))
+
+function toggleSidebar() {
+  store.commit('TOGGLE_SIDEBAR')
+}
+
+// ⌘OK / Ctrl+O+K（可在设置页改键）：跳转搜索页签（首次由页面 mounted 自动弹面板），
+// 已在页签时通过事件让缓存的页面实例重新唤起
+function handleKeydown(e) {
+  if (matchesShortcut(e, getShortcut('search'))) {
+    e.preventDefault()
+    if (route.path !== '/search') {
+      router.push('/search').catch(() => {})
     }
-  },
-  mounted() {
-    // Deck 视图全局搜索快捷键：打开「快捷搜索」页签并唤起搜索面板
-    document.addEventListener('keydown', this.handleKeydown)
-  },
-  beforeUnmount() {
-    document.removeEventListener('keydown', this.handleKeydown)
-  },
-  methods: {
-    toggleSidebar() {
-      this.$store.commit('TOGGLE_SIDEBAR')
-    },
-    // ⌘OK / Ctrl+O+K（可在设置页改键）：跳转搜索页签（首次由页面 mounted 自动弹面板），
-    // 已在页签时通过事件让缓存的页面实例重新唤起
-    handleKeydown(e) {
-      if (matchesShortcut(e, getShortcut('search'))) {
-        e.preventDefault()
-        if (this.$route.path !== '/search') {
-          this.$router.push('/search').catch(() => {})
-        }
-        this.$bus.emit('deck:search-open')
-      }
-    }
+    bus.emit('deck:search-open')
   }
 }
+
+onMounted(() => {
+  // Deck 视图全局搜索快捷键：打开「快捷搜索」页签并唤起搜索面板
+  document.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <style lang="scss" scoped>
@@ -144,14 +144,14 @@ export default {
   width: 16px;
   height: 48px;
   border-radius: 0 8px 8px 0;
-  
+
   /* 现代毛玻璃与软阴影效果 */
   background: var(--toggle-bg, rgba(255, 255, 255, 0.88));
   backdrop-filter: blur(8px);
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06), 1px 0 0 rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-left: none;
-  
+
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -195,7 +195,7 @@ export default {
   -webkit-app-region: no-drag;
   user-select: none;
 
-  // 输入框、代码块保留文本选择（scoped 样式无法穿透子组件，需 ::v-deep）
+  // 输入框、代码块保留文本选择（scoped 样式无法穿透子组件，需 :deep()）
   :deep(input),
   :deep(textarea),
   :deep([contenteditable]),

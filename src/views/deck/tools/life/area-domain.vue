@@ -15,24 +15,22 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
-export default {
-  name: 'LifeAreaDomain',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      // 表格列配置：后缀列等宽字体且支持点击复制
-      columns: [
-        { key: 'suffix', title: '域名后缀', mono: true, copy: true },
-        { key: 'country', title: '国家或地区', tag: true },
-        { key: 'name', title: '英文名称' },
-        { key: 'phone', title: '电话代码', mono: true }
-      ],
-      // 国家域名后缀数据，提取自旧项目 areaDomain 模块
-      rows: [
+defineOptions({ name: 'LifeAreaDomain' })
+
+// 表格列配置：后缀列等宽字体且支持点击复制
+const columns = ref([
+  { key: 'suffix', title: '域名后缀', mono: true, copy: true },
+  { key: 'country', title: '国家或地区', tag: true },
+  { key: 'name', title: '英文名称' },
+  { key: 'phone', title: '电话代码', mono: true }
+])
+// 国家域名后缀数据，提取自旧项目 areaDomain 模块
+const rows = ref([
         { suffix: '.ad', country: '安道尔共和国', name: 'Andorra', phone: '376' },
         { suffix: '.ae', country: '阿拉伯联合酋长国', name: 'United Arab Emirates', phone: '971' },
         { suffix: '.af', country: '阿富汗', name: 'Afghanistan', phone: '93' },
@@ -226,8 +224,5 @@ export default {
         { suffix: '.zm', country: '赞比亚', name: 'Zambia', phone: '260' },
         { suffix: '.zr', country: '扎伊尔', name: 'Zaire', phone: '243' },
         { suffix: '.zw', country: '津巴布韦', name: 'Zimbabwe', phone: '263' },
-      ]
-    }
-  }
-}
+      ])
 </script>

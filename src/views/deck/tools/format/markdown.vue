@@ -61,7 +61,8 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, onUpdated, nextTick } from 'vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js/lib/common'
 import katex from 'katex'
@@ -69,6 +70,11 @@ import 'katex/dist/katex.min.css'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import { downloadText } from '@/utils/ui/download'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'FormatMarkdown' })
+
+const { message } = useFeedback()
 
 const EXAMPLE = `# OmniDeck Markdown
 
@@ -123,106 +129,98 @@ const md = new MarkdownIt({
   }
 })
 
-export default {
-  name: 'FormatMarkdown',
-  components: { ToolShell, CodeEditor },
-  data() {
-    return {
-      text: EXAMPLE
-    }
-  },
-  computed: {
-    renderedHtml() {
-      return this.renderMath(md.render(this.text))
-    },
-    lineCount() {
-      return this.text ? this.text.split('\n').length : 0
-    },
-    wordCount() {
-      const m = this.text.trim().match(/[\w\u4e00-\u9fa5]+/g)
-      return m ? m.length : 0
-    }
-  },
-  updated() {
-    this.$nextTick(this.addCopyButtons)
-  },
-  methods: {
-    // LaTeX 公式渲染：跳过 <pre> 代码块，处理 $$块级$$ 与 $行内$
-    renderMath(html) {
-      return html
-        .split(/(<pre[\s\S]*?<\/pre>)/g)
-        .map((part, i) => {
-          if (i % 2 === 1) return part
-          return part
-            .replace(/\$\$([\s\S]+?)\$\$/g, (m, c) => {
-              try {
-                return katex.renderToString(c, { throwOnError: false, displayMode: true })
-              } catch (e) {
-                return m
-              }
-            })
-            .replace(/(^|[^\\$])\$([^$\n]+?)\$/g, (m, pre, c) => {
-              try {
-                return pre + katex.renderToString(c, { throwOnError: false, displayMode: false })
-              } catch (e) {
-                return m
-              }
-            })
+const text = ref(EXAMPLE)
+const mdEditor = ref(null)
+const preview = ref(null)
+
+const renderedHtml = computed(() => renderMath(md.render(text.value)))
+const lineCount = computed(() => (text.value ? text.value.split('\n').length : 0))
+const wordCount = computed(() => {
+  const m = text.value.trim().match(/[\w\u4e00-\u9fa5]+/g)
+  return m ? m.length : 0
+})
+
+// LaTeX 公式渲染：跳过 <pre> 代码块，处理 $$块级$$ 与 $行内$
+function renderMath(html) {
+  return html
+    .split(/(<pre[\s\S]*?<\/pre>)/g)
+    .map((part, i) => {
+      if (i % 2 === 1) return part
+      return part
+        .replace(/\$\$([\s\S]+?)\$\$/g, (m, c) => {
+          try {
+            return katex.renderToString(c, { throwOnError: false, displayMode: true })
+          } catch (e) {
+            return m
+          }
         })
-        .join('')
-    },
-    // 编辑器滚动 → 预览按比例同步
-    onEditorScroll(ratio) {
-      const el = this.$refs.preview
-      if (!el) return
-      el.scrollTop = (el.scrollHeight - el.clientHeight) * ratio
-    },
-    // 代码块右上角复制按钮（限定在预览容器内）
-    addCopyButtons() {
-      const root = this.$refs.preview
-      if (!root) return
-      root.querySelectorAll('pre').forEach(pre => {
-        if (pre.querySelector('.code-copy-btn')) return
-        const btn = document.createElement('div')
-        btn.className = 'code-copy-btn'
-        btn.textContent = '复制'
-        btn.onclick = () => {
-          const code = pre.querySelector('code')
-          navigator.clipboard.writeText(code ? code.innerText : pre.innerText).then(() => {
-            btn.textContent = '已复制'
-            this.$message.success('代码已复制')
-            setTimeout(() => {
-              btn.textContent = '复制'
-            }, 1500)
-          })
-        }
-        pre.appendChild(btn)
+        .replace(/(^|[^\\$])\$([^$\n]+?)\$/g, (m, pre, c) => {
+          try {
+            return pre + katex.renderToString(c, { throwOnError: false, displayMode: false })
+          } catch (e) {
+            return m
+          }
+        })
+    })
+    .join('')
+}
+
+// 编辑器滚动 → 预览按比例同步
+function onEditorScroll(ratio) {
+  const el = preview.value
+  if (!el) return
+  el.scrollTop = (el.scrollHeight - el.clientHeight) * ratio
+}
+
+// 代码块右上角复制按钮（限定在预览容器内）
+function addCopyButtons() {
+  const root = preview.value
+  if (!root) return
+  root.querySelectorAll('pre').forEach(pre => {
+    if (pre.querySelector('.code-copy-btn')) return
+    const btn = document.createElement('div')
+    btn.className = 'code-copy-btn'
+    btn.textContent = '复制'
+    btn.onclick = () => {
+      const code = pre.querySelector('code')
+      navigator.clipboard.writeText(code ? code.innerText : pre.innerText).then(() => {
+        btn.textContent = '已复制'
+        message.success('代码已复制')
+        setTimeout(() => {
+          btn.textContent = '复制'
+        }, 1500)
       })
-    },
-    copyMarkdown() {
-      if (!this.text.trim()) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.text).then(() => {
-        this.$message.success('Markdown 已复制')
-      })
-    },
-    copyHtml() {
-      if (!this.text.trim()) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.renderedHtml).then(() => {
-        this.$message.success('HTML 已复制')
-      })
-    },
-    exportHtml() {
-      if (!this.text.trim()) {
-        this.$message.warning('没有可导出的内容')
-        return
-      }
-      const doc = `<!DOCTYPE html>
+    }
+    pre.appendChild(btn)
+  })
+}
+
+function copyMarkdown() {
+  if (!text.value.trim()) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(text.value).then(() => {
+    message.success('Markdown 已复制')
+  })
+}
+
+function copyHtml() {
+  if (!text.value.trim()) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(renderedHtml.value).then(() => {
+    message.success('HTML 已复制')
+  })
+}
+
+function exportHtml() {
+  if (!text.value.trim()) {
+    message.warning('没有可导出的内容')
+    return
+  }
+  const doc = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -243,17 +241,20 @@ img{max-width:100%}
 </style>
 </head>
 <body>
-${this.renderedHtml}
+${renderedHtml.value}
 </body>
 </html>`
-      downloadText('export.html', doc, 'text/html;charset=utf-8')
-    },
-    clearAll() {
-      this.text = ''
-      this.$refs.mdEditor.focus()
-    }
-  }
+  downloadText('export.html', doc, 'text/html;charset=utf-8')
 }
+
+function clearAll() {
+  text.value = ''
+  mdEditor.value.focus()
+}
+
+onUpdated(() => {
+  nextTick(addCopyButtons)
+})
 </script>
 
 <style lang="scss" scoped>

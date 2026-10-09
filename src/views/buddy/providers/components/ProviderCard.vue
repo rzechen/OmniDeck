@@ -3,7 +3,7 @@
   <div
     class="ob-grid-card clickable"
     :class="{ default: provider.isDefault }"
-    @click="$emit('set-default', provider.id)"
+    @click="emit('set-default', provider.id)"
   >
     <div class="ob-card-head">
       <span class="ob-item-logo" :class="'logo-' + provider.type">{{ provider.name.slice(0, 1).toUpperCase() }}</span>
@@ -35,13 +35,13 @@
         <span v-if="!provider.isDefault" class="ob-foot-hint">点击卡片设为默认</span>
       </div>
       <div class="ob-card-actions" @click.stop>
-        <span v-if="!provider.isDefault" class="ob-item-action" title="设为默认" @click="$emit('set-default', provider.id)">
+        <span v-if="!provider.isDefault" class="ob-item-action" title="设为默认" @click="emit('set-default', provider.id)">
           <svg-icon icon-class="check" />
         </span>
-        <span class="ob-item-action" title="编辑" @click="$emit('edit', provider)">
+        <span class="ob-item-action" title="编辑" @click="emit('edit', provider)">
           <svg-icon icon-class="edit" />
         </span>
-        <span class="ob-item-action danger" title="删除" @click="$emit('remove', provider)">
+        <span class="ob-item-action danger" title="删除" @click="emit('remove', provider)">
           <svg-icon icon-class="delete" />
         </span>
       </div>
@@ -49,31 +49,34 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // 供应商卡片：点击设默认（set-default 上抛 id）/ 编辑 / 删除，均交父级处理
-export default {
-  name: 'ProviderCard',
-  props: {
-    // 单个供应商配置（含 isDefault 标记与深度研究档位 tier）
-    provider: {
-      type: Object,
-      required: true
-    }
-  },
-  computed: {
-    // API 格式标签（三格式：OpenAI / Responses / Anthropic）
-    formatLabel() {
-      return {
-        openai: 'OpenAI',
-        'openai-responses': 'Responses',
-        anthropic: 'Anthropic'
-      }[this.provider.apiFormat] || 'OpenAI'
-    },
-    tierLabel() {
-      return { small: '轻量档', medium: '标准档', big: '强力档' }[this.provider.tier] || ''
-    }
+import { computed } from 'vue'
+
+defineOptions({ name: 'ProviderCard' })
+
+const props = defineProps({
+  // 单个供应商配置（含 isDefault 标记与深度研究档位 tier）
+  provider: {
+    type: Object,
+    required: true
   }
-}
+})
+
+const emit = defineEmits(['set-default', 'edit', 'remove'])
+
+// API 格式标签（三格式：OpenAI / Responses / Anthropic）
+const formatLabel = computed(() => {
+  return {
+    openai: 'OpenAI',
+    'openai-responses': 'Responses',
+    anthropic: 'Anthropic'
+  }[props.provider.apiFormat] || 'OpenAI'
+})
+
+const tierLabel = computed(() => {
+  return { small: '轻量档', medium: '标准档', big: '强力档' }[props.provider.tier] || ''
+})
 </script>
 
 <style lang="scss" scoped>

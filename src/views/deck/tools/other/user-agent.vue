@@ -9,22 +9,20 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
 import ToolShell from '@/components/tool/ToolShell.vue'
 import DocList from '@/components/tool/DocList.vue'
 
 // User-Agent 速查：数据迁移自旧项目 userAgent 模块（PC / 移动端合并）
-export default {
-  name: 'OtherUserAgent',
-  components: { ToolShell, DocList },
-  data() {
-    return {
-      columns: [
+defineOptions({ name: 'OtherUserAgent' })
+
+const columns = [
         { key: 'platform', title: '平台', tag: true },
         { key: 'browser', title: '浏览器' },
         { key: 'userAgent', title: 'User-Agent（点击复制）', mono: true, copy: true }
-      ],
-      rows: [
+]
+
+const rows = [
         { platform: 'PC', browser: 'Safari 5.1 – MAC', userAgent: 'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; en-us) AppleWebKit/534.50 (KHTML, like Gecko) Version/5.1 Safari/534.50' },
         { platform: 'PC', browser: 'Safari 5.1 – Windows', userAgent: 'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-us) AppleWebKit/534.50 (KHTML, like Gecko) Version/5.1 Safari/534.50' },
         { platform: 'PC', browser: 'IE 9.0', userAgent: 'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Trident/5.0;)' },
@@ -59,9 +57,6 @@ export default {
         { platform: 'Mobile', browser: 'UC无', userAgent: 'UCWEB7.0.2.37/28/999' },
         { platform: 'Mobile', browser: 'UC标准', userAgent: 'NOKIA5700/ UCWEB7.0.2.37/28/999' },
         { platform: 'Mobile', browser: 'UCOpenwave', userAgent: 'Openwave/ UCWEB7.0.2.37/28/999' },
-        { platform: 'Mobile', browser: 'UC Opera', userAgent: 'Mozilla/4.0 (compatible; MSIE 6.0; ) Opera/UCWEB7.0.2.37/28/999' },
-      ]
-    }
-  }
-}
+        { platform: 'Mobile', browser: 'UC Opera', userAgent: 'Mozilla/4.0 (compatible; MSIE 6.0; ) Opera/UCWEB7.0.2.37/28/999' }
+]
 </script>

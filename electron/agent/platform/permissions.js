@@ -560,6 +560,18 @@ function createBridgeExtension(onAsk, onDecision, onUiPrompt) {
       console.log('[permissions] decision → surface=' + surface + ' action=deny_interrupt')
       return { kind: 'deny', reason: '会话已被用户中断，此操作自动取消' }
     }
+    // 无头定时执行的默认拒绝（主进程 pi-events 无头分级判定）：写副作用面
+    // 在无人值守时拒绝并记录；模型可改走只读路径，确需该操作时用户应在
+    // 权限管理中将对应面配置为 allow（allow 不进 ask 链路，不受无头拦截）
+    if (action === 'deny_headless') {
+      console.log('[permissions] decision → surface=' + surface + ' action=deny_headless')
+      return {
+        kind: 'deny',
+        reason: '当前为无头定时执行环境，写类操作默认拒绝（只读操作自动放行）。' +
+          '请改用只读方式继续，或跳过该步骤并在最终汇报中说明；如该操作对任务必需，' +
+          '需要用户在 OmniDeck 权限管理中将对应工具配置为允许后重跑。'
+      }
+    }
     console.log('[permissions] decision → surface=' + surface + ' action=deny')
     return { kind: 'deny', reason: '用户在 OmniBuddy 中拒绝了此操作' }
   }

@@ -80,97 +80,91 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import draggable from 'vuedraggable'
 import GIF from 'gif.js'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import ImageDrop from '@/components/tool/ImageDrop.vue'
 import { loadImage, formatSize } from '@/utils/ui/image'
 
+defineOptions({ name: 'ImageMakeGif' })
+
 let uid = 0
 
-export default {
-  name: 'ImageMakeGif',
-  components: { ToolShell, ImageDrop, draggable },
-  data() {
-    return {
-      items: [],
-      delay: 500,
-      gifWidth: 320,
-      rendering: false,
-      gifUrl: '',
-      gifBlob: null,
-      errorMsg: ''
+const items = ref([])
+const delay = ref(500)
+const gifWidth = ref(320)
+const rendering = ref(false)
+const gifUrl = ref('')
+const gifBlob = ref(null)
+const errorMsg = ref('')
+
+const gifSizeText = computed(() => (gifBlob.value ? formatSize(gifBlob.value.size) : ''))
+
+function onFiles(files) {
+  files.forEach(f => {
+    items.value.push({ id: ++uid, file: f, url: URL.createObjectURL(f) })
+  })
+}
+
+function removeItem(i) {
+  URL.revokeObjectURL(items.value[i].url)
+  items.value.splice(i, 1)
+}
+
+async function renderGif() {
+  errorMsg.value = ''
+  rendering.value = true
+  if (gifUrl.value) URL.revokeObjectURL(gifUrl.value)
+  gifUrl.value = ''
+  gifBlob.value = null
+  try {
+    // 统一缩放到目标宽度，保持比例
+    const frames = []
+    for (const item of items.value) {
+      const { img } = await loadImage(item.file)
+      const scale = gifWidth.value / img.naturalWidth
+      const canvas = document.createElement('canvas')
+      canvas.width = gifWidth.value
+      canvas.height = Math.round(img.naturalHeight * scale)
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+      frames.push(canvas)
     }
-  },
-  computed: {
-    gifSizeText() {
-      return this.gifBlob ? formatSize(this.gifBlob.size) : ''
-    }
-  },
-  methods: {
-    formatSize,
-    onFiles(files) {
-      files.forEach(f => {
-        this.items.push({ id: ++uid, file: f, url: URL.createObjectURL(f) })
-      })
-    },
-    removeItem(i) {
-      URL.revokeObjectURL(this.items[i].url)
-      this.items.splice(i, 1)
-    },
-    async renderGif() {
-      this.errorMsg = ''
-      this.rendering = true
-      if (this.gifUrl) URL.revokeObjectURL(this.gifUrl)
-      this.gifUrl = ''
-      this.gifBlob = null
-      try {
-        // 统一缩放到目标宽度，保持比例
-        const frames = []
-        for (const item of this.items) {
-          const { img } = await loadImage(item.file)
-          const scale = this.gifWidth / img.naturalWidth
-          const canvas = document.createElement('canvas')
-          canvas.width = this.gifWidth
-          canvas.height = Math.round(img.naturalHeight * scale)
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
-          frames.push(canvas)
-        }
-        const gif = new GIF({
-          workers: 2,
-          quality: 10,
-          workerScript: '/gif.worker.js',
-          width: frames[0].width,
-          height: frames[0].height
-        })
-        frames.forEach(f => gif.addFrame(f, { delay: this.delay, copy: true }))
-        gif.on('finished', blob => {
-          this.gifBlob = blob
-          this.gifUrl = URL.createObjectURL(blob)
-          this.rendering = false
-        })
-        gif.render()
-      } catch (e) {
-        this.errorMsg = e.message
-        this.rendering = false
-      }
-    },
-    downloadGif() {
-      if (!this.gifBlob) return
-      const a = document.createElement('a')
-      a.href = this.gifUrl
-      a.download = 'animation.gif'
-      a.click()
-    },
-    resetAll() {
-      this.items.forEach(i => URL.revokeObjectURL(i.url))
-      this.items = []
-      if (this.gifUrl) URL.revokeObjectURL(this.gifUrl)
-      this.gifUrl = ''
-      this.gifBlob = null
-    }
+    const gif = new GIF({
+      workers: 2,
+      quality: 10,
+      workerScript: '/gif.worker.js',
+      width: frames[0].width,
+      height: frames[0].height
+    })
+    frames.forEach(f => gif.addFrame(f, { delay: delay.value, copy: true }))
+    gif.on('finished', blob => {
+      gifBlob.value = blob
+      gifUrl.value = URL.createObjectURL(blob)
+      rendering.value = false
+    })
+    gif.render()
+  } catch (e) {
+    errorMsg.value = e.message
+    rendering.value = false
   }
+}
+
+function downloadGif() {
+  if (!gifBlob.value) return
+  const a = document.createElement('a')
+  a.href = gifUrl.value
+  a.download = 'animation.gif'
+  a.click()
+}
+
+function resetAll() {
+  items.value.forEach(i => URL.revokeObjectURL(i.url))
+  items.value = []
+  if (gifUrl.value) URL.revokeObjectURL(gifUrl.value)
+  gifUrl.value = ''
+  gifBlob.value = null
 }
 </script>
 

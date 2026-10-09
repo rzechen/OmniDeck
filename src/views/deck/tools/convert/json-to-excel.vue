@@ -80,12 +80,18 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/ui/download'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'ConvertJsonToExcel' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/convert/json-to-excel'
 
@@ -121,96 +127,94 @@ function csvCell(v) {
   return s
 }
 
-export default {
-  name: 'ConvertJsonToExcel',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      jsonInput: EXAMPLE,
-      columns: [],
-      rows: [],
-      errorMsg: '',
-      historyVisible: false,
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  watch: {
-    jsonInput() {
-      clearTimeout(this._timer)
-      this._timer = setTimeout(() => this.parse(), 250)
-    }
-  },
-  mounted() {
-    this.parse()
-  },
-  beforeUnmount() {
-    clearTimeout(this._timer)
-  },
-  methods: {
-    parse() {
-      this.errorMsg = ''
-      this.columns = []
-      this.rows = []
-      if (!this.jsonInput.trim()) return
-      try {
-        let json = JSON.parse(this.jsonInput)
-        if (!Array.isArray(json)) json = [json]
-        // 扁平化所有行，收集列（保持出现顺序）
-        const flatRows = json.map(r => {
-          if (typeof r !== 'object' || r === null) throw new Error('数组元素必须是对象')
-          return flatten(r)
-        })
-        const colSet = new Set()
-        flatRows.forEach(r => Object.keys(r).forEach(k => colSet.add(k)))
-        this.columns = [...colSet]
-        this.rows = flatRows
-      } catch (e) {
-        this.errorMsg = e.message
-      }
-    },
-    cellText(v) {
-      if (v === null || v === undefined) return ''
-      if (typeof v === 'boolean') return v ? '是' : '否'
-      if (typeof v === 'object') return JSON.stringify(v)
-      return String(v)
-    },
-    exportCsv() {
-      if (!this.rows.length) {
-        this.$message.warning('没有可导出的数据')
-        return
-      }
-      const csv = [
-        this.columns.map(csvCell).join(','),
-        ...this.rows.map(r => this.columns.map(c => csvCell(r[c])).join(','))
-      ].join('\r\n')
-      // BOM 头保证 Excel 正确识别 UTF-8 中文
-      downloadText('export.csv', '\uFEFF' + csv, 'text/csv;charset=utf-8')
-      record(TOOL_PATH, {
-        input: this.jsonInput,
-        output: csv,
-        options: { action: 'export', filename: 'export.csv', rows: this.rows.length, columns: this.columns.length }
-      })
-    },
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.jsonInput = full.input || ''
-      this.$nextTick(() => {
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复')
-    },
-    clearAll() {
-      this.jsonInput = ''
-      this.columns = []
-      this.rows = []
-      this.$refs.inputEditor.focus()
-    }
+const jsonInput = ref(EXAMPLE)
+const columns = ref([])
+const rows = ref([])
+const errorMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+// 防抖定时器（非响应式）
+let timer = null
+
+function parse() {
+  errorMsg.value = ''
+  columns.value = []
+  rows.value = []
+  if (!jsonInput.value.trim()) return
+  try {
+    let json = JSON.parse(jsonInput.value)
+    if (!Array.isArray(json)) json = [json]
+    // 扁平化所有行，收集列（保持出现顺序）
+    const flatRows = json.map(r => {
+      if (typeof r !== 'object' || r === null) throw new Error('数组元素必须是对象')
+      return flatten(r)
+    })
+    const colSet = new Set()
+    flatRows.forEach(r => Object.keys(r).forEach(k => colSet.add(k)))
+    columns.value = [...colSet]
+    rows.value = flatRows
+  } catch (e) {
+    errorMsg.value = e.message
   }
 }
+
+function cellText(v) {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'boolean') return v ? '是' : '否'
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+function exportCsv() {
+  if (!rows.value.length) {
+    message.warning('没有可导出的数据')
+    return
+  }
+  const csv = [
+    columns.value.map(csvCell).join(','),
+    ...rows.value.map(r => columns.value.map(c => csvCell(r[c])).join(','))
+  ].join('\r\n')
+  // BOM 头保证 Excel 正确识别 UTF-8 中文
+  downloadText('export.csv', '\uFEFF' + csv, 'text/csv;charset=utf-8')
+  record(TOOL_PATH, {
+    input: jsonInput.value,
+    output: csv,
+    options: { action: 'export', filename: 'export.csv', rows: rows.value.length, columns: columns.value.length }
+  })
+}
+
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  jsonInput.value = full.input || ''
+  await nextTick()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function clearAll() {
+  jsonInput.value = ''
+  columns.value = []
+  rows.value = []
+  inputEditor.value.focus()
+}
+
+watch(jsonInput, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => parse(), 250)
+})
+
+onMounted(() => {
+  parse()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
 </script>
 
 <style lang="scss" scoped>

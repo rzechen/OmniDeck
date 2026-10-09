@@ -113,12 +113,18 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { downloadText } from '@/utils/ui/download'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'FormatJson' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/format/json'
 
@@ -152,166 +158,168 @@ function locateError(input, err) {
   return { line, col }
 }
 
-export default {
-  name: 'FormatJson',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      jsonInput: EXAMPLE,
-      formattedJson: '',
-      compressed: false,
-      folded: false,
-      valid: true,
-      errMsg: '',
-      errPos: null,
-      historyVisible: false,
-      // 模板/实例可访问的工具 path（历史面板与 record 用）
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  computed: {
-    lineCount() {
-      return this.jsonInput ? this.jsonInput.split('\n').length : 0
-    },
-    errBrief() {
-      if (!this.errMsg) return 'JSON 无效'
-      let brief = this.errMsg.replace(/^JSON\.parse:\s*/, '')
-      if (this.errPos) {
-        brief += `（第 ${this.errPos.line} 行，第 ${this.errPos.col} 列附近）`
-      }
-      return brief
-    }
-  },
-  watch: {
-    // 输入防抖自动格式化
-    jsonInput() {
-      clearTimeout(this._timer)
-      this._timer = setTimeout(() => this.updateFormatted(), 250)
-    }
-  },
-  mounted() {
-    this.updateFormatted()
-  },
-  beforeUnmount() {
-    clearTimeout(this._timer)
-  },
-  methods: {
-    parseInput() {
-      try {
-        const obj = JSON.parse(normalizeJsonLike(this.jsonInput))
-        this.valid = true
-        this.errMsg = ''
-        this.errPos = null
-        return obj
-      } catch (e) {
-        this.valid = false
-        this.errMsg = e.message
-        this.errPos = locateError(this.jsonInput, e)
-        return undefined
-      }
-    },
-    updateFormatted() {
-      if (!this.jsonInput.trim()) {
-        this.formattedJson = ''
-        this.valid = true
-        this.errMsg = ''
-        this.errPos = null
-        return
-      }
-      const obj = this.parseInput()
-      if (obj === undefined) {
-        // 无效时原样透出到右侧，方便对照
-        this.formattedJson = this.jsonInput
-        return
-      }
-      this.formattedJson = this.compressed
-        ? JSON.stringify(obj)
-        : JSON.stringify(obj, null, 2)
-    },
-    setCompressed(c) {
-      if (this.compressed === c) return
-      this.compressed = c
-      if (this.valid) this.updateFormatted()
-    },
-    toggleFold() {
-      if (!this.formattedJson.trim()) return
-      this.folded = !this.folded
-      this.folded
-        ? this.$refs.outputEditor.foldAll()
-        : this.$refs.outputEditor.unfoldAll()
-    },
-    // 转义：JSON → 带引号的转义字符串字面量
-    escapeJson() {
-      const obj = this.parseInput()
-      if (obj === undefined) {
-        this.$message.error('JSON 不合法，无法转义')
-        return
-      }
-      const before = this.jsonInput
-      this.jsonInput = JSON.stringify(JSON.stringify(obj))
-      record(TOOL_PATH, { input: before, output: this.jsonInput, options: { action: 'escape' } })
-    },
-    // 去转义：转义字符串 → 格式化 JSON
-    unescapeJson() {
-      try {
-        const parsed = JSON.parse(this.jsonInput.trim())
-        if (typeof parsed !== 'string') {
-          this.$message.warning('当前内容已是合法 JSON，无需去除转义')
-          return
-        }
-        const finalParsed = JSON.parse(parsed)
-        if (typeof finalParsed !== 'object' || finalParsed === null) {
-          this.$message.warning('去除转义后不是 JSON 对象')
-          return
-        }
-        const before = this.jsonInput
-        this.jsonInput = JSON.stringify(finalParsed, null, 2)
-        record(TOOL_PATH, { input: before, output: this.jsonInput, options: { action: 'unescape' } })
-      } catch (e) {
-        this.$message.error('内容不是合法的转义 JSON 字符串')
-      }
-    },
-    copyOutput() {
-      if (!this.formattedJson.trim()) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.formattedJson).then(() => {
-        this.$message.success('复制成功')
-        // 仅按钮触发记录（防抖自动格式化不记录）
-        record(TOOL_PATH, {
-          input: this.jsonInput,
-          output: this.formattedJson,
-          options: { action: 'copy', compressed: this.compressed }
-        })
-      })
-    },
-    // 从历史恢复：回填输入并触发格式化
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      this.jsonInput = full.input || ''
-      this.$nextTick(() => this.$refs.inputEditor && this.$refs.inputEditor.focus())
-      this.$message.success('已从历史恢复')
-    },
-    downloadOutput() {
-      if (!this.formattedJson.trim()) {
-        this.$message.warning('没有可下载的内容')
-        return
-      }
-      downloadText('formatted.json', this.formattedJson, 'application/json')
-    },
-    clearAll() {
-      this.jsonInput = ''
-      this.formattedJson = ''
-      this.folded = false
-      this.$refs.inputEditor.focus()
-    }
+const jsonInput = ref(EXAMPLE)
+const formattedJson = ref('')
+const compressed = ref(false)
+const folded = ref(false)
+const valid = ref(true)
+const errMsg = ref('')
+const errPos = ref(null)
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+const outputEditor = ref(null)
+
+// 防抖定时器（非响应式）
+let timer = null
+
+const lineCount = computed(() => (jsonInput.value ? jsonInput.value.split('\n').length : 0))
+const errBrief = computed(() => {
+  if (!errMsg.value) return 'JSON 无效'
+  let brief = errMsg.value.replace(/^JSON\.parse:\s*/, '')
+  if (errPos.value) {
+    brief += `（第 ${errPos.value.line} 行，第 ${errPos.value.col} 列附近）`
+  }
+  return brief
+})
+
+function parseInput() {
+  try {
+    const obj = JSON.parse(normalizeJsonLike(jsonInput.value))
+    valid.value = true
+    errMsg.value = ''
+    errPos.value = null
+    return obj
+  } catch (e) {
+    valid.value = false
+    errMsg.value = e.message
+    errPos.value = locateError(jsonInput.value, e)
+    return undefined
   }
 }
+
+function updateFormatted() {
+  if (!jsonInput.value.trim()) {
+    formattedJson.value = ''
+    valid.value = true
+    errMsg.value = ''
+    errPos.value = null
+    return
+  }
+  const obj = parseInput()
+  if (obj === undefined) {
+    // 无效时原样透出到右侧，方便对照
+    formattedJson.value = jsonInput.value
+    return
+  }
+  formattedJson.value = compressed.value
+    ? JSON.stringify(obj)
+    : JSON.stringify(obj, null, 2)
+}
+
+function setCompressed(c) {
+  if (compressed.value === c) return
+  compressed.value = c
+  if (valid.value) updateFormatted()
+}
+
+function toggleFold() {
+  if (!formattedJson.value.trim()) return
+  folded.value = !folded.value
+  folded.value
+    ? outputEditor.value.foldAll()
+    : outputEditor.value.unfoldAll()
+}
+
+// 转义：JSON → 带引号的转义字符串字面量
+function escapeJson() {
+  const obj = parseInput()
+  if (obj === undefined) {
+    message.error('JSON 不合法，无法转义')
+    return
+  }
+  const before = jsonInput.value
+  jsonInput.value = JSON.stringify(JSON.stringify(obj))
+  record(TOOL_PATH, { input: before, output: jsonInput.value, options: { action: 'escape' } })
+}
+
+// 去转义：转义字符串 → 格式化 JSON
+function unescapeJson() {
+  try {
+    const parsed = JSON.parse(jsonInput.value.trim())
+    if (typeof parsed !== 'string') {
+      message.warning('当前内容已是合法 JSON，无需去除转义')
+      return
+    }
+    const finalParsed = JSON.parse(parsed)
+    if (typeof finalParsed !== 'object' || finalParsed === null) {
+      message.warning('去除转义后不是 JSON 对象')
+      return
+    }
+    const before = jsonInput.value
+    jsonInput.value = JSON.stringify(finalParsed, null, 2)
+    record(TOOL_PATH, { input: before, output: jsonInput.value, options: { action: 'unescape' } })
+  } catch (e) {
+    message.error('内容不是合法的转义 JSON 字符串')
+  }
+}
+
+function copyOutput() {
+  if (!formattedJson.value.trim()) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(formattedJson.value).then(() => {
+    message.success('复制成功')
+    // 仅按钮触发记录（防抖自动格式化不记录）
+    record(TOOL_PATH, {
+      input: jsonInput.value,
+      output: formattedJson.value,
+      options: { action: 'copy', compressed: compressed.value }
+    })
+  })
+}
+
+// 从历史恢复：回填输入并触发格式化
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  jsonInput.value = full.input || ''
+  await nextTick()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复')
+}
+
+function downloadOutput() {
+  if (!formattedJson.value.trim()) {
+    message.warning('没有可下载的内容')
+    return
+  }
+  downloadText('formatted.json', formattedJson.value, 'application/json')
+}
+
+function clearAll() {
+  jsonInput.value = ''
+  formattedJson.value = ''
+  folded.value = false
+  inputEditor.value.focus()
+}
+
+// 输入防抖自动格式化
+watch(jsonInput, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => updateFormatted(), 250)
+})
+
+onMounted(() => {
+  updateFormatted()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+})
 </script>
 
 <style lang="scss" scoped>

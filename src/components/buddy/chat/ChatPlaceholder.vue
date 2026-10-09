@@ -1,3 +1,8 @@
+<script setup>
+// OmniBuddy 对话空态欢迎占位
+defineOptions({ name: 'ChatPlaceholder' })
+</script>
+
 <template>
   <!-- 空会话欢迎占位 -->
   <div class="ob-placeholder">
@@ -8,13 +13,6 @@
     <div class="ob-desc">智能工作助手，随时为您答疑解惑</div>
   </div>
 </template>
-
-<script>
-// OmniBuddy 对话空态欢迎占位
-export default {
-  name: 'ChatPlaceholder'
-}
-</script>
 
 <style lang="scss" scoped>
 .ob-placeholder {

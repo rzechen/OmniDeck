@@ -2,7 +2,8 @@
   <div ref="host" class="code-editor"></div>
 </template>
 
-<script>
+<script setup>
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 // CodeMirror 5 封装：Mac 风格主题（cm-s-omni，明暗自适应）
 // 统一加载格式化工具所需的全部 mode 与折叠插件
 import CodeMirror from 'codemirror'
@@ -26,100 +27,116 @@ import 'codemirror/addon/display/placeholder'
 import 'codemirror/addon/selection/active-line'
 import 'codemirror/addon/edit/matchbrackets'
 
-export default {
-  name: 'CodeEditor',
-  // 声明自定义事件，阻止监听器 fallthrough 到根元素（CodeMirror 内部 textarea 的原生 change 会冒泡）
-  emits: ['update:modelValue', 'change', 'cursor', 'scroll'],
-  props: {
-    modelValue: { type: String, default: '' },
-    mode: { type: String, default: 'text/plain' },
-    readOnly: { type: Boolean, default: false },
-    placeholder: { type: String, default: '' },
-    // 是否启用折叠槽（JSON/YAML/XML/CSS/SQL 需要，纯文本不需要）
-    fold: { type: Boolean, default: true },
-    lineWrapping: { type: Boolean, default: true }
-  },
-  watch: {
-    // 外部赋值：保留滚动位置与光标
-    modelValue(val) {
-      if (!this.cm || val === this.cm.getValue()) return
-      const scroll = this.cm.getScrollInfo()
-      const cursor = this.cm.getCursor()
-      this.cm.setValue(val)
-      this.cm.scrollTo(scroll.left, scroll.top)
-      this.cm.setCursor(cursor)
-    },
-    mode(m) {
-      if (this.cm) this.cm.setOption('mode', m)
-    },
-    readOnly(ro) {
-      if (this.cm) this.cm.setOption('readOnly', ro)
-    }
-  },
-  mounted() {
-    const gutters = ['CodeMirror-linenumbers']
-    if (this.fold) gutters.push('CodeMirror-foldgutter')
-    this.cm = CodeMirror(this.$refs.host, {
-      value: this.modelValue,
-      mode: this.mode,
-      theme: 'omni',
-      readOnly: this.readOnly,
-      lineNumbers: true,
-      lineWrapping: this.lineWrapping,
-      foldGutter: this.fold,
-      gutters,
-      matchBrackets: true,
-      styleActiveLine: true,
-      placeholder: this.placeholder,
-      indentUnit: 2,
-      tabSize: 2,
-      extraKeys: { Tab: cm => cm.somethingSelected() ? cm.indentSelection('add') : cm.replaceSelection('  ') }
-    })
-    this.cm.on('change', () => {
-      this.$emit('update:modelValue', this.cm.getValue())
-      this.$emit('change', this.cm.getValue())
-    })
-    this.cm.on('cursorActivity', () => {
-      const c = this.cm.getCursor()
-      this.$emit('cursor', { line: c.line + 1, ch: c.ch + 1 })
-    })
-    this.cm.on('scroll', () => {
-      const info = this.cm.getScrollInfo()
-      // 滚动进度 0~1：供 Markdown 双向同步滚动使用
-      const max = info.height - info.clientHeight
-      this.$emit('scroll', max > 0 ? info.top / max : 0)
-    })
-  },
-  beforeUnmount() {
-    this.cm = null
-  },
-  methods: {
-    // 折叠全部（不可折叠的行自动跳过）
-    foldAll() {
-      if (!this.cm) return
-      this.cm.operation(() => {
-        for (let i = this.cm.firstLine(); i <= this.cm.lastLine(); i++) {
-          this.cm.foldCode(i, null, 'fold')
-        }
-      })
-    },
-    // 展开全部
-    unfoldAll() {
-      if (!this.cm) return
-      this.cm.operation(() => {
-        for (let i = this.cm.firstLine(); i <= this.cm.lastLine(); i++) {
-          this.cm.foldCode(i, null, 'unfold')
-        }
-      })
-    },
-    refresh() {
-      this.cm && this.cm.refresh()
-    },
-    focus() {
-      this.cm && this.cm.focus()
-    }
+defineOptions({ name: 'CodeEditor' })
+
+// 声明自定义事件，阻止监听器 fallthrough 到根元素（CodeMirror 内部 textarea 的原生 change 会冒泡）
+const emit = defineEmits(['update:modelValue', 'change', 'cursor', 'scroll'])
+
+const props = defineProps({
+  modelValue: { type: String, default: '' },
+  mode: { type: String, default: 'text/plain' },
+  readOnly: { type: Boolean, default: false },
+  placeholder: { type: String, default: '' },
+  // 是否启用折叠槽（JSON/YAML/XML/CSS/SQL 需要，纯文本不需要）
+  fold: { type: Boolean, default: true },
+  lineWrapping: { type: Boolean, default: true }
+})
+
+const host = ref(null)
+// CodeMirror 实例（非响应式）
+let cm = null
+
+// 外部赋值：保留滚动位置与光标
+watch(
+  () => props.modelValue,
+  val => {
+    if (!cm || val === cm.getValue()) return
+    const scroll = cm.getScrollInfo()
+    const cursor = cm.getCursor()
+    cm.setValue(val)
+    cm.scrollTo(scroll.left, scroll.top)
+    cm.setCursor(cursor)
   }
+)
+watch(
+  () => props.mode,
+  m => {
+    if (cm) cm.setOption('mode', m)
+  }
+)
+watch(
+  () => props.readOnly,
+  ro => {
+    if (cm) cm.setOption('readOnly', ro)
+  }
+)
+
+onMounted(() => {
+  const gutters = ['CodeMirror-linenumbers']
+  if (props.fold) gutters.push('CodeMirror-foldgutter')
+  cm = CodeMirror(host.value, {
+    value: props.modelValue,
+    mode: props.mode,
+    theme: 'omni',
+    readOnly: props.readOnly,
+    lineNumbers: true,
+    lineWrapping: props.lineWrapping,
+    foldGutter: props.fold,
+    gutters,
+    matchBrackets: true,
+    styleActiveLine: true,
+    placeholder: props.placeholder,
+    indentUnit: 2,
+    tabSize: 2,
+    extraKeys: { Tab: c => c.somethingSelected() ? c.indentSelection('add') : c.replaceSelection('  ') }
+  })
+  cm.on('change', () => {
+    emit('update:modelValue', cm.getValue())
+    emit('change', cm.getValue())
+  })
+  cm.on('cursorActivity', () => {
+    const c = cm.getCursor()
+    emit('cursor', { line: c.line + 1, ch: c.ch + 1 })
+  })
+  cm.on('scroll', () => {
+    const info = cm.getScrollInfo()
+    // 滚动进度 0~1：供 Markdown 双向同步滚动使用
+    const max = info.height - info.clientHeight
+    emit('scroll', max > 0 ? info.top / max : 0)
+  })
+})
+
+onBeforeUnmount(() => {
+  cm = null
+})
+
+// 折叠全部（不可折叠的行自动跳过）
+function foldAll() {
+  if (!cm) return
+  cm.operation(() => {
+    for (let i = cm.firstLine(); i <= cm.lastLine(); i++) {
+      cm.foldCode(i, null, 'fold')
+    }
+  })
 }
+// 展开全部
+function unfoldAll() {
+  if (!cm) return
+  cm.operation(() => {
+    for (let i = cm.firstLine(); i <= cm.lastLine(); i++) {
+      cm.foldCode(i, null, 'unfold')
+    }
+  })
+}
+function refresh() {
+  cm && cm.refresh()
+}
+function focus() {
+  cm && cm.focus()
+}
+
+// 原实例方法经模板 ref 暴露给父组件调用
+defineExpose({ foldAll, unfoldAll, refresh, focus })
 </script>
 
 <style lang="scss">

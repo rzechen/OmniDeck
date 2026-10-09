@@ -122,125 +122,126 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, nextTick } from 'vue'
 import { JSEncrypt } from 'jsencrypt'
 import ToolShell from '@/components/tool/ToolShell.vue'
 import CodeEditor from '@/components/tool/CodeEditor.vue'
 import ToolHistoryPanel from '@/components/tool/ToolHistoryPanel.vue'
 import { record, get as getHistory } from '@/utils/storage/tool-history'
+import { useFeedback } from '@/composables/useFeedback'
+
+defineOptions({ name: 'EncryptRsa' })
+
+const { message } = useFeedback()
 
 const TOOL_PATH = '/tools/encrypt/rsa'
 
-export default {
-  name: 'EncryptRsa',
-  components: { ToolShell, CodeEditor, ToolHistoryPanel },
-  data() {
-    return {
-      action: 'encrypt',
-      publicKey: '',
-      privateKey: '',
-      inputText: 'Hello OmniDeck',
-      outputText: '',
-      generating: false,
-      errorMsg: '',
-      historyVisible: false,
-      TOOL_PATH: TOOL_PATH
-    }
-  },
-  methods: {
-    run() {
-      this.errorMsg = ''
-      if (!this.inputText) {
-        this.errorMsg = '请输入内容'
-        return
-      }
-      const enc = new JSEncrypt()
-      try {
-        if (this.action === 'encrypt') {
-          if (!this.publicKey.trim()) {
-            this.errorMsg = '请输入公钥（或先生成密钥对）'
-            return
-          }
-          enc.setPublicKey(this.publicKey.trim())
-          const r = enc.encrypt(this.inputText)
-          if (!r) throw new Error('加密失败：明文过长或公钥格式错误')
-          this.outputText = r
-        } else {
-          if (!this.privateKey.trim()) {
-            this.errorMsg = '请输入私钥（或先生成密钥对）'
-            return
-          }
-          enc.setPrivateKey(this.privateKey.trim())
-          const r = enc.decrypt(this.inputText.trim())
-          if (!r) throw new Error('解密失败：私钥或密文错误')
-          this.outputText = r
-        }
-        // 仅记录加解密动作，不存储公私钥（敏感信息红线）
-        record(TOOL_PATH, {
-          input: this.inputText,
-          output: this.outputText,
-          options: { action: this.action, bits: 2048 }
-        })
-      } catch (e) {
-        this.errorMsg = e.message
-        this.outputText = ''
-      }
-    },
-    async restoreFromHistory(item) {
-      const full = await getHistory(item.id)
-      if (!full) {
-        this.$message.warning('该记录已被删除')
-        return
-      }
-      if (full.options && full.options.action) this.action = full.options.action
-      this.inputText = full.input || ''
-      this.outputText = full.output || ''
-      this.$nextTick(() => {
-        this.$refs.inputEditor && this.$refs.inputEditor.focus()
-      })
-      this.$message.success('已从历史恢复（密钥不存储，需重新填入）')
-    },
-    // node-forge 动态导入：仅在生成时加载
-    async generateKeyPair() {
-      this.generating = true
-      try {
-        const forge = await import('node-forge')
-        const { pki } = forge
-        const pair = await new Promise(resolve => {
-          setTimeout(() => resolve(pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 })), 50)
-        })
-        this.privateKey = pki.privateKeyToPem(pair.privateKey)
-        this.publicKey = pki.publicKeyToPem(pair.publicKey)
-        this.$message.success('已生成 2048 位密钥对')
-      } catch (e) {
-        this.$message.error('密钥生成失败：' + e.message)
-      } finally {
-        this.generating = false
-      }
-    },
-    copyKey(kind) {
-      const t = kind === 'public' ? this.publicKey : this.privateKey
-      if (!t.trim()) return
-      navigator.clipboard.writeText(t).then(() => {
-        this.$message.success(kind === 'public' ? '公钥已复制' : '私钥已复制')
-      })
-    },
-    copyOutput() {
-      if (!this.outputText) {
-        this.$message.warning('没有可复制的内容')
-        return
-      }
-      navigator.clipboard.writeText(this.outputText).then(() => {
-        this.$message.success('复制成功')
-      })
-    },
-    clearAll() {
-      this.inputText = ''
-      this.outputText = ''
-      this.errorMsg = ''
-      this.$refs.inputEditor.focus()
-    }
+const action = ref('encrypt')
+const publicKey = ref('')
+const privateKey = ref('')
+const inputText = ref('Hello OmniDeck')
+const outputText = ref('')
+const generating = ref(false)
+const errorMsg = ref('')
+const historyVisible = ref(false)
+const inputEditor = ref(null)
+
+function run() {
+  errorMsg.value = ''
+  if (!inputText.value) {
+    errorMsg.value = '请输入内容'
+    return
   }
+  const enc = new JSEncrypt()
+  try {
+    if (action.value === 'encrypt') {
+      if (!publicKey.value.trim()) {
+        errorMsg.value = '请输入公钥（或先生成密钥对）'
+        return
+      }
+      enc.setPublicKey(publicKey.value.trim())
+      const r = enc.encrypt(inputText.value)
+      if (!r) throw new Error('加密失败：明文过长或公钥格式错误')
+      outputText.value = r
+    } else {
+      if (!privateKey.value.trim()) {
+        errorMsg.value = '请输入私钥（或先生成密钥对）'
+        return
+      }
+      enc.setPrivateKey(privateKey.value.trim())
+      const r = enc.decrypt(inputText.value.trim())
+      if (!r) throw new Error('解密失败：私钥或密文错误')
+      outputText.value = r
+    }
+    // 仅记录加解密动作，不存储公私钥（敏感信息红线）
+    record(TOOL_PATH, {
+      input: inputText.value,
+      output: outputText.value,
+      options: { action: action.value, bits: 2048 }
+    })
+  } catch (e) {
+    errorMsg.value = e.message
+    outputText.value = ''
+  }
+}
+
+async function restoreFromHistory(item) {
+  const full = await getHistory(item.id)
+  if (!full) {
+    message.warning('该记录已被删除')
+    return
+  }
+  if (full.options && full.options.action) action.value = full.options.action
+  inputText.value = full.input || ''
+  outputText.value = full.output || ''
+  await nextTick()
+  inputEditor.value && inputEditor.value.focus()
+  message.success('已从历史恢复（密钥不存储，需重新填入）')
+}
+
+// node-forge 动态导入：仅在生成时加载
+async function generateKeyPair() {
+  generating.value = true
+  try {
+    const forge = await import('node-forge')
+    const { pki } = forge
+    const pair = await new Promise(resolve => {
+      setTimeout(() => resolve(pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 })), 50)
+    })
+    privateKey.value = pki.privateKeyToPem(pair.privateKey)
+    publicKey.value = pki.publicKeyToPem(pair.publicKey)
+    message.success('已生成 2048 位密钥对')
+  } catch (e) {
+    message.error('密钥生成失败：' + e.message)
+  } finally {
+    generating.value = false
+  }
+}
+
+function copyKey(kind) {
+  const t = kind === 'public' ? publicKey.value : privateKey.value
+  if (!t.trim()) return
+  navigator.clipboard.writeText(t).then(() => {
+    message.success(kind === 'public' ? '公钥已复制' : '私钥已复制')
+  })
+}
+
+function copyOutput() {
+  if (!outputText.value) {
+    message.warning('没有可复制的内容')
+    return
+  }
+  navigator.clipboard.writeText(outputText.value).then(() => {
+    message.success('复制成功')
+  })
+}
+
+function clearAll() {
+  inputText.value = ''
+  outputText.value = ''
+  errorMsg.value = ''
+  inputEditor.value.focus()
 }
 </script>
 

@@ -21,7 +21,7 @@
           <div v-if="!collapsed" class="buddy-head-actions">
             <div
               class="buddy-set-icon"
-              :class="{ active: $route.name === 'OmniBuddySettings' }"
+              :class="{ active: route.name === 'OmniBuddySettings' }"
               title="设置"
               @click="goSettings"
             >
@@ -42,7 +42,7 @@
           <div v-if="collapsed" class="buddy-collapse-quick">
             <div
               class="buddy-collapse-set"
-              :class="{ active: $route.name === 'OmniBuddySettings' }"
+              :class="{ active: route.name === 'OmniBuddySettings' }"
               title="设置"
               @click="goSettings"
             >
@@ -69,7 +69,7 @@
                 v-for="m in group.items"
                 :key="m.name"
                 class="buddy-menu-item"
-                :class="{ active: $route.name === m.name, indented: !!group.title }"
+                :class="{ active: route.name === m.name, indented: !!group.title }"
                 :title="m.label"
                 @click="goRoute(m.path)"
               >
@@ -169,381 +169,402 @@
   </div>
 </template>
 
-<script>
+<script setup>
+// OmniBuddy 视图壳：与主 Layout 平级的独立视图
+// 侧边栏（新建/设置入口 + 菜单 + 任务列表，可拖宽/收起）+ 主区（对话/管理页，无页签行）
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
+import { bus } from '@/utils/ui/bus'
+import { useFeedback } from '@/composables/useFeedback'
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
 import SetupProgressBanner from '@/components/common/SetupProgressBanner.vue'
 import { getItem, setItem } from '@/utils/storage/db'
 
-// OmniBuddy 视图壳：与主 Layout 平级的独立视图
-// 侧边栏（新建/设置入口 + 菜单 + 任务列表，可拖宽/收起）+ 主区（对话/管理页，无页签行）
-export default {
-  name: 'BuddyLayout',
-  components: { BuddyTaskList, GlobalTopbarActions, SetupProgressBanner },
-  data() {
-    return {
-      // Windows 无边框窗口：主区顶部保留窗口控制条（macOS 走系统红绿灯）
-      isWindows: !!(window.electronAPI && window.electronAPI.platform === 'win32'),
-      // 侧边栏菜单（分组，置于任务列表上方）：市场独立置顶 → 能力（含定时任务）→ 配置 → 用量统计独立
-      // 命名与分组对齐业界（Claude Capabilities / Cursor Customize）：技能+规则+连接器聚合为「能力」
-      menuGroups: [
-        {
-          title: '',
-          items: [
-            { label: '资源市场', name: 'OmniBuddyMarket', path: '/omnibuddy/market', icon: 'market' }
-          ]
-        },
-        {
-          title: '能力',
-          items: [
-            { label: '技能', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
-            { label: '连接器', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
-            { label: '定时任务', name: 'OmniBuddyAutomation', path: '/omnibuddy/automation', icon: 'auto' },
-            { label: '记忆管理', name: 'OmniBuddyMemory', path: '/omnibuddy/memory', icon: 'memory' },
-            { label: '权限策略', name: 'OmniBuddyPermissions', path: '/omnibuddy/permissions', icon: 'key' }
-          ]
-        },
-        {
-          title: '配置',
-          items: [
-            // 我的资料：结构化个人背景 + 全局规则折叠区
-            { label: '我的资料', name: 'OmniBuddyProfile', path: '/omnibuddy/profile', icon: 'user' },
-            { label: '工作空间', name: 'OmniBuddyWorkspace', path: '/omnibuddy/workspace', icon: 'folder' },
-            { label: '模型管理', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' }
-          ]
-        },
-        {
-          title: '',
-          items: [
-            { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' }
-          ]
-        }
-      ],
-      // 会话列表（主进程 JSONL 持久化，按更新时间倒序）
-      chats: [],
-      // 会话列表首次加载中，侧栏显示骨架
-      chatsLoading: true,
-      // ===== 侧边栏宽度 / 收起 =====
-      // 展开宽度（可拖拽调整，持久化）
-      sidebarW: getItem('omnibuddy:sidebar-w', 260),
-      // 收起宽度：图标缩略栏（与主布局 $sidebar-collapsed-width 一致）
-      collapsedW: 68, // 与主布局收起轨道同宽：容得下 macOS 红绿灯组，收起不溢出
-      // 收起状态（持久化）
-      collapsed: getItem('omnibuddy:sidebar-collapsed', false),
-      // 预览联动临时收起中（不持久化；关闭右栏预览恢复 collapsed 原值）
-      sidebarHold: false,
-      // 拖拽中（宽度跟随鼠标，禁用过渡）
-      dragging: false,
-      // ===== 启动检查：运行时组件 =====
-      // 核心组件（python-env）缺失（无内置且未装配）——瘦身版安装包场景提示装配
-      runtimeTipMissing: false,
-      // 本次会话内用户手动关闭横幅（不持久化，重启后若仍缺失会再提示）
-      runtimeTipClosed: false,
-      // 首启后台装配会话快照（null = 无会话）：进行中隐藏 rt-tip，横幅只显示装配进度
-      setupSession: null
-    }
+defineOptions({ name: 'BuddyLayout' })
+
+const route = useRoute()
+const router = useRouter()
+const store = useStore()
+const { message, confirm, prompt, notify } = useFeedback()
+
+// Windows 无边框窗口：主区顶部保留窗口控制条（macOS 走系统红绿灯）
+const isWindows = !!(window.electronAPI && window.electronAPI.platform === 'win32')
+// 侧边栏菜单（分组，置于任务列表上方）：市场独立置顶 → 能力（含定时任务）→ 配置 → 用量统计独立
+// 命名与分组对齐业界（Claude Capabilities / Cursor Customize）：技能+规则+连接器聚合为「能力」
+const menuGroups = [
+  {
+    title: '',
+    items: [
+      { label: '资源市场', name: 'OmniBuddyMarket', path: '/omnibuddy/market', icon: 'market' }
+    ]
   },
-  computed: {
-    // 横幅可见：检查到缺失 且 未被手动关闭；装配进行中让位给装配进度横幅
-    runtimeTipVisible() {
-      return this.runtimeTipMissing && !this.runtimeTipClosed && !(this.setupSession && this.setupSession.state === 'installing')
-    },
-    // 当前激活会话 id（由对话页路由 query.s 驱动）
-    activeChatId() {
-      return this.$route.query.s || ''
-    },
-    // 会话缓存 key：keep-alive 以 vnode.key 缓存，每个会话独立一份组件实例
-    // （页签登记仍在 router.afterEach，保证新会话 REBIND 时流式组件不重建）
-    buddyTabKey() {
-      return this.$store.getters['tagsView/keyOf']('buddy', this.$route.fullPath)
-    }
+  {
+    title: '能力',
+    items: [
+      { label: '技能', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
+      { label: '连接器', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
+      { label: '定时任务', name: 'OmniBuddyAutomation', path: '/omnibuddy/automation', icon: 'auto' },
+      { label: '记忆管理', name: 'OmniBuddyMemory', path: '/omnibuddy/memory', icon: 'memory' },
+      { label: '权限策略', name: 'OmniBuddyPermissions', path: '/omnibuddy/permissions', icon: 'key' }
+    ]
   },
-  watch: {
-    // 会话池 UI 事件（与 chat 实例共用 claim 认领去重）：
-    // perm-pending = 权限确认到达但当前页签不是该会话（浮动条不可见），
-    // 弹持续通知引导跳转，避免隐形挂起直到主进程超时拒绝
-    '$store.state.buddyChat.notice': {
-      immediate: true,
-      deep: true,
-      handler(list) {
-        this.consumePermNotices(list)
-      }
-    }
+  {
+    title: '配置',
+    items: [
+      // 我的资料：结构化个人背景 + 全局规则折叠区
+      { label: '我的资料', name: 'OmniBuddyProfile', path: '/omnibuddy/profile', icon: 'user' },
+      { label: '工作空间', name: 'OmniBuddyWorkspace', path: '/omnibuddy/workspace', icon: 'folder' },
+      { label: '模型管理', name: 'OmniBuddyProviders', path: '/omnibuddy/providers', icon: 'llm' }
+    ]
   },
-  created() {
-    this.loadChats()
-    // 启动检查：核心运行时组件装配状态（异步静默；完整版/开发环境有内置运行时不提示）
-    this.checkRuntime()
-    // 首启后台装配快照：同步既有会话 + 订阅广播（进行中隐藏 rt-tip，横幅只显示进度）
-    this.bindSetupSession()
-    // 对话页创建/更新会话后刷新列表
-    this.$bus.on('omnibuddy:sessions-changed', this.loadChats)
-    // 工作空间重命名（级联更新了会话 displayName）后刷新分组
-    this.$bus.on('omnibuddy:workspaces-changed', this.loadChats)
-    // 右栏预览联动：打开/关闭预览时临时收起/恢复侧栏（对话与预览各占一半，腾出阅读宽度）
-    this.$bus.on('buddy:sidebar-hold', this.onSidebarHold)
-    // 自动标题：主进程 LLM 生成新标题后实时刷新侧栏（store 事件池只写会话状态不外发，
-    // 此处独立订阅；preload onEvent 返回退订函数，与 store 的订阅互不影响）
-    const api = this.buddyApi()
-    if (api && api.onEvent) {
-      this._unsubTitle = api.onEvent(e => {
-        if (!e) return
-        if (e.type === 'title') {
-          const c = this.chats.find(x => x.id === e.sessionId)
-          if (c && c.title !== e.title) {
-            c.title = e.title
-          }
-          return
-        }
-        // 定时任务开始：侧栏任务列表实时出现新系统会话（「定时任务」分组）
-        if (e.type === 'automation:run') {
-          this.loadChats()
-        }
-      })
+  {
+    title: '',
+    items: [
+      { label: '用量统计', name: 'OmniBuddyUsage', path: '/omnibuddy/usage', icon: 'tickets' }
+    ]
+  }
+]
+// 会话列表（主进程 JSONL 持久化，按更新时间倒序）
+const chats = ref([])
+// 会话列表首次加载中，侧栏显示骨架
+const chatsLoading = ref(true)
+// ===== 侧边栏宽度 / 收起 =====
+// 展开宽度（可拖拽调整，持久化）
+const sidebarW = ref(getItem('omnibuddy:sidebar-w', 260))
+// 收起宽度：图标缩略栏（与主布局 $sidebar-collapsed-width 一致）
+const collapsedW = 68 // 与主布局收起轨道同宽：容得下 macOS 红绿灯组，收起不溢出
+// 收起状态（持久化）
+const collapsed = ref(getItem('omnibuddy:sidebar-collapsed', false))
+// 预览联动临时收起中（不持久化；关闭右栏预览恢复 collapsed 原值）
+let sidebarHold = false
+// 拖拽中（宽度跟随鼠标，禁用过渡）
+const dragging = ref(false)
+// ===== 启动检查：运行时组件 =====
+// 核心组件（python-env）缺失（无内置且未装配）——瘦身版安装包场景提示装配
+const runtimeTipMissing = ref(false)
+// 本次会话内用户手动关闭横幅（不持久化，重启后若仍缺失会再提示）
+const runtimeTipClosed = ref(false)
+// 首启后台装配会话快照（null = 无会话）：进行中隐藏 rt-tip，横幅只显示装配进度
+const setupSession = ref(null)
+
+let _unsubSetup = null
+let _unsubTitle = null
+let _resizeX = 0
+let _resizeW = 0
+let _holdBefore = null
+
+// 横幅可见：检查到缺失 且 未被手动关闭；装配进行中让位给装配进度横幅
+const runtimeTipVisible = computed(() => runtimeTipMissing.value && !runtimeTipClosed.value && !(setupSession.value && setupSession.value.state === 'installing'))
+
+// 当前激活会话 id（由对话页路由 query.s 驱动）
+const activeChatId = computed(() => route.query.s || '')
+
+// 会话缓存 key：keep-alive 以 vnode.key 缓存，每个会话独立一份组件实例
+// （页签登记仍在 router.afterEach，保证新会话 REBIND 时流式组件不重建）
+const buddyTabKey = computed(() => store.getters['tagsView/keyOf']('buddy', route.fullPath))
+
+// 会话池 UI 事件（与 chat 实例共用 claim 认领去重）：
+// perm-pending = 权限确认到达但当前页签不是该会话（浮动条不可见），
+// 弹持续通知引导跳转，避免隐形挂起直到主进程超时拒绝
+watch(() => store.state.buddyChat.notice, list => {
+  consumePermNotices(list)
+}, { immediate: true, deep: true })
+
+// ===== 会话（对话）管理 =====
+// preload API（浏览器环境无 electronAPI 时返回空实现）
+function buddyApi() {
+  return (window.electronAPI && window.electronAPI.omnibuddy) || null
+}
+
+async function loadChats() {
+  chatsLoading.value = true
+  try {
+    const api = buddyApi()
+    if (!api) {
+      chats.value = []
+      return
     }
-    // 拖拽调宽的全局监听
-    document.addEventListener('mousemove', this.onResizeMove)
-    document.addEventListener('mouseup', this.onResizeEnd)
-  },
-  beforeUnmount() {
-    this.$bus.off('omnibuddy:sessions-changed', this.loadChats)
-    this.$bus.off('omnibuddy:workspaces-changed', this.loadChats)
-    this.$bus.off('buddy:sidebar-hold', this.onSidebarHold)
-    if (this._unsubSetup) {
-      this._unsubSetup()
-      this._unsubSetup = null
-    }
-    if (this._unsubTitle) {
-      this._unsubTitle()
-      this._unsubTitle = null
-    }
-    document.removeEventListener('mousemove', this.onResizeMove)
-    document.removeEventListener('mouseup', this.onResizeEnd)
-  },
-  methods: {
-    // ===== 会话（对话）管理 =====
-    // preload API（浏览器环境无 electronAPI 时返回空实现）
-    buddyApi() {
-      return (window.electronAPI && window.electronAPI.omnibuddy) || null
-    },
-    async loadChats() {
-      this.chatsLoading = true
-      try {
-        const api = this.buddyApi()
-        if (!api) {
-          this.chats = []
-          return
-        }
-        this.chats = await api.listSessions()
-      } finally {
-        this.chatsLoading = false
-      }
-    },
-    // ===== 侧边栏拖拽调宽 / 收起 =====
-    onResizeStart(e) {
-      // 记录起点，进入拖拽（mousemove/mouseup 挂在 document 上）
-      this._resizeX = e.clientX
-      this._resizeW = this.sidebarW
-      this.dragging = true
-      // 拖拽期间禁用文本选择
-      document.body.style.cursor = 'col-resize'
-      document.body.style.userSelect = 'none'
-      e.preventDefault()
-    },
-    onResizeMove(e) {
-      if (!this.dragging) return
-      const w = this._resizeW + (e.clientX - this._resizeX)
-      // 钳制在合理范围（200-420）
-      this.sidebarW = Math.min(420, Math.max(200, w))
-    },
-    onResizeEnd() {
-      if (!this.dragging) return
-      this.dragging = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      // 左拖过阈值（比下限还少 32px）→ 收起；否则持久化宽度
-      if (this.sidebarW <= 232) {
-        // 拖拽收起是用户主动操作：解除预览联动的临时收起，正常持久化
-        this.releaseSidebarHold()
-        this.collapsed = true
-        setItem('omnibuddy:sidebar-collapsed', true)
-        // 恢复默认展开宽度，下次展开不意外过窄
-        this.sidebarW = 260
-        setItem('omnibuddy:sidebar-w', 260)
-      } else {
-        setItem('omnibuddy:sidebar-w', this.sidebarW)
-      }
-    },
-    // ===== 侧栏临时收起（右栏预览联动） =====
-    // 打开/关闭右栏预览时由 chat 页 emit；临时收起不持久化，关闭预览恢复用户原状态
-    onSidebarHold(on) {
-      if (on) {
-        this._holdBefore = this.collapsed
-        this.sidebarHold = true
-        this.collapsed = true
-      } else if (this.sidebarHold) {
-        this.sidebarHold = false
-        // 恢复预览打开前的用户原状态（原本就收起则保持收起）
-        this.collapsed = !!this._holdBefore
-        this._holdBefore = null
-      }
-    },
-    // 用户在临时收起期间手动操作侧栏：解除恢复义务，以用户操作为准
-    releaseSidebarHold() {
-      if (this.sidebarHold) {
-        this.sidebarHold = false
-        this._holdBefore = null
-      }
-    },
-    toggleSidebar() {
-      this.releaseSidebarHold()
-      this.collapsed = !this.collapsed
-      setItem('omnibuddy:sidebar-collapsed', this.collapsed)
-    },
-    // ===== 页签联动 =====
-    // 认领并消费权限待确认通知（claim 与 chat 实例的 notice 消费互斥去重）
-    async consumePermNotices(list) {
-      for (const n of (list || []).slice()) {
-        if (n.kind !== 'perm-pending') continue
-        // 过期通知（布局重建回放历史队列时）直接认领丢弃
-        const stale = Date.now() - (n.ts || 0) > 60000
-        const ok = await this.$store.dispatch('buddyChat/claim', n.nid)
-        if (!ok || stale) continue
-        // 该会话已在当前页签：浮动条可见，无需全局通知
-        if (this.activeChatId === n.sessionId) continue
-        let c = this.chats.find(x => x.id === n.sessionId)
-        if (!c) {
-          // 列表未含该会话（他窗创建 / 冷启动后列表未刷新）：拉取一次再定位，
-          // 避免任务已有名称却回落显示「未命名」
-          await this.loadChats()
-          c = this.chats.find(x => x.id === n.sessionId)
-        }
-        const title = (c && c.title) || ''
-        this.$notify({
-          title: '权限确认待处理',
-          message: (title ? '任务「' + title + '」' : '一个任务') + '等待你的授权确认，点击前往处理',
-          type: 'warning',
-          duration: 8000,
-          onClick: () => {
-            this.onSelectChat(n.sessionId)
-          }
-        })
-      }
-    },
-    renameChat(c) {
-      this.$prompt('请输入新的任务名称', '重命名任务', {
-        confirmButtonText: '保存',
-        cancelButtonText: '取消',
-        inputValue: c.title
-      }).then(async ({ value }) => {
-        const title = String(value || '').trim()
-        if (!title || title === c.title) return
-        const api = this.buddyApi()
-        if (api) await api.renameSession({ id: c.id, title })
-        c.title = title
-      }).catch(() => {})
-    },
-    // 置顶/取消置顶：meta.pinned 持久化 + 本地数组同步（groups 计算属性自动重排）
-    async togglePinChat(c) {
-      const api = this.buddyApi()
-      const pinned = !c.pinned
-      if (api) {
-        const meta = await api.pinSession({ id: c.id, pinned })
-        if (!meta) return
-      }
-      // 本地同步（无 API 环境也更新，保持交互一致）
-      if (pinned) {
-        c.pinned = true
-        c.pinnedAt = Date.now()
-      } else {
-        c.pinned = false
-        c.pinnedAt = 0
-      }
-      this.$message.success(pinned ? '已置顶' : '已取消置顶')
-    },
-    confirmDeleteChat(c) {
-      this.$confirm('删除后该任务的记录将一并移除，确定删除吗？', '删除任务', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(async () => {
-        const api = this.buddyApi()
-        if (api) await api.deleteSession(c.id)
-        this.chats = this.chats.filter(x => x.id !== c.id)
-        // 同步移除该会话的缓存登记，并清理会话状态池（防泄漏）
-        this.$store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id })
-        this.$store.commit('buddyChat/DROP_SESSION', c.id)
-        // 删除的是当前会话：回到新建页
-        if (this.activeChatId === c.id) {
-          this.$router.push('/omnibuddy').catch(() => {})
-        }
-        this.$message.success('已删除')
-      }).catch(() => {})
-    },
-    // ===== 导航 =====
-    goRoute(p) {
-      if (this.$route.path !== p) this.$router.push(p).catch(() => {})
-    },
-    // 设置（Buddy 视图专属设置页，保持视图上下文）
-    goSettings() {
-      if (this.$route.name !== 'OmniBuddySettings') {
-        this.$router.push({ name: 'OmniBuddySettings' }).catch(() => {})
-      }
-    },
-    // 启动检查：python-env 既无内置也未装配 → 横幅提示（主进程合并组件规则与发布清单）
-    // 首启后台装配快照：进入视图时同步既有会话，并订阅广播驱动 rt-tip 让位
-    bindSetupSession() {
-      const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
-      if (!api) return
-      if (api.onSetupProgress) {
-        this._unsubSetup = api.onSetupProgress(s => {
-          if (s && s.items) this.setupSession = s
-        })
-      }
-      if (api.setupSnapshot) {
-        api.setupSnapshot().then(s => {
-          if (s && s.items) this.setupSession = s
-        }).catch(() => {})
-      }
-    },
-    async checkRuntime() {
-      const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
-      if (!api || !api.runtimeStatus) return
-      try {
-        const res = await api.runtimeStatus()
-        if (!res || !res.ok) return
-        const py = (res.components || []).find(c => c.name === 'python-env')
-        if (py && !py.builtin && !py.installed) {
-          this.runtimeTipMissing = true
-        }
-      } catch (e) {
-        // 检查失败静默（不打扰启动）
-      }
-    },
-    // 横幅「去装配」：直达设置-运行时分区
-    goRuntimeSettings() {
-      this.$router.push({ name: 'OmniBuddySettings', query: { tab: 'runtime' } }).catch(() => {})
-    },
-    // 返回进入 OmniBuddy 前所在的 deck 页面（无记录时回首页）
-    goMain() {
-      const target = this.$router.lastDeckPath || '/home'
-      if (this.$route.path !== target) {
-        this.$router.push(target)
-      }
-    },
-    onNewChat() {
-      // 回到空会话页（发送首条消息时自动创建会话）
-      if (this.$route.path !== '/omnibuddy' || this.activeChatId) {
-        this.$router.push('/omnibuddy')
-      }
-    },
-    onSelectChat(id) {
-      if (this.$route.name !== 'OmniBuddy' || this.activeChatId !== id) {
-        this.$router.push({ path: '/omnibuddy', query: { s: id } })
-      }
-    }
+    chats.value = await api.listSessions()
+  } finally {
+    chatsLoading.value = false
   }
 }
+
+// ===== 侧边栏拖拽调宽 / 收起 =====
+function onResizeStart(e) {
+  // 记录起点，进入拖拽（mousemove/mouseup 挂在 document 上）
+  _resizeX = e.clientX
+  _resizeW = sidebarW.value
+  dragging.value = true
+  // 拖拽期间禁用文本选择
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  e.preventDefault()
+}
+
+function onResizeMove(e) {
+  if (!dragging.value) return
+  const w = _resizeW + (e.clientX - _resizeX)
+  // 钳制在合理范围（200-420）
+  sidebarW.value = Math.min(420, Math.max(200, w))
+}
+
+function onResizeEnd() {
+  if (!dragging.value) return
+  dragging.value = false
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  // 左拖过阈值（比下限还少 32px）→ 收起；否则持久化宽度
+  if (sidebarW.value <= 232) {
+    // 拖拽收起是用户主动操作：解除预览联动的临时收起，正常持久化
+    releaseSidebarHold()
+    collapsed.value = true
+    setItem('omnibuddy:sidebar-collapsed', true)
+    // 恢复默认展开宽度，下次展开不意外过窄
+    sidebarW.value = 260
+    setItem('omnibuddy:sidebar-w', 260)
+  } else {
+    setItem('omnibuddy:sidebar-w', sidebarW.value)
+  }
+}
+
+// ===== 侧栏临时收起（右栏预览联动） =====
+// 打开/关闭右栏预览时由 chat 页 emit；临时收起不持久化，关闭预览恢复用户原状态
+function onSidebarHold(on) {
+  if (on) {
+    _holdBefore = collapsed.value
+    sidebarHold = true
+    collapsed.value = true
+  } else if (sidebarHold) {
+    sidebarHold = false
+    // 恢复预览打开前的用户原状态（原本就收起则保持收起）
+    collapsed.value = !!_holdBefore
+    _holdBefore = null
+  }
+}
+
+// 用户在临时收起期间手动操作侧栏：解除恢复义务，以用户操作为准
+function releaseSidebarHold() {
+  if (sidebarHold) {
+    sidebarHold = false
+    _holdBefore = null
+  }
+}
+
+function toggleSidebar() {
+  releaseSidebarHold()
+  collapsed.value = !collapsed.value
+  setItem('omnibuddy:sidebar-collapsed', collapsed.value)
+}
+
+// ===== 页签联动 =====
+// 认领并消费权限待确认通知（claim 与 chat 实例的 notice 消费互斥去重）
+async function consumePermNotices(list) {
+  for (const n of (list || []).slice()) {
+    if (n.kind !== 'perm-pending') continue
+    // 过期通知（布局重建回放历史队列时）直接认领丢弃
+    const stale = Date.now() - (n.ts || 0) > 60000
+    const ok = await store.dispatch('buddyChat/claim', n.nid)
+    if (!ok || stale) continue
+    // 该会话已在当前页签：浮动条可见，无需全局通知
+    if (activeChatId.value === n.sessionId) continue
+    let c = chats.value.find(x => x.id === n.sessionId)
+    if (!c) {
+      // 列表未含该会话（他窗创建 / 冷启动后列表未刷新）：拉取一次再定位，
+      // 避免任务已有名称却回落显示「未命名」
+      await loadChats()
+      c = chats.value.find(x => x.id === n.sessionId)
+    }
+    const title = (c && c.title) || ''
+    notify({
+      title: '权限确认待处理',
+      message: (title ? '任务「' + title + '」' : '一个任务') + '等待你的授权确认，点击前往处理',
+      type: 'warning',
+      duration: 8000,
+      onClick: () => {
+        onSelectChat(n.sessionId)
+      }
+    })
+  }
+}
+
+function renameChat(c) {
+  prompt('请输入新的任务名称', '重命名任务', {
+    confirmButtonText: '保存',
+    cancelButtonText: '取消',
+    inputValue: c.title
+  }).then(async ({ value }) => {
+    const title = String(value || '').trim()
+    if (!title || title === c.title) return
+    const api = buddyApi()
+    if (api) await api.renameSession({ id: c.id, title })
+    c.title = title
+  }).catch(() => {})
+}
+
+// 置顶/取消置顶：meta.pinned 持久化 + 本地数组同步（groups 计算属性自动重排）
+async function togglePinChat(c) {
+  const api = buddyApi()
+  const pinned = !c.pinned
+  if (api) {
+    const meta = await api.pinSession({ id: c.id, pinned })
+    if (!meta) return
+  }
+  // 本地同步（无 API 环境也更新，保持交互一致）
+  if (pinned) {
+    c.pinned = true
+    c.pinnedAt = Date.now()
+  } else {
+    c.pinned = false
+    c.pinnedAt = 0
+  }
+  message.success(pinned ? '已置顶' : '已取消置顶')
+}
+
+function confirmDeleteChat(c) {
+  confirm('删除后该任务的记录将一并移除，确定删除吗？', '删除任务', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    const api = buddyApi()
+    if (api) await api.deleteSession(c.id)
+    chats.value = chats.value.filter(x => x.id !== c.id)
+    // 同步移除该会话的缓存登记，并清理会话状态池（防泄漏）
+    store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + c.id })
+    store.commit('buddyChat/DROP_SESSION', c.id)
+    // 删除的是当前会话：回到新建页
+    if (activeChatId.value === c.id) {
+      router.push('/omnibuddy').catch(() => {})
+    }
+    message.success('已删除')
+  }).catch(() => {})
+}
+
+// ===== 导航 =====
+function goRoute(p) {
+  if (route.path !== p) router.push(p).catch(() => {})
+}
+
+// 设置（Buddy 视图专属设置页，保持视图上下文）
+function goSettings() {
+  if (route.name !== 'OmniBuddySettings') {
+    router.push({ name: 'OmniBuddySettings' }).catch(() => {})
+  }
+}
+
+// 启动检查：python-env 既无内置也未装配 → 横幅提示（主进程合并组件规则与发布清单）
+// 首启后台装配快照：进入视图时同步既有会话，并订阅广播驱动 rt-tip 让位
+function bindSetupSession() {
+  const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
+  if (!api) return
+  if (api.onSetupProgress) {
+    _unsubSetup = api.onSetupProgress(s => {
+      if (s && s.items) setupSession.value = s
+    })
+  }
+  if (api.setupSnapshot) {
+    api.setupSnapshot().then(s => {
+      if (s && s.items) setupSession.value = s
+    }).catch(() => {})
+  }
+}
+
+async function checkRuntime() {
+  const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
+  if (!api || !api.runtimeStatus) return
+  try {
+    const res = await api.runtimeStatus()
+    if (!res || !res.ok) return
+    const py = (res.components || []).find(c => c.name === 'python-env')
+    if (py && !py.builtin && !py.installed) {
+      runtimeTipMissing.value = true
+    }
+  } catch (e) {
+    // 检查失败静默（不打扰启动）
+  }
+}
+
+// 横幅「去装配」：直达设置-运行时分区
+function goRuntimeSettings() {
+  router.push({ name: 'OmniBuddySettings', query: { tab: 'runtime' } }).catch(() => {})
+}
+
+// 返回进入 OmniBuddy 前所在的 deck 页面（无记录时回首页）
+function goMain() {
+  const target = router.lastDeckPath || '/home'
+  if (route.path !== target) {
+    router.push(target)
+  }
+}
+
+function onNewChat() {
+  // 回到空会话页（发送首条消息时自动创建会话）
+  if (route.path !== '/omnibuddy' || activeChatId.value) {
+    router.push('/omnibuddy')
+  }
+}
+
+function onSelectChat(id) {
+  if (route.name !== 'OmniBuddy' || activeChatId.value !== id) {
+    router.push({ path: '/omnibuddy', query: { s: id } })
+  }
+}
+
+// created：初始化
+loadChats()
+// 启动检查：核心运行时组件装配状态（异步静默；完整版/开发环境有内置运行时不提示）
+checkRuntime()
+// 首启后台装配快照：同步既有会话 + 订阅广播（进行中隐藏 rt-tip，横幅只显示进度）
+bindSetupSession()
+// 对话页创建/更新会话后刷新列表
+bus.on('omnibuddy:sessions-changed', loadChats)
+// 工作空间重命名（级联更新了会话 displayName）后刷新分组
+bus.on('omnibuddy:workspaces-changed', loadChats)
+// 右栏预览联动：打开/关闭预览时临时收起/恢复侧栏（对话与预览各占一半，腾出阅读宽度）
+bus.on('buddy:sidebar-hold', onSidebarHold)
+// 自动标题：主进程 LLM 生成新标题后实时刷新侧栏（store 事件池只写会话状态不外发，
+// 此处独立订阅；preload onEvent 返回退订函数，与 store 的订阅互不影响）
+{
+  const api = buddyApi()
+  if (api && api.onEvent) {
+    _unsubTitle = api.onEvent(e => {
+      if (!e) return
+      if (e.type === 'title') {
+        const c = chats.value.find(x => x.id === e.sessionId)
+        if (c && c.title !== e.title) {
+          c.title = e.title
+        }
+        return
+      }
+      // 定时任务开始：侧栏任务列表实时出现新系统会话（「定时任务」分组）
+      if (e.type === 'automation:run') {
+        loadChats()
+      }
+    })
+  }
+}
+// 拖拽调宽的全局监听
+document.addEventListener('mousemove', onResizeMove)
+document.addEventListener('mouseup', onResizeEnd)
+
+onBeforeUnmount(() => {
+  bus.off('omnibuddy:sessions-changed', loadChats)
+  bus.off('omnibuddy:workspaces-changed', loadChats)
+  bus.off('buddy:sidebar-hold', onSidebarHold)
+  if (_unsubSetup) {
+    _unsubSetup()
+    _unsubSetup = null
+  }
+  if (_unsubTitle) {
+    _unsubTitle()
+    _unsubTitle = null
+  }
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
+})
 </script>
 
 <style lang="scss" scoped>

@@ -38,7 +38,7 @@
           :key="c.id"
           class="buddy-chat"
           :class="{ active: c.id === activeChatId, running: !!stateOf(c) }"
-          @click="$emit('select-chat', c.id)"
+          @click="emit('select-chat', c.id)"
           @mouseenter="onChatEnter"
           @mouseleave="onChatLeave"
         >
@@ -64,10 +64,10 @@
               class="ob-pin"
               :class="{ pinned: c.pinned }"
               :title="c.pinned ? '取消置顶' : '置顶'"
-              @click.stop="$emit('pin-chat', c)"
+              @click.stop="emit('pin-chat', c)"
             />
-            <svg-icon icon-class="edit" class="ob-edit" title="重命名" @click.stop="$emit('rename-chat', c)" />
-            <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="$emit('delete-chat', c)" />
+            <svg-icon icon-class="edit" class="ob-edit" title="重命名" @click.stop="emit('rename-chat', c)" />
+            <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="emit('delete-chat', c)" />
           </span>
         </div>
       </template>
@@ -75,101 +75,103 @@
   </div>
 </template>
 
-<script>
+<script setup>
 // OmniBuddy 侧边栏任务列表：按会话工作空间的展示名（displayName）分组
 // 分组名 = displayName || workspaceDir（快照自会话元数据），纯展示组件
+import { computed } from 'vue'
+import { useStore } from 'vuex'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 
-export default {
-  name: 'BuddyTaskList',
-  components: { BuddySkeleton },
-  props: {
-    // 会话列表（主进程持久化，含 workspaceDir/displayName）
-    chats: {
-      type: Array,
-      default: () => []
-    },
-    activeChatId: {
-      type: String,
-      default: ''
-    },
-    // 会话列表加载中（侧栏以骨架替代列表与空态）
-    loading: {
-      type: Boolean,
-      default: false
-    }
+defineOptions({ name: 'BuddyTaskList' })
+
+const props = defineProps({
+  // 会话列表（主进程持久化，含 workspaceDir/displayName）
+  chats: {
+    type: Array,
+    default: () => []
   },
-  computed: {
-    // 按展示名分组（组间按组内最新会话时间倒序，组内置顶优先再按更新时间倒序）
-    groups() {
-      const map = {}
-      for (const c of this.chats) {
-        const name = (c.displayName && c.displayName.trim()) || c.workspaceDir || '未关联目录'
-        if (!map[name]) {
-          map[name] = { key: name, name, dir: c.workspaceDir || '', chats: [], latest: 0, hasPinned: false }
-        }
-        map[name].chats.push(c)
-        if (c.updatedAt > map[name].latest) map[name].latest = c.updatedAt
-        if (c.pinned) map[name].hasPinned = true
-      }
-      return Object.values(map)
-        .map(g => {
-          // 组内排序：置顶优先（按置顶时间倒序），其余按更新时间倒序
-          g.chats.sort((a, b) => {
-            const pa = a.pinned ? 1 : 0
-            const pb = b.pinned ? 1 : 0
-            if (pa !== pb) return pb - pa
-            if (pa === 1) return (b.pinnedAt || 0) - (a.pinnedAt || 0)
-            return b.updatedAt - a.updatedAt
-          })
-          // 拆置顶/普通两段渲染（置顶段前带「置顶」分隔线区隔）
-          const pinned = g.chats.filter(c => c.pinned)
-          const normal = g.chats.filter(c => !c.pinned)
-          g.sections = []
-          if (pinned.length) g.sections.push({ pinned: true, chats: pinned })
-          if (normal.length) g.sections.push({ pinned: false, chats: normal })
-          return g
-        })
-        // 组间排序：含置顶任务的组优先（组内最新置顶时间倒序），其余按组内最新会话时间倒序
-        .sort((a, b) => {
-          if (a.hasPinned !== b.hasPinned) return a.hasPinned ? -1 : 1
-          if (a.hasPinned) {
-            const pa = Math.max(...a.chats.filter(c => c.pinned).map(c => c.pinnedAt || 0))
-            const pb = Math.max(...b.chats.filter(c => c.pinned).map(c => c.pinnedAt || 0))
-            return pb - pa
-          }
-          return b.latest - a.latest
-        })
-    }
+  activeChatId: {
+    type: String,
+    default: ''
   },
-  methods: {
-    // 会话实时状态（store 会话池快照）：streaming = 流式输出中 / pending = 待权限确认
-    stateOf(c) {
-      const s = this.$store.getters['buddyChat/session'](c.id)
-      if (!s) return ''
-      if (s.streaming) return 'streaming'
-      if (s.permQueue && s.permQueue.length) return 'pending'
-      return ''
-    },
-    // ===== 对话名称 hover 滚动（超长标题从右向左滚动展示） =====
-    onChatEnter(e) {
-      const wrap = e.currentTarget.querySelector('.buddy-chat-name')
-      const inner = wrap && wrap.firstElementChild
-      if (!wrap || !inner) return
-      const diff = inner.scrollWidth - wrap.clientWidth
-      wrap.classList.remove('scrolling')
-      if (diff > 4) {
-        // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
-        wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
-        void wrap.offsetWidth // 强制 reflow 以重启动画
-        wrap.classList.add('scrolling')
-      }
-    },
-    onChatLeave(e) {
-      const wrap = e.currentTarget.querySelector('.buddy-chat-name')
-      if (wrap) wrap.classList.remove('scrolling')
-    }
+  // 会话列表加载中（侧栏以骨架替代列表与空态）
+  loading: {
+    type: Boolean,
+    default: false
   }
+})
+
+const emit = defineEmits(['select-chat', 'pin-chat', 'rename-chat', 'delete-chat'])
+
+const store = useStore()
+
+// 按展示名分组（组间按组内最新会话时间倒序，组内置顶优先再按更新时间倒序）
+const groups = computed(() => {
+  const map = {}
+  for (const c of props.chats) {
+    const name = (c.displayName && c.displayName.trim()) || c.workspaceDir || '未关联目录'
+    if (!map[name]) {
+      map[name] = { key: name, name, dir: c.workspaceDir || '', chats: [], latest: 0, hasPinned: false }
+    }
+    map[name].chats.push(c)
+    if (c.updatedAt > map[name].latest) map[name].latest = c.updatedAt
+    if (c.pinned) map[name].hasPinned = true
+  }
+  return Object.values(map)
+    .map(g => {
+      // 组内排序：置顶优先（按置顶时间倒序），其余按更新时间倒序
+      g.chats.sort((a, b) => {
+        const pa = a.pinned ? 1 : 0
+        const pb = b.pinned ? 1 : 0
+        if (pa !== pb) return pb - pa
+        if (pa === 1) return (b.pinnedAt || 0) - (a.pinnedAt || 0)
+        return b.updatedAt - a.updatedAt
+      })
+      // 拆置顶/普通两段渲染（置顶段前带「置顶」分隔线区隔）
+      const pinned = g.chats.filter(c => c.pinned)
+      const normal = g.chats.filter(c => !c.pinned)
+      g.sections = []
+      if (pinned.length) g.sections.push({ pinned: true, chats: pinned })
+      if (normal.length) g.sections.push({ pinned: false, chats: normal })
+      return g
+    })
+    // 组间排序：含置顶任务的组优先（组内最新置顶时间倒序），其余按组内最新会话时间倒序
+    .sort((a, b) => {
+      if (a.hasPinned !== b.hasPinned) return a.hasPinned ? -1 : 1
+      if (a.hasPinned) {
+        const pa = Math.max(...a.chats.filter(c => c.pinned).map(c => c.pinnedAt || 0))
+        const pb = Math.max(...b.chats.filter(c => c.pinned).map(c => c.pinnedAt || 0))
+        return pb - pa
+      }
+      return b.latest - a.latest
+    })
+})
+
+// 会话实时状态（store 会话池快照）：streaming = 流式输出中 / pending = 待权限确认
+function stateOf(c) {
+  const s = store.getters['buddyChat/session'](c.id)
+  if (!s) return ''
+  if (s.streaming) return 'streaming'
+  if (s.permQueue && s.permQueue.length) return 'pending'
+  return ''
+}
+// ===== 对话名称 hover 滚动（超长标题从右向左滚动展示） =====
+function onChatEnter(e) {
+  const wrap = e.currentTarget.querySelector('.buddy-chat-name')
+  const inner = wrap && wrap.firstElementChild
+  if (!wrap || !inner) return
+  const diff = inner.scrollWidth - wrap.clientWidth
+  wrap.classList.remove('scrolling')
+  if (diff > 4) {
+    // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
+    wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
+    void wrap.offsetWidth // 强制 reflow 以重启动画
+    wrap.classList.add('scrolling')
+  }
+}
+function onChatLeave(e) {
+  const wrap = e.currentTarget.querySelector('.buddy-chat-name')
+  if (wrap) wrap.classList.remove('scrolling')
 }
 </script>
 

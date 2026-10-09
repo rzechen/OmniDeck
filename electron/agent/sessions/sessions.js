@@ -245,6 +245,12 @@ function applyAutoTitle(id, title) {
 
 function deleteSession(id) {
   fs.rmSync(sessionDir(id), { recursive: true, force: true })
+  // 联动标记定时任务运行历史（防 lastRun/runs 指向已删会话的幽灵引用）。
+  // 函数内延迟 require：sessions 为纯存储模块，避免顶层耦合；
+  // scheduler 不依赖本模块，无循环引用风险
+  try {
+    require('../platform/scheduler').markSessionDeleted(id)
+  } catch (e) { /* scheduler 未初始化等场景忽略 */ }
 }
 
 // 跨会话搜索：标题 + 消息内容，返回带片段的命中列表

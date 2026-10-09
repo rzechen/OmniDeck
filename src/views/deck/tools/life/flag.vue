@@ -41,18 +41,19 @@
   </tool-shell>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue'
 import ToolShell from '@/components/tool/ToolShell.vue'
+import { useFeedback } from '@/composables/useFeedback'
 
-export default {
-  name: 'LifeFlag',
-  components: { ToolShell },
-  data() {
-    return {
-      // 搜索关键词
-      keyword: '',
-      // 国旗 Emoji 数据，提取自旧项目 nationalFlag 模块
-      countries: [
+defineOptions({ name: 'LifeFlag' })
+
+const { message } = useFeedback()
+
+// 搜索关键词
+const keyword = ref('')
+// 国旗 Emoji 数据，提取自旧项目 nationalFlag 模块
+const countries = ref([
         { flag: '🇦🇨', name: '阿森松岛' },
         { flag: '🇨🇳', name: '中国' },
         { flag: '🇺🇸', name: '美国' },
@@ -309,25 +310,20 @@ export default {
         { flag: '🇿🇦', name: '南非' },
         { flag: '🇿🇲', name: '赞比亚' },
         { flag: '🇿🇼', name: '津巴布韦' },
-      ]
-    }
-  },
-  computed: {
-    // 按国家名关键词过滤
-    filtered() {
-      const k = this.keyword.trim().toLowerCase()
-      if (!k) return this.countries
-      return this.countries.filter(c => c.name.toLowerCase().includes(k))
-    }
-  },
-  methods: {
-    // 复制国旗 Emoji 到剪贴板并提示
-    copyFlag(c) {
-      navigator.clipboard.writeText(c.flag).then(() => {
-        this.$message({ message: `已复制：${c.flag} ${c.name}`, type: 'success', duration: 1200 })
-      })
-    }
-  }
+])
+
+// 按国家名关键词过滤
+const filtered = computed(() => {
+  const k = keyword.value.trim().toLowerCase()
+  if (!k) return countries.value
+  return countries.value.filter(c => c.name.toLowerCase().includes(k))
+})
+
+// 复制国旗 Emoji 到剪贴板并提示
+function copyFlag(c) {
+  navigator.clipboard.writeText(c.flag).then(() => {
+    message({ message: `已复制：${c.flag} ${c.name}`, type: 'success', duration: 1200 })
+  })
 }
 </script>
 
