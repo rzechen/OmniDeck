@@ -791,32 +791,24 @@
           <runtime-manager />
         </template>
 
-        <!-- 关于（应用级：版本信息 + 问题反馈） -->
-        <template v-else-if="activeTab === 'about'">
+        <!-- 版本页（复用 Deck /version 整页组件，内嵌渲染保留左侧设置导航） -->
+        <template v-else-if="activeTab === 'version'">
           <header class="settings-section-header">
-            <h2 class="section-title">关于</h2>
-            <p class="section-desc">应用版本信息与帮助反馈</p>
+            <h2 class="section-title">版本页</h2>
+            <p class="section-desc">应用版本信息、软件更新与更新日志</p>
           </header>
 
-          <div class="settings-group">
-            <!-- 当前版本：跳转版本详情页 -->
-            <div class="settings-row">
-              <div class="row-label">
-                <span class="label-text">当前版本</span>
-                <span class="label-desc">查看版本信息与更新日志</span>
-              </div>
-              <el-button size="small" round @click="goVersion"><svg-icon icon-class="info" /> 查看版本</el-button>
-            </div>
+          <version-page class="embedded-page" />
+        </template>
 
-            <!-- 问题反馈 -->
-            <div class="settings-row">
-              <div class="row-label">
-                <span class="label-text">问题反馈</span>
-                <span class="label-desc">使用中遇到问题或有功能建议，欢迎反馈</span>
-              </div>
-              <el-button size="small" round @click="goFeedback"><svg-icon icon-class="chat-dot-round" /> 去反馈</el-button>
-            </div>
-          </div>
+        <!-- 问题反馈页（复用 Deck /feedback 整页组件，内嵌渲染保留左侧设置导航） -->
+        <template v-else-if="activeTab === 'feedback'">
+          <header class="settings-section-header">
+            <h2 class="section-title">反馈页</h2>
+            <p class="section-desc">使用中遇到问题或有功能建议，欢迎反馈</p>
+          </header>
+
+          <feedback-page class="embedded-page" />
         </template>
       </section>
     </div>
@@ -980,6 +972,8 @@ import {
 import * as toolHistory from '@/utils/storage/tool-history'
 import { toolCategories } from '@/config/tools'
 import RuntimeManager from '@/components/buddy/RuntimeManager.vue'
+import VersionPage from '@/views/deck/version/index.vue'
+import FeedbackPage from '@/views/deck/feedback/index.vue'
 
 defineOptions({ name: 'Settings' })
 
@@ -1037,7 +1031,9 @@ const tabs = [
   { key: 'security', label: '安全项', icon: 'lock' },
   { key: 'notify', label: '通知项', icon: 'chat-dot-round' },
   { key: 'runtime', label: '运行时', icon: 'cpu' },
-  { key: 'about', label: '关于项', icon: 'info' }
+  // 版本 / 反馈为应用级公共页：复用整页组件内嵌渲染（不再单独跳转）
+  { key: 'version', label: '版本页', icon: 'info' },
+  { key: 'feedback', label: '反馈页', icon: 'chat-line-round' }
 ]
 // 通知中心配置（loadNotify 拉取；matrix 为 类型 → 渠道数组）
 const notifyCfg = ref({
@@ -1986,20 +1982,6 @@ async function testNotify(channel) {
   }
   notifyTesting.value = ''
 }
-// 版本 / 反馈为应用级公共页：在哪个视图的设置里点开就在哪个视图打开
-//（Buddy → /omnibuddy/* 挂 BuddyLayout 页签内；Deck → /version、/feedback）
-function goVersion() {
-  const name = route.path.startsWith('/omnibuddy') ? 'OmniBuddyVersion' : 'Version'
-  if (route.name !== name) {
-    router.push({ name }).catch(() => {})
-  }
-}
-function goFeedback() {
-  const name = route.path.startsWith('/omnibuddy') ? 'OmniBuddyFeedback' : 'Feedback'
-  if (route.name !== name) {
-    router.push({ name }).catch(() => {})
-  }
-}
 function selectColor(color) {
   store.commit('SET_THEME', { color })
   applyTheme(themeMode.value, primaryColor.value)
@@ -2636,6 +2618,19 @@ onBeforeUnmount(() => {
 .settings-body {
   flex: 1;
   min-width: 0;
+}
+
+// 内嵌的版本页 / 反馈页：去掉其 page-container 自带内边距与滚动，隐藏其自带
+// hero 横幅（顶部由设置页统一的 section-header 承担），完全融入设置内容区
+.settings-body :deep(.embedded-page) {
+  padding: 0;
+  overflow: visible;
+  height: auto;
+}
+
+.settings-body :deep(.embedded-page .version-hero),
+.settings-body :deep(.embedded-page .feedback-hero) {
+  display: none;
 }
 
 .settings-section-header {

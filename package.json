@@ -36,7 +36,7 @@
     "markdown-it": "^14.3.1",
     "mitt": "^3.0.1",
     "node-forge": "^1.4.0",
-    "pdf-parse": "^1.1.1",
+    "officeparser": "^8.1.1",
     "pi-subagents": "^0.75.0",
     "pi-web-access": "^0.31.0",
     "playwright-core": "^1.63.0",

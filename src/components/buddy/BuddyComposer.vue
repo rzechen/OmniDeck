@@ -19,14 +19,24 @@
         </button>
       </div>
 
-      <!-- 待发送文件附件条（"+"选择/拖拽/粘贴导入：图片缩略图胶囊 + 文本/PDF 文件胶囊） -->
+      <!-- 待发送文件附件条（"+"选择/拖拽/粘贴导入：图片与文件统一卡片样式，
+           图标按后缀映射，与工作空间文件列表一致；文件名下显示大小与解析态） -->
       <div v-if="files && files.length" class="bc-attachments">
-        <div v-for="(f, i) in files" :key="f.id || i" class="bc-attachment" :class="{ file: f.kind !== 'image' }">
-          <img v-if="f.kind === 'image' && f.thumb" class="bc-attachment-img" :src="f.thumb" alt="" draggable="false" />
-          <template v-else>
-            <svg-icon :icon-class="f.kind === 'pdf' ? 'doc' : 'document'" class="bc-file-ico" />
+        <div v-for="(f, i) in files" :key="f.id || i" class="bc-attachment" :class="{ failed: f.parseStatus === 'failed' }">
+          <img v-if="f.kind === 'image' && f.thumb" class="bc-attachment-thumb" :src="f.thumb" alt="" draggable="false" />
+          <img v-else class="bc-attachment-thumb" :src="fileIcon(f.name)" alt="" draggable="false" />
+          <span class="bc-file-info">
             <span class="bc-file-name" :title="f.name">{{ f.name }}</span>
-          </template>
+            <span class="bc-file-meta">
+              <template v-if="f.parseStatus === 'parsing'"><i class="bc-spin"></i>解析中…</template>
+              <template v-else-if="f.parseStatus === 'failed'">解析失败，发送时重试</template>
+              <template v-else-if="f.parseStatus === 'ready'">
+                <svg class="bc-ok" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                {{ formatSize(f.size) }} · 已解析<template v-if="f.chars">约{{ formatChars(f.chars) }}字</template>
+              </template>
+              <template v-else>{{ formatSize(f.size) }}</template>
+            </span>
+          </span>
           <button class="bc-attachment-remove" title="移除" @click="emit('remove-file', i)">
             <svg-icon icon-class="close" />
           </button>
@@ -91,7 +101,7 @@
 <script setup>
 // OmniBuddy 对话输入框：豆包风格（大圆角气泡 + 左工具 + 右下圆形发送）
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
-import { useFeedback } from '@/composables/useFeedback'
+import { fileIcon, formatSize } from '@/utils/ui/file-meta'
 
 defineOptions({ name: 'BuddyComposer' })
 
@@ -133,8 +143,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'send', 'stop', 'pick', 'import-file', 'remove-quote', 'remove-file'])
 
-const { message } = useFeedback()
-
 const isFocus = ref(false)
 const isDrag = ref(false)
 // 中文输入法组合中（组合态回车 = 确认候选词，不触发发送）
@@ -164,28 +172,23 @@ function onEnter(e) {
   if (isComposing.value || e.isComposing) return
   onSend()
 }
-// 粘贴含文件时转为附件：拦截默认行为，交主进程落盘
+// 粘贴含文件时转为附件：拦截默认行为（截图/图片/文本/PDF 全支持，
+// 与拖拽同管道）；纯文本粘贴走默认行为
 function onPaste(e) {
   const items = e.clipboardData && e.clipboardData.items
   if (!items) return
-  let hasFile = false
+  const files = []
   for (const it of items) {
-    if (it.kind === 'file') hasFile = true
+    if (it.kind !== 'file') continue
+    const f = it.getAsFile()
+    if (f) files.push(f)
   }
-  if (!hasFile) return // 纯文本粘贴走默认行为
+  if (!files.length) return
   e.preventDefault()
-  const buddy = window.electronAPI && window.electronAPI.omnibuddy
-  // 非图片文件（文本/PDF）走附件管道
-  if (buddy && buddy.importAttachment) {
-    for (const it of items) {
-      if (it.kind !== 'file' || it.type.startsWith('image/')) continue
-      const f = it.getAsFile()
-      if (!f) continue
-      emitImportFile(f)
-    }
-  }
+  for (const f of files) emit('import-file', f)
 }
-// ===== 拖拽导入：Electron 32+ File.path 已移除，须经 webUtils 取真实路径 =====
+// ===== 拖拽导入：File 对象直接上抛（父层统一导入：有磁盘路径按路径、
+// 无路径读内容走 Buffer 管道），stopPropagation 避免与页面级拖放区重复处理 =====
 function onDragOver(e) {
   if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return
   isDrag.value = true
@@ -194,25 +197,21 @@ function onDragLeave() {
   isDrag.value = false
 }
 function onDrop(e) {
+  e.stopPropagation()
   isDrag.value = false
   const files = e.dataTransfer && e.dataTransfer.files
   if (!files || !files.length) return
-  for (const f of files) emitImportFile(f)
-}
-// 取拖拽/粘贴文件的真实路径，交主进程导入（emit import-file）
-function emitImportFile(f) {
-  const api = window.electronAPI
-  if (!api || !api.getPathForFile) {
-    message.info('附件导入需要 OmniDeck 桌面端')
-    return
-  }
-  let p = ''
-  try { p = api.getPathForFile(f) } catch (err) { p = '' }
-  if (p) emit('import-file', p)
+  for (const f of files) emit('import-file', f)
 }
 function onSend() {
   if (!canSend.value) return
   emit('send', props.modelValue)
+}
+// 解析字符数（中文场景直接按字符计）：过万缩为「x.x万」
+function formatChars(n) {
+  if (!n) return '0'
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万'
+  return String(n)
 }
 // 聚焦输入框（划选追问引用后调用，直接续问）
 function focus() {
@@ -339,39 +338,86 @@ defineExpose({ focus })
 
 .bc-attachment {
   position: relative;
-  width: 86px;
-  height: 54px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 44px;
+  min-width: 110px;
+  max-width: 220px;
+  padding: 0 24px 0 5px;
   border-radius: 10px;
-  overflow: hidden;
   border: 1px solid var(--border-color);
-  background: var(--border-color, #f0f0f2);
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
+  overflow: hidden;
 
-  /* 文件胶囊（文本/PDF）：图标 + 文件名，宽随内容 */
-  &.file {
-    width: auto;
-    min-width: 86px;
-    max-width: 220px;
-    height: 40px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 22px 0 9px;
-    background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
+  /* 解析失败态：红色描边提示 */
+  &.failed {
+    border-color: rgba(226, 82, 82, 0.5);
   }
 }
 
-.bc-file-ico {
+/* 左侧 30px 预览位：图片缩略图 / 按后缀映射的类型图标（与工作空间一致） */
+.bc-attachment-thumb {
   flex-shrink: 0;
-  font-size: 16px;
-  color: var(--primary-color);
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  object-fit: contain;
+  display: block;
+}
+
+/* 文件名 + meta（大小/解析态）纵排 */
+.bc-file-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .bc-file-name {
   font-size: 12px;
+  line-height: 1.3;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.bc-file-meta {
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* 解析中转圈 */
+.bc-spin {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(var(--primary-color-rgb), 0.25);
+  border-top-color: var(--primary-color);
+  animation: bc-rotate 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* 解析成功对勾（绿色，与 meta 行内联） */
+.bc-ok {
+  width: 11px;
+  height: 11px;
+  color: #22a55e;
+  flex-shrink: 0;
+}
+
+@keyframes bc-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 拖拽悬停高亮 */
@@ -380,23 +426,17 @@ defineExpose({ focus })
   box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.18), 0 4px 18px rgba(var(--primary-color-rgb), 0.12);
 }
 
-.bc-attachment-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
 .bc-attachment-remove {
   position: absolute;
-  top: 3px;
-  right: 3px;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
   width: 16px;
   height: 16px;
   border: none;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;

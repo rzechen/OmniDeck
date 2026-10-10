@@ -108,13 +108,14 @@
 //   与 omnibuddy IPC（sendMessage / replyAskUser / interrupt）
 // - 锁联动：App.vue 全局挂载的 AppLock 组件在本窗口同样生效
 // - Esc 隐藏面板（失焦不隐藏，仅失焦降层级；关闭走头部关闭按钮 / Esc / 快捷键 / 托盘）
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, toRaw } from 'vue'
 import { useFeedback } from '@/composables/useFeedback'
 import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
 import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
 import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
 import { getItem, setItem } from '@/utils/storage/db'
+import { importFileObject, parseAttachment } from '@/utils/buddy/buddy-api'
 
 defineOptions({ name: 'QuickPanel' })
 
@@ -340,17 +341,41 @@ async function pickAttachments() {
     if (res && res.error) message.warning(res.error)
     return
   }
-  for (const a of res.attachments) fileAttachments.value.push(a)
+  for (const a of res.attachments) {
+    fileAttachments.value.push(triggerParse(a))
+  }
 }
 
-async function importFile(filePath) {
+// 拖拽/粘贴导入：File 对象统一走 importFileObject（有磁盘路径按路径导入，
+// 粘贴的剪贴板文件读内容走 Buffer 管道）
+async function importFile(file) {
   if (streaming.value) return
-  const res = await api().importAttachment(filePath)
-  if (!res || !res.ok) {
-    message.warning((res && res.error) || '附件导入失败')
+  const res = await importFileObject(file)
+  if (!res) {
+    message.info('附件导入需要 OmniDeck 桌面端')
     return
   }
-  fileAttachments.value.push(res.attachment)
+  if (!res.ok) {
+    message.warning(res.error || '附件导入失败')
+    return
+  }
+  fileAttachments.value.push(triggerParse(res.attachment))
+}
+
+// 附件预解析：导入后立即抽取 pdf/office 内容并缓存（image 跳过），
+// 解析完成前发送守卫拦截；返回带 parsing 标记的副本供入列（Vue2 下
+// 入列后再补新属性不触发响应式更新）
+function triggerParse(a) {
+  if (!a || !a.id || a.kind === 'image') return a
+  const marked = Object.assign({}, a, { parseStatus: 'parsing' })
+  parseAttachment(a).then(r => {
+    // 附件可能已被移除或已发送清空
+    const idx = fileAttachments.value.findIndex(x => x.id === a.id)
+    if (idx < 0) return
+    fileAttachments.value.splice(idx, 1, Object.assign({}, marked,
+      r && r.ok ? { parseStatus: 'ready', chars: r.chars || 0 } : { parseStatus: 'failed' }))
+  })
+  return marked
 }
 
 function removeFileAttachment(i) {
@@ -359,8 +384,14 @@ function removeFileAttachment(i) {
 
 async function send() {
   const text = draft.value.trim()
-  const files = fileAttachments.value.slice()
+  // toRaw 剥离响应式代理（Proxy 无法跨 IPC 结构化克隆）
+  const files = fileAttachments.value.slice().map(f => Object.assign({}, toRaw(f)))
   if ((!text && !files.length) || streaming.value) return
+  // 解析中守卫：pdf/office 附件预解析完成前不可发送
+  if (files.some(f => f.parseStatus === 'parsing')) {
+    message.info('附件解析中，请稍候…')
+    return
+  }
   if (!window.electronAPI || !window.electronAPI.omnibuddy) {
     message.info('对话能力需要 OmniDeck 桌面端')
     return

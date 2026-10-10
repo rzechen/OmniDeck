@@ -150,10 +150,13 @@
       <div class="tp-his-divider"><span>手动翻译</span></div>
       <div class="tp-manual">
         <textarea
+          ref="manualInput"
           v-model="manualText"
           class="tp-manual-input"
           spellcheck="false"
+          rows="2"
           placeholder="输入要翻译的文本，Ctrl/⌘ + Enter 快速翻译…"
+          @input="autoGrowManual"
           @keydown.ctrl.enter.prevent="doManualTranslate"
           @keydown.meta.enter.prevent="doManualTranslate"
         ></textarea>
@@ -436,10 +439,24 @@ const expanded = ref('')
 const openedFolders = ref([])
 const confirmClear = ref(false)
 
-// ===== 手动翻译（输入即译，结果记入翻译历史） =====
+// ===== 手动翻译（输入即译，结果记入下方翻译历史） =====
 const manualText = ref('')
 const manualTrans = ref('')
 const manualBusy = ref(false)
+const manualInput = ref(null)
+
+// 弹性高度：按内容自动撑高/回落（min 2 行、max 10 行），宽度变化后下次输入再校准
+function autoGrowManual() {
+  const el = manualInput.value
+  if (!el) return
+  el.style.height = 'auto'
+  const lh = 18 // 12px * 1.5 行高，与样式一致
+  const pad = 14 // 上下 padding 7px * 2
+  const min = lh * 2 + pad
+  const max = lh * 10 + pad
+  el.style.height = Math.min(Math.max(el.scrollHeight, min), max) + 'px'
+  el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+}
 
 async function doManualTranslate() {
   const text = manualText.value.trim()
@@ -599,6 +616,8 @@ onMounted(() => {
   }
   document.addEventListener('click', onDocClick)
   applyEngine()
+  // 挂载后按初始内容校准一次高度
+  nextTick(autoGrowManual)
 })
 
 onBeforeUnmount(() => {
@@ -918,8 +937,11 @@ function onDocClick(e) {
 }
 
 .tp-manual-input {
-  height: 64px;
+  min-height: 64px;
+  max-height: 194px;
   padding: 7px 9px;
+  overflow-y: hidden;
+  box-sizing: border-box;
   border: 1px solid transparent;
   border-radius: $radius-sm;
   background: $search-bg;

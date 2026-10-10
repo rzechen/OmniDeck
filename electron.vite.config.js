@@ -48,7 +48,8 @@ const agentNames = [
 // pi-subagents 随应用打包，agent/tools/builtin-tools.js 以 require.resolve 定位其运行时路径，须保留原生调用；
 // pi-web-access 随应用打包，agent/integrations/pkg-registry.js 以 require.resolve 定位其运行时路径，须保留原生调用；
 // adm-zip 由 agent/knowledge/skills.js / core/deps.js 运行时 require（node_modules 内），保留原生调用；
-// pdf-parse 由 agent/workspace/attachments.js 运行时 require，保留原生调用；
+// officeparser 由 agent/workspace/attachments.js 运行时 require（附件预解析：
+// PDF/Office 抽取，30MB 含 pdfjs-dist/tesseract.js，内联会破坏其内部资源定位），保留原生调用；
 // markdown-it 由 agent/sessions/export.js 运行时 require，保留原生调用；
 // electron-updater 由 core/updater.js 运行时 require，保留原生调用
 const runtimeDeps = [
@@ -59,7 +60,7 @@ const runtimeDeps = [
   'pi-subagents',
   'pi-web-access',
   'adm-zip',
-  'pdf-parse',
+  'officeparser',
   'markdown-it',
   'electron-updater'
 ]

@@ -59,11 +59,12 @@
           draggable="false"
         />
       </div>
-      <!-- 用户：文件附件卡片（文本/PDF 与文件导入图片；编辑态隐藏） -->
+      <!-- 用户：文件附件卡片（文本/PDF 与文件导入图片；编辑态隐藏；
+           图标按后缀映射，与工作空间文件列表一致） -->
       <div v-if="!editing && fileAttachmentList.length" class="ob-msg-files">
         <div v-for="f in fileAttachmentList" :key="f.id" class="ob-msg-file">
           <img v-if="f.kind === 'image' && f.thumb" class="ob-msg-file-thumb" :src="f.thumb" alt="" draggable="false" />
-          <svg-icon v-else :icon-class="f.kind === 'pdf' ? 'doc' : 'document'" class="ob-msg-file-ico" />
+          <img v-else class="ob-msg-file-thumb" :src="fileIcon(f.name)" alt="" draggable="false" />
           <div class="ob-msg-file-info">
             <div class="ob-msg-file-name" :title="f.name">{{ f.name }}</div>
             <div class="ob-msg-file-meta">{{ fileKindLabel(f.kind) + ' · ' + formatSize(f.size) }}</div>
@@ -216,6 +217,7 @@
 // OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标 + meta 行）
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
+import { fileIcon } from '@/utils/ui/file-meta'
 import ThinkingSection from './ThinkingSection.vue'
 import FileChangesPanel from './FileChangesPanel.vue'
 import ArtifactPanel from './ArtifactPanel.vue'
@@ -477,6 +479,7 @@ function formatSize(n) {
 
 function fileKindLabel(kind) {
   if (kind === 'pdf') return 'PDF'
+  if (kind === 'office') return 'Office'
   if (kind === 'image') return '图片'
   return '文本'
 }
@@ -767,15 +770,11 @@ async function exportAs(format) {
   width: 34px;
   height: 34px;
   border-radius: 6px;
-  object-fit: cover;
+  /* 图片缩略图裁切、类型图标完整显示 */
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.9);
   flex-shrink: 0;
   display: block;
-}
-
-.ob-msg-file-ico {
-  flex-shrink: 0;
-  font-size: 20px;
-  color: rgba(255, 255, 255, 0.9);
 }
 
 .ob-msg-file-info {

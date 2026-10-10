@@ -1,6 +1,37 @@
 <template>
   <div class="browser-page">
-    <!-- 工具栏：导航 / 地址栏（含历史下拉）/ 工作台开关 -->
+    <!-- Tab 条（顶行，Chrome 结构）：多标签（每 tab 独立 webview，非激活隐藏保留状态） -->
+    <div class="br-tabs">
+      <div
+        v-for="t in tabState.tabs"
+        :key="t.id"
+        class="br-tab"
+        :class="{ active: t.id === tabState.activeId }"
+        :title="t.title || t.url || '新标签页'"
+        @click="activateTab(t.id)"
+        @auxclick.middle.prevent="closeTabById(t.id)"
+      >
+        <span v-if="t.isLoading" class="br-tab-spin"></span>
+        <svg-icon v-else :icon-class="(t.url ? 'website' : 'plus')" class-name="br-tab-ico" />
+        <span class="br-tab-name">{{ t.title || t.url || '新标签页' }}</span>
+        <i class="br-tab-close" title="关闭标签" @click.stop="closeTabById(t.id)">
+          <svg-icon icon-class="close" />
+        </i>
+      </div>
+      <button class="br-tab-new" title="新建标签页" @click="newTabHandler()">
+        <svg-icon icon-class="plus" />
+      </button>
+      <button
+        v-if="tabState.tabs.length > 1"
+        class="br-tab-new"
+        title="关闭所有标签页"
+        @click="closeAllTabs"
+      >
+        <svg-icon icon-class="close" />
+      </button>
+    </div>
+
+    <!-- 工具栏（tab 条下方）：导航 / 地址栏（含历史下拉）/ 工作台开关 -->
     <div class="br-toolbar">
       <div class="br-nav">
         <button class="br-btn" :disabled="!state.canGoBack" title="后退" @click="onBack">
@@ -37,7 +68,7 @@
           v-if="state.url"
           class="br-addr-star"
           :class="{ on: !!currentBookmark }"
-          :title="currentBookmark ? '编辑收藏' : '收藏此页'"
+          :title="currentBookmark ? '取消收藏' : '收藏此页'"
           @click="onStar"
         >
           <svg-icon :icon-class="currentBookmark ? 'star-on' : 'star'" />
@@ -92,29 +123,6 @@
       </div>
     </div>
 
-    <!-- Tab 条：多标签（每 tab 独立 webview，非激活隐藏保留状态） -->
-    <div class="br-tabs">
-      <div
-        v-for="t in tabState.tabs"
-        :key="t.id"
-        class="br-tab"
-        :class="{ active: t.id === tabState.activeId }"
-        :title="t.title || t.url || '新标签页'"
-        @click="activateTab(t.id)"
-        @auxclick.middle.prevent="closeTabById(t.id)"
-      >
-        <span v-if="t.isLoading" class="br-tab-spin"></span>
-        <svg-icon v-else :icon-class="(t.url ? 'website' : 'plus')" class-name="br-tab-ico" />
-        <span class="br-tab-name">{{ t.title || t.url || '新标签页' }}</span>
-        <i class="br-tab-close" title="关闭标签" @click.stop="closeTabById(t.id)">
-          <svg-icon icon-class="close" />
-        </i>
-      </div>
-      <button class="br-tab-new" title="新建标签页" @click="newTabHandler()">
-        <svg-icon icon-class="plus" />
-      </button>
-    </div>
-
     <!-- 书签栏（Chrome 风格）：显示与否由设置-浏览器控制 -->
     <BookmarkBar v-if="bookmarkBarVisible" @navigate="onBookmarkNav" />
 
@@ -142,7 +150,7 @@
         :key="t.id"
         :ref="el => setWv(t.id, el)"
         :data-tab-id="t.id"
-        v-show="t.id === tabState.activeId"
+        :class="{ active: t.id === tabState.activeId }"
         class="br-webview"
         width="100%"
         height="100%"
@@ -159,13 +167,13 @@
         @dom-ready="onDomReady"
       />
       <div v-if="!state.url" class="br-empty">
-        <svg-icon icon-class="monitor" />
+        <svg-icon icon-class="browser" />
         <p class="br-empty-title">浏览器</p>
-        <p class="br-empty-desc">在上方输入网址开始浏览，展开「工作台」即可在不破坏排版的前提下，以双语对照方式阅读外文网页。</p>
+        <p class="br-empty-desc">在上方输入网址开始浏览，多标签页畅游网页。</p>
         <div class="br-empty-tags">
-          <span>排版零破坏</span>
-          <span>视口优先翻译</span>
-          <span>Google / 模型双引擎</span>
+          <span>多标签页</span>
+          <span>书签收藏</span>
+          <span>划词翻译</span>
         </div>
       </div>
       <!-- 加载失败/超时占位层（不透明遮住 webview 默认错误页） -->
@@ -226,6 +234,20 @@
         </aside>
       </transition>
     </div>
+
+    <!-- 关闭全部二次确认（页内自绘：挂 body 的弹窗会被原生视图遮挡） -->
+    <transition name="br-notice">
+      <div v-if="confirmCloseAll" class="br-confirm" @click.self="confirmCloseAll = false">
+        <div class="br-confirm-card">
+          <p class="br-confirm-title">关闭所有标签页？</p>
+          <p class="br-confirm-desc">将关闭 {{ tabState.tabs.length }} 个标签页，此操作不可撤销</p>
+          <div class="br-confirm-actions">
+            <button class="br-error-btn" @click="confirmCloseAll = false">取消</button>
+            <button class="br-error-btn primary" @click="doCloseAllTabs">关闭全部</button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -250,6 +272,7 @@ import {
   loadBookmarks,
   findBookmarkByUrl,
   addBookmark,
+  removeBookmark,
   getLastFolderId
 } from './bookmarks'
 
@@ -397,7 +420,14 @@ onMounted(() => {
   if (!window.__odBrSessionBooted) {
     window.__odBrSessionBooted = true
     lastUrl.value = ''
-    addTab(normalizeUrl(getHomepage()))
+    // Chrome 式启动二选一：有可恢复会话（任一 tab 有 url）→ 原样恢复不新增；
+    // 无会话（全空 tab / 首次运行）→ 单 tab 打开默认主页
+    const hasSession = tabState.tabs.some(t => t.url)
+    if (!hasSession) {
+      const solo = tabState.tabs[0]
+      if (solo) updateTab(solo.id, { url: normalizeUrl(getHomepage()) })
+      else addTab(normalizeUrl(getHomepage()))
+    }
   }
   // 书签（响应式单例，与书签面板共享）
   loadBookmarks()
@@ -623,24 +653,22 @@ function onGripDown(e) {
 }
 
 // ===== 书签 =====
-// 星标：未收藏一键收藏（记入上次使用的文件夹），已收藏展开工作台直达书签面板进入编辑
+// 星标：未收藏一键收藏（记入上次使用的文件夹）；已收藏再次点击取消收藏
+// （编辑入口保留在工作台书签面板）
 async function onStar() {
   if (!/^https?:/i.test(state.url)) {
-    notify('warning', '当前页面不可收藏')
+    proxy.$message.warning('当前页面不可收藏')
     return
   }
   const exist = currentBookmark.value
   if (exist) {
-    workbenchOpen.value = true
-    openFeature('bookmark')
-    ensureSidebarCollapsed()
-    await nextTick()
-    const inst = featurePanel.value
-    if (inst && inst.startEditById) inst.startEditById(exist.id)
+    const name = exist.name || exist.url
+    removeBookmark(exist.id)
+    proxy.$message.success('已取消收藏「' + name + '」')
     return
   }
   addBookmark(state.title || state.url, state.url, getLastFolderId())
-  notify('info', '已收藏「' + (state.title || state.url) + '」')
+  proxy.$message.success('已收藏「' + (state.title || state.url) + '」')
 }
 // 工作台书签分区点击书签：直达导航
 function onBookmarkNav(url) {
@@ -698,6 +726,21 @@ function newTabHandler(url) {
   // webview 由 v-for 渲染 → dom-ready 后统一懒加载/同步
 }
 
+// 一键关闭所有标签页：先弹页内二次确认（挂 body 的弹窗会被原生视图遮挡）
+const confirmCloseAll = ref(false)
+function closeAllTabs() {
+  confirmCloseAll.value = true
+}
+// 确认后执行：closeTab 关到最后会自动新建空 tab 保持单页
+function doCloseAllTabs() {
+  confirmCloseAll.value = false
+  tabState.tabs.slice().forEach(t => {
+    wvMap.delete(t.id)
+    closeTab(t.id)
+  })
+  loadError.value = null
+}
+
 // 关闭标签页：激活转移 + webview 清理
 function closeTabById(id) {
   const wasActive = id === tabState.activeId
@@ -731,12 +774,14 @@ function activateTab(id) {
 }
 
 // webview 首次就绪 / keep-alive 返回重建：初始状态 + 主进程翻译注入通道；
-// about:blank 占位：激活 tab 按「tab.url → 上次页面 → 默认主页」懒加载恢复
+// about:blank 占位：激活 tab 按 tab.url 懒加载恢复；空 tab（新建/关光后）保持空白页
 function onDomReady(e) {
   const wv = wvOf(e) || wvActive()
   if (!wv) return
   const tid = wv.dataset.tabId
-  notifyActivePage(wv)
+  // 仅激活 tab 可标记主进程「当前页面」：非激活 tab 的 dom-ready 抢注会把
+  // 懒加载导航发到错误 webview（激活 tab 停在 about:blank、地址栏空的根因）
+  if (tid === tabState.activeId) notifyActivePage(wv)
   syncFromWebview(wv)
   const attach = browser ? browser.attachWebview() : Promise.resolve()
   attach.then(() => {
@@ -748,14 +793,16 @@ function onDomReady(e) {
       if (browser && tid === tabState.activeId) browser.pageLoaded()
       return
     }
-    // about:blank：仅激活 tab 恢复（非激活 tab 激活时懒加载）
+    // about:blank：仅激活 tab 恢复（非激活 tab 激活时懒加载）；空 tab 保持空白
     if (tid !== tabState.activeId) return
     const tab = tabById(tid)
-    const target = normalizeUrl((tab && tab.url) || lastUrl.value || getHomepage())
+    const target = tab && tab.url ? normalizeUrl(tab.url) : ''
     if (/^https?:/i.test(target)) {
       state.url = ''
       state.isLoading = true
       loadError.value = null
+      // 导航前再定向一次：attach 异步间隙内激活 tab 可能已被切换
+      notifyActivePage(wv)
       navCmd('loadURL', target)
     }
   }).catch(() => {})
@@ -769,14 +816,16 @@ function syncFromWebview(wv) {
   if (tid) {
     updateTab(tid, {
       url: /^https?:/i.test(url) ? url : (tabById(tid) || {}).url,
-      title: wv.getTitle(),
+      // 空白页（about:blank）不落标题，保持「新标签页」占位
+      title: /^https?:/i.test(url) ? wv.getTitle() : (tabById(tid) || {}).title,
       isLoading: wv.isLoading()
     })
   }
   if (!tid || tid !== tabState.activeId) return
   Object.assign(state, {
-    url: url,
-    title: wv.getTitle(),
+    // 空白页地址栏显示为空（空态引导层依赖 !state.url 显示）
+    url: /^https?:/i.test(url) ? url : '',
+    title: /^https?:/i.test(url) ? wv.getTitle() : '',
     isLoading: wv.isLoading(),
     canGoBack: wv.canGoBack(),
     canGoForward: wv.canGoForward()
@@ -798,7 +847,13 @@ function onTitleEvent(e) {
   const wv = wvOf(e)
   if (!wv) return
   let title = ''
-  try { title = wv.getTitle() } catch (err) { return }
+  let isHttp = false
+  try {
+    title = wv.getTitle()
+    isHttp = /^https?:/i.test(wv.getURL())
+  } catch (err) { return }
+  // 空白页（about:blank）不落标题，保持「新标签页」占位
+  if (!isHttp) return
   updateTab(wv.dataset.tabId, { title })
   if (wv.dataset.tabId === tabState.activeId) state.title = title
 }
@@ -1366,13 +1421,14 @@ function onGo() {
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 34px;
+  height: 36px;
   padding: 0 8px;
-  background: $card-bg;
+  background: $search-bg;
   border-bottom: 1px solid $divider;
   overflow-x: auto;
   overflow-y: hidden;
   flex-shrink: 0;
+  scrollbar-width: none;
 
   &::-webkit-scrollbar {
     height: 0;
@@ -1383,20 +1439,26 @@ function onGo() {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  max-width: 170px;
-  min-width: 90px;
-  padding: 0 6px 0 9px;
-  border-radius: $radius-sm;
+  /* 激活/非激活同高：避免切换时 tab 条内容上下抖动 */
+  height: 32px;
+  width: 200px;
+  min-width: 56px;
+  padding: 0 6px 0 10px;
+  border-radius: $radius-sm $radius-sm 0 0;
   background: transparent;
   color: $text-secondary;
   cursor: pointer;
   flex-shrink: 0;
   user-select: none;
   transition: background 0.12s ease, color 0.12s ease;
+  align-self: flex-end;
+  /* 所有 tab 静态统一：激活态不产生位移（无凸出动态） */
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: none;
 
   &:hover {
-    background: $search-bg;
+    background: rgba(0, 0, 0, 0.05);
 
     .br-tab-close {
       opacity: 1;
@@ -1404,9 +1466,10 @@ function onGo() {
   }
 
   &.active {
-    background: $search-bg;
+    background: $card-bg;
     color: $text-primary;
     font-weight: 500;
+    border-color: $divider;
 
     .br-tab-close {
       opacity: 1;
@@ -1472,6 +1535,9 @@ function onGo() {
   height: 26px;
   border: none;
   border-radius: $radius-sm;
+  /* 与激活 tab 中心线对齐：激活 tab 32px + 下探1px → 中心距底 15px；本按钮 26px → margin 2px */
+  align-self: flex-end;
+  margin-bottom: 2px;
   background: transparent;
   color: $text-secondary;
   font-size: 13px;
@@ -1495,7 +1561,55 @@ function onGo() {
 
 /* webview 外观兜底（尺寸强制见文末全局样式块，scoped 对自定义元素可能不匹配） */
 .br-webview {
+  position: absolute;
+  inset: 0;
+  /* v-show → display:none 会被 Electron 判定不可见、打断 guest 渲染管线，
+     切回白屏；visibility 保 DOM/渲染状态，恢复即时（Chrome/VS Code webview 叠放方案） */
+  visibility: hidden;
   background: #fff;
+
+  &.active {
+    visibility: visible;
+  }
+}
+
+/* 关闭全部二次确认弹层（页内自绘，覆盖在 webview 之上） */
+.br-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.br-confirm-card {
+  width: 320px;
+  padding: 20px 22px;
+  border-radius: $radius-base;
+  background: $card-bg;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.br-confirm-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.br-confirm-desc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: $text-secondary;
+}
+
+.br-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
 }
 
 /* 页内提示条：文档流内自绘（$message 挂 body 会被原生视图遮挡） */

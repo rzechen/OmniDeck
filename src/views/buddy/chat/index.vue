@@ -1,5 +1,23 @@
 <template>
-  <div class="ob-chat">
+  <div
+    class="ob-chat"
+    @dragenter="onPageDragEnter"
+    @dragover="onPageDragOver"
+    @dragleave="onPageDragLeave"
+    @drop.capture="onPageDropReset"
+    @drop="onPageDrop"
+  >
+    <!-- 全页拖放遮罩：文件拖入页面任意区域时浮现（输入框自身拖放不受影响，
+         release 后走页面级导入），提示可释放为附件 -->
+    <transition name="ob-drag-fade">
+      <div v-if="pageDrag" class="ob-drag-mask">
+        <div class="ob-drag-card">
+          <svg-icon icon-class="upload" class="ob-drag-ico" />
+          <div class="ob-drag-title">释放以添加附件</div>
+          <div class="ob-drag-desc">支持图片 / 文本 / PDF，随下一条消息发送</div>
+        </div>
+      </div>
+    </transition>
     <!-- 对话列（主体 + 输入区） -->
     <div class="ob-main-col">
       <!-- 对话主体（滚动位置写入会话池 atBottom，决定新消息是否自动跟滚） -->
@@ -229,7 +247,7 @@
 <script setup>
 // OmniBuddy 对话主区：pi Agent 流式对话
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated, toRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from 'vuex'
 import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
@@ -244,6 +262,7 @@ import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
 import { getItem, setItem } from '@/utils/storage/db'
 import { computeBranchView } from '@/utils/buddy/branchView'
+import { importFileObject, parseAttachment } from '@/utils/buddy/buddy-api'
 import { genLocalId } from '@/store/buddyChat'
 import { bus } from '@/utils/ui/bus'
 import { useFeedback } from '@/composables/useFeedback'
@@ -683,22 +702,84 @@ async function pickAttachments() {
   }
   for (const a of res.attachments) {
     store.commit('buddyChat/ATTACH_PUSH', { id: sid.value, item: a })
+    triggerParse(a)
   }
 }
 
-// 拖拽/粘贴导入：主进程落盘后入待发送列表
-async function importFile(filePath) {
+// 拖拽/粘贴导入：File 对象统一走 importFileObject（有磁盘路径按路径导入，
+// 粘贴的剪贴板文件读内容走 Buffer 管道），主进程落盘后入待发送列表
+async function importFile(file) {
   if (streaming.value) return
-  const res = await api().importAttachment(filePath)
-  if (!res || !res.ok) {
-    message.warning((res && res.error) || '附件导入失败')
+  const res = await importFileObject(file)
+  if (!res) {
+    message.info('附件导入需要 OmniDeck 桌面端')
+    return
+  }
+  if (!res.ok) {
+    message.warning(res.error || '附件导入失败')
     return
   }
   store.commit('buddyChat/ATTACH_PUSH', { id: sid.value, item: res.attachment })
+  triggerParse(res.attachment)
+}
+
+// 附件预解析（豆包式“解析中”）：导入后立即抽取 pdf/office 内容并缓存，
+// 解析完成前发送按钮保持禁用（防大文件解析耗时被吞进“思考中”）
+// image 不参与；text 秒回也走同管道展示字符数
+function triggerParse(a) {
+  if (!a || !a.id || a.kind === 'image') return
+  store.commit('buddyChat/ATTACH_PARSE', { id: sid.value, index: findAttachIndex(a.id), patch: { parseStatus: 'parsing' } })
+  parseAttachment(a).then(r => {
+    const patch = r && r.ok
+      ? { parseStatus: 'ready', chars: r.chars || 0 }
+      : { parseStatus: 'failed' }
+    store.commit('buddyChat/ATTACH_PARSE', { id: sid.value, index: findAttachIndex(a.id), patch })
+  })
+}
+function findAttachIndex(id) {
+  const list = store.getters['buddyChat/session'](sid.value).fileAttachments
+  return list.findIndex(x => x.id === id)
 }
 
 function removeFileAttachment(i) {
   store.commit('buddyChat/ATTACH_REMOVE', { id: sid.value, index: i })
+}
+
+// ===== 页面级拖放（消息区等非输入框区域） =====
+// dragenter/leave 计数器：子元素间移动会成对触发，计数归零才撤遮罩
+let pageDragDepth = 0
+const pageDrag = ref(false)
+
+function hasFiles(e) {
+  return !!(e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files'))
+}
+function onPageDragEnter(e) {
+  if (!hasFiles(e)) return
+  pageDragDepth++
+  pageDrag.value = true
+}
+function onPageDragOver(e) {
+  if (!hasFiles(e)) return
+  e.preventDefault() // 允许 drop
+}
+function onPageDragLeave() {
+  if (pageDragDepth > 0 && --pageDragDepth === 0) pageDrag.value = false
+}
+// drop 兜底复位：drop 发生在输入框时其 stopPropagation 会阻断冒泡层的
+// onPageDrop，捕获阶段先重置遮罩（输入框自身处理导入，不重复）
+function onPageDropReset(e) {
+  if (!hasFiles(e)) return
+  pageDragDepth = 0
+  pageDrag.value = false
+}
+function onPageDrop(e) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  pageDragDepth = 0
+  pageDrag.value = false
+  const files = e.dataTransfer && e.dataTransfer.files
+  if (!files || !files.length) return
+  for (const f of files) importFile(f)
 }
 
 // ===== 划选追问（消息区划选 → 工具条「追问」）=====
@@ -719,10 +800,17 @@ function removeQuote() {
 }
 async function send() {
   const draftText = draft.value.trim()
-  const files = fileAttachments.value.slice()
+  // toRaw 剥离 store 响应式代理（Proxy 无法跨 IPC 结构化克隆，
+  // “An object could not be cloned” 即源于此；.slice() 浅拷不解决）
+  const files = fileAttachments.value.slice().map(f => Object.assign({}, toRaw(f)))
   // 仍以「有无输入/附件」判定可发送（纯引用不发）；引用随消息拼发，
   // 气泡显示 / 主进程落盘 / 发送文本三者一致
   if (!draftText && !files.length) return
+  // 解析中守卫：pdf/office 附件预解析完成前不可发送（豆包式确定性）
+  if (files.some(f => f.parseStatus === 'parsing')) {
+    message.info('附件解析中，请稍候…')
+    return
+  }
   // 流式态分流：纯文本走运行中插话（pi steer，不打断当前回答，
   // 当前工具轮结束后送达）；带附件时保持原忽略行为（steer 暂不支持附件）
   if (streaming.value) {
@@ -1171,6 +1259,59 @@ function backToBottom() {
   -webkit-app-region: no-drag;
   overflow: hidden;
 }
+
+/* ===== 全页拖放遮罩：覆盖对话区（含右栏预览下方），虚线框 + 上传图标提示 ===== */
+.ob-drag-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ob-drag-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 34px 48px;
+  border-radius: 18px;
+  border: 2px dashed rgba(var(--primary-color-rgb), 0.65);
+  background: var(--card-bg, #fff);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  pointer-events: none; // 遮罩本身不拦截事件，drop 落在页面层处理
+}
+
+.ob-drag-ico {
+  font-size: 34px;
+  color: var(--primary-color);
+}
+
+.ob-drag-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ob-drag-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.ob-drag-fade-enter-active,
+.ob-drag-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.ob-drag-fade-enter,
+.ob-drag-fade-enter-from,
+.ob-drag-fade-leave-to {
+  opacity: 0;
+}
+
 
 /* 对话列：主体 + 输入区 */
 .ob-main-col {
