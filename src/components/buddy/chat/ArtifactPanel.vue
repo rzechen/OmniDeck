@@ -73,6 +73,10 @@ function fmtLabel(a) {
     docx: 'Word 文档',
     doc: 'Word 文档',
     pdf: 'PDF 文档',
+    pptx: 'PPT 演示文稿',
+    ppt: 'PPT 演示文稿',
+    xlsx: 'Excel 表格',
+    xls: 'Excel 表格',
     html: '网页',
     htm: '网页',
     md: 'Markdown',
@@ -118,14 +122,14 @@ async function revealArtifact(a) {
   margin: 4px 0 8px;
 }
 
-/* 产物卡片：格式徽章 + 文件信息 + 操作按钮 */
+/* 产物卡片：与输入框附件卡同构（图标 + 文件名/meta + 操作），横向 40px 高 */
 .ob-art-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 5px 10px;
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--card-bg, #fff);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
@@ -135,11 +139,11 @@ async function revealArtifact(a) {
   }
 }
 
-/* 类型图标（工作空间同款 PNG 素材：word / pdf / txt 等） */
+/* 类型图标（工作空间同款 PNG 素材：word / pdf / txt 等；与附件卡同 30px） */
 .ob-art-ico {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
   display: block;
 }
@@ -167,19 +171,20 @@ async function revealArtifact(a) {
   user-select: none;
 }
 
-/* 操作按钮（打开 / 所在文件夹）：胶囊图标 + 文字 */
+/* 操作按钮（打开 / 所在文件夹）：胶囊图标 + 文字；默认降透明度，卡片 hover 高亮 */
 .ob-art-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
+  padding: 3px 9px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-secondary);
   background: rgba(125, 125, 135, 0.08);
   cursor: pointer;
   user-select: none;
+  opacity: 0.72;
   transition: all 0.12s ease;
 
   em {
@@ -187,7 +192,11 @@ async function revealArtifact(a) {
   }
 
   .svg-icon {
-    font-size: 13px;
+    font-size: 12.5px;
+  }
+
+  .ob-art-card:hover & {
+    opacity: 1;
   }
 
   &:hover {

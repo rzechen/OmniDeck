@@ -243,6 +243,19 @@ function applyAutoTitle(id, title) {
   return meta
 }
 
+// 产出计数累计（阶段三交付物闭环）：tool_end 带产物时累加 meta.artifactCount，
+// 会话列表据此渲染「产出 N 个文件」徽标。不改 updatedAt ——
+// 产物落地已由消息追加驱动更新时间，此处只维护计数
+function bumpArtifactCount(id, count) {
+  const n = Number(count) || 0
+  if (n <= 0) return null
+  const meta = readMeta(id)
+  if (!meta) return null
+  meta.artifactCount = (Number(meta.artifactCount) || 0) + n
+  writeMeta(id, meta)
+  return meta
+}
+
 function deleteSession(id) {
   fs.rmSync(sessionDir(id), { recursive: true, force: true })
   // 联动标记定时任务运行历史（防 lastRun/runs 指向已删会话的幽灵引用）。
@@ -346,6 +359,8 @@ module.exports = {
   renameSession,
   // 写入 LLM 自动标题
   applyAutoTitle,
+  // 产出计数累计（会话列表「产出 N 个文件」徽标数据源）
+  bumpArtifactCount,
   // 置顶/取消置顶
   setPinned,
   // 删除会话目录

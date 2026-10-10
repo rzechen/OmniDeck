@@ -54,6 +54,15 @@
           <!-- 分叉创建的会话用 fork 图标（与气泡分叉按钮同图标，不做常亮高亮） -->
           <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
           <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
+          <!-- 产出徽标（阶段三交付物闭环）：会话累计产出 N 个文件，常驻展示 -->
+          <span
+            v-if="c.artifactCount"
+            class="buddy-chat-artifacts"
+            :title="'本会话累计产出 ' + c.artifactCount + ' 个文件'"
+          >
+            <svg-icon icon-class="export" />
+            <span>{{ c.artifactCount > 99 ? '99+' : c.artifactCount }}</span>
+          </span>
           <span class="buddy-chat-actions" @click.stop>
             <!-- 置顶：已置顶时常亮显示（hover 外也可见，颜色不变），未置顶时随行 hover 浮现 -->
             <svg-icon
@@ -406,6 +415,34 @@ function onChatLeave(e) {
 /* 已置顶：置顶钮常亮（hover 区外也可见），颜色与普通图标一致不高亮 */
 .buddy-chat .ob-pin.pinned {
   opacity: 1;
+}
+
+/* ===== 产出徽标：导出图标 + 计数（主色淡底胶囊，常驻展示） ===== */
+.buddy-chat-artifacts {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 58px;
+  padding: 0 6px;
+  line-height: 16px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(var(--primary-color-rgb), 0.1);
+  user-select: none;
+
+  .svg-icon {
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 /* ===== 实时状态标记 ===== */

@@ -3,6 +3,8 @@
 // - docx / html：pandoc 直转（docx 支持 --reference-doc 参考模板沿用公司样式）
 // - pdf：pandoc → HTML → chrome-headless-shell --print-to-pdf（无 LaTeX 依赖，
 //   中文按系统字体渲染；chrome-headless-shell 复用 playwright 装配）
+// - pptx：pptxgenjs 进程内生成（标题分页 + 表格分页，不依赖 pandoc）
+// - xlsx：exceljs 进程内生成（Markdown 表格逐个落工作表，不依赖 pandoc）
 // - 产物落 <当前目录>/exports/（重名自动加序号防覆盖），details.artifacts
 //   结构化清单供前端产物卡片（打开 / 所在文件夹）
 // 消息导出（MessageBubble hover → PDF/Word/HTML）与工具导出共用 convertMarkdown。
@@ -92,7 +94,261 @@ function uniquePath(p) {
   return p
 }
 
-// 公共转换入口（doc_export 工具与消息导出 IPC 共用）
+// ===== pptx / xlsx 生成（pptxgenjs / exceljs，进程内，不依赖 pandoc）=====
+// 轻量 Markdown 结构解析：标题层级 + 表格 + 列表 + 段落
+// → [{ type:'h1'|'h2'|'h3', text } | { type:'table', rows: string[][] } | { type:'li', text } | { type:'p', text }]
+function parseMdBlocks(md) {
+  const lines = String(md || '').split(/\r?\n/)
+  const blocks = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    const ht = line.match(/^(#{1,3})\s+(.*)$/)
+    if (ht) {
+      blocks.push({ type: 'h' + ht[1].length, text: ht[2].trim() })
+      i++
+      continue
+    }
+    // GFM 表格：| a | b | 后跟 |---|---|
+    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const rows = []
+      const parseRow = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+      rows.push(parseRow(line))
+      i += 2
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+        rows.push(parseRow(lines[i]))
+        i++
+      }
+      blocks.push({ type: 'table', rows })
+      continue
+    }
+    const li = line.match(/^\s*[-*+]\s+(.*)$/)
+    if (li) {
+      blocks.push({ type: 'li', text: li[1].trim() })
+      i++
+      continue
+    }
+    if (line.trim()) blocks.push({ type: 'p', text: line.trim() })
+    i++
+  }
+  return blocks
+}
+
+// 去除行内 Markdown 标记（**加粗** / *斜体* / `code` / [链接](url)），供 PPT/Excel 单元格纯文本
+function stripInline(s) {
+  return String(s || '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/`([^`]*)`/g, '$1')
+    .trim()
+}
+
+// Markdown → pptx（pptxgenjs）：
+// 首个 h1 = 封面标题；其后每个 h2 = 一页（正文要点/段落），h3 = 要点加粗行；
+// 独立表格（不在 h2 小节内）单独成页；无 h2 时按 h3/段落聚合分页
+async function convertToPptx(markdown, outPath, title) {
+  let PptxGenJS
+  try {
+    PptxGenJS = require('pptxgenjs')
+  } catch (e) {
+    return { ok: false, error: 'pptxgenjs 不可用：' + e.message }
+  }
+  const blocks = parseMdBlocks(markdown)
+  if (!blocks.length) return { ok: false, error: '内容为空，无法生成 PPT' }
+  const pptx = new PptxGenJS()
+  pptx.layout = 'LAYOUT_16x9'
+  pptx.title = title || 'OmniDeck 文档'
+  // 简洁商务主题色（与消息导出 PDF 版式同族）
+  const C = { primary: '1F3864', accent: '2E75B6', text: '333333', muted: '666666', bg: 'FFFFFF' }
+
+  const firstH1 = blocks.find(b => b.type === 'h1')
+  const docTitle = stripInline(firstH1 ? firstH1.text : title || '文档')
+  // 封面
+  {
+    const s = pptx.addSlide()
+    s.background = { color: C.bg }
+    s.addText(docTitle, { x: 0.5, y: 2.2, w: 9, h: 1.2, fontSize: 40, bold: true, color: C.primary, align: 'center' })
+    const d = new Date()
+    s.addText(`${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`, { x: 0.5, y: 3.7, w: 9, h: 0.5, fontSize: 14, color: C.muted, align: 'center' })
+    s.addShape('rect', { x: 4.1, y: 3.5, w: 1.8, h: 0.03, fill: { color: C.accent } })
+  }
+
+  // h2 分节成页；h2 前的散块（表格/列表/段落）各自成页归入"概述"
+  const sections = [] // { title, items: [{type,text|rows}] }
+  let cur = null
+  const flush = () => { if (cur && cur.items.length) sections.push(cur); cur = null }
+  for (const b of blocks) {
+    if (b.type === 'h2') {
+      flush()
+      cur = { title: stripInline(b.text), items: [] }
+    } else if (b.type === 'h1') {
+      continue // 封面已用
+    } else {
+      if (!cur) cur = { title: '概述', items: [] }
+      cur.items.push(b)
+    }
+  }
+  flush()
+
+  const addBulletsSlide = (pageTitle, items) => {
+    const s = pptx.addSlide()
+    s.addText(pageTitle, { x: 0.55, y: 0.35, w: 8.9, h: 0.6, fontSize: 26, bold: true, color: C.primary })
+    s.addShape('rect', { x: 0.58, y: 1.05, w: 0.55, h: 0.035, fill: { color: C.accent } })
+    const bullets = []
+    for (const it of items) {
+      if (it.type === 'table') {
+        // 表格项单独成页处理（先排完列表再补）
+        continue
+      }
+      const text = stripInline(it.text)
+      if (!text) continue
+      if (it.type === 'h3') bullets.push({ text, options: { bold: true, color: C.primary, fontSize: 15, breakLine: true } })
+      else bullets.push({ text: it.type === 'li' ? '• ' + text : text, options: { fontSize: 13.5, color: C.text, breakLine: true } })
+    }
+    if (bullets.length) s.addText(bullets, { x: 0.7, y: 1.35, w: 8.6, h: 3.9, valign: 'top', lineSpacingMultiple: 1.35 })
+    return s
+  }
+
+  const addTableSlide = (pageTitle, rows) => {
+    const s = pptx.addSlide()
+    s.addText(pageTitle, { x: 0.55, y: 0.35, w: 8.9, h: 0.6, fontSize: 26, bold: true, color: C.primary })
+    s.addShape('rect', { x: 0.58, y: 1.05, w: 0.55, h: 0.035, fill: { color: C.accent } })
+    const header = rows[0].map(c => stripInline(c))
+    const body = rows.slice(1).map(r => r.map(c => stripInline(c)))
+    // 超长表格分页（每页最多 11 行正文）
+    const MAX_ROWS = 11
+    const chunks = []
+    for (let i = 0; i < Math.max(body.length, 1); i += MAX_ROWS) chunks.push(body.slice(i, i + MAX_ROWS))
+    let first = true
+    for (const chunk of chunks) {
+      const slide = first ? s : pptx.addSlide()
+      if (!first) {
+        slide.addText(pageTitle, { x: 0.55, y: 0.35, w: 8.9, h: 0.6, fontSize: 26, bold: true, color: C.primary })
+        slide.addShape('rect', { x: 0.58, y: 1.05, w: 0.55, h: 0.035, fill: { color: C.accent } })
+      }
+      const tableRows = [header.map(h => ({ text: h, options: { bold: true, color: 'FFFFFF', fill: { color: C.accent } } }))]
+        .concat(chunk.map(r => r.map(c => ({ text: c, options: { color: C.text } }))))
+      slide.addTable(tableRows,
+        { x: 0.55, y: 1.3, w: 8.9, fontSize: 12, border: { pt: 0.5, color: 'D9D9D9' }, valign: 'middle' })
+      first = false
+    }
+  }
+
+  for (const sec of sections) {
+    const tables = sec.items.filter(b => b.type === 'table')
+    const others = sec.items.filter(b => b.type !== 'table')
+    if (others.length || !tables.length) addBulletsSlide(sec.title, others)
+    for (const t of tables) addTableSlide(sec.title, t.rows)
+  }
+
+  try {
+    await pptx.writeFile({ fileName: outPath })
+    return { ok: true, filePath: outPath }
+  } catch (e) {
+    return { ok: false, error: 'PPT 生成失败：' + e.message }
+  }
+}
+
+// Markdown → xlsx（exceljs）：
+// 每个 h2 小节 = 一个工作表（无 h2 时全部入"Sheet1"）；表格写入单元格（首行加粗表头），
+// 列表/段落按行写入 A 列；多个表格顺序下移，表间空一行
+async function convertToXlsx(markdown, outPath, title) {
+  let ExcelJS
+  try {
+    ExcelJS = require('exceljs')
+  } catch (e) {
+    return { ok: false, error: 'exceljs 不可用：' + e.message }
+  }
+  const blocks = parseMdBlocks(markdown)
+  if (!blocks.length) return { ok: false, error: '内容为空，无法生成 Excel' }
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'OmniDeck'
+  wb.title = title || 'OmniDeck 文档'
+
+  // 按 h2 切组（复用 convertToPptx 的语义）
+  const sections = []
+  let cur = null
+  for (const b of blocks) {
+    if (b.type === 'h2') {
+      cur = { title: stripInline(b.text), items: [] }
+      sections.push(cur)
+    } else {
+      if (!cur) { cur = { title: 'Sheet1', items: [] }; sections.push(cur) }
+      cur.items.push(b)
+    }
+  }
+  const used = new Set()
+  for (const sec of sections) {
+    // 工作表名唯一化（Excel 限制 31 字符 + 不允许 []:*?/\）
+    let name = sec.title.replace(/[[\]:*?/\\]/g, '-').slice(0, 31) || 'Sheet'
+    let n = 1
+    while (used.has(name)) name = sec.title.replace(/[[\]:*?/\\]/g, '-').slice(0, 28) + '-' + (n++)
+    used.add(name)
+    const ws = wb.addWorksheet(name)
+    let rowIdx = 1
+    for (const b of sec.items) {
+      if (b.type === 'h1') continue
+      if (b.type === 'table') {
+        for (let ri = 0; ri < b.rows.length; ri++) {
+          const row = ws.getRow(rowIdx)
+          b.rows[ri].forEach((cell, ci) => {
+            const c = row.getCell(ci + 1)
+            c.value = stripInline(cell)
+            if (ri === 0) { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDEEBF7' } } }
+          })
+          rowIdx++
+        }
+        rowIdx++ // 表后空行
+        continue
+      }
+      const text = stripInline(b.text)
+      if (!text) continue
+      const c = ws.getRow(rowIdx).getCell(1)
+      if (b.type === 'h3') { c.value = text; c.font = { bold: true, size: 12 } }
+      else if (b.type === 'li') c.value = '• ' + text
+      else c.value = text
+      rowIdx++
+    }
+    // 自适应列宽（按内容长度粗略估算，中文按 2 倍宽）
+    const widths = []
+    ws.eachRow(row => {
+      row.eachCell({ includeEmpty: false }, (cell, col) => {
+        const s = String(cell.value || '')
+        const w = [...s].reduce((a, ch) => a + (/[\u4e00-\u9fa5]/.test(ch) ? 2 : 1), 0) + 2
+        widths[col] = Math.min(Math.max(widths[col] || 8, w), 50)
+      })
+    })
+    for (let ci = 1; ci < widths.length; ci++) {
+      if (widths[ci]) ws.getColumn(ci).width = widths[ci]
+    }
+  }
+  try {
+    await wb.xlsx.writeFile(outPath)
+    return { ok: true, filePath: outPath }
+  } catch (e) {
+    return { ok: false, error: 'Excel 生成失败：' + e.message }
+  }
+}
+
+// 公共转换入口（doc_export 工具与消息导出 IPC 共用）：
+// docx/pdf/html 走 pandoc（同步）；pptx/xlsx 走 pptxgenjs/exceljs（异步，不依赖 pandoc）
+// opts: { format: 'docx'|'pdf'|'html'|'pptx'|'xlsx', outPath, referenceDoc, title }
+// → { ok, filePath?, error?, note? }
+async function convertDocument(markdown, opts) {
+  const o = opts || {}
+  if (o.format === 'pptx') {
+    const out = uniquePath(o.outPath)
+    return convertToPptx(markdown, out, o.title)
+  }
+  if (o.format === 'xlsx') {
+    const out = uniquePath(o.outPath)
+    return convertToXlsx(markdown, out, o.title)
+  }
+  return convertMarkdown(markdown, opts)
+}
+
+// pandoc 系（docx/pdf/html）公共转换入口
 // opts: { format: 'docx'|'pdf'|'html', outPath, referenceDoc, title }
 // → { ok, filePath?, error?, note? }
 function convertMarkdown(markdown, opts) {
@@ -168,7 +424,7 @@ function createDocExportExtension(cwdState) {
     piApi.registerTool({
       name: 'doc_export',
       label: '导出文档',
-      description: '把 Markdown 内容导出为正式文档（Word / PDF / HTML）。生成报告、方案、纪要、信函等交付文档时使用：先组织好完整 Markdown，再调用本工具产出文件，用户可直接打开或转发。',
+      description: '把 Markdown 内容导出为正式文档（Word / PDF / PPT / Excel / HTML）。生成报告、方案、纪要、信函、汇报演示、数据表格等交付文档时使用：先组织好完整 Markdown，再调用本工具产出文件，用户可直接打开或转发。PPT/Excel 由 Markdown 结构自动排版（h2 分页/分表、表格落页/落表）。',
       parameters: {
         type: 'object',
         properties: {
@@ -182,8 +438,8 @@ function createDocExportExtension(cwdState) {
           },
           format: {
             type: 'string',
-            enum: ['docx', 'pdf', 'html'],
-            description: '输出格式，默认 docx（Word）'
+            enum: ['docx', 'pdf', 'pptx', 'xlsx', 'html'],
+            description: "输出格式，默认 docx（Word）；pptx=演示文稿（h2 小节自动分页、表格成页），xlsx=电子表格（h2 小节自动分工作表、表格落单元格）"
           },
           filename: {
             type: 'string',
@@ -209,10 +465,10 @@ function createDocExportExtension(cwdState) {
         if (!markdown.trim()) {
           return { content: [{ type: 'text', text: '导出失败：内容为空（content 或 file_path 至少提供一项）' }], details: { isError: true } }
         }
-        const format = ['docx', 'pdf', 'html'].indexOf(p.format) >= 0 ? p.format : 'docx'
+        const format = ['docx', 'pdf', 'pptx', 'xlsx', 'html'].indexOf(p.format) >= 0 ? p.format : 'docx'
         // 文件名清洗（去扩展名 + 非法字符替换）
         const rawName = String(p.filename || '').trim()
-        const stem = (rawName ? rawName.replace(/\.(docx|pdf|html|md)$/i, '') : defaultStem())
+        const stem = (rawName ? rawName.replace(/\.(docx|pdf|pptx|xlsx|html|md)$/i, '') : defaultStem())
           .replace(/[\\/:*?"<>|\s]+/g, '-').slice(0, 60) || defaultStem()
         const exportsDir = path.join(cwdState.dir, 'exports')
         fs.mkdirSync(exportsDir, { recursive: true })
@@ -221,7 +477,7 @@ function createDocExportExtension(cwdState) {
         if (p.reference_doc && format === 'docx') {
           refDoc = path.isAbsolute(p.reference_doc) ? p.reference_doc : path.join(cwdState.dir, p.reference_doc)
         }
-        const r = convertMarkdown(markdown, {
+        const r = await convertDocument(markdown, {
           format,
           outPath: path.join(exportsDir, stem + '.' + format),
           referenceDoc: refDoc,
@@ -246,7 +502,9 @@ function createDocExportExtension(cwdState) {
 module.exports = {
   // doc_export 工具扩展工厂（pi.js 注册用）
   createDocExportExtension,
-  // Markdown → docx / pdf / html 公共转换入口（工具与消息导出共用）
+  // Markdown → docx / pdf / pptx / xlsx / html 公共转换入口（工具与消息导出共用）
+  convertDocument,
+  // pandoc 系（docx/pdf/html）转换入口（消息导出 IPC 沿用）
   convertMarkdown,
   // 当前可用的 pandoc 命令（不可用返回 ''）
   pandocCmd,

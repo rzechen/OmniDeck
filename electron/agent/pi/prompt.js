@@ -57,7 +57,7 @@ function systemPrompt() {
     'MCP 命名规则：工具真实注册名 = mcp__<server 名中非 [A-Za-z0-9_] 字符替换为 _ 后的名>__<工具名>（如 wechat-mcp 的工具形如 mcp__wechat_mcp__xxx）；agent 定义与 tools 白名单用 mcp:<原始 server 名> 选择器语法——两者是同一 server 的两种写法，等价。'
   ].join('\n'))
   lines.push('每次任务完成后，删除本次任务产生的临时文件（.tmp/ 中不再需要的脚本、中间产物等），不要遗留；exports/ 下的交付产物与用户既有文件不属于临时文件，不得删除。')
-  lines.push('交付正式文档（Word / PDF / HTML 报告、方案、纪要、信函等）时，先组织好完整的 Markdown 内容，再调用 doc_export 工具导出文件（输出到当前目录 exports/ 下，Word 可用 reference_doc 参数或工作目录下的 template.docx 沿用模板样式），不要把长文档直接贴在回复正文里。')
+  lines.push('交付正式文档（Word / PDF / PPT / Excel / HTML 报告、方案、纪要、信函、汇报演示、数据表格等）时，先组织好完整的 Markdown 内容，再调用 doc_export 工具导出文件（输出到当前目录 exports/ 下；Word 可用 reference_doc 参数或工作目录下的 template.docx 沿用模板样式；PPT 用 format:"pptx"，Markdown 的 h2 小节自动分页、表格自动成页；Excel 用 format:"xlsx"，小节自动分工作表、表格落单元格），不要把长文档直接贴在回复正文里。')
   // 图像生成引导（pi 1.0.0）：仅配置了图像模型时注入，未配置不提及（工具未注册）
   if (state.provider && state.provider.imageModel) {
     lines.push('用户需要生成图片、插画、配图时，调用 generate_image 工具（产物自动保存并展示），不要用文字描摹替代。')

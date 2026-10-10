@@ -543,6 +543,13 @@ bus.on('buddy:sidebar-hold', onSidebarHold)
       if (e.type === 'automation:run') {
         loadChats()
       }
+      // 产出落地（阶段三交付物闭环）：就地累加徽标计数，不整表重拉
+      if (e.type === 'tool_end' && Array.isArray(e.artifacts) && e.artifacts.length) {
+        const c = chats.value.find(x => x.id === e.sessionId)
+        if (c) {
+          c.artifactCount = (Number(c.artifactCount) || 0) + e.artifacts.length
+        }
+      }
     })
   }
 }

@@ -187,7 +187,7 @@ function mcpBuiltinTools() {
 // preview_export（pi-markdown-preview 社区扩展）；转换引擎 pandoc
 // 运行时探测动态标注（内置运行时 → 系统 PATH → 未检测到）
 const DOC_TOOLS = [
-  { name: 'doc_export', label: '导出文档', description: '把 Markdown 内容导出为 Word / PDF / HTML 正式文档，产物落当前目录 exports/ 下（Word 支持参考模板沿用公司样式）。', perm: 'allow' },
+  { name: 'doc_export', label: '导出文档', description: '把 Markdown 内容导出为 Word / PDF / PPT / Excel / HTML 正式文档，产物落当前目录 exports/ 下（Word 支持参考模板沿用公司样式；PPT 按 h2 小节自动分页、表格成页；Excel 按小节分工作表）。', perm: 'allow' },
   { name: 'preview_export', label: '生成预览', description: '把 Markdown / LaTeX / 本地文件 / 最新回复渲染为 PDF / HTML / PNG 预览文件。', perm: 'allow' }
 ]
 

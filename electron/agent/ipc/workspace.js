@@ -145,6 +145,8 @@ function registerWorkspaceIpc(getWindow) {
   ipcMain.handle('omnibuddy:files:empty', (_e, dir) => files.empty(dir))
   ipcMain.handle('omnibuddy:files:read', (_e, p) => files.read(p))
   ipcMain.handle('omnibuddy:files:read-image', (_e, p) => files.readImage(p))
+  ipcMain.handle('omnibuddy:files:read-docx', (_e, p) => files.readDocx(p))
+  ipcMain.handle('omnibuddy:files:read-pdf', (_e, p) => files.readPdf(p))
   ipcMain.handle('omnibuddy:files:write', (_e, payload) => files.write(payload.path, payload.content))
   ipcMain.handle('omnibuddy:files:reveal', (_e, p) => files.reveal(p))
   ipcMain.handle('omnibuddy:files:open', (_e, p) => files.open(p))

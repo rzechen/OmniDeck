@@ -679,6 +679,37 @@ watch(() => currentDir.value, () => {
   load()
 })
 
+// ===== 自动刷新（阶段三交付物闭环）：订阅全局流式事件，tool_end 带产物时
+// 若路径落在当前工作空间内则防抖重拉列表 —— 对话产出的文件无需手动刷新即可见 =====
+// 路径前缀匹配（macOS 大小写不敏感盘符路径按原样比较即可，同源字符串稳定）
+function pathInWorkspace(p, root) {
+  if (!p || !root) return false
+  const a = String(p).replace(/\\/g, '/').replace(/\/+$/, '')
+  const b = String(root).replace(/\\/g, '/').replace(/\/+$/, '')
+  return a === b || a.startsWith(b + '/')
+}
+
+// 防抖：一个回合内往往连续多个 tool_end（连写多个文件），合并为一次刷新
+let _autoRefreshTimer = null
+function onAgentEvent(e) {
+  if (!e || e.type !== 'tool_end') return
+  const root = active.value && active.value.path
+  if (!root) return
+  // 产物清单（artifacts）或文件变更（fileChange.pathText）任一命中当前空间即触发
+  const paths = []
+  if (Array.isArray(e.artifacts)) {
+    for (const a of e.artifacts) if (a && a.path) paths.push(a.path)
+  }
+  if (e.fileChange && e.fileChange.pathText) paths.push(e.fileChange.pathText)
+  if (!paths.some(p => pathInWorkspace(p, root))) return
+  if (_autoRefreshTimer) clearTimeout(_autoRefreshTimer)
+  _autoRefreshTimer = setTimeout(() => {
+    _autoRefreshTimer = null
+    // 页面未销毁且有当前目录才刷新（切走期间 keep-alive 也会重进时自拉）
+    if (currentDir.value) load()
+  }, 600)
+}
+
 // created：进入页面即拉取工作空间并挂事件
 loadWorkspaces()
 // 对话关联/展示名更新后同步
@@ -687,10 +718,16 @@ bus.on('omnibuddy:workspaces-changed', loadWorkspaces)
 document.addEventListener('mousedown', onDocMouseDown)
 document.addEventListener('keydown', onKeydown)
 
+// 全局事件订阅（preload onEvent 支持多订阅者，与 store 的订阅互不干扰）
+const _api = window.electronAPI && window.electronAPI.omnibuddy
+const _unsubEvent = _api && _api.onEvent ? _api.onEvent(onAgentEvent) : null
+
 onBeforeUnmount(() => {
   bus.off('omnibuddy:workspaces-changed', loadWorkspaces)
   document.removeEventListener('mousedown', onDocMouseDown)
   document.removeEventListener('keydown', onKeydown)
+  if (_unsubEvent) _unsubEvent()
+  if (_autoRefreshTimer) clearTimeout(_autoRefreshTimer)
 })
 </script>
 

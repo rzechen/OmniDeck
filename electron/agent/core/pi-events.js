@@ -5,6 +5,7 @@ const sessions = require('../sessions/sessions')
 const usage = require('../platform/usage')
 const checkpoints = require('../sessions/checkpoints')
 const fileChanges = require('../sessions/file-changes')
+const exportsDiff = require('../sessions/exports-diff')
 const workflows = require('../integrations/workflows')
 const subagents = require('../integrations/subagents')
 const notify = require('../integrations/notify')
@@ -159,6 +160,11 @@ function handlePiEvent(getWindow, e) {
   touchAutomationHeartbeat(e)
   switch (kind) {
     case 'assistant_start':
+      // exports/ 产物捕获基线：turn 开始快照，后续 tool_end 据此 diff 新增文件
+      try {
+        const baseMeta = sessions.readMeta(chatId)
+        exportsDiff.baseline(chatId, baseMeta && baseMeta.workspaceDir)
+      } catch (err) { /* 快照失败不影响回合 */ }
       emit(getWindow, chatId, { type: 'assistant_start' })
       break
     case 'delta':
@@ -249,9 +255,25 @@ function handlePiEvent(getWindow, e) {
       try {
         fileChange = fileChanges.afterTool(e.toolCallId, e.isError)
       } catch (err) { /* diff 失败不影响主流程 */ }
+      // exports/ 产物捕获：任何工具执行后扫描新增交付文件合成 artifacts
+      //（bash/node/python 等写的文件无自报通道；与工具自报的按路径去重）
+      let artifacts = e.artifacts
+      if (!e.isError) {
+        try {
+          const exportsMeta = sessions.readMeta(chatId)
+          const fresh = exportsDiff.afterTool(chatId, exportsMeta && exportsMeta.workspaceDir, artifacts)
+          if (fresh.length) {
+            artifacts = (artifacts || []).concat(fresh)
+          }
+        } catch (err) { /* 扫描失败不影响工具事件 */ }
+      }
       // 结果规整为字符串：pi 的部分工具返回结构化对象（如 { content: [...] }），
       // 原样透传会被前端渲染成 [object Object]
       const result = normalizeToolResult(e.result)
+      // 产出计数累计（阶段三）：会话列表「产出 N 个文件」徽标数据源
+      if (Array.isArray(artifacts) && artifacts.length) {
+        try { sessions.bumpArtifactCount(chatId, artifacts.length) } catch (err) { /* 计数失败不影响主流程 */ }
+      }
       const toolAnchors = runAnchors(chatId)
       sessions.addMessage(chatId, Object.assign({
         role: 'tool',
@@ -260,7 +282,7 @@ function handlePiEvent(getWindow, e) {
         result,
         isError: e.isError,
         fileChange: fileChange || undefined,
-        artifacts: e.artifacts || undefined,
+        artifacts: artifacts || undefined,
         workflow: e.workflow || undefined
       }, toolAnchors ? { anchors: toolAnchors } : {}))
       emit(getWindow, chatId, {
@@ -270,7 +292,7 @@ function handlePiEvent(getWindow, e) {
         result,
         isError: e.isError,
         fileChange: fileChange || undefined,
-        artifacts: e.artifacts || undefined,
+        artifacts: artifacts || undefined,
         workflow: e.workflow || undefined,
         subagentRun: e.subagentRun || undefined
       })

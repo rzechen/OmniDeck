@@ -263,6 +263,76 @@ function write(p, content) {
   return { ok: true }
 }
 
+// ===== 交付物预览（阶段二：docx / pdf 站内预览通道）=====
+// docx → HTML：mammoth 半语义转换（标题/列表/表格/加粗斜体，图片转 dataURL），
+// 右栏预览 iframe 只读渲染；30MB 上限防内存失控
+const MAX_DOCX_SIZE = 30 * 1024 * 1024
+async function readDocx(p) {
+  const abs = safePath(p)
+  if (!abs) return { ok: false, error: '路径不在已关联的空间目录内' }
+  let stat
+  try {
+    stat = fs.statSync(abs)
+  } catch (e) {
+    return { ok: false, error: '文件不存在' }
+  }
+  if (stat.isDirectory()) return { ok: false, error: '不支持预览文件夹' }
+  if (path.extname(abs).toLowerCase() !== '.docx') return { ok: false, error: '仅支持 .docx 预览' }
+  if (stat.size > MAX_DOCX_SIZE) return { ok: false, tooLarge: true, error: '文档超过 30MB，请使用系统应用打开' }
+  let mammoth
+  try {
+    mammoth = require('mammoth')
+  } catch (e) {
+    return { ok: false, error: '预览组件未安装' }
+  }
+  try {
+    const buf = fs.readFileSync(abs)
+    // styleMap：p[style-name='Heading 1'] → h1 等（pandoc 导出的 docx 样式名兼容）
+    const r = await mammoth.convertToHtml({ buffer: buf }, {
+      styleMap: [
+        "p[style-name='Title'] => h1:fresh",
+        "p[style-name='Subtitle'] => h2:fresh",
+        "p[style-name='Heading 1'] => h1:fresh",
+        "p[style-name='Heading 2'] => h2:fresh",
+        "p[style-name='Heading 3'] => h3:fresh",
+        "p[style-name='Heading 4'] => h4:fresh",
+        "b[style-name='Strong'] => strong"
+      ],
+      convertImage: mammoth.images.imgElement(async image => {
+        const b = await image.readAsBase64String()
+        return { src: 'data:' + image.contentType + ';base64,' + b }
+      })
+    })
+    const messages = (r.messages || []).filter(m => m.type === 'error').length
+    return { ok: true, html: r.value, size: stat.size, warnings: messages }
+  } catch (e) {
+    return { ok: false, error: '文档解析失败：' + e.message }
+  }
+}
+
+// pdf → base64 dataURL（右栏 <embed> 原生 PDF 查看器渲染）：
+// 50MB 上限（base64 膨胀 1.33 倍，防 IPC 与内存压力）
+const MAX_PDF_SIZE = 50 * 1024 * 1024
+function readPdf(p) {
+  const abs = safePath(p)
+  if (!abs) return { ok: false, error: '路径不在已关联的空间目录内' }
+  let stat
+  try {
+    stat = fs.statSync(abs)
+  } catch (e) {
+    return { ok: false, error: '文件不存在' }
+  }
+  if (stat.isDirectory()) return { ok: false, error: '不支持预览文件夹' }
+  if (path.extname(abs).toLowerCase() !== '.pdf') return { ok: false, error: '仅支持 .pdf 预览' }
+  if (stat.size > MAX_PDF_SIZE) return { ok: false, tooLarge: true, error: 'PDF 超过 50MB，请使用系统应用打开' }
+  try {
+    const buf = fs.readFileSync(abs)
+    return { ok: true, src: 'data:application/pdf;base64,' + buf.toString('base64'), size: stat.size }
+  } catch (e) {
+    return { ok: false, error: '读取失败：' + e.message }
+  }
+}
+
 // ===== 系统打开 =====
 // 在 Finder / 资源管理器中显示
 function reveal(p) {
@@ -336,6 +406,10 @@ module.exports = {
   read,
   // 读取图片为 dataURL
   readImage,
+  // 读取 docx 转内联 HTML（mammoth）
+  readDocx,
+  // 读取 pdf 为 dataURL（<embed> 原生查看器）
+  readPdf,
   // 写入文本
   write,
   // 文件管理器中显示

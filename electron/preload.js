@@ -220,6 +220,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       empty: dir => ipcRenderer.invoke('omnibuddy:files:empty', dir),
       read: p => ipcRenderer.invoke('omnibuddy:files:read', p),
       readImage: p => ipcRenderer.invoke('omnibuddy:files:read-image', p),
+      readDocx: p => ipcRenderer.invoke('omnibuddy:files:read-docx', p),
+      readPdf: p => ipcRenderer.invoke('omnibuddy:files:read-pdf', p),
       write: payload => ipcRenderer.invoke('omnibuddy:files:write', payload),
       reveal: p => ipcRenderer.invoke('omnibuddy:files:reveal', p),
       open: p => ipcRenderer.invoke('omnibuddy:files:open', p),
