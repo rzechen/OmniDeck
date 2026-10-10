@@ -135,7 +135,7 @@ const cards = computed(() => {
         phase: p.currentPhase || '',
         activeLabels: Array.isArray(p.activeLabels) ? p.activeLabels : [],
         metaText: parts.join(' · '),
-        hint: hintOf(p, status)
+        hint: hintOf(p, status, wf)
       }
     })
 })
@@ -153,9 +153,34 @@ onMounted(() => {
 async function hydrate() {
   const api = buddyApi()
   if (!api || !api.workflowStatus || !props.sessionId) return
+  // 子代理 run 快照不走 pi-dynamic-workflows 落盘：先查主进程注册表（活跃 run，
+  // 后续由重挂轮询持续推送），未命中再单查磁盘状态文件（终态后注册表已移除，
+  // status.json 仍在临时目录，可拿到真实终态）；均失败置中性「已结束」
+  let subagentRuns = null
   for (const wf of props.workflows) {
     if (!wf || !wf.runId || wf.progress || wf.snapshot) continue
     if (fetched[wf.runId]) continue
+    if (wf.kind === 'subagent') {
+      if (typeof api.subagentActiveRuns !== 'function') continue
+      fetched[wf.runId] = true
+      try {
+        if (!subagentRuns) {
+          const r = await api.subagentActiveRuns(props.sessionId)
+          subagentRuns = (r && r.ok && Array.isArray(r.runs)) ? r.runs : []
+        }
+        const hit = subagentRuns.find(x => x && x.runId === wf.runId)
+        if (hit && hit.snapshot) {
+          wf.progress = hit.snapshot
+        } else if (typeof api.subagentRunStatus === 'function') {
+          const one = await api.subagentRunStatus(wf.runId)
+          wf.progress = (one && one.ok && one.snapshot)
+            || { runId: wf.runId, status: 'missing', kind: 'subagent', counts: {} }
+        } else {
+          wf.progress = { runId: wf.runId, status: 'missing', kind: 'subagent', counts: {} }
+        }
+      } catch (e) { /* 旧主进程无此 IPC：保持缺省渲染 */ }
+      continue
+    }
     fetched[wf.runId] = true
     try {
       const res = await api.workflowStatus({ runId: wf.runId, chatId: props.sessionId })
@@ -170,8 +195,9 @@ async function hydrate() {
 }
 
 // 状态提示行（终态结果指引 / 失败原因 / 等待说明）
-function hintOf(p, status) {
-  if (status === 'completed') return '任务完成，结果已回注对话'
+function hintOf(p, status, wf) {
+  const isSubagent = p.kind === 'subagent' || (wf && wf.kind === 'subagent')
+  if (status === 'completed') return isSubagent ? '任务完成，结果由主会话收拢' : '任务完成，结果已回注对话'
   if (status === 'failed') return p.error || '任务执行失败'
   if (status === 'aborted' || status === 'stopped') return '任务已中止'
   if (status === 'waiting') return '已在关键节点暂停，等待模型确认后继续'
