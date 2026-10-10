@@ -301,6 +301,12 @@ export default {
     ATTACH_REMOVE(state, { id, index }) {
       ensure(state, id).fileAttachments.splice(index, 1)
     },
+    // 附件预解析状态更新（解析中 → 完成/失败；整体替换保持 Vue2 响应式）
+    ATTACH_PARSE(state, { id, index, patch }) {
+      const list = ensure(state, id).fileAttachments
+      if (!list[index]) return
+      list.splice(index, 1, Object.assign({}, list[index], patch))
+    },
     // 权限确认出队（按索引）
     PERM_REMOVE(state, { id, index }) {
       ensure(state, id).permQueue.splice(index, 1)

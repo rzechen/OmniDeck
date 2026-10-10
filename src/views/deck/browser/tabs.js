@@ -36,9 +36,14 @@ export function loadTabs() {
       isLoading: false,
       loadedOnce: false
     }))
-    tabState.activeId = tabState.tabs.some(t => t.id === saved.activeId)
-      ? saved.activeId
-      : tabState.tabs[0].id
+    // 激活 tab 有效：存在且非空 tab（空 tab 会导致地址栏空白、页面空态）
+    const savedActive = tabState.tabs.find(t => t.id === saved.activeId)
+    if (savedActive && savedActive.url) {
+      tabState.activeId = savedActive.id
+    } else {
+      const withUrl = tabState.tabs.find(t => t.url)
+      tabState.activeId = withUrl ? withUrl.id : tabState.tabs[0].id
+    }
   } else {
     const t = { id: genId(), url: '', title: '', isLoading: false, loadedOnce: false }
     tabState.tabs = [t]

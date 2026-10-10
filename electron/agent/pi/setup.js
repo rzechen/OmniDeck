@@ -9,6 +9,7 @@ const fs = require('fs')
 const { execSync } = require('child_process')
 const permissions = require('../platform/permissions')
 const builtinTools = require('../tools/builtin-tools')
+const credentials = require('../integrations/credentials')
 const { state, PROJECT_ROOT } = require('./state')
 const { listPackages, installPackage } = require('./packages')
 const { disposeAllSessions } = require('./session')
@@ -258,6 +259,65 @@ function deployChildImageExtension(agentDir) {
   }
 }
 
+// ===== child 凭据注入（修复 10-09 公众号任务「会话环境未注入凭据」实证）=====
+// 根因：技能凭证 env 只注入主会话 bash（spawnHook 走 activeSkills 激活门控），
+// 协调者委派的前台 child 不加载宿主 ambient 扩展、activeSkills 是主会话闭包
+// → child 的 bash 无凭据 → 技能脚本（publish_draft.py）报 env 缺失。
+// 修复：部署本扩展覆盖 child 内置 bash，spawnHook 把宿主聚合的已解密 env 合并进
+// 执行环境。env 经 globalThis 传递：前台 child 与宿主同进程（进程内 AgentSession），
+// 天然共享；扩展零 electron 依赖——不可像 child-image 那样 import 宿主工厂
+// （credentials.js 顶层 require('electron')，后台 runner 独立进程无 shim 会崩）。
+function refreshChildCredEnv() {
+  try {
+    globalThis.__omnideckChildCredEnv = credentials.resolveEnvForInstalledSkills(
+      path.join(state.agentDir, 'skills'))
+  } catch (e) { /* 保持旧值 */ }
+}
+
+function childCredsExtensionSource(piPkgEntry) {
+  return [
+    '// OmniBuddy 自动部署：前台子代理凭据注入扩展（勿手改，启动时幂等覆写）',
+    '// 覆盖 child 内置 bash：spawnHook 合并宿主经 globalThis 传递的已解密技能凭据 env',
+    '// （前台 child 与宿主同进程共享 globalThis；与主会话注入语义一致——凭据最后',
+    '// 覆盖同名键）。import 绝对路径直连 SDK，与 omnideck-child-mcp.mjs 同模式',
+    "import { createBashTool } from '" + piPkgEntry + "'",
+    'export default function (pi) {',
+    '  const bash = createBashTool(process.cwd(), {',
+    '    spawnHook: ({ command, cwd, env }) => ({',
+    '      command,',
+    '      cwd,',
+    '      env: Object.assign({}, env, globalThis.__omnideckChildCredEnv || {})',
+    '    })',
+    '  })',
+    '  pi.registerTool(bash)',
+    '}',
+    ''
+  ].join('\n')
+}
+
+function deployChildCredsExtension(agentDir) {
+  const piPkgEntry = path.join(PROJECT_ROOT, 'node_modules', '@earendil-works',
+    'pi-coding-agent', 'dist', 'index.js')
+  if (!fs.existsSync(piPkgEntry)) {
+    console.warn('[omnibuddy:pi] SDK 入口缺失，跳过子代理凭据扩展部署：', piPkgEntry)
+    return
+  }
+  refreshChildCredEnv()
+  const dir = path.join(agentDir, 'extensions')
+  const file = path.join(dir, 'omnideck-child-creds.mjs')
+  const src = childCredsExtensionSource(piPkgEntry)
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    try {
+      if (fs.readFileSync(file, 'utf-8') === src) return
+    } catch (e) { /* 首次部署无文件 */ }
+    fs.writeFileSync(file, src)
+    console.log('[omnibuddy:pi] 已部署子代理凭据注入扩展：', file)
+  } catch (e) {
+    console.warn('[omnibuddy:pi] 子代理凭据扩展部署失败：', e.message)
+  }
+}
+
 // 归一化路径比较键：macOS 默认卷大小写不敏感，/OmniDeck 与 /omnideck 为同一路径，
 // 字符串直等判重会让同一路径以两种大小写重复注入（实测 child-image 被注入两次）
 function pathKey(p) {
@@ -286,7 +346,8 @@ function ensureChildToolDefaults(agentDir) {
   const childExtras = [
     'omnideck-child-image.mjs',
     'omnideck-child-mcp.mjs',
-    'omnideck-child-introspect.mjs'
+    'omnideck-child-introspect.mjs',
+    'omnideck-child-creds.mjs'
   ]
     .map(name => path.join(agentDir, 'extensions', name))
     .filter(p => fs.existsSync(p)) // 部署失败的扩展不注入（避免 child 加载报错）
@@ -317,6 +378,7 @@ function ensureChildToolDefaults(agentDir) {
 function deployChildToolPolicy(agentDir) {
   deployChildImageExtension(agentDir)
   deployChildIntrospectExtension(agentDir)
+  deployChildCredsExtension(agentDir)
   ensureChildToolDefaults(agentDir)
 }
 
@@ -534,6 +596,10 @@ module.exports = {
   deployChildToolPolicy,
   // 部署子代理环境简报扩展（幂等；deployChildToolPolicy 内已含，独立导出供按需重部署）
   deployChildIntrospectExtension,
+  // 部署子代理凭据注入扩展（幂等；deployChildToolPolicy 内已含，独立导出供按需重部署）
+  deployChildCredsExtension,
+  // 刷新 globalThis 上的子代理凭据 env（init 后置刷新 / 凭据 CRUD 后即时生效）
+  refreshChildCredEnv,
   // 安装 pi-memory + 迁移旧记忆 + qmd 检测（异步，失败下次启动重试）
   setupMemoryExtension,
   // 安装 pi-permission-system + 写默认策略（异步，失败下次启动重试）

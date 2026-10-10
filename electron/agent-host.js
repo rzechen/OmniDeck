@@ -134,6 +134,9 @@ process.parentPort.on('message', (e) => {
     agent.registerOmnibuddyIpc(() => shim.__window(), init.userDataPath)
     try {
       await require('./agent/integrations/credentials').prewarm()
+      // 子代理凭据 env 重刷：init 期首刷时解密缓存可能未预热（桥接模式），
+      // 此处缓存就绪后刷新，保证 globalThis 上的 env 已含明文凭据
+      require('./agent/pi/setup').refreshChildCredEnv()
     } catch (e) {
       console.warn('[agent-host] 凭证解密缓存预热失败（不影响启动）：', errText(e))
     }

@@ -27,7 +27,8 @@ function registerWorkspaceIpc(getWindow) {
         try {
           const img = nativeImage.createFromBuffer(buffer)
           if (img.isEmpty()) return ''
-          return img.resize({ width: 360 }).toJPEG(72).toDataURL()
+          // toJPEG 返回 Buffer，须手工拼 dataURL 前缀
+          return 'data:image/jpeg;base64,' + img.resize({ width: 360 }).toJPEG(72).toString('base64')
         } catch (e) {
           return ''
         }
@@ -36,16 +37,17 @@ function registerWorkspaceIpc(getWindow) {
     return null
   }
 
-  // “+”按钮：系统文件选择框（图片 / 文本类 / PDF）
+  // “+”按钮：系统文件选择框（图片 / 文本类 / PDF / Office 文档）
   ipcMain.handle('omnibuddy:attachments:pick', async () => {
     const win = getWindow()
     const result = await dialog.showOpenDialog(win, {
       properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: '支持的附件（图片/文本/PDF）', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'pdf',
+        { name: '支持的附件（图片/文本/PDF/Office）', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'pdf',
           'txt', 'md', 'markdown', 'json', 'csv', 'log', 'yml', 'yaml', 'xml', 'html', 'htm',
           'js', 'ts', 'jsx', 'tsx', 'vue', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go',
-          'rs', 'rb', 'php', 'sh', 'bash', 'zsh', 'sql', 'css', 'scss', 'less', 'ini', 'conf', 'toml', 'env'] }
+          'rs', 'rb', 'php', 'sh', 'bash', 'zsh', 'sql', 'css', 'scss', 'less', 'ini', 'conf', 'toml', 'env',
+          'docx', 'pptx', 'xlsx', 'odt', 'odp', 'ods', 'odg', 'rtf', 'epub', 'tex'] }
       ]
     })
     if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true }
@@ -64,6 +66,17 @@ function registerWorkspaceIpc(getWindow) {
     const { nativeImage } = require('electron')
     return attachments.importFile(String(filePath || ''), makeThumbFn(nativeImage))
   })
+
+  // 粘贴导入：剪贴板 File 无磁盘路径，渲染端读内容为 Buffer 传来
+  //（data 为 Uint8Array 经结构化克隆传输，与 skills:import-zip 同模式）
+  ipcMain.handle('omnibuddy:attachments:import-buffer', async (_e, { data, name, mime }) => {
+    const { nativeImage } = require('electron')
+    return attachments.importBuffer(Buffer.from(data), name, mime, makeThumbFn(nativeImage))
+  })
+
+  // 预解析附件文本（导入后渲染层调用）：pdf/office 经 officeparser 抽取，
+  // 结果缓存于 agent 进程内存，发送（buildTextBlock）直接复用
+  ipcMain.handle('omnibuddy:attachments:parse', (_e, meta) => attachments.parseAttachment(meta))
 
   // ===== Skills 管理 =====
   ipcMain.handle('omnibuddy:skills:list', () => skills.listSkills())

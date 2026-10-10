@@ -16,6 +16,7 @@ const path = require('path')
 const { app } = require('electron')
 const sessions = require('./sessions/sessions')
 const piRuntime = require('./pi')
+const piSetup = require('./pi/setup')
 const sandbox = require('./platform/sandbox')
 const skills = require('./knowledge/skills')
 const workspaces = require('./workspace/workspaces')
@@ -132,6 +133,10 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   registerSessionsIpc(getWindow)
   registerSettingsIpc()
   registerWorkspaceIpc(getWindow)
+
+  // 子代理凭据 env 首刷（credentials.init 已完成；桥接模式下解密缓存预热在
+  // agent-host 中后置进行，prewarm 后会再刷一次覆盖此处可能的空值）
+  piSetup.refreshChildCredEnv()
 }
 
 // 会话标题：首问前 24 字截断（sessions.addMessage）为初始标题；

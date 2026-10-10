@@ -197,9 +197,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       status: () => ipcRenderer.invoke('omnibuddy:memory:status'),
       export: () => ipcRenderer.invoke('omnibuddy:memory:export')
     },
-    // 附件导入：文件选择框 + 拖拽路径导入（图片/文本/PDF）
+    // 附件导入：文件选择框 + 拖拽路径导入 + 粘贴内容导入（图片/文本/PDF/Office）
+    // + 导入后预解析（pdf/office 抽取文本并缓存，发送时直接复用）
     pickAttachments: () => ipcRenderer.invoke('omnibuddy:attachments:pick'),
     importAttachment: filePath => ipcRenderer.invoke('omnibuddy:attachments:import', filePath),
+    importAttachmentBuffer: payload => ipcRenderer.invoke('omnibuddy:attachments:import-buffer', payload),
+    parseAttachment: meta => ipcRenderer.invoke('omnibuddy:attachments:parse', meta),
     // 工作空间管理（多工作空间，发送前必须选定）
     listWorkspaces: () => ipcRenderer.invoke('omnibuddy:workspaces:list'),
     addWorkspace: () => ipcRenderer.invoke('omnibuddy:workspaces:add'),

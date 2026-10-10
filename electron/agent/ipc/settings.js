@@ -12,6 +12,7 @@ const notify = require('../integrations/notify')
 const siteAuth = require('../integrations/site-auth')
 const loginWizard = require('../integrations/login-wizard')
 const piRuntime = require('../pi')
+const piSetup = require('../pi/setup')
 const sessions = require('../sessions/sessions')
 const { pendingPermissions } = require('../core/chat-state')
 
@@ -177,11 +178,24 @@ function registerSettingsIpc() {
     return { ok: true, secret }
   })
 
-  ipcMain.handle('omnibuddy:credentials:create', (_e, c) => credentials.create(c))
+  ipcMain.handle('omnibuddy:credentials:create', async (_e, c) => {
+    const r = await credentials.create(c)
+    // 子代理凭据 env 即时刷新（globalThis 缓存，无需销毁会话即生效）
+    if (r.ok) piSetup.refreshChildCredEnv()
+    return r
+  })
 
-  ipcMain.handle('omnibuddy:credentials:update', (_e, c) => credentials.update(c))
+  ipcMain.handle('omnibuddy:credentials:update', async (_e, c) => {
+    const r = await credentials.update(c)
+    if (r.ok) piSetup.refreshChildCredEnv()
+    return r
+  })
 
-  ipcMain.handle('omnibuddy:credentials:delete', (_e, id) => credentials.remove(id))
+  ipcMain.handle('omnibuddy:credentials:delete', async (_e, id) => {
+    const r = credentials.remove(id)
+    if (r.ok) piSetup.refreshChildCredEnv()
+    return r
+  })
 
   // ===== 凭据保存后销毁 pi 会话（AI 凭据清单注入发生在会话创建时） =====
   ipcMain.handle('omnibuddy:credentials:dispose-sessions', async () => {

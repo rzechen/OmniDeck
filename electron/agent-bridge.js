@@ -177,12 +177,13 @@ function startAgentBridge(getWindow, baseDir) {
       return true
     },
     // 附件缩略图：子进程无法持有图像对象，主进程代生成 dataURL
+    //（toJPEG 返回 Buffer，须手工拼 dataURL 前缀）
     'thumb': (buf, opts) => {
       const img = nativeImage.createFromBuffer(Buffer.from(buf))
       if (img.isEmpty()) return { dataUrl: '' }
       const width = (opts && opts.width) || 360
       const quality = (opts && opts.quality) != null ? opts.quality : 72
-      return { dataUrl: img.resize({ width }).toJPEG(quality).toDataURL() }
+      return { dataUrl: 'data:image/jpeg;base64,' + img.resize({ width }).toJPEG(quality).toString('base64') }
     },
     'fetchBuffer': (url, opts) => fetchBufferViaNet(url, opts),
     // 登录向导：BrowserWindow 仅主进程可建，窗口实体落位本进程

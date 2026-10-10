@@ -307,6 +307,28 @@ function resolveEnvForSkills(skillNames) {
   return env
 }
 
+// 按技能安装目录聚合 env：凡 skillNames 指向 agentDir/skills/ 下真实存在目录的
+// 凭证，全部解密合并 env——前台子代理凭据注入扩展（omnideck-child-creds.mjs）
+// 的取数入口。与主会话 resolveEnvForSkills 的差别：无「本会话读过 SKILL.md」
+// 激活门控（child 会话内无该状态），改以「技能已安装」为界——子代理本就是
+// 协调者按 SKILL.md 规范委派的，技能在用即注入
+function resolveEnvForInstalledSkills(skillsDir) {
+  if (!skillsDir || typeof skillsDir !== 'string') return {}
+  let installed = []
+  try {
+    installed = fs.readdirSync(skillsDir).filter(n => {
+      try {
+        return fs.statSync(path.join(skillsDir, n)).isDirectory()
+      } catch (e) {
+        return false
+      }
+    })
+  } catch (e) {
+    return {}
+  }
+  return resolveEnvForSkills(installed)
+}
+
 module.exports = {
   // 初始化存储文件路径
   init,
@@ -322,6 +344,8 @@ module.exports = {
   resolve,
   // 按激活技能聚合 env
   resolveEnvForSkills,
+  // 按技能安装目录聚合 env（前台子代理凭据注入用）
+  resolveEnvForInstalledSkills,
   // AI 可用凭据目录
   aiList,
   // AI 取用清单注入块
