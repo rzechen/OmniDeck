@@ -120,6 +120,12 @@
           </div>
         </transition>
         <div class="ob-composer-inner">
+          <!-- 会话产出聚合弹层：贴输入框上方浮出（绝对定位，不占布局） -->
+          <artifacts-popover
+            :artifacts="sessionArtifacts"
+            :visible="artifactsOpen"
+            @close="artifactsOpen = false"
+          />
           <buddy-composer
             ref="composer"
             v-model="draft"
@@ -208,6 +214,19 @@
                 </template>
               </composer-picker>
 
+              <!-- 本会话产出入口（阶段三交付物闭环）：有产物时常驻工具栏，
+                   点击弹出会话级聚合面板（点条目送右栏预览） -->
+              <button
+                v-if="sessionArtifacts.length"
+                class="bc-tool-btn ob-out-trigger"
+                :class="{ on: artifactsOpen }"
+                :title="`本会话产出（${sessionArtifacts.length} 个文件）`"
+                @click="artifactsOpen = !artifactsOpen"
+              >
+                <svg-icon icon-class="export" />
+                <span class="ob-out-trigger-n">{{ sessionArtifacts.length > 99 ? '99+' : sessionArtifacts.length }}</span>
+              </button>
+
             </template>
           </buddy-composer>
         </div>
@@ -257,6 +276,7 @@ import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
 import SelectionToolbar from '@/components/buddy/chat/SelectionToolbar.vue'
 import ChatMessageList from './components/ChatMessageList.vue'
 import ArtifactPreview from './components/ArtifactPreview.vue'
+import ArtifactsPopover from './components/ArtifactsPopover.vue'
 import TodoCard from '@/components/buddy/chat/TodoCard.vue'
 import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
@@ -314,6 +334,27 @@ const rawMessages = computed(() => (sess.value && sess.value.messages) || [])
 // anchors = 当前线路路径（发送新消息时作为线路标记传给主进程）
 const branchView = computed(() => computeBranchView(rawMessages.value, (sess.value && sess.value.branchActive) || {}))
 const messages = computed(() => branchView.value.list)
+// ===== 产出聚合（阶段三）：会话全部产物汇总 + 弹层开关 =====
+const artifactsOpen = ref(false)
+const sessionArtifacts = computed(() => {
+  if (!Array.isArray(messages.value)) return []
+  const out = []
+  for (const m of messages.value) {
+    if (m.role !== 'assistant' || !Array.isArray(m.items)) continue
+    for (const it of m.items) {
+      if (it.type === 'tool' && Array.isArray(it.artifacts)) out.push(...it.artifacts)
+    }
+  }
+  return out
+})
+// 首个产物落地时自动弹一次聚合面板（让用户感知入口），此后不重复打扰
+const artifactsAutoShown = ref(false)
+watch(sessionArtifacts, (list) => {
+  if (list.length && !artifactsAutoShown.value) {
+    artifactsAutoShown.value = true
+    artifactsOpen.value = true
+  }
+}, { flush: 'post' })
 // 任务清单：取当前分支视图里唯一的 todo 消息（固定面板展示，不进消息流）
 const todoTodos = computed(() => {
   const m = messages.value.find(x => x.role === 'todo')
@@ -1096,11 +1137,11 @@ function toggleSelect(key) {
   openSelect.value = openSelect.value === key ? '' : key
 }
 
-// 点击面板外关闭
+// 点击面板外关闭（选择面板与产出聚合弹层同规则）
 function onDocMouseDown(e) {
-  if (!openSelect.value) return
-  if (e.target.closest('.ob-select')) return
-  openSelect.value = ''
+  if (openSelect.value && !e.target.closest('.ob-select')) openSelect.value = ''
+  // 产出聚合弹层点外关闭（弹层内部已 @click.stop 隔离）
+  if (artifactsOpen.value && !e.target.closest('.ob-out-pop')) artifactsOpen.value = false
 }
 
 // ===== 回退与分支 =====
@@ -1667,12 +1708,32 @@ function backToBottom() {
 }
 
 .ob-composer-inner {
+  position: relative; // 产出聚合弹层的绝对定位基准
   width: 100%;
   max-width: 768px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* ===== 产出入口按钮（工具栏内）：图标 + 计数徽标，激活态高亮 =====
+   （slot 内容带本组件 scope id，提高特异性覆盖 .bc-tool-btn 基色） */
+.bc-tool-btn.ob-out-trigger {
+  position: relative;
+  gap: 0;
+  color: var(--primary-color);
+
+  .ob-out-trigger-n {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    margin-left: 3px;
+  }
+
+  &.on {
+    background: rgba(var(--primary-color-rgb), 0.1);
+  }
 }
 
 /* ===== 权限模式浮层底部：关系说明入口（hover 出提示） ===== */

@@ -49,6 +49,25 @@
           title="HTML 预览"
         ></iframe>
 
+        <!-- PDF：Chromium 原生查看器（<embed> 铺满面板，工具栏自带缩放/翻页） -->
+        <embed
+          v-else-if="type === 'pdf'"
+          class="ob-preview-frame"
+          :src="pdfSrc"
+          type="application/pdf"
+          title="PDF 预览"
+        />
+
+        <!-- Word：mammoth 转 HTML 后沙箱 iframe 只读排版（正文语义预览，
+             不保证与 Word 版式一致，需要精确版式时用「打开」走系统应用） -->
+        <iframe
+          v-else-if="type === 'docx'"
+          class="ob-preview-frame ob-preview-docx"
+          :srcdoc="docxDoc"
+          sandbox=""
+          title="Word 文档预览"
+        ></iframe>
+
         <!-- 图片：等比缩放居中（格底铺满面板） -->
         <div v-else-if="type === 'image'" class="ob-preview-img-wrap">
           <img class="ob-preview-img" :src="imageSrc" :alt="name" draggable="false" />
@@ -92,6 +111,8 @@ import 'codemirror/mode/diff/diff'
 const HTML_EXTS = ['html', 'htm']
 const MD_EXTS = ['md', 'markdown']
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']
+const PDF_EXTS = ['pdf']
+const DOCX_EXTS = ['docx']
 
 // 代码块 fence 语言 → CodeMirror mode（未命中回退纯文本）
 const LANG_MODE = {
@@ -130,14 +151,18 @@ const loading = ref(false)
 const error = ref('')
 const content = ref('')
 const imageSrc = ref('')
+const pdfSrc = ref('')
+const docxHtml = ref('')
 const size = ref(0)
 
-// 预览类型：code（内存代码）> 按扩展名 html / markdown / image / 纯文本
+// 预览类型：code（内存代码）> 按扩展名 html / pdf / docx / markdown / image / 纯文本
 const type = computed(() => {
   if (props.item.kind === 'code') return 'code'
   const f = String(props.item.format || '').toLowerCase() ||
     (String(props.item.name || '').match(/\.([a-z0-9]+)$/i) || [])[1] || ''
   if (HTML_EXTS.indexOf(f) >= 0) return 'html'
+  if (PDF_EXTS.indexOf(f) >= 0) return 'pdf'
+  if (DOCX_EXTS.indexOf(f) >= 0) return 'docx'
   if (MD_EXTS.indexOf(f) >= 0) return 'markdown'
   if (IMG_EXTS.indexOf(f) >= 0) return 'image'
   return 'text'
@@ -157,9 +182,24 @@ const metaText = computed(() => {
     return (props.item.lang || 'text') + ' · ' + lines + ' 行'
   }
   const parts = []
-  if (type.value !== 'text') parts.push({ html: '网页', markdown: 'Markdown', image: '图片' }[type.value])
+  if (type.value !== 'text') {
+    parts.push({ html: '网页', pdf: 'PDF 文档', docx: 'Word 文档（排版预览）', markdown: 'Markdown', image: '图片' }[type.value])
+  }
   if (size.value) parts.push(fmtSize(size.value))
   return parts.join(' · ') || '文本'
+})
+
+// docx 完整 HTML 文档（mammoth 输出片段 → 只读排版页：基础正文样式 + 中文字体栈）
+const docxDoc = computed(() => {
+  if (!docxHtml.value) return ''
+  return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    '<style>' +
+    'body{margin:0;padding:28px 32px;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#24292f;line-height:1.75;font-size:14px;background:#fff}' +
+    'h1{font-size:22px;margin:20px 0 12px}h2{font-size:18px;margin:18px 0 10px}h3{font-size:15.5px;margin:14px 0 8px}' +
+    'table{border-collapse:collapse;margin:12px 0;width:auto}td,th{border:1px solid #d0d7de;padding:6px 10px;font-size:13px}' +
+    'img{max-width:100%;height:auto}a{color:#0969da}' +
+    'ul,ol{padding-left:22px;margin:8px 0}blockquote{margin:10px 0;padding:4px 14px;border-left:3px solid #d0d7de;color:#57606a}' +
+    '</style></head><body>' + docxHtml.value + '</body></html>'
 })
 
 const htmlText = computed(() => {
@@ -177,6 +217,8 @@ const cmMode = computed(() => {
 async function load() {
   error.value = ''
   imageSrc.value = ''
+  pdfSrc.value = ''
+  docxHtml.value = ''
   size.value = 0
   // 代码块：内容随 item 直接携带，无需读盘
   if (props.item.kind === 'code') {
@@ -201,6 +243,33 @@ async function load() {
       size.value = res.size || 0
     } else {
       error.value = (res && res.error) || '图片读取失败'
+    }
+    return
+  }
+  if (type.value === 'pdf') {
+    const res = await files.readPdf(props.item.path)
+    loading.value = false
+    if (res && res.ok) {
+      pdfSrc.value = res.src
+      size.value = res.size || 0
+    } else {
+      error.value = (res && res.error) || 'PDF 读取失败'
+    }
+    return
+  }
+  if (type.value === 'docx') {
+    if (!files.readDocx) {
+      loading.value = false
+      error.value = '当前版本不支持 Word 预览'
+      return
+    }
+    const res = await files.readDocx(props.item.path)
+    loading.value = false
+    if (res && res.ok) {
+      docxHtml.value = res.html || ''
+      size.value = res.size || 0
+    } else {
+      error.value = (res && res.error) || '文档解析失败'
     }
     return
   }
@@ -378,7 +447,9 @@ async function revealFile() {
   &.is-code,
   &.is-text,
   &.is-html,
-  &.is-image {
+  &.is-image,
+  &.is-pdf,
+  &.is-docx {
     padding: 0;
   }
 }

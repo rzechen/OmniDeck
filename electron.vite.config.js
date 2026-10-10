@@ -29,7 +29,7 @@ const agentNames = [
   'pi/packages', 'pi/setup',
   'core/chat-state', 'core/pi-events', 'core/direct-llm', 'core/llm',
   'ipc/chat', 'ipc/sessions', 'ipc/settings', 'ipc/workspace', 'ipc/automation',
-  'sessions/sessions', 'sessions/checkpoints', 'sessions/file-changes', 'sessions/branchView', 'sessions/export',
+  'sessions/sessions', 'sessions/checkpoints', 'sessions/file-changes', 'sessions/exports-diff', 'sessions/branchView', 'sessions/export',
   'knowledge/skills', 'knowledge/rules', 'knowledge/profile', 'knowledge/memory', 'knowledge/market',
   'integrations/mcp', 'integrations/connectors', 'integrations/credentials', 'integrations/web-search',
   'integrations/site-auth', 'integrations/login-wizard', 'integrations/notify', 'integrations/workflows',
@@ -50,6 +50,8 @@ const agentNames = [
 // adm-zip 由 agent/knowledge/skills.js / core/deps.js 运行时 require（node_modules 内），保留原生调用；
 // officeparser 由 agent/workspace/attachments.js 运行时 require（附件预解析：
 // PDF/Office 抽取，30MB 含 pdfjs-dist/tesseract.js，内联会破坏其内部资源定位），保留原生调用；
+// pptxgenjs / exceljs 由 agent/tools/doc-export.js 运行时 require（doc_export 工具
+// pptx/xlsx 生成；含体积较大的内嵌模板与依赖链，保留原生调用走 node_modules）；
 // markdown-it 由 agent/sessions/export.js 运行时 require，保留原生调用；
 // electron-updater 由 core/updater.js 运行时 require，保留原生调用
 const runtimeDeps = [
@@ -61,6 +63,9 @@ const runtimeDeps = [
   'pi-web-access',
   'adm-zip',
   'officeparser',
+  'pptxgenjs',
+  'exceljs',
+  'mammoth',
   'markdown-it',
   'electron-updater'
 ]
