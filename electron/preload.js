@@ -115,6 +115,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     // 深度研究：workflow 运行状态（历史卡片回放）
     workflowStatus: payload => ipcRenderer.invoke('omnibuddy:workflow:status', payload),
+    // 子代理后台 run：会话活跃 run 清单（刷新后重建卡片与任务列表状态）
+    subagentActiveRuns: chatId => ipcRenderer.invoke('omnibuddy:subagent:active-runs', chatId),
+    // 子代理 run 单查（历史卡片回放，直读磁盘状态文件）
+    subagentRunStatus: runId => ipcRenderer.invoke('omnibuddy:subagent:run-status', runId),
     // 通知中心：类型×渠道矩阵 + webhook 配置 + 测试投递
     notify: {
       config: () => ipcRenderer.invoke('omnibuddy:notify:config'),

@@ -3,6 +3,7 @@
 // mcp_servers 段，此处只保留使用引导。
 const mcp = require('../integrations/mcp')
 const webSearch = require('../integrations/web-search')
+const subagents = require('../integrations/subagents')
 const profile = require('../knowledge/profile')
 const credentials = require('../integrations/credentials')
 const siteAuth = require('../integrations/site-auth')
@@ -62,12 +63,26 @@ function systemPrompt() {
     lines.push('用户需要生成图片、插画、配图时，调用 generate_image 工具（产物自动保存并展示），不要用文字描摹替代。')
   }
   lines.push('深度研究：当用户明确要求深度研究、多源交叉验证、并行审查、代码库巡检等多代理编排任务时，调用 workflow 工具（内置模式：deep-research 深度研究 / code-review 代码审查 / adversarial-review 对抗审查 / multi-perspective 多视角 / codebase-audit 代码库审计；也可传 script 自定义编排）。默认后台运行：工具立即返回，结果完成后自动回注对话继续处理，期间可告知用户任务已在后台进行。未获用户明确要求时不要主动调用 workflow。运行中的任务可用 workflow_control 工具查询进度、暂停或停止。')
+  // 子代理委派策略（B 方案）：按 asyncEnabled 开关动态生成
+  if (subagents.asyncEnabled()) {
+    lines.push('子代理委派：subagent 工具省略 async 参数即前台同步执行（阻塞到完成，过程实时可见），一次只能有一个前台委派在执行——同回合需要多个子任务时不要连续发起多个前台 subagent 调用。适合后台长时间运行且互不依赖的子任务，可在 subagent 参数中显式传 async:true：工具立即返回，任务在后台并行执行，进度实时显示在对话卡片中，完成后会收到系统通知；期间可继续其他工作，最后用 bg_wait 工具收拢后台任务结果。用户在场等待且任务较短时优先前台同步；批量、耗时或用户明确要求"并行/同时"时用后台。')
+  } else {
+    lines.push('子代理委派：subagent 工具为前台同步执行（阻塞到完成，过程与结果实时可见），一次只能有一个委派在执行；后台异步执行已被禁用。')
+  }
   // codemode 脚本约束：脚本被包装为 (async (tools, console) => {...}) 执行，
   // 声明同名变量会直接语法报错（invalid redefinition of parameter name）
   lines.push('编写 codemode 脚本时：脚本以 (tools, console) 参数形式注入环境，不得用 const/let/function 再声明 tools、console 同名变量（会报 invalid redefinition of parameter name）；调用工具写作 await tools.<工具名>({ ...参数 })，查找未列出的工具用 searchTools(关键词)。')
   // 参数名猜错是 codemode 编排最高频错误（目录预算外的工具 schema 不可见，
-  // 模型凭先验猜 fn/script 等）——强制"先查 schema 再调用"，10-09 事故实证
-  lines.push('codemode 中首次调用不熟悉的 MCP 工具前，先读取其参数 schema 确认键名（脚本内直接访问 tools.<工具名>.inputSchema，返回 JSON Schema；不要凭记忆猜参数名——如 browser_evaluate 的参数名是 function 而非 fn）。')
+  // 模型凭先验猜 fn/script 等）——强制"先查 schema 再调用"，10-09 事故实证。
+  // 注意：沙箱内 tools.<名> 是裸函数，没有 .inputSchema 属性（10-09 实证模型按
+  // 旧指引访问 tools.<名>.inputSchema 连续两次 TypeError）——自省唯一入口是
+  // describeTool()/searchTools()，返回 renderToolSample 渲染的完整 TS 参数声明，
+  // 不受 inlineBudget 目录预算影响
+  lines.push('codemode 中首次调用不熟悉的 MCP 工具前，先 describeTool("工具名") 读取其参数声明（返回完整的 TypeScript 类型定义，含所有参数名与必填项；检索工具用 searchTools(关键词)），按声明的键名传参，不要凭记忆猜参数名——如 browser_evaluate 的参数名是 function 而非 fn。注意：脚本内 tools.<工具名> 是裸函数，没有 .inputSchema 等属性，直接访问会报 TypeError。')
+  // store 持久化语义（10-09 事故：上一脚本崩溃 → store 未执行 → 下一脚本 load 拿
+  // undefined 仍直接取字段报 TypeError）：写入仅在脚本成功结束时落盘，失败即丢弃；
+  // 且未声明 outputSchema 的工具在脚本内返回拼接文本而非 JSON——两句心智模型一次给足
+  lines.push('codemode 跨脚本传数据用 store(key, value) / load(key)，但 store 仅在脚本成功结束时才持久化（脚本中途崩溃则本次全部写入丢弃）——依赖上游数据时 load 后必须判空再取字段；另外未声明结构化输出的工具在脚本内返回纯文本字符串（不是 JSON），需要结构化数据时优先改用已声明 outputSchema 的工具或让单脚本内完成取用与消费，不要对工具返回文本 JSON.parse。')
   // playwright MCP 生命周期坑（官方设计行为，模型缺心智模型时每项多试错一轮）
   lines.push('playwright MCP 注意：browser_close 关闭整个浏览器，之后任何页面类工具（wait_for / snapshot / evaluate）都会报 "No open pages available"——close 后直接 browser_navigate 即可自动重开浏览器；browser_wait_for 的等待时长上限 30 秒（超出静默截断）。')
   // 沙箱能力边界：实测踩坑记录（无定时器/模块能力，输出截断），

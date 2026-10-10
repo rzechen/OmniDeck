@@ -167,6 +167,26 @@ function subscribeSessionEvents(session, chatId, onEvent, onSkillActivated) {
           }
           const args = toolArgsById.get(event.toolCallId)
           toolArgsById.delete(event.toolCallId)
+          // 子代理后台并行：async 启动的 subagent 工具返回 details.asyncId（=runId），
+          // 提取最小字段（agent 名取自 args）→ 主进程 run 注册表 + 状态轮询。
+          // 同时以 workflow 形态带 kind:'subagent' 下发：前端工具卡片挂进度面板
+          // 与深度研究共用同一管线（进度快照由主进程 subagents.watchRun 投影）
+          let subagentRun = null
+          if (event.toolName === 'subagent' && !event.isError) {
+            try {
+              const d = (event.result && event.result.details) || {}
+              if (d.asyncId) {
+                const chain = Array.isArray(args && args.chain) ? args.chain : []
+                subagentRun = {
+                  runId: String(d.asyncId),
+                  mode: d.mode || 'single',
+                  agent: String((args && args.agent) || (chain[0] && chain[0].agent) || ''),
+                  task: String((args && args.task) || '').slice(0, 200)
+                }
+                if (!workflow) workflow = { runId: String(d.asyncId), background: true, kind: 'subagent' }
+              }
+            } catch (err) { /* 提取失败按无后台 run 处理 */ }
+          }
           onEvent({
             kind: 'tool_end',
             chatId,
@@ -176,7 +196,8 @@ function subscribeSessionEvents(session, chatId, onEvent, onSkillActivated) {
             isError: !!event.isError,
             result: resultText.slice(0, 4000),
             ...(artifacts ? { artifacts } : {}),
-            ...(workflow ? { workflow } : {})
+            ...(workflow ? { workflow } : {}),
+            ...(subagentRun ? { subagentRun } : {})
           })
           break
         }

@@ -32,7 +32,8 @@ function blankSession() {
     atBottom: true,        // 滚动位置标记（在底部时新消息自动跟滚）
     loaded: false,         // 历史已拉取标记（防止重复 IPC）
     doneTimer: null,       // done 收尾防抖定时器（续跑回合毫秒级跟进时避免 meta 行闪现）
-    lastFinishedMsg: null  // 刚被中断的本轮消息（供中断后迟到的 assistant_end 回填 id/用量）
+    lastFinishedMsg: null, // 刚被中断的本轮消息（供中断后迟到的 assistant_end 回填 id/用量）
+    bgRuns: []             // 活跃子代理后台 run（runId/agent/task/snapshot；任务列表 running 态判据）
   }
 }
 
@@ -378,6 +379,21 @@ export default {
         cur.thinkTicking = true
         ensureTurnMessage(cur).thinking = true
       }
+      // 子代理后台 run 恢复：主进程注册表为状态源（刷新/重开重建任务列表
+      // running 态与卡片进度；仍在运行的 run 由主进程重挂轮询继续推送）
+      if (typeof api.subagentActiveRuns === 'function') {
+        try {
+          const r = await api.subagentActiveRuns(id)
+          if (r && r.ok && Array.isArray(r.runs)) {
+            cur.bgRuns = r.runs.map(x => ({
+              runId: x.runId,
+              agent: x.agent || '',
+              task: x.task || '',
+              snapshot: x.snapshot || null
+            }))
+          }
+        } catch (e) { /* 主进程旧版本无此 IPC 忽略 */ }
+      }
     },
     // 新对话状态迁移到正式会话
     migrate({ commit }, { from, to }) {
@@ -612,6 +628,16 @@ export default {
                 t.workflow.progress = e.workflow.snapshot
               }
             }
+            // 子代理后台 run 启动回执：立即入 bgRuns（任务列表即时转 running，
+            // 不等主进程轮询首帧）
+            if (e.workflow && e.workflow.kind === 'subagent' && e.subagentRun) {
+              s.bgRuns.push({
+                runId: e.subagentRun.runId,
+                agent: e.subagentRun.agent || '',
+                task: e.subagentRun.task || '',
+                snapshot: null
+              })
+            }
           }
           break
         }
@@ -658,6 +684,21 @@ export default {
               }
             }
             if (i === -1) break
+          }
+          // 子代理后台 run：kind='subagent' 快照同步进 bgRuns（任务列表
+          // running 态判据；终态帧自动移出，保证 run 生命周期在 UI 有确定归宿）
+          if (wf.kind === 'subagent') {
+            const running = wf.status === 'running' || wf.status === 'paused'
+            const idx = s.bgRuns.findIndex(r => r.runId === wf.runId)
+            if (running) {
+              if (idx >= 0) {
+                s.bgRuns.splice(idx, 1, Object.assign({}, s.bgRuns[idx], { snapshot: wf }))
+              } else {
+                s.bgRuns.push({ runId: wf.runId, agent: wf.name || '', task: '', snapshot: wf })
+              }
+            } else if (idx >= 0) {
+              s.bgRuns.splice(idx, 1)
+            }
           }
           break
         }

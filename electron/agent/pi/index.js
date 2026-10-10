@@ -27,6 +27,7 @@ const fs = require('fs')
 const sandbox = require('../platform/sandbox')
 const builtinTools = require('../tools/builtin-tools')
 const webSearch = require('../integrations/web-search')
+const subagentsIntegration = require('../integrations/subagents')
 const runtime = require('../platform/runtime')
 const permissions = require('../platform/permissions')
 const { state, loadPi } = require('./state')
@@ -46,6 +47,8 @@ function init(agentDir) {
   builtinTools.init(agentDir)
   // pi-web-access（web_search / fetch_content）：内置注册 + 配置托管
   webSearch.init(agentDir)
+  // 子代理后台并行（B 方案）：配置托管（asyncEnabled 开关，run 注册表同模块）
+  subagentsIntegration.init(agentDir)
   // 内置运行时 PATH 注入：bash 内的裸 python3 / node / pandoc 命令经 PATH 命中
   // 内置二进制（预装 pdfplumber / docx 等依赖栈开箱即用），内置优先，系统回退。
   // bash（含沙箱）与 python/node 工具的 execEnv 均继承 process.env，注入一次全局生效
@@ -71,9 +74,9 @@ function init(agentDir) {
   // subagentOnlyExtensions 显式引用，child 内部经 pi 内置 createMcpExtension
   // 读取同一 agentDir/mcp.json —— 使前台同步委派（业界主流模式）可用
   piSetup.deployChildMcpExtension(agentDir)
-  // subagent 前台同步强制：pi-subagents 默认省略 async 即后台（独立进程、无流式
-  // 回传）——恒定 asyncByDefault=false + tool_call 钩子剥离显式 async:true，
-  // 只保留前台同步委派（阻塞执行、过程实时可见、回合内完成）
+  // subagent 执行策略：asyncByDefault=false 恒定写入（省略 async 保持前台语义）；
+  // 后台并行按 asyncEnabled 开关——开启时显式 async:true 放行为后台 run（注册表
+  // + 轮询 + 卡片 + 通知全链路），关闭时部署剥离扩展强制前台（历史行为）
   piSetup.deploySubagentForegroundPolicy(agentDir)
   // 子代理工具通用化：agent 定义只写 mcp:server / 能力名，环境注入收敛宿主——
   // child 图像扩展 + settings defaultSubagentOnlyExtensions（pi-web-access 等）

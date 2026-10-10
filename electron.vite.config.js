@@ -33,7 +33,7 @@ const agentNames = [
   'knowledge/skills', 'knowledge/rules', 'knowledge/profile', 'knowledge/memory', 'knowledge/market',
   'integrations/mcp', 'integrations/connectors', 'integrations/credentials', 'integrations/web-search',
   'integrations/site-auth', 'integrations/login-wizard', 'integrations/notify', 'integrations/workflows',
-  'integrations/pkg-registry',
+  'integrations/pkg-registry', 'integrations/subagents',
   'workspace/workspaces', 'workspace/files', 'workspace/attachments',
   'platform/permissions', 'platform/capabilities', 'platform/runtime', 'platform/sandbox',
   'platform/scheduler', 'platform/usage',

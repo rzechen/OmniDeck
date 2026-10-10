@@ -11,6 +11,7 @@ const workspaces = require('../workspace/workspaces')
 const scheduler = require('../platform/scheduler')
 const notify = require('../integrations/notify')
 const workflows = require('../integrations/workflows')
+const subagents = require('../integrations/subagents')
 const piRuntime = require('../pi')
 const { emit, running, automationTurnErrors, automationHeartbeats,
   isAwaitingUser, AUTOMATION_STALL_TIMEOUT_MS, AUTOMATION_TOOL_STALL_TIMEOUT_MS,
@@ -324,6 +325,52 @@ function createAutomation({ getWindow, handlePiEvent }) {
         } catch (e) { /* 重新挂轮询失败不影响本次状态返回 */ }
       }
       return { ok: true, workflow }
+    })
+
+    // 子代理后台 run：渲染层刷新/重开后按会话拉取活跃 run 清单（注册表重建
+    // 卡片与任务列表 running 态）。仍在运行的 run 同时重挂轮询，进度继续
+    // 经 workflow_progress 事件驱动前端（与深度研究同管线）
+    ipcMain.handle('omnibuddy:subagent:active-runs', (_e, chatId) => {
+      if (!chatId) return { ok: false, error: '参数缺失' }
+      const runs = subagents.activeRunsOf(chatId)
+      runs.forEach(r => {
+        if (r.snapshot && (r.snapshot.status === 'running' || r.snapshot.status === 'paused')
+          && !subagents.isWatched(r.runId)) {
+          try {
+            subagents.watchRun(r.runId, chatId,
+              snap => emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap }),
+              snap => {
+                emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap })
+                const okDone = snap.status === 'completed'
+                notify.dispatch(okDone ? 'subagent.completed' : 'subagent.failed', {
+                  title: okDone ? '子代理任务完成' : '子代理任务未完成',
+                  body: '「' + (snap.name || r.agent || '子代理') + '」' + (okDone ? '已完成' : '已结束'),
+                  ok: okDone,
+                  click: () => {
+                    const win = getWindow()
+                    if (win && !win.isDestroyed()) {
+                      win.show()
+                      win.focus()
+                      win.webContents.send('nav:goto', '/omnibuddy?s=' + chatId)
+                    }
+                  }
+                })
+              },
+              snap => {
+                emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap })
+              })
+          } catch (e) { /* 重挂轮询失败不影响本次返回 */ }
+        }
+      })
+      return { ok: true, runs }
+    })
+
+    // 子代理 run 单查（历史卡片回放）：脱离注册表直读磁盘 status.json，
+    // 终态后注册表已移除也能拿到真实终态快照（临时目录被清理则由前端兜底）
+    ipcMain.handle('omnibuddy:subagent:run-status', (_e, runId) => {
+      if (!runId) return { ok: false, error: '参数缺失' }
+      const snap = subagents.snapshotOf(String(runId))
+      return snap ? { ok: true, snapshot: snap } : { ok: false }
     })
   }
 

@@ -41,13 +41,23 @@ function createCredentialGetExtension() {
     piApi.registerTool({
       name: 'credential_get',
       label: '取用凭据',
-      description: '按名称取用用户预先录入的凭据（API Key、账号等）。需要鉴权信息（登录、调接口、发邮件）时使用；取用前先征得用户同意。',
+      description: '按名称取用用户预先录入的凭据（API Key、账号等）。需要鉴权信息（登录、调接口、发邮件）时使用；取用前先征得用户同意。codemode 脚本内 await 返回结构化对象 { name, values, headers }，直接取字段即可，不要对返回值做 JSON.parse。',
       parameters: {
         type: 'object',
         properties: {
           name: { type: 'string', description: '凭据名称（见系统提示词中的可用凭据清单）' }
         },
         required: ['name']
+      },
+      // 声明 outputSchema 后 codemode 嵌套调用返回 structuredContent 对象
+      outputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '凭据名称' },
+          values: { type: 'object', description: '键值对（env），如 { "用户名": "rzc", "密码": "***" }', additionalProperties: { type: 'string' } },
+          headers: { type: 'object', description: 'HTTP 请求头键值对', additionalProperties: { type: 'string' } }
+        },
+        required: ['name', 'values', 'headers']
       },
       execute: async (_id, params) => {
         const r = credentials.aiResolve(params.name)
@@ -63,7 +73,11 @@ function createCredentialGetExtension() {
         }
         const text = '已取用凭据「' + r.name + '」。\n' + (parts.join('\n\n') || '（该凭据未配置任何字段）')
           + '\n\n注意：仅用于本次任务，不要在回复中明文展示。'
-        return { content: [{ type: 'text', text }], details: { credential: r.name } }
+        // 结构化输出（outputSchema+structuredContent）：codemode 脚本内 await 返回
+        // 结构化对象而非拼接文本，避免模型自行 JSON.parse 文本崩溃（10-09 事故）；
+        // content 仍为模型可见输出，行为不变
+        const structuredContent = { name: r.name, values: r.values || {}, headers: r.headers || {} }
+        return { content: [{ type: 'text', text }], details: { credential: r.name }, structuredContent }
       }
     })
   }

@@ -11,6 +11,7 @@ const runtime = require('./runtime')
 const memory = require('../knowledge/memory')
 const webSearch = require('../integrations/web-search')
 const workflows = require('../integrations/workflows')
+const subagents = require('../integrations/subagents')
 
 // ===== 工具目录（静态定义） =====
 // pi 内置工具（pi-coding-agent 核心工具集）
@@ -256,6 +257,14 @@ function workflowTools() {
 }
 
 // 交互与任务工具（UI 耦合扩展，pi.js 内联注册）
+// subagent 条目按后台并行开关动态生成（asyncEnabled 开启时描述含后台能力）
+function subagentToolEntry() {
+  if (subagents.asyncEnabled()) {
+    return { name: 'subagent', label: '子任务委派', description: '将子任务委派给子代理执行：省略 async 为前台同步（阻塞到完成，过程实时可见）；显式 async:true 时后台并行执行，进度在对话卡片实时呈现，完成/失败/挂起均有系统通知。', perm: 'allow' }
+  }
+  return { name: 'subagent', label: '子任务委派', description: '将独立子任务委派给子代理前台同步执行（阻塞到完成，过程与结果实时可见；后台异步已禁用）。', perm: 'allow' }
+}
+
 const UI_TOOLS = [
   { name: 'ask_user', label: '向用户提问', description: '信息不足或存在歧义时向用户提问，前端渲染表单收集回答。', perm: 'allow' },
   { name: 'todo_write', label: '更新任务清单', description: '维护当前任务清单（pending / in_progress / completed），前端看板呈现。', perm: 'allow' },
@@ -263,12 +272,11 @@ const UI_TOOLS = [
   // 站点登录态上报（登录闭环登记）：撞登录墙时通知桌面端引导打开登录向导；
   // 默认放行——纯登记操作无副作用，无头定时任务中被 ask 拦截会丢失登录引导
   { name: 'report_site_auth', label: '上报站点登录态', description: '浏览器访问站点后上报登录状态：撞登录墙报 login_required（触发桌面通知，一键打开登录向导小窗），确认已登录报 logged_in。', perm: 'allow' },
-  // pi-subagents 注册的委派工具（实际工具名 subagent）。默认放行：宿主已强制
-  // 前台同步模式（setup.js deploySubagentForegroundPolicy：asyncByDefault=false
-  // + tool_call 钩子剥离显式 async:true），前台 child 阻塞执行、过程实时可见，
+  // pi-subagents 注册的委派工具（实际工具名 subagent）。默认放行：前台 child
+  // 阻塞执行、过程实时可见，后台 async run 由主进程注册表 + 轮询全链路管控，
   // 且无头定时流水线（公众号发文等）以委派为核心路径，逐次确认会卡死无人值守
   // 场景。早期目录误记为 'task' 且无 perm，导致该键从未进入默认策略与启动补齐
-  { name: 'subagent', label: '子任务委派', description: '将独立子任务委派给子代理前台同步执行（阻塞到完成，过程与结果实时可见；后台异步已禁用）。', perm: 'allow' },
+  subagentToolEntry(),
   // pi-subagents 运行时配套工具（主会话与 child 内均可能经权限门；缺省落
   // '*' 兜底会在无头流水线中弹确认打断）：bg_wait 等待/收拢后台 run，
   // contact_supervisor / structured_output 为 child 内通信与交付面，均无副作用
@@ -346,6 +354,12 @@ const CREDENTIAL_TOOLS = [
 ]
 
 // ===== 能力清单组装 =====
+// ui 组在组装时刷新 subagent 条目（asyncEnabled 开关即时反映；TOOL_GROUPS
+// 权限派生不受影响——两分支 perm 恒 'allow'）
+function uiTools() {
+  return UI_TOOLS.map(t => (t.name === 'subagent' ? subagentToolEntry() : t))
+}
+
 function listCapabilities() {
   return {
     core: CORE_TOOLS,
@@ -355,7 +369,7 @@ function listCapabilities() {
     image: imageTools(),
     mcpBuiltin: mcpBuiltinTools(),
     workflow: workflowTools(),
-    ui: UI_TOOLS,
+    ui: uiTools(),
     memory: memoryTools(),
     credentials: CREDENTIAL_TOOLS,
     connectors: connectorEntries()

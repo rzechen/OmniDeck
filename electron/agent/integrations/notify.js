@@ -19,6 +19,11 @@ const TYPES = {
   'task.failed': { label: '定时任务失败', channels: ['system'] },
   'permission.ask': { label: '权限审批请求', channels: ['system'] },
   'login.required': { label: '站点需要登录', channels: ['system'] },
+  // 子代理后台 run 生命周期（B 方案三路同步之系统通知）：
+  // 终态 completed/failed（stopped 按 failed 文案区分）与悬挂告警（90 秒无推进）
+  'subagent.completed': { label: '子代理任务完成', channels: ['system'] },
+  'subagent.failed': { label: '子代理任务失败', channels: ['system'] },
+  'subagent.stale': { label: '子代理任务挂起提醒', channels: ['system'] },
   'test': { label: '测试通知', channels: ['system', 'webhook'] }
 }
 

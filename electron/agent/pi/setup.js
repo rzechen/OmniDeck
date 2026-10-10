@@ -61,16 +61,19 @@ function deployChildMcpExtension(agentDir) {
   }
 }
 
-// ===== subagent 前台同步强制（产品策略：只保留同步委派）=====
-// pi-subagents 出厂默认 asyncByDefault=true（省略 async 即后台执行，且模型可
-// 显式传 async:true）——后台 child 在独立 runner 进程运行、无流式回传，主回合
-// 立即结束只剩轮询活性，违背「过程实时可见、回合内完成」的产品形态。双层强制：
-//   1) extensions/subagent/config.json 恒定 asyncByDefault=false（含 workflow
-//      script 内省略 async 的内部 spawn 默认）
-//   2) omnideck-fg-subagent.mjs 经官方 tool_call 钩子原地改写参数（mutate
-//      event.input），剥离显式 async:true —— 官方 disabledFeatures 无 async 组、
-//      纯配置挡不住显式传参，钩子层兜底（API 见 pi-coding-agent types.d.ts
-//      ToolCallEventResult："To modify arguments, mutate event.input in place"）
+// ===== subagent 执行策略（前台同步为主，后台 async 按产品开关放开）=====
+// pi-subagents 出厂默认 asyncByDefault=true（省略 async 即后台执行）——后台
+// child 在独立 runner 进程运行，早期无状态回传 UI，产品曾恒定强制前台：
+//   1) extensions/subagent/config.json 写 asyncByDefault=false
+//   2) omnideck-fg-subagent.mjs 经 tool_call 钩子剥离显式 async:true
+// B 方案放开后台并行（注册表 + 轮询 + 前端卡片 + 通知全链路），策略改为：
+// - async 开启（默认）：config 仍写 asyncByDefault=false（省略 async 保持前台
+//   语义不变），剥离扩展不部署（显式 async:true 放行为后台 run）；
+//   既有剥离扩展清理（避免残留强制旧策略）
+// - async 关闭：完整部署双层强制（历史行为）
+// 会话内需要重载扩展生效——开关切换经设置页触发 disposeAllSessions
+const subagentsIntegration = require('../integrations/subagents')
+
 function subagentConfigFile(agentDir) {
   return path.join(agentDir, 'extensions', 'subagent', 'config.json')
 }
@@ -116,16 +119,28 @@ function fgSubagentExtensionSource() {
 function deployFgSubagentExtension(agentDir) {
   const dir = path.join(agentDir, 'extensions')
   const file = path.join(dir, 'omnideck-fg-subagent.mjs')
-  const src = fgSubagentExtensionSource()
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    if (!fs.existsSync(dir)) return
     try {
-      if (fs.readFileSync(file, 'utf-8') === src) return
+      if (fs.readFileSync(file, 'utf-8') === fgSubagentExtensionSource()) return
     } catch (e) { /* 首次部署无文件 */ }
-    fs.writeFileSync(file, src)
+    fs.writeFileSync(file, fgSubagentExtensionSource())
     console.log('[omnibuddy:pi] 已部署 subagent 前台强制扩展：', file)
   } catch (e) {
     console.warn('[omnibuddy:pi] subagent 前台强制扩展部署失败：', e.message)
+  }
+}
+
+// async 放开时清理历史剥离扩展（部署过旧策略的机器升级后残留即失效策略）
+function removeFgSubagentExtension(agentDir) {
+  const file = path.join(agentDir, 'extensions', 'omnideck-fg-subagent.mjs')
+  try {
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file)
+      console.log('[omnibuddy:pi] 已清理 subagent 前台强制扩展（后台并行已放开）')
+    }
+  } catch (e) {
+    console.warn('[omnibuddy:pi] subagent 前台强制扩展清理失败：', e.message)
   }
 }
 
@@ -133,7 +148,12 @@ function deploySubagentForegroundPolicy(agentDir) {
   if (ensureSubagentForegroundConfig(agentDir)) {
     console.log('[omnibuddy:pi] 已写入 pi-subagents 前台默认（asyncByDefault=false）')
   }
-  deployFgSubagentExtension(agentDir)
+  if (subagentsIntegration.asyncEnabled()) {
+    // 后台并行放开：显式 async:true 合法（省略仍前台），剥离扩展不部署并清理存量
+    removeFgSubagentExtension(agentDir)
+  } else {
+    deployFgSubagentExtension(agentDir)
+  }
 }
 
 // ===== 子代理工具通用化（环境注入收敛到宿主，agent 定义零绝对路径）=====

@@ -34,7 +34,7 @@
           @mouseenter="onChatEnter"
           @mouseleave="onChatLeave"
         >
-          <!-- 实时状态标记（store 会话池）：流式输出中 = 主色转圈；待权限确认 = 黄点 -->
+          <!-- 实时状态标记（store 会话池）：流式输出中 = 主色转圈；待权限确认 = 黄点；后台子代理运行 = 蓝点 -->
           <svg-icon
             v-if="stateOf(c) === 'streaming'"
             icon-class="loading"
@@ -45,6 +45,11 @@
             v-else-if="stateOf(c) === 'pending'"
             class="buddy-state-pending"
             title="等待权限确认"
+          ></span>
+          <span
+            v-else-if="stateOf(c) === 'running'"
+            class="buddy-state-bgrun"
+            title="子代理后台运行中"
           ></span>
           <!-- 分叉创建的会话用 fork 图标（与气泡分叉按钮同图标，不做常亮高亮） -->
           <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
@@ -150,12 +155,14 @@ function toggleGroup(key) {
   setItem(COLLAPSED_KEY, collapsedGroups)
 }
 
-// 会话实时状态（store 会话池快照）：streaming = 流式输出中 / pending = 待权限确认
+// 会话实时状态（store 会话池快照）：streaming = 流式输出中 / pending = 待权限确认 /
+// running = 挂有活跃子代理后台 run（回合结束后 run 仍在后台执行，任务列表即状态源）
 function stateOf(c) {
   const s = store.getters['buddyChat/session'](c.id)
   if (!s) return ''
   if (s.streaming) return 'streaming'
   if (s.permQueue && s.permQueue.length) return 'pending'
+  if (s.bgRuns && s.bgRuns.length) return 'running'
   return ''
 }
 // ===== 对话名称 hover 滚动（超长标题从右向左滚动展示） =====
@@ -429,4 +436,21 @@ function onChatLeave(e) {
   box-shadow: 0 0 0 3px rgba(230, 162, 60, 0.2);
   flex-shrink: 0;
 }
+
+/* 后台子代理运行中：蓝点 + 呼吸动效（区别于待确认黄点的静态提示） */
+.buddy-state-bgrun {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary-color, #409eff);
+  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.2);
+  flex-shrink: 0;
+  animation: ob-bgrun-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ob-bgrun-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 </style>

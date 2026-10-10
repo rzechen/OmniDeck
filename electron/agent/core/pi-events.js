@@ -6,6 +6,7 @@ const usage = require('../platform/usage')
 const checkpoints = require('../sessions/checkpoints')
 const fileChanges = require('../sessions/file-changes')
 const workflows = require('../integrations/workflows')
+const subagents = require('../integrations/subagents')
 const notify = require('../integrations/notify')
 const siteAuth = require('../integrations/site-auth')
 const loginWizard = require('../integrations/login-wizard')
@@ -89,8 +90,9 @@ async function deleteSessionFast(id) {
     try { r.abort() } catch (err) { /* 忽略 */ }
     running.delete(id)
   }
-  // 深度研究：清理该会话的 workflow 轮询
+  // 深度研究：清理该会话的 workflow 轮询；子代理后台 run 同步清理注册表与轮询
   workflows.unwatchChat(id)
+  subagents.clearChat(id)
   // 先快照消息：下方删除后 JSONL 即清除，后台摘要需自持数据
   const msgs = sessions.getMessages(id)
   // 连带清理 pi 落盘转录（原生 resume 语义下文件存在即视为上下文有效）
@@ -269,10 +271,11 @@ function handlePiEvent(getWindow, e) {
         isError: e.isError,
         fileChange: fileChange || undefined,
         artifacts: e.artifacts || undefined,
-        workflow: e.workflow || undefined
+        workflow: e.workflow || undefined,
+        subagentRun: e.subagentRun || undefined
       })
       // 深度研究：后台 workflow 启动即返回 runId → 轮询落盘状态驱动前端进度卡片
-      if (e.workflow && e.workflow.runId && e.workflow.background) {
+      if (e.workflow && e.workflow.runId && e.workflow.background && e.workflow.kind !== 'subagent') {
         try {
           const wfMeta = sessions.readMeta(chatId)
           const wfCwd = wfMeta && wfMeta.workspaceDir
@@ -282,6 +285,56 @@ function handlePiEvent(getWindow, e) {
             })
           }
         } catch (err) { /* 轮询启动失败不影响工具事件 */ }
+      }
+      // 子代理后台 run：注册表登记 + status.json 轮询 → 前端进度卡片
+      // （workflow_progress 复用深度研究管线，快照带 kind:'subagent'）。
+      // 终态三路同步：卡片终态帧 + 任务列表（经进度事件）+ 系统通知；
+      // 悬挂（长时间无推进，典型为等待权限确认）主动告警而非静默挂死
+      if (e.subagentRun && e.subagentRun.runId) {
+        try {
+          const srMeta = sessions.readMeta(chatId)
+          const srInfo = {
+            chatId,
+            toolCallId: e.toolCallId,
+            agent: e.subagentRun.agent,
+            task: e.subagentRun.task,
+            cwd: (srMeta && srMeta.workspaceDir) || ''
+          }
+          subagents.registerRun(e.subagentRun.runId, srInfo)
+          const focusChat = () => {
+            const win = getWindow()
+            if (win && !win.isDestroyed()) {
+              win.show()
+              win.focus()
+              win.webContents.send('nav:goto', '/omnibuddy?s=' + chatId)
+            }
+          }
+          subagents.watchRun(e.subagentRun.runId, chatId,
+            snap => emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap }),
+            snap => {
+              emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap })
+              const okDone = snap.status === 'completed'
+              const label = snap.name || srInfo.agent || '子代理'
+              notify.dispatch(okDone ? 'subagent.completed' : 'subagent.failed', {
+                title: okDone ? '子代理任务完成' : '子代理任务未完成',
+                body: '「' + label + '」' + (okDone
+                  ? '已在后台完成，点击查看结果'
+                  : (snap.status === 'stopped' ? '已被停止' : ('已失败' + (snap.error ? '：' + String(snap.error).slice(0, 80) : ''))) + '，点击查看详情'),
+                ok: okDone,
+                click: focusChat
+              })
+            },
+            snap => {
+              emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap })
+              notify.dispatch('subagent.stale', {
+                title: '子代理任务疑似挂起',
+                body: '「' + (snap.name || srInfo.agent || '子代理') + '」超过 90 秒无进展（可能在等待授权），点击前往处理',
+                ok: false,
+                dedupeKey: 'subagent-stale:' + e.subagentRun.runId,
+                click: focusChat
+              })
+            })
+        } catch (err) { /* 注册/轮询启动失败不影响工具事件 */ }
       }
       break
     }
