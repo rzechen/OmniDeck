@@ -269,6 +269,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     navigate: (cmd, url) => ipcRenderer.invoke('browser:navigate', { cmd, url }),
     // webview dom-ready 时通知主进程登记 webContents（翻译注入目标）
     attachWebview: () => ipcRenderer.invoke('browser:attach-webview'),
+    // 多 Tab：切换激活 tab（wcId = webview.getWebContentsId()，导航/翻译注入定向）
+    setActivePage: wcId => ipcRenderer.invoke('browser:set-active-page', wcId),
     // 页面加载完成（did-finish-load）：主进程幂等注入翻译 controller
     pageLoaded: () => ipcRenderer.invoke('browser:page-loaded'),
     // 缩放：恢复 100%（target: 'ui' 主窗界面 | 'web' 内嵌网页）
@@ -283,6 +285,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setTranslate: enabled => ipcRenderer.invoke('browser:translate', enabled),
     // 引擎/目标语言切换：{ engine: 'google'|'llm', target: 'zh-CN'|'en'|..., provider: { baseUrl, apiKey, model } }
     setEngine: opts => ipcRenderer.invoke('browser:set-engine', opts),
+    // 手动翻译（翻译面板输入区）：返回 { translations: [译文], source, target, engine } 或 { error }
+    translateText: text => ipcRenderer.invoke('browser:translate-text', text),
+    // 插入译文到网页当前聚焦输入框（经页面注入脚本执行，结果 toast 回报）
+    insertText: text => ipcRenderer.invoke('browser:insert-text', text),
     // 翻译配置回推（engine/target/enabled/detected* 等；导航状态由页面直读 webview）
     onState: cb => {
       const handler = (_e, v) => cb(v)

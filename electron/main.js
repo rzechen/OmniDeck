@@ -1,8 +1,9 @@
 // OmniDeck 主进程入口：应用生命周期管理、主窗口创建与各子模块装配
 // 承载应用锁定 / 窗口控制 / HTTP 代理 / 站点元信息抓取等主进程侧 IPC
-const { app, BrowserWindow, shell, net, ipcMain, systemPreferences, safeStorage, powerMonitor } = require('electron')
+const { app, BrowserWindow, shell, net, ipcMain, systemPreferences, safeStorage, powerMonitor, session } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const os = require('os')
 const { registerOmnibuddyIpc } = require('./agent')
 const { startAgentBridge } = require('./agent-bridge')
 const quickPanel = require('./windows/quick-panel')
@@ -16,12 +17,10 @@ const wallpaperFetch = require('./services/wallpaper-fetch')
 
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true'
 
-// dev 与打包版共用同一 userData：未打包时 Electron 默认落 .../Electron，
-// 与正式版 .../OmniDeck 形成同机双数据集（dev 读不到正式配置、 IndexedDB 空库）。
-// 必须在 ready 前调用；productName 为 OmniDeck，appData/OmniDeck 即打包版默认路径
-if (!app.isPackaged) {
-  app.setPath('userData', path.join(app.getPath('appData'), 'OmniDeck'))
-}
+// 数据目录统一落当前用户目录下 ~/.OmniDeck（macOS / Windows / Linux 同一路径规则）：
+// dev 与打包版共用，避免 Electron 默认按 appData 平台分叉形成多套数据集。
+// 必须在 ready 前调用
+app.setPath('userData', path.join(os.homedir(), '.OmniDeck'))
 
 let mainWindow = null
 // 托盘常驻标记：close 拦截据此放行（真正退出走托盘菜单 / Cmd+Q）
@@ -158,7 +157,16 @@ function createWindow() {
     // webview 保持安全默认（无 node 集成，隔离上下文）
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
+    console.log('[od:browser] webview attach（will-attach-webview 触发）')
   })
+  // 双保险：session 级预载（persist:web 分区），覆盖 will-attach-webview 的
+  // params.preload 不生效的环境；注意 setPreloads 要求纯绝对路径而非 file:// URL
+  try {
+    session.fromPartition('persist:web').setPreloads([path.join(__dirname, 'browser/view-preload.js')])
+    console.log('[od:browser] webview session preload 已设置')
+  } catch (err) {
+    console.warn('[od:browser] session.setPreloads 失败：', err && err.message)
+  }
 
   // 最大化状态变化 → 通知渲染进程切换按钮图标
   const sendMax = v => {

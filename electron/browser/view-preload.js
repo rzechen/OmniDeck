@@ -3,6 +3,9 @@
 // 仅暴露 invoke/send/on 三类受限能力，不含任何 Node 泄漏
 const { contextBridge, ipcRenderer } = require('electron')
 
+// 执行日志（打到页面 Console）：翻译链路排查时可直接确认本 preload 是否加载
+console.log('[od:view-preload] 执行（odBridge 即将注入）')
+
 const ALLOWED_PREFIXES = ['od-tr:', 'od-wx:']
 
 function allowed(channel) {

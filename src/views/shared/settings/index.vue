@@ -319,6 +319,127 @@
           </div>
         </template>
 
+        <!-- 浏览器：Deck 内嵌浏览器偏好（默认主页 / 访问历史条数） -->
+        <template v-else-if="activeTab === 'browser'">
+          <header class="settings-section-header">
+            <h2 class="section-title">浏览器</h2>
+            <p class="section-desc">Deck 视图内嵌浏览器的偏好设置，保存后即时生效</p>
+          </header>
+
+          <div class="settings-group">
+            <!-- 默认主页：无最近访问记录时打开的地址 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">默认主页</span>
+                <span class="label-desc">打开浏览器且无最近访问记录时加载的地址，回车或失焦自动保存</span>
+              </div>
+              <el-input
+                v-model="browserHomepage"
+                size="small"
+                class="browser-home-input"
+                placeholder="https://www.baidu.com"
+                spellcheck="false"
+                @change="saveBrowserHomepage"
+              />
+            </div>
+
+            <!-- 访问历史条数：地址栏聚焦下拉的记录上限 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">访问历史</span>
+                <span class="label-desc">地址栏聚焦时展示的最近访问记录上限，按 URL 去重、超出自动清理</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in browserHistoryLimitOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: browserHistoryLimit === opt.value }"
+                  @click="selectBrowserHistoryLimit(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 加载超时：页面加载超过该时长仍未完成时停止并显示超时占位 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">加载超时</span>
+                <span class="label-desc">页面加载超过该时长仍未完成时，停止加载并显示超时占位页</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in browserTimeoutOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: browserTimeout === opt.value }"
+                  @click="selectBrowserTimeout(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 是否记录访问历史：总开关 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">记录访问历史</span>
+                <span class="label-desc">关闭后浏览器不再记录访问历史与最后访问页面，已有记录保留</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in motionOptions"
+                  :key="'bh' + String(opt.value)"
+                  class="segmented-item"
+                  :class="{ active: browserHistoryEnabled === opt.value }"
+                  @click="selectBrowserHistoryEnabled(opt.value)"
+                >
+                  <span>{{ opt.value ? '开启' : '关闭' }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 侧边栏宫格列数：浏览器侧栏功能入口每行列数 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">侧边栏宫格</span>
+                <span class="label-desc">浏览器侧边栏功能入口宫格每行显示的列数，保存后即时生效</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in browserColsOptions"
+                  :key="'bc' + opt.value"
+                  class="segmented-item"
+                  :class="{ active: browserCols === opt.value }"
+                  @click="selectBrowserCols(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 书签栏显示开关：地址栏下方 Chrome 风格书签条 -->
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">书签栏</span>
+                <span class="label-desc">在浏览器地址栏下方显示书签栏（文件夹下拉 + 顶层书签直达），保存后即时生效</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in motionOptions"
+                  :key="'bbar' + String(opt.value)"
+                  class="segmented-item"
+                  :class="{ active: browserBookmarkBar === opt.value }"
+                  @click="selectBrowserBookmarkBar(opt.value)"
+                >
+                  <span>{{ opt.value ? '显示' : '隐藏' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
         <!-- 快捷键：全部快捷键可改键 + 恢复默认（全局 / Deck / Buddy 分组） -->
         <template v-else-if="activeTab === 'quick'">
           <header class="settings-section-header">
@@ -628,26 +749,26 @@
             </div>
           </div>
 
-          <!-- Webhook 渠道配置 -->
+          <!-- Webhook 渠道配置（标题行 + 内嵌表单：地址 / Secret / 操作） -->
           <div class="settings-group">
             <div class="settings-row">
               <div class="row-label">
-                <span class="label-text">Webhook 地址</span>
-                <span class="label-desc">勾选 Webhook 的类型会 POST JSON（type / title / body / ok / ts）到此地址</span>
-              </div>
-              <div class="notify-webhook-input">
-                <el-input v-model="notifyCfg.url" size="small" placeholder="https://..." />
-                <el-button size="small" round type="primary" :loading="notifySaving" @click="saveWebhookCfg">保存</el-button>
-                <el-button size="small" round :loading="notifyTesting === 'webhook'" @click="testNotify('webhook')">测试</el-button>
+                <span class="label-text">Webhook</span>
+                <span class="label-desc">勾选 Webhook 的类型会 POST JSON（type / title / body / ok / ts）到此地址；Secret 随请求以 X-Notify-Secret 头携带，供接收端校验来源</span>
               </div>
             </div>
-            <div class="settings-row">
-              <div class="row-label">
-                <span class="label-text">Secret</span>
-                <span class="label-desc">{{ notifyCfg.hasSecret ? '已设置，随请求以 X-Notify-Secret 头携带' : '可选：随请求以 X-Notify-Secret 头携带，供接收端校验来源' }}</span>
+            <div class="webhook-form">
+              <div class="webhook-field">
+                <span class="webhook-field-label">地址</span>
+                <el-input v-model="notifyCfg.url" size="small" placeholder="https://..." />
               </div>
-              <div class="notify-webhook-input">
+              <div class="webhook-field">
+                <span class="webhook-field-label">Secret<span v-if="notifyCfg.hasSecret" class="webhook-secret-dot" title="已设置" /></span>
                 <el-input v-model="notifyCfg.secret" size="small" show-password :placeholder="notifyCfg.hasSecret ? '留空保持不变' : '可选'" />
+              </div>
+              <div class="webhook-actions">
+                <el-button size="small" round type="primary" :loading="notifySaving" @click="saveWebhookCfg">保存</el-button>
+                <el-button size="small" round :loading="notifyTesting === 'webhook'" @click="testNotify('webhook')">测试</el-button>
               </div>
             </div>
             <div class="settings-row">
@@ -910,6 +1031,7 @@ const activeTab = ref('general')
 // 左侧二级菜单：label 统一为 3 字，避免长短参差
 const tabs = [
   { key: 'general', label: '通用项', icon: 'setting' },
+  { key: 'browser', label: '浏览器', icon: 'browser' },
   { key: 'quick', label: '快捷键', icon: 'magic-stick' },
   { key: 'tray', label: '托盘项', icon: 'menu' },
   { key: 'security', label: '安全项', icon: 'lock' },
@@ -1231,6 +1353,103 @@ async function selectClipKeep(v) {
   } else {
     message.error((res && res.error) || '设置失败')
   }
+}
+// ===== 浏览器设置（Deck 内嵌浏览器；键与 views/deck/browser 共用） =====
+const DEFAULT_BROWSER_HOMEPAGE = 'https://www.baidu.com'
+// 默认主页（change 时归一化保存；无协议自动补 https，localhost/IP 补 http）
+const browserHomepage = ref(DEFAULT_BROWSER_HOMEPAGE)
+// 访问历史条数选项（地址栏聚焦下拉的上限）
+const browserHistoryLimitOptions = [
+  { label: '10 条', value: 10 },
+  { label: '20 条', value: 20 },
+  { label: '50 条', value: 50 },
+  { label: '100 条', value: 100 }
+]
+const browserHistoryLimit = ref(20)
+// 是否记录访问历史（总开关，默认开启）
+const browserHistoryEnabled = ref(true)
+// 加载超时选项（秒）
+const browserTimeoutOptions = [
+  { label: '15 秒', value: 15 },
+  { label: '30 秒', value: 30 },
+  { label: '60 秒', value: 60 },
+  { label: '120 秒', value: 120 }
+]
+const browserTimeout = ref(30)
+// 侧边栏宫格列数选项（浏览器页功能入口每行列数）
+const browserColsOptions = [
+  { label: '2 列', value: 2 },
+  { label: '3 列', value: 3 },
+  { label: '4 列', value: 4 }
+]
+const browserCols = ref(2)
+// 书签栏显示开关（地址栏下方书签条，默认显示）
+const browserBookmarkBar = ref(true)
+// 加载浏览器设置（IndexedDB）
+function loadBrowserSettings() {
+  const hp = String(getItem('browser:homepage', '') || '').trim()
+  browserHomepage.value = hp || DEFAULT_BROWSER_HOMEPAGE
+  const n = Number(getItem('browser:historyLimit', 20))
+  browserHistoryLimit.value = Number.isFinite(n) && n > 0 ? Math.floor(n) : 20
+  browserHistoryEnabled.value = getItem('browser:historyEnabled', true) !== false
+  const t = Number(getItem('browser:loadTimeout', 30))
+  browserTimeout.value = browserTimeoutOptions.some(o => o.value === t) ? t : 30
+  const c = Number(getItem('browser:workbenchCols', 2))
+  browserCols.value = browserColsOptions.some(o => o.value === c) ? c : 2
+  browserBookmarkBar.value = getItem('browser:bookmarkBar', true) !== false
+}
+// 地址归一化（与浏览器页一致）：空值回退默认主页
+function normalizeBrowserUrl(v) {
+  const s = String(v || '').trim()
+  if (!s) return DEFAULT_BROWSER_HOMEPAGE
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return s
+  if (/^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#]|$)/i.test(s)) return 'http://' + s
+  return 'https://' + s
+}
+// 保存默认主页（change 触发：回车/失焦且值有变化时）
+function saveBrowserHomepage() {
+  const v = normalizeBrowserUrl(browserHomepage.value)
+  browserHomepage.value = v
+  if (v === getItem('browser:homepage', '')) return
+  setItem('browser:homepage', v)
+  message.success('默认主页已保存')
+}
+// 切换访问历史条数：持久化并立即按新上限截断已有历史
+function selectBrowserHistoryLimit(v) {
+  if (v === browserHistoryLimit.value) return
+  browserHistoryLimit.value = v
+  setItem('browser:historyLimit', v)
+  const list = (getItem('browser:historyList', []) || []).slice(0, v)
+  setItem('browser:historyList', list)
+  message.success(`访问历史上限已调整为 ${v} 条`)
+}
+// 切换「记录访问历史」总开关（浏览器页记录时实时读取，即时生效）
+function selectBrowserHistoryEnabled(v) {
+  if (v === browserHistoryEnabled.value) return
+  browserHistoryEnabled.value = v
+  setItem('browser:historyEnabled', v)
+  message.success(v ? '已开启访问历史记录' : '已关闭访问历史记录')
+}
+// 切换加载超时（浏览器页挂计时器时实时读取，下次加载即生效）
+function selectBrowserTimeout(v) {
+  if (v === browserTimeout.value) return
+  browserTimeout.value = v
+  setItem('browser:loadTimeout', v)
+  message.success(`加载超时已调整为 ${v} 秒`)
+}
+// 切换书签栏显示（浏览器页实时读取，即时生效）
+function selectBrowserBookmarkBar(v) {
+  if (v === browserBookmarkBar.value) return
+  browserBookmarkBar.value = v
+  setItem('browser:bookmarkBar', v)
+  message.success(v ? '书签栏已显示' : '书签栏已隐藏')
+}
+// 切换侧边栏宫格列数（浏览器页 keep-alive 切回时重读，即时生效）
+function selectBrowserCols(v) {
+  if (v === browserCols.value) return
+  browserCols.value = v
+  setItem('browser:workbenchCols', v)
+  message.success(`侧边栏宫格已调整为每行 ${v} 个`)
 }
 // 按工具清空历史（下拉选择）
 async function clearToolHistory(path) {
@@ -2348,6 +2567,7 @@ onMounted(() => {
   loadTrayMenu()
   loadHistoryState()
   loadClipKeep()
+  loadBrowserSettings()
   loadBuddySessions()
   loadNotify()
 })
@@ -2451,15 +2671,45 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
-.notify-webhook-input {
+/* Webhook 表单：标题行下方通栏内嵌块（地址 / Secret / 操作） */
+.webhook-form {
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: $surface-muted;
+  border-top: 1px solid $divider;
+}
+
+.webhook-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.webhook-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  width: 52px;
+  font-size: 12px;
+  color: $text-secondary;
+}
+
+.webhook-secret-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: $success-color;
+  flex-shrink: 0;
+}
+
+.webhook-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
-
-  .el-input {
-    width: 240px;
-  }
+  padding-left: 62px; // 与输入框左缘对齐
 }
 
 /* ============ Mac 式设置分组（圆角卡片 + 行布局） ============ */
@@ -2469,7 +2719,8 @@ onBeforeUnmount(() => {
   overflow: hidden;
 
   // 行间细分隔线（Mac 系统设置风格，弱化 divider 与全局 token 对齐）
-  .settings-row + .settings-row {
+  .settings-row + .settings-row,
+  .webhook-form + .settings-row {
     border-top: 1px solid $divider;
   }
 }
@@ -3413,5 +3664,10 @@ html.reduce-motion .kbd-ghost {
   &.is-end {
     opacity: 0.6;
   }
+}
+
+/* 浏览器：默认主页输入框 */
+.browser-home-input {
+  width: 300px;
 }
 </style>

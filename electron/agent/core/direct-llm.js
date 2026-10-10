@@ -10,10 +10,30 @@ const { emit } = require('./chat-state')
 // ===== 请求构造（按 apiFormat 适配 openai / openai-responses / anthropic） =====
 // 按 provider 的 apiFormat 组装端点 / 请求头 / 请求体与响应解析；
 // 仅支持 openai / openai-responses（Responses 的 output_text 提取），
-// anthropic 走 x-api-key 头 + /v1/messages。失败由调用方静默降级
+// anthropic 走 x-api-key 头 + /v1/messages。失败由调用方静默降级。
+// prompt 兼容两种形态：字符串（单 user 消息）与消息数组（system/user/assistant
+// 多轮，公共形态——翻译引擎等复用本构造器）；anthropic 的 system 消息提为顶层字段
 function buildDirectRequest(info, prompt, maxTokens) {
   const baseUrl = String(info.baseUrl).replace(/\/+$/, '')
+  const msgs = Array.isArray(prompt)
+    ? prompt
+    : [{ role: 'user', content: prompt }]
+  const systemText = msgs
+    .filter(m => m && m.role === 'system')
+    .map(m => String(m.content || ''))
+    .join('\n')
+  const chatMsgs = msgs.filter(m => m && m.role !== 'system')
   if (info.apiFormat === 'anthropic') {
+    const body = {
+      model: info.model,
+      messages: chatMsgs.map(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: String(m.content || '')
+      })),
+      max_tokens: maxTokens,
+      stream: false
+    }
+    if (systemText) body.system = systemText
     return {
       url: baseUrl + (baseUrl.endsWith('/v1') ? '/messages' : '/v1/messages'),
       init: {
@@ -24,15 +44,14 @@ function buildDirectRequest(info, prompt, maxTokens) {
             ? { 'x-api-key': info.apiKey, 'anthropic-version': '2023-06-01' }
             : { 'anthropic-version': '2023-06-01' }
         ),
-        body: JSON.stringify({
-          model: info.model,
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: maxTokens,
-          stream: false
-        })
+        body: JSON.stringify(body)
       },
       parse: data => String(
-        (data.content && data.content[0] && data.content[0].type === 'text' && data.content[0].text) || ''
+        (Array.isArray(data.content) &&
+          data.content.filter(b => b && b.type === 'text' && typeof b.text === 'string')
+            .map(b => b.text).join('')) ||
+        (data.content && data.content[0] && data.content[0].type === 'text' && data.content[0].text) ||
+        ''
       ),
       finishKey: data => (data.stop_reason || '')
     }
@@ -48,7 +67,11 @@ function buildDirectRequest(info, prompt, maxTokens) {
         ),
         body: JSON.stringify({
           model: info.model,
-          input: prompt,
+          // 消息数组直接作为 input（Responses API 原生支持）；system 语义同样生效
+          input: chatMsgs.map(m => ({
+            role: m.role === 'assistant' ? 'assistant' : (m.role === 'system' ? 'system' : 'user'),
+            content: String(m.content || '')
+          })).concat(systemText ? [{ role: 'system', content: systemText }] : []),
           max_output_tokens: maxTokens,
           stream: false
         })
@@ -72,7 +95,10 @@ function buildDirectRequest(info, prompt, maxTokens) {
       ),
       body: JSON.stringify({
         model: info.model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: msgs.map(m => ({
+          role: m.role || 'user',
+          content: String(m.content || '')
+        })),
         // 思考型模型的 reasoning 过程也计入 max_tokens，过小会导致正文为空
         max_tokens: maxTokens,
         temperature: 0.3,

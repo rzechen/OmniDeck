@@ -6,16 +6,24 @@
 const { app, ipcMain } = require('electron')
 
 let getWin = () => null
-// 当前绑定的 webview webContents（页面 attachWebview 时登记，销毁即解绑）
-let pageWc = null
+// 多 Tab：全部 webview webContents 注册表（wcId → wc）+ 激活标记
+// （web-contents-created 时登记；渲染层切 tab 经 set-active-page 更新激活）
+const pages = new Map()
+let activePageId = 0
+let lastCreated = null
 
 function win() {
   const w = getWin()
   return w && !w.isDestroyed() ? w : null
 }
 
+function alive(wc) {
+  return wc && !wc.isDestroyed() ? wc : null
+}
+
+// 激活目标的 webview（无激活标记时回退最近创建，兼容旧单页链路）
 function activeWc() {
-  return pageWc && !pageWc.isDestroyed() ? pageWc : null
+  return alive(pages.get(activePageId)) || alive(lastCreated)
 }
 
 // ===== webview webContents 统一策略 =====
@@ -27,6 +35,13 @@ function onWebContentsCreated(_e, wc) {
 
   // 创建即登记为翻译注入目标（web-contents-created 比页面 attachWebview 更早且可靠）
   noteWebview(wc)
+
+  // preload 加载错误监听：view-preload（odBridge 桥）加载失败会直接导致翻译不可用，
+  // 此前静默无感知（页面 bridge:false 但无处可查）
+  wc.on('preload-error', (_e, preloadPath, error) => {
+    console.warn('[od:browser] preload 加载错误（' + preloadPath + '）：',
+      error && (error.message || error))
+  })
 
   // 清洗 UA：去掉 Electron/应用名 token（如 "omnideck/1.0.0 Electron/31.0.0"），避免站点
   // （如 WhatsApp）把应用名误解析为浏览器版本提示"Chrome 不受支持"。
@@ -52,7 +67,9 @@ function onWebContentsCreated(_e, wc) {
     if (!/^https?:/i.test(url)) e.preventDefault()
   })
   wc.on('destroyed', () => {
-    if (pageWc === wc) pageWc = null
+    pages.delete(wc.id)
+    if (activePageId === wc.id) activePageId = 0
+    if (lastCreated === wc) lastCreated = null
   })
 }
 
@@ -69,21 +86,41 @@ function registerFeature(feature) {
       getWindow: win,
       // webview 架构：ensureView 即登记当前 webview webContents（渲染层 attachWebview 传入）
       ensureView: () => activeWc(),
-      isPageSender: (e) => {
+      // 当前页面 URL（特性判断注入环境用；已销毁返回空串）
+      getUrl: () => {
         const wc = activeWc()
-        return !!(wc && e && e.sender === wc)
+        if (!wc) return ''
+        try { return wc.getURL() || '' } catch (err) { return '' }
+      },
+      isPageSender: (e) => {
+        // 多 Tab：任一已登记 webview 的请求均有效（划词翻译可能来自任何已加载 tab）
+        return !!(e && e.sender && pages.has(e.sender.id))
       },
       sendToPage: (channel, msg) => {
         const wc = activeWc()
         if (wc) wc.send(channel, msg)
       },
+      // 在页面执行脚本：成功返回脚本结果值（含 undefined），最终失败返回 null
       executeInPage: async (script) => {
-        const wc = activeWc()
-        if (!wc) return
+        const run = (wc) => wc.executeJavaScript(script, true)
+        let wc = activeWc()
+        if (!wc) return null
+        let url = ''
+        try { url = wc.getURL() || '' } catch (err) { /* 已销毁 */ }
         try {
-          await wc.executeJavaScript(script, true)
+          return await run(wc)
         } catch (err) {
-          console.warn('[od:browser] 注入脚本失败：', err.message)
+          // 导航进行中等瞬态竞态：延迟重试一次（脚本幂等，__odTr 防重复初始化）
+          try {
+            await new Promise(r => setTimeout(r, 500))
+            const w2 = activeWc()
+            if (!w2) return null
+            return await run(w2)
+          } catch (err2) {
+            // 附带目标 URL 便于定位（chrome-error/about:blank 等特殊页面环境受限）
+            console.warn('[od:browser] 注入脚本失败（' + url + '）：', err2.message)
+            return null
+          }
         }
       },
       pushState
@@ -132,6 +169,15 @@ function registerIpc() {
     return Promise.resolve(run).then(() => ({ ok: true })).catch(() => ({ ok: false }))
   })
 
+  // 渲染层切换激活 tab：定向导航/翻译注入/缩放等「当前页面」操作的目标
+  ipcMain.handle('browser:set-active-page', (e, wcId) => {
+    const w = win()
+    if (!w || e.sender !== w.webContents) return { ok: false }
+    const id = Number(wcId)
+    if (pages.has(id)) activePageId = id
+    return { ok: true }
+  })
+
   // 页面登记 webview（dom-ready 时）：主进程拿到 webContents 引用做翻译注入
   ipcMain.handle('browser:attach-webview', (e) => {
     // 仅接受主窗渲染层发起；webview 的 webContents 经 web-views 关联校验
@@ -162,9 +208,10 @@ function registerIpc() {
 }
 
 // 渲染层直接传 webContents 引用不可行（contextIsolation），改由主进程在
-// web-contents-created 时自动记录"最近创建的 webview"
+// web-contents-created 时自动登记 webview（多 Tab 全量注册表）
 function noteWebview(wc) {
-  pageWc = wc
+  pages.set(wc.id, wc)
+  lastCreated = wc
 }
 
 // ===== 初始化与销毁 =====
@@ -176,7 +223,9 @@ function init(opts) {
 }
 
 function destroy() {
-  pageWc = null
+  pages.clear()
+  activePageId = 0
+  lastCreated = null
 }
 
 module.exports = {

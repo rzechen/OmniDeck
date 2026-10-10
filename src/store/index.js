@@ -29,6 +29,10 @@ export default createStore({
     TOGGLE_SIDEBAR(state) {
       state.sidebarCollapsed = !state.sidebarCollapsed
     },
+    // 精确设置折叠态（不影响启动默认偏好）：如浏览器展开侧栏时联动收起
+    SET_SIDEBAR_COLLAPSED(state, val) {
+      state.sidebarCollapsed = !!val
+    },
     SET_SIDEBAR_DEFAULT(state, val) {
       state.sidebarDefault = val
       state.sidebarCollapsed = val === 'collapse'

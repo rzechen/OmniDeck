@@ -594,8 +594,10 @@ onBeforeUnmount(() => {
     transform: scale(0.94);
   }
 
+  // 保持实白 chip 衬底（继承 .buddy-entry-icon 的 #fff）：
+  // logo 是蓝色渐变，去掉衬底会与蓝色渐变方块融为一体而被"遮挡"
   .buddy-entry-icon {
-    background: transparent;
+    background: #fff;
   }
 }
 
