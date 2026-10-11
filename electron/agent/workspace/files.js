@@ -437,7 +437,7 @@ function listTree(dir) {
 
 // ===== @ 引用条目：仅做存在性校验 =====
 // @ 引用不复制、不抽取——只是把真实路径告诉模型，读不读、读多少
-// 由模型自行用 read/bash 等工具决定（与 WorkBuddy 一致的轻量语义）
+// 由模型自行用 read/bash 等工具决定（轻量语义）
 function statRef(refPath) {
   try {
     const abs = safePath(refPath)

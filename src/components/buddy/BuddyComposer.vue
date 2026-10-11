@@ -114,7 +114,7 @@
 
 <script setup>
 // OmniBuddy 对话输入框：豆包风格（大圆角气泡 + 左工具 + 右下圆形发送）
-// # 引用（Trae 式）：输入 # 上拉两阶段菜单（#Folder / #File → 条目列表），
+// # 引用：输入 # 上拉两阶段菜单（#Folder / #File → 条目列表），
 // 选中后以内联 tag（不可编辑原子节点）插入正文，与文字穿插呈现；
 // 序列化为 #Folder:相对路径 / #File:相对路径 token 随草稿落盘，可完整往返
 import { ref, computed, watch, nextTick, onMounted } from 'vue'

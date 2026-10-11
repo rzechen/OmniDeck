@@ -13,13 +13,43 @@ const { emit, running, sessionAnchorKeys, pendingAsks, pendingPermissions } = re
 const { handlePiEvent, syncPiEntryMapAfterTurn } = require('../core/pi-events')
 const { buildFallbackSystemPrompt, writeExitSummary } = require('../core/direct-llm')
 
+// ===== # 引用 token 处理（send / steer / 回放三处共用） =====
+// 正则与前端 BuddyComposer.vue / MessageBubble.vue 的 TOKEN_RE 契约一致
+const TOKEN_RE = /#(Folder|File):([^\s#]+)/g
+
+// 拼路径块：把 atRefs 清单渲染成注入 prompt 的引导文本（无有效路径返回 ''）
+function buildRefsBlock(atRefs) {
+  if (!Array.isArray(atRefs) || !atRefs.length) return ''
+  const lines = atRefs
+    .filter(r => r && typeof r.path === 'string' && r.path)
+    .map(r => '- ' + r.path + (r.kind === 'dir' ? '（目录）' : ''))
+  if (!lines.length) return ''
+  return '我引用了以下工作空间路径：\n' + lines.join('\n') + '\n（请按需用工具读取上述路径）\n\n'
+}
+
+// 清洗正文中的裸 token：#File:滴滴电子发票.pdf → 滴滴电子发票.pdf
+// （信息由路径块承载，裸 token 是 UI 序列化产物，不该进模型上下文——
+//   无契约解释时模型会把它当"未知物"向用户讲解内部协议）
+function stripRefTokens(text) {
+  return String(text || '').replace(TOKEN_RE, (_m, _kind, name) => name)
+}
+
+// 回放重建：按消息落盘的 atRefs 重建路径块（与首发时注入的上下文对齐，
+// 分支切换/会话重建后裸 token 才有对应路径可读）
+function rebuildRefsForReplay(msg) {
+  const content = String((msg && msg.content) || '')
+  // 兼容旧 steer 消息：其落盘 content 已内嵌路径块，不重复前置，仅清洗 token
+  if (content.indexOf('我引用了以下工作空间路径：') === 0) return stripRefTokens(content)
+  return buildRefsBlock(msg && msg.atRefs) + stripRefTokens(content)
+}
+
 // 注册流式对话相关 IPC（getWindow 由 index.js 注入）
 function registerChatIpc(getWindow) {
   // ===== 流式对话 =====
   // workspaceId 必填：发送前必须选定工作空间（Agent 的文件操作目录）
   // attachments 可选：文件附件 meta（“+”选择/拖拽导入，attachments.js），
   //   图片并入 image 块、文本/PDF 抽取全文拼入 prompt；随消息落盘回放
-  // atRefs 可选：@ 引用工作空间条目的路径清单（轻量：不复制不抽取），
+  // atRefs 可选：# 引用工作空间条目的路径清单（轻量：不复制不抽取），
   //   发送时拼路径块进 prompt（模型按需用工具读取），并随消息落盘回放
   // anchors 可选：会话内分支线路（渲染层当前显示线的锚点数组）；
   //   上下文按该线路过滤（与前端显示一致），线路变化时 pi 会话丢弃重建
@@ -55,16 +85,9 @@ function registerChatIpc(getWindow) {
     }
 
     // 文本/PDF 附件：抽取全文拼入 prompt（<attachment> 引用块）；
-    // @ 引用：拼路径块（不做内容抽取，模型按需用工具读取真实路径）
-    let promptText = String(text || '')
-    if (Array.isArray(atRefs) && atRefs.length) {
-      const lines = atRefs
-        .filter(r => r && typeof r.path === 'string' && r.path)
-        .map(r => '- ' + r.path + (r.kind === 'dir' ? '（目录）' : ''))
-      if (lines.length) {
-        promptText = '我引用了以下工作空间路径：\n' + lines.join('\n') + '\n（请按需用工具读取上述路径）\n\n' + promptText
-      }
-    }
+    // # 引用：拼路径块（不做内容抽取，模型按需用工具读取真实路径），
+    // 并清洗正文中的裸 token（→ 纯文件名）；落盘 content 仍保留 token 供气泡渲染 chip
+    let promptText = buildRefsBlock(atRefs) + stripRefTokens(text)
     const textBlock = await attachments.buildTextBlock(fileAttachments)
     if (textBlock) {
       promptText = promptText + '\n\n' + textBlock
@@ -98,7 +121,7 @@ function registerChatIpc(getWindow) {
     } else {
       const extras = anchorsArr.length ? { anchors: anchorsArr } : {}
       if (imageMeta.length) extras.images = imageMeta
-      // @ 引用路径清单随消息落盘（气泡正文 token 反查绝对路径 + 历史回放）
+      // # 引用路径清单随消息落盘（气泡正文 token 反查绝对路径 + 历史回放）
       if (Array.isArray(atRefs) && atRefs.length) {
         extras.atRefs = atRefs.map(r => ({ name: r.name || '', kind: r.kind === 'dir' ? 'dir' : 'file', path: r.path || '', rel: r.rel || '' }))
       }
@@ -134,10 +157,16 @@ function registerChatIpc(getWindow) {
     const history = await Promise.all(viewList
       .filter(m => (m.role === 'user' || m.role === 'assistant') && m.id !== record.id)
       .map(async m => {
-        const item = { role: m.role, content: m.content, mid: m.id }
+        // 用户消息：按 atRefs 重建路径块 + 清洗裸 token（与首发时上下文一致）；
+        // 助手消息原样回放
+        const item = {
+          role: m.role,
+          content: m.role === 'user' ? rebuildRefsForReplay(m) : m.content,
+          mid: m.id
+        }
         if (piEntryMap[m.id]) item.piEntryId = piEntryMap[m.id]
         const replayText = await attachments.buildTextBlock(m.fileAttachments)
-        if (replayText) item.content = String(m.content || '') + '\n\n' + replayText
+        if (replayText) item.content = String(item.content || '') + '\n\n' + replayText
         const imgs = (m.images || [])
           .map(im => {
             if (im.kind === 'image') {
@@ -245,28 +274,22 @@ function registerChatIpc(getWindow) {
     const r = running.get(id)
     if (!r) return { ok: false, error: '当前会话未在回复中' }
     if (r.mode !== 'pi') return { ok: false, error: '当前会话不支持插话' }
-    let content = String(text || '').trim()
-    if (!content) return { ok: false, error: '插话内容为空' }
-    // @ 引用与 sendMessage 同规则：路径块只拼给模型，不进用户可见正文
-    if (Array.isArray(atRefs) && atRefs.length) {
-      const lines = atRefs
-        .filter(ref => ref && typeof ref.path === 'string' && ref.path)
-        .map(ref => '- ' + ref.path + (ref.kind === 'dir' ? '（目录）' : ''))
-      if (lines.length) {
-        content = '我引用了以下工作空间路径：\n' + lines.join('\n') + '\n（请按需用工具读取上述路径）\n\n' + content
-      }
-    }
+    const body = String(text || '').trim()
+    if (!body) return { ok: false, error: '插话内容为空' }
+    // # 引用与 sendMessage 同规则：路径块 + 清洗后的正文只拼给模型，
+    // 落盘 content 保留原始 token（气泡渲染 chip、回放时按 atRefs 重建）
+    const promptText = buildRefsBlock(atRefs) + stripRefTokens(body)
     const extras = (Array.isArray(r.anchors) && r.anchors.length) ? { anchors: r.anchors.slice() } : {}
     if (Array.isArray(atRefs) && atRefs.length) {
       extras.atRefs = atRefs.map(ref => ({ name: ref.name || '', kind: ref.kind === 'dir' ? 'dir' : 'file', path: ref.path || '', rel: ref.rel || '' }))
     }
     const { record } = sessions.addMessage(id, Object.assign({
       role: 'user',
-      content,
+      content: body,
       steered: true
     }, extras))
     emit(getWindow, id, { type: 'user_message', message: record })
-    const ok = await piRuntime.steerSession(id, content)
+    const ok = await piRuntime.steerSession(id, promptText)
     return ok ? { ok: true } : { ok: false, error: '插话失败（会话可能已结束，请稍后重发）' }
   })
 

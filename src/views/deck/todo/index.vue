@@ -223,8 +223,8 @@
                 size="small"
                 type="datetime"
                 placeholder="选择日期时间"
-                format="yyyy-MM-dd HH:mm:ss"
-                value-format="yyyy-MM-dd HH:mm:ss"
+                format="YYYY-MM-DD HH:mm:ss"
+                value-format="YYYY-MM-DD HH:mm:ss"
                 :clearable="false"
                 style="width: 100%"
               />

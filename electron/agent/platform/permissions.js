@@ -16,7 +16,7 @@ const AUTHORIZER_NAME = 'omnibuddy-ui'
 const EXTENSION_ID = 'pi-permission-system'
 const SCOPE = '@gotgenes/' + EXTENSION_ID
 
-// ===== 权限模式（常驻输入框选择器，仿 Trae/WorkBuddy） =====
+// ===== 权限模式（常驻输入框选择器） =====
 // readonly：deny 全部 ask 操作（只读策略由 config 放行 read 等）
 // auto：allow 全部 ask 操作（config deny 规则仍生效，不经过此层）
 // confirm：ask 经 IPC 前端确认条逐次裁决

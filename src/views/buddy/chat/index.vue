@@ -183,7 +183,7 @@
                 @select="onSelectProvider"
               />
 
-              <!-- 权限模式（常驻选择器，仿 Trae/WorkBuddy：只读 / 自动 / 每次确认，即时生效） -->
+              <!-- 权限模式（常驻选择器：只读 / 自动 / 每次确认，即时生效） -->
               <composer-picker
                 picker-key="permission"
                 :active-key="openSelect"

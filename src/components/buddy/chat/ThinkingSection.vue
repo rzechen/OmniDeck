@@ -123,6 +123,16 @@
             @answer="(msg, value) => emit('ask-answer', msg, value)"
           />
 
+          <!-- workflow / subagent 后台运行进度：紧凑卡片内嵌（与消息级面板同源
+               item.workflow 对象，进度写入双处响应；后台跨回合时消息级卡片
+               承接常驻展示，此处随思考区折叠） -->
+          <workflow-panel
+            v-if="item.workflow"
+            class="ob-think-wf"
+            :workflows="[item.workflow]"
+            compact
+          />
+
           <!-- 详情：参数区 + 结果区（左侧竖线缩进）；文件变更的双列对比移至消息末尾的
                文件变更汇总面板（点击文件列表弹窗查看，不在思考过程中展开） -->
           <div v-if="isToolOpen(item)" class="ob-tool-detail">
@@ -177,6 +187,7 @@ import { buddyApi } from '@/utils/buddy/buddy-api'
 import { bus } from '@/utils/ui/bus'
 import { useFeedback } from '@/composables/useFeedback'
 import AskUserCard from './AskUserCard.vue'
+import WorkflowPanel from './WorkflowPanel.vue'
 
 // 内置工具的中文短名（与 builtin-tools.js / pi.js registerTool 的 label 对齐；
 // MCP 工具走 mcpServerLabel + 原始工具名）
@@ -722,6 +733,17 @@ function fcRemoved(fc) {
 
   :deep(.ob-ask-card){
     margin-left: 0;
+  }
+}
+
+/* 工具条目内嵌的 workflow 紧凑进度卡片：与摘要行对齐拉开间距，
+   并将卡片内边距收紧适配思考区密度 */
+.ob-think-wf {
+  margin-top: 4px;
+
+  :deep(.ob-wf-card) {
+    padding: 6px 10px;
+    gap: 5px;
   }
 }
 

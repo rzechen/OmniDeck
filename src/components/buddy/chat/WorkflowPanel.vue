@@ -3,12 +3,12 @@
        数据源为 tool item 的 workflow 字段（后台 runId + 轮询 progress / 前台 snapshot），
        实时更新由 store 的 workflow_progress 事件直接写入（面板天然响应）；
        历史会话回放时无 progress → 经 IPC 拉取最终状态补全卡片 -->
-  <div v-if="cards.length" class="ob-wfp">
+  <div v-if="cards.length" class="ob-wfp" :class="{ compact }">
     <div v-for="c in cards" :key="c.runId" class="ob-wf-card">
-      <!-- 头行：任务图标 + 名称 + 状态徽章 -->
+      <!-- 头行：任务图标 + 名称 + 状态徽章（紧凑模式隐藏名称，思考区已有工具摘要行） -->
       <div class="ob-wf-head">
         <svg-icon icon-class="sparkle" class="ob-wf-ico" />
-        <span class="ob-wf-name" :title="c.name">{{ c.name }}</span>
+        <span v-if="!compact" class="ob-wf-name" :title="c.name">{{ c.name }}</span>
         <span class="ob-wf-badge" :class="c.badge.cls">
           <svg-icon v-if="c.badge.icon" :icon-class="c.badge.icon" :class="{ spin: c.status === 'running' }" />
           {{ c.badge.text }}
@@ -35,8 +35,8 @@
         </span>
       </div>
 
-      <!-- 计数行（完成 / 运行中 / 排队 / 失败） -->
-      <div v-if="c.total" class="ob-wf-counts">
+      <!-- 计数行（完成 / 运行中 / 排队 / 失败；紧凑模式折叠进进度行下不重复展示全量） -->
+      <div v-if="c.total && !compact" class="ob-wf-counts">
         <span>完成 {{ c.counts.done }}</span>
         <span v-if="c.counts.running">运行中 {{ c.counts.running }}</span>
         <span v-if="c.counts.queued">排队 {{ c.counts.queued }}</span>
@@ -94,6 +94,11 @@ const props = defineProps({
   sessionId: {
     type: String,
     default: ''
+  },
+  // 紧凑模式（思考区工具条目内嵌）：隐藏任务名与计数行，仅保留状态徽章 + 进度 + 阶段
+  compact: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -252,6 +257,11 @@ function fmtDuration(ms) {
   user-select: none;
 }
 
+/* 紧凑模式（思考区工具条目内嵌）：去掉外边距，卡片贴工具详情缩进线 */
+.ob-wfp.compact {
+  margin: 4px 0 0;
+}
+
 /* 任务卡片：圆角面板（macOS 设置风），左侧状态色条呼应进行感 */
 .ob-wf-card {
   display: flex;
@@ -314,13 +324,13 @@ function fmtDuration(ms) {
   }
 
   &.run {
-    color: #0284C7;
-    background: rgba(2, 132, 199, 0.12);
+    color: var(--primary-color);
+    background: rgba(var(--primary-color-rgb), 0.12);
   }
 
   &.pause {
-    color: #D97706;
-    background: rgba(217, 119, 6, 0.12);
+    color: var(--warning-color);
+    background: rgba(var(--warning-color-rgb), 0.12);
   }
 
   &.done {
@@ -365,8 +375,8 @@ function fmtDuration(ms) {
   border-radius: 999px;
   transition: width 0.6s ease;
 
-  &.run { background: linear-gradient(90deg, #0EA5E9, #0284C7); }
-  &.pause { background: #D97706; }
+  &.run { background: linear-gradient(90deg, var(--primary-color-hover), var(--primary-color)); }
+  &.pause { background: var(--warning-color); }
   &.done { background: var(--success-color); }
   &.fail { background: var(--danger-color); }
   &.abort { background: var(--text-secondary); }
@@ -412,8 +422,8 @@ function fmtDuration(ms) {
   max-width: 100%;
   padding: 2px 9px;
   border-radius: 999px;
-  border: 1px solid rgba(2, 132, 199, 0.25);
-  background: rgba(2, 132, 199, 0.06);
+  border: 1px solid rgba(var(--primary-color-rgb), 0.25);
+  background: rgba(var(--primary-color-rgb), 0.06);
   font-size: 11px;
   color: var(--text-primary);
   overflow: hidden;
@@ -425,7 +435,7 @@ function fmtDuration(ms) {
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: #0284C7;
+    background: var(--primary-color);
     animation: ob-wf-pulse 1.6s ease-in-out infinite;
   }
 }
@@ -461,11 +471,11 @@ function fmtDuration(ms) {
   border-radius: 7px;
   background: rgba(var(--success-color-rgb),  0.07);
   font-size: 11.5px;
-  color: #047857;
+  color: var(--success-color);
 
   &.err {
     background: rgba(var(--danger-color-rgb),  0.07);
-    color: #B91C1C;
+    color: var(--danger-color);
     word-break: break-all;
   }
 }
