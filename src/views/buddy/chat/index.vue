@@ -139,6 +139,7 @@
             @remove-quote="removeQuote"
             @pick="pickAttachments"
             @import-file="importFile"
+            :at-workspace-dir="workspaceLink.dir"
           >
             <template #tools>
               <!-- 工作空间（必填，未关联无法发送；会话已绑定空间后锁定不可切换，新对话可选） -->
@@ -282,7 +283,7 @@ import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
 import { getItem, setItem } from '@/utils/storage/db'
 import { computeBranchView } from '@/utils/buddy/branchView'
-import { importFileObject, parseAttachment } from '@/utils/buddy/buddy-api'
+import { importFileObject, parseAttachment, buddyApi } from '@/utils/buddy/buddy-api'
 import { genLocalId } from '@/store/buddyChat'
 import { bus } from '@/utils/ui/bus'
 import { useFeedback } from '@/composables/useFeedback'
@@ -839,25 +840,28 @@ function onQuote(text) {
 function removeQuote() {
   commitPatch({ quote: '' })
 }
-async function send() {
-  const draftText = draft.value.trim()
+// 发送契约：composer 上抛 (text, atRefs)——正文含 #Folder:/#File: token
+// （气泡按 token 渲染内联 tag），# 引用清单走 atRefs（主进程拼路径块）
+async function send(text, atRefs) {
+  const draftText = (typeof text === 'string' ? text : draft.value).trim()
+  const refs = Array.isArray(atRefs) ? atRefs : []
   // toRaw 剥离 store 响应式代理（Proxy 无法跨 IPC 结构化克隆，
   // “An object could not be cloned” 即源于此；.slice() 浅拷不解决）
   const files = fileAttachments.value.slice().map(f => Object.assign({}, toRaw(f)))
-  // 仍以「有无输入/附件」判定可发送（纯引用不发）；引用随消息拼发，
-  // 气泡显示 / 主进程落盘 / 发送文本三者一致
+  // 发送守卫：必须搭配文字（# 引用只是路径补充，防纯引用空消息）；
+  // 纯粘贴/拖拽附件（无文字）仍允许发送（原行为）
   if (!draftText && !files.length) return
   // 解析中守卫：pdf/office 附件预解析完成前不可发送（豆包式确定性）
   if (files.some(f => f.parseStatus === 'parsing')) {
     message.info('附件解析中，请稍候…')
     return
   }
-  // 流式态分流：纯文本走运行中插话（pi steer，不打断当前回答，
-  // 当前工具轮结束后送达）；带附件时保持原忽略行为（steer 暂不支持附件）
+  // 流式态分流：# 引用与纯文本一样可插话（路径块随文本拼接）；
+  // 带粘贴/拖拽附件时保持原忽略行为（steer 暂不支持附件）
   if (streaming.value) {
     if (!draftText || files.length || !sid.value) return
     const quoteText = quote.value
-    const text = quoteText ? ('引用：\n' + quoteText + '\n\n' + draftText) : draftText
+    const steerText = quoteText ? ('引用：\n' + quoteText + '\n\n' + draftText) : draftText
     const inst = api()
     if (!inst || !inst.steer) {
       message.info('当前版本不支持运行中插话，请等待回答完成')
@@ -869,20 +873,21 @@ async function send() {
       id: sid.value,
       msg: {
         role: 'user',
-        content: text,
+        content: steerText,
         steered: true,
+        atRefs: refs.length ? refs : undefined,
         _localId: genLocalId(),
         anchors: branchView.value.anchors.length ? branchView.value.anchors.slice() : undefined,
         createdAt: Date.now()
       }
     })
     scrollToBottom()
-    const res = await inst.steer({ id: sid.value, text })
+    const res = await inst.steer({ id: sid.value, text: steerText, atRefs: refs.length ? refs : undefined })
     if (!res.ok) message.warning(res.error || '插话失败')
     return
   }
   const quoteText = quote.value
-  const text = quoteText ? ('引用：\n' + quoteText + '\n\n' + draftText) : draftText
+  const outText = quoteText ? ('引用：\n' + quoteText + '\n\n' + draftText) : draftText
   if (!window.electronAPI || !window.electronAPI.omnibuddy) {
     message.info('对话能力需要 OmniDeck 桌面端')
     commitPatch({ draft: '' })
@@ -930,8 +935,10 @@ async function send() {
     id: sessId,
     msg: {
       role: 'user',
-      content: text,
+      content: outText,
       fileAttachments: files.length ? files : undefined,
+      // # 引用：轻量路径清单，气泡按正文 token 渲染内联 tag
+      atRefs: refs.length ? refs : undefined,
       _localId: genLocalId(),
       anchors: anchors.length ? anchors : undefined,
       createdAt: Date.now()
@@ -959,8 +966,10 @@ async function send() {
 
   const res = await api().sendMessage({
     id: sessId,
-    text,
+    text: outText,
     attachments: files,
+    // # 引用路径清单：主进程拼路径块进发送文本（模型按需用工具读取）
+    atRefs: refs.length ? refs : undefined,
     // provider 浅拷贝附加档位映射（不污染本地供应商存储）
     provider: Object.assign({}, currentProvider.value, { tiers: tierMapping.value }),
     workspaceId: workspaceLink.value.workspaceId,

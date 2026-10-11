@@ -91,6 +91,22 @@
           <span class="ob-edit-btn go" @mousedown.prevent @click="submitEdit">重新提问</span>
         </div>
       </div>
+      <!-- 用户：正文分段渲染 —— # 引用 token（#Folder:相对路径 / #File:相对路径）
+           以内联 chip 呈现（与输入框内联 tag 同构、可穿插文字）；file 类 chip 点击
+           唤起右栏产物预览（同代码块放大）；无 token 时整段纯文本直出 -->
+      <template v-else-if="message.role === 'user' && userSegments.length">
+        <template v-for="(seg, i) in userSegments">
+          <span v-if="seg.type === 'text'" :key="'t' + i">{{ seg.text }}</span>
+          <span
+            v-else
+            :key="'c' + i"
+            class="ob-chip"
+            :class="{ dir: seg.kind === 'dir' }"
+            :title="seg.abs || seg.rel"
+            @click="onChipClick(seg)"
+          ><img class="ob-chip-ico" :src="seg.kind === 'dir' ? folderIcon : fileIcon(seg.name)" alt="" draggable="false" /><span class="ob-chip-name">{{ seg.name }}</span></span>
+        </template>
+      </template>
       <template v-else-if="message.role === 'user'">{{ message.content }}</template>
 
       <!-- 用户：分支切换器（该问题存在多个分支变体时常驻显示，点击切换线路）
@@ -217,7 +233,7 @@
 // OmniBuddy 对话消息气泡（用户纯文本 / 助手 Markdown + 深度思考区 + 流式光标 + meta 行）
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
-import { fileIcon } from '@/utils/ui/file-meta'
+import { fileIcon, FOLDER_ICON } from '@/utils/ui/file-meta'
 import ThinkingSection from './ThinkingSection.vue'
 import FileChangesPanel from './FileChangesPanel.vue'
 import ArtifactPanel from './ArtifactPanel.vue'
@@ -368,6 +384,42 @@ const fileAttachmentList = computed(() => {
   if (props.message.role !== 'user' || !Array.isArray(props.message.fileAttachments)) return []
   return props.message.fileAttachments
 })
+
+// ===== 用户消息正文分段：# 引用 token → 内联 chip =====
+// token 契约与 composer 一致：#Folder:相对路径（根目录 /）/ #File:相对路径；
+// chip 的绝对路径从消息级 atRefs 按 rel（旧数据无 rel 时按 kind+name）反查
+const TOKEN_RE = /#(Folder|File):([^\s#]+)/g
+
+// 文件夹图标（目录 chip 用；文件 chip 按扩展名取类型图标）
+const folderIcon = FOLDER_ICON
+
+const userSegments = computed(() => {
+  if (props.message.role !== 'user') return []
+  const src = String(props.message.content || '')
+  if (!src) return []
+  const refs = Array.isArray(props.message.atRefs) ? props.message.atRefs : []
+  const segs = []
+  TOKEN_RE.lastIndex = 0
+  let last = 0
+  let m
+  while ((m = TOKEN_RE.exec(src))) {
+    if (m.index > last) segs.push({ type: 'text', text: src.slice(last, m.index) })
+    const kind = m[1] === 'Folder' ? 'dir' : 'file'
+    const rel = m[2]
+    const name = rel === '/' ? '整个工作空间' : rel.split('/').pop()
+    const ref = refs.find(r => r && (r.rel === rel || (!r.rel && r.kind === kind && r.name === name)))
+    segs.push({ type: 'chip', kind, name, rel, abs: ref ? ref.path : '' })
+    last = TOKEN_RE.lastIndex
+  }
+  if (last < src.length) segs.push({ type: 'text', text: src.slice(last) })
+  return segs
+})
+
+// chip 点击：file 类唤起右栏产物预览（磁盘文件数据源，同产物文件预览）；dir 类无动作
+function onChipClick(seg) {
+  if (seg.kind !== 'file' || !seg.abs) return
+  bus.emit('chat:artifact-preview', { path: seg.abs, name: seg.name })
+}
 
 // 本轮文件变更列表（工具条目的 fileChange，实时与历史归一化路径均写入 items）
 const fileChanges = computed(() => {
@@ -743,6 +795,63 @@ async function exportAs(format) {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   display: block;
+}
+
+/* 用户消息正文内联 # 引用 chip（与 composer 内联 tag 同构：6px 小圆角 + 类型图标）。
+   用户气泡为主色渐变底、白字环境：chip 用白色半透明底/边框，目录稍深以示区分；
+   file 类可点击预览（手型 + hover 提亮），dir 类仅展示 */
+.ob-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  height: 21px;
+  padding: 0 7px;
+  margin: 0 1px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 12px;
+  line-height: 1;
+  vertical-align: baseline; /* 与正文基线对齐即视觉居中 */
+  user-select: none;
+  cursor: default;
+
+  /* 类型图标：目录 / 文件（替代 #Folder: #File: 文本前缀） */
+  .ob-chip-ico {
+    flex-shrink: 0;
+    width: 11px;
+    height: 11px;
+    pointer-events: none;
+  }
+
+  /* 名称部分省略（title 已提示完整路径） */
+  span.ob-chip-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 目录引用：底色稍深 */
+  &.dir {
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.28);
+  }
+
+  /* file 类可点击预览 */
+  &:not(.dir) {
+    cursor: pointer;
+    transition: background 0.12s ease;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.34);
+    }
+
+    &:active {
+      opacity: 0.8;
+    }
+  }
 }
 
 /* 用户消息文件附件卡片：图标/缩略图 + 文件名 + 类型/大小 */
