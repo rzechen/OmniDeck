@@ -19,11 +19,13 @@ function registerChatIpc(getWindow) {
   // workspaceId 必填：发送前必须选定工作空间（Agent 的文件操作目录）
   // attachments 可选：文件附件 meta（“+”选择/拖拽导入，attachments.js），
   //   图片并入 image 块、文本/PDF 抽取全文拼入 prompt；随消息落盘回放
+  // atRefs 可选：@ 引用工作空间条目的路径清单（轻量：不复制不抽取），
+  //   发送时拼路径块进 prompt（模型按需用工具读取），并随消息落盘回放
   // anchors 可选：会话内分支线路（渲染层当前显示线的锚点数组）；
   //   上下文按该线路过滤（与前端显示一致），线路变化时 pi 会话丢弃重建
   // userMessageId 可选：编辑重问（分支变体）场景，用户消息已先行落盘
   //   （omnibuddy:session:variant），此处仅触发回答、不重复落盘
-  ipcMain.handle('omnibuddy:session:send', async (_e, { id, text, provider, workspaceId, displayName, attachments: fileAttachments, anchors, userMessageId }) => {
+  ipcMain.handle('omnibuddy:session:send', async (_e, { id, text, provider, workspaceId, displayName, attachments: fileAttachments, atRefs, anchors, userMessageId }) => {
     if (running.has(id)) {
       return { ok: false, error: '当前会话正在回复中' }
     }
@@ -52,8 +54,17 @@ function registerChatIpc(getWindow) {
       }
     }
 
-    // 文本/PDF 附件：抽取全文拼入 prompt（<attachment> 引用块）
+    // 文本/PDF 附件：抽取全文拼入 prompt（<attachment> 引用块）；
+    // @ 引用：拼路径块（不做内容抽取，模型按需用工具读取真实路径）
     let promptText = String(text || '')
+    if (Array.isArray(atRefs) && atRefs.length) {
+      const lines = atRefs
+        .filter(r => r && typeof r.path === 'string' && r.path)
+        .map(r => '- ' + r.path + (r.kind === 'dir' ? '（目录）' : ''))
+      if (lines.length) {
+        promptText = '我引用了以下工作空间路径：\n' + lines.join('\n') + '\n（请按需用工具读取上述路径）\n\n' + promptText
+      }
+    }
     const textBlock = await attachments.buildTextBlock(fileAttachments)
     if (textBlock) {
       promptText = promptText + '\n\n' + textBlock
@@ -87,6 +98,10 @@ function registerChatIpc(getWindow) {
     } else {
       const extras = anchorsArr.length ? { anchors: anchorsArr } : {}
       if (imageMeta.length) extras.images = imageMeta
+      // @ 引用路径清单随消息落盘（气泡正文 token 反查绝对路径 + 历史回放）
+      if (Array.isArray(atRefs) && atRefs.length) {
+        extras.atRefs = atRefs.map(r => ({ name: r.name || '', kind: r.kind === 'dir' ? 'dir' : 'file', path: r.path || '', rel: r.rel || '' }))
+      }
       if (Array.isArray(fileAttachments) && fileAttachments.length) {
         // path/mime 一并落盘：回放时图片读 base64、文本/PDF 抽取全文均依赖
         extras.fileAttachments = fileAttachments.map(a => ({
@@ -226,13 +241,25 @@ function registerChatIpc(getWindow) {
 
   // 运行中插话（pi steer）：排队转向消息，当前工具轮结束后、下次 LLM 调用前送达，
   // 不打断进行中的回答（区别于 interrupt）；消息照常落盘并归属当前分支线路
-  ipcMain.handle('omnibuddy:session:steer', async (_e, { id, text }) => {
+  ipcMain.handle('omnibuddy:session:steer', async (_e, { id, text, atRefs }) => {
     const r = running.get(id)
     if (!r) return { ok: false, error: '当前会话未在回复中' }
     if (r.mode !== 'pi') return { ok: false, error: '当前会话不支持插话' }
-    const content = String(text || '').trim()
+    let content = String(text || '').trim()
     if (!content) return { ok: false, error: '插话内容为空' }
+    // @ 引用与 sendMessage 同规则：路径块只拼给模型，不进用户可见正文
+    if (Array.isArray(atRefs) && atRefs.length) {
+      const lines = atRefs
+        .filter(ref => ref && typeof ref.path === 'string' && ref.path)
+        .map(ref => '- ' + ref.path + (ref.kind === 'dir' ? '（目录）' : ''))
+      if (lines.length) {
+        content = '我引用了以下工作空间路径：\n' + lines.join('\n') + '\n（请按需用工具读取上述路径）\n\n' + content
+      }
+    }
     const extras = (Array.isArray(r.anchors) && r.anchors.length) ? { anchors: r.anchors.slice() } : {}
+    if (Array.isArray(atRefs) && atRefs.length) {
+      extras.atRefs = atRefs.map(ref => ({ name: ref.name || '', kind: ref.kind === 'dir' ? 'dir' : 'file', path: ref.path || '', rel: ref.rel || '' }))
+    }
     const { record } = sessions.addMessage(id, Object.assign({
       role: 'user',
       content,

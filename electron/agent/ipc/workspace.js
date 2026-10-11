@@ -67,6 +67,11 @@ function registerWorkspaceIpc(getWindow) {
     return attachments.importFile(String(filePath || ''), makeThumbFn(nativeImage))
   })
 
+  // @ 引用条目存在性校验（不复制不抽取：仅把真实路径告诉模型）
+  ipcMain.handle('omnibuddy:files:stat-ref', (_e, refPath) => {
+    return files.statRef(String(refPath || ''))
+  })
+
   // 粘贴导入：剪贴板 File 无磁盘路径，渲染端读内容为 Buffer 传来
   //（data 为 Uint8Array 经结构化克隆传输，与 skills:import-zip 同模式）
   ipcMain.handle('omnibuddy:attachments:import-buffer', async (_e, { data, name, mime }) => {
@@ -137,6 +142,7 @@ function registerWorkspaceIpc(getWindow) {
 
   // ===== 空间文件管理（网盘风格）=====
   ipcMain.handle('omnibuddy:files:list', (_e, dir) => files.list(dir))
+  ipcMain.handle('omnibuddy:files:list-tree', (_e, dir) => files.listTree(dir))
   ipcMain.handle('omnibuddy:files:mkdir', (_e, payload) => files.mkdir(payload.dir, payload.name))
   ipcMain.handle('omnibuddy:files:create', (_e, payload) => files.createFile(payload.dir, payload.name))
   ipcMain.handle('omnibuddy:files:rename', (_e, payload) => files.rename(payload.path, payload.name))

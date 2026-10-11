@@ -201,6 +201,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // + 导入后预解析（pdf/office 抽取文本并缓存，发送时直接复用）
     pickAttachments: () => ipcRenderer.invoke('omnibuddy:attachments:pick'),
     importAttachment: filePath => ipcRenderer.invoke('omnibuddy:attachments:import', filePath),
+    statRef: refPath => ipcRenderer.invoke('omnibuddy:files:stat-ref', refPath),
     importAttachmentBuffer: payload => ipcRenderer.invoke('omnibuddy:attachments:import-buffer', payload),
     parseAttachment: meta => ipcRenderer.invoke('omnibuddy:attachments:parse', meta),
     // 工作空间管理（多工作空间，发送前必须选定）
@@ -212,6 +213,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 空间文件管理（网盘风格）：浏览 + 常规操作 + 导入
     files: {
       list: dir => ipcRenderer.invoke('omnibuddy:files:list', dir),
+      listTree: dir => ipcRenderer.invoke('omnibuddy:files:list-tree', dir),
       mkdir: payload => ipcRenderer.invoke('omnibuddy:files:mkdir', payload),
       createFile: payload => ipcRenderer.invoke('omnibuddy:files:create', payload),
       rename: payload => ipcRenderer.invoke('omnibuddy:files:rename', payload),

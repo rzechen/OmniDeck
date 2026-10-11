@@ -62,6 +62,7 @@
         @remove-file="removeFileAttachment"
         @pick="pickAttachments"
         @import-file="importFile"
+        :at-workspace-dir="currentWorkspace ? currentWorkspace.path : ''"
       >
         <template #tools>
           <composer-picker
@@ -98,6 +99,21 @@
         </template>
       </buddy-composer>
     </div>
+
+    <!-- 文件预览弹层：气泡内 # 引用 chip 点击唤起（快捷窗无右栏，
+         复用主窗口 ArtifactPreview 以弹层呈现，同一事件总线通道） -->
+    <el-dialog
+      :visible.sync="previewVisible"
+      append-to-body
+      custom-class="qp-preview-dialog"
+      width="72%"
+    >
+      <artifact-preview
+        v-if="previewVisible && previewItem"
+        :item="previewItem"
+        @close="previewVisible = false"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -114,6 +130,8 @@ import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
 import MessageBubble from '@/components/buddy/chat/MessageBubble.vue'
 import AskUserCard from '@/components/buddy/chat/AskUserCard.vue'
 import ComposerPicker from '@/components/buddy/chat/ComposerPicker.vue'
+import ArtifactPreview from '@/views/buddy/chat/components/ArtifactPreview.vue'
+import { bus } from '@/utils/ui/bus'
 import { getItem, setItem } from '@/utils/storage/db'
 import { importFileObject, parseAttachment } from '@/utils/buddy/buddy-api'
 
@@ -382,11 +400,17 @@ function removeFileAttachment(i) {
   fileAttachments.value.splice(i, 1)
 }
 
-async function send() {
-  const text = draft.value.trim()
+// 发送契约：composer 上抛 (text, atRefs)——正文含 #Folder:/#File: token
+// （气泡按 token 渲染内联 tag），# 引用清单走 atRefs（主进程拼路径块）
+async function send(text, atRefs) {
+  const draftText = (typeof text === 'string' ? text : draft.value).trim()
+  const refs = Array.isArray(atRefs) ? atRefs : []
   // toRaw 剥离响应式代理（Proxy 无法跨 IPC 结构化克隆）
   const files = fileAttachments.value.slice().map(f => Object.assign({}, toRaw(f)))
-  if ((!text && !files.length) || streaming.value) return
+  // 发送守卫：必须搭配文字（# 引用只是路径补充，防纯引用空消息）；
+  // 纯粘贴/拖拽附件（无文字）仍允许发送（原行为）
+  if (!draftText && !files.length) return
+  if (streaming.value) return
   // 解析中守卫：pdf/office 附件预解析完成前不可发送
   if (files.some(f => f.parseStatus === 'parsing')) {
     message.info('附件解析中，请稍候…')
@@ -421,8 +445,10 @@ async function send() {
 
   messages.value.push({
     role: 'user',
-    content: text,
+    content: draftText,
     fileAttachments: files.length ? files : undefined,
+    // # 引用清单：气泡正文按 token 渲染内联 chip（正文即含 token）
+    atRefs: refs.length ? refs : undefined,
     createdAt: Date.now()
   })
   // 立即显示「思考中」占位（秒计时）；内容块到达后转为深度思考区
@@ -446,8 +472,10 @@ async function send() {
 
   const res = await api().sendMessage({
     id: sid,
-    text,
-    attachments: files.length ? files : undefined,
+    text: draftText,
+    attachments: files,
+    // # 引用路径清单：主进程拼路径块进发送文本（模型按需用工具读取）
+    atRefs: refs.length ? refs : undefined,
     // provider 浅拷贝附加档位映射（不污染本地供应商存储）
     provider: Object.assign({}, currentProvider.value, { tiers: tierMapping.value }),
     workspaceId: ws.id,
@@ -671,9 +699,19 @@ function findToolItem(toolCallId) {
   return (msg.items || []).find(it => it.type === 'tool' && it.toolCallId === toolCallId)
 }
 
+// 气泡 # 引用 chip 预览（弹层）：快捷窗无右栏，直接复用主窗口 ArtifactPreview
+const previewVisible = ref(false)
+const previewItem = ref(null)
+function onArtifactPreview(payload) {
+  if (!payload || !payload.path) return
+  previewItem.value = Object.assign({ kind: '', name: '', format: '' }, payload)
+  previewVisible.value = true
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   document.addEventListener('mousedown', onDocMouseDown)
+  bus.on('chat:artifact-preview', onArtifactPreview)
 
   loadProviders()
   loadWorkspaces()
@@ -688,6 +726,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   document.removeEventListener('mousedown', onDocMouseDown)
+  bus.off('chat:artifact-preview', onArtifactPreview)
   stopThinkTimer()
   if (offEvent) offEvent()
 })
@@ -887,5 +926,21 @@ html[data-theme='dark'] .qp-empty-title {
 
 html[data-theme='dark'] .qp-empty-desc {
   color: #98989d;
+}
+</style>
+
+<style lang="scss">
+/* 文件预览弹层（append-to-body 挂 body 下，非 scoped）：
+   隐藏默认头部（ArtifactPreview 自带工具栏 + 关闭），body 定高去内边距铺满预览 */
+.qp-preview-dialog {
+  .el-dialog__header {
+    display: none;
+  }
+
+  .el-dialog__body {
+    height: 76vh;
+    padding: 0;
+    overflow: hidden;
+  }
 }
 </style>

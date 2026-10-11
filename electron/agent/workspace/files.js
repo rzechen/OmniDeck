@@ -385,11 +385,79 @@ function importPaths(dir, filePaths) {
   return { ok: true, count }
 }
 
+// ===== @ 引用：递归文件树 =====
+// 供对话输入框 @ 提及选择文件/文件夹：递归收集全部条目（文件含 size，
+// 目录条目单独返回供浮层选择），隐藏目录（.git 等）与超大文件跳过；
+// 条目数封顶 2000 防极端空间拖垮
+function listTree(dir) {
+  const abs = safePath(dir)
+  if (!abs) return { ok: false, error: '路径不在已关联的空间目录内' }
+  const files = []
+  const dirs = [{ path: '', size: 0 }] // 根目录自身可被 @（引用整个空间）
+  let truncated = false
+  const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__', '.venv'])
+  // BFS 逐层扫描，容量上限兜底
+  const queue = [{ abs, rel: '' }]
+  while (queue.length) {
+    if (files.length >= 2000) { truncated = true; break }
+    const cur = queue.shift()
+    let names
+    try {
+      names = fs.readdirSync(cur.abs, { withFileTypes: true })
+    } catch (e) {
+      continue // 无权限目录跳过
+    }
+    for (const d of names) {
+      if (files.length >= 2000) { truncated = true; break }
+      if (d.name.startsWith('.') || d.name.startsWith('$')) continue
+      const full = path.join(cur.abs, d.name)
+      const rel = cur.rel ? cur.rel + '/' + d.name : d.name
+      if (d.isDirectory()) {
+        if (skipDirs.has(d.name)) continue
+        // 深度封顶 8 层
+        if (rel.split('/').length >= 8) continue
+        dirs.push({ path: rel, size: 0 })
+        queue.push({ abs: full, rel })
+        continue
+      }
+      if (!d.isFile()) continue
+      let size = 0
+      try {
+        size = fs.statSync(full).size
+      } catch (e) { /* 条目消失则按 0 计 */ }
+      // 超过 50MB 的文件不适合作为对话附件，跳过
+      if (size > 50 * 1024 * 1024) continue
+      files.push({ path: rel, size })
+    }
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path))
+  dirs.sort((a, b) => a.path.localeCompare(b.path))
+  return { ok: true, files, dirs, truncated }
+}
+
+// ===== @ 引用条目：仅做存在性校验 =====
+// @ 引用不复制、不抽取——只是把真实路径告诉模型，读不读、读多少
+// 由模型自行用 read/bash 等工具决定（与 WorkBuddy 一致的轻量语义）
+function statRef(refPath) {
+  try {
+    const abs = safePath(refPath)
+    if (!abs) return { ok: false, error: '路径不在已关联的空间目录内' }
+    const st = fs.statSync(abs)
+    return { ok: true, isDir: st.isDirectory(), name: path.basename(abs) || 'workspace' }
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) }
+  }
+}
+
 module.exports = {
   // 初始化基目录与窗口获取器
   init,
   // 目录列表（含隐藏标记）
   list,
+  // 递归文件树（@ 引用选择用）
+  listTree,
+  // @ 引用条目存在性校验（文件/目录通用，不做内容抽取）
+  statRef,
   // 新建文件夹
   mkdir,
   // 新建空文件

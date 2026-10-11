@@ -96,7 +96,9 @@ const INJECT_SCRIPT = String.raw`(function () {
       'border-radius:8px;background:rgba(250,250,252,.97);' +
       'backdrop-filter:blur(14px);box-shadow:0 8px 32px rgba(0,0,0,.18);' +
       'font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#1d1d1f;' +
-      'padding:0 14px 10px;box-sizing:border-box;border:1px solid rgba(0,0,0,.08);}' +
+      'padding:0 14px 10px;box-sizing:border-box;border:1px solid rgba(0,0,0,.08);' +
+      // 固定 LTR + 左对齐：防继承 RTL 页面（阿语等）的右对齐书写方向
+      'direction:ltr;text-align:left;}' +
       // 品牌行：logo + OmniDeck 翻译（中性色，面板不用主题色）
       '.od-brand-row{display:flex;align-items:center;gap:6px;margin:0 -14px 10px;' +
       'padding:9px 14px 8px;border-bottom:1px solid rgba(0,0,0,.06);}' +
