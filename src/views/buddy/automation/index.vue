@@ -239,21 +239,22 @@
                     <el-radio-button value="fixed">固定时间</el-radio-button>
                     <el-radio-button value="random">范围随机</el-radio-button>
                   </el-radio-group>
-                  <!-- Element TimePicker：分钟步长 1 -->
-                  <el-time-picker
+                  <!-- 日期时间选择（与代办一致）：任务按周期重复执行，调度仅取所选时:分 -->
+                  <el-date-picker
                     v-if="wizard.timeMode === 'fixed'"
-                    v-model="wizard.time"
-                    format="HH:mm"
-                    value-format="HH:mm"
-                    placeholder="选择时间"
+                    v-model="timePickerValue"
+                    type="datetime"
+                    format="YYYY-MM-DD HH:mm:ss"
+                    value-format="YYYY-MM-DD HH:mm:ss"
+                    placeholder="选择日期时间"
                     :clearable="false"
                   />
-                  <el-time-picker
+                  <el-date-picker
                     v-else
-                    v-model="wizard.timeRange"
-                    is-range
-                    format="HH:mm"
-                    value-format="HH:mm"
+                    v-model="timeRangeValue"
+                    type="datetimerange"
+                    format="YYYY-MM-DD HH:mm:ss"
+                    value-format="YYYY-MM-DD HH:mm:ss"
                     range-separator="至"
                     start-placeholder="最早时间"
                     end-placeholder="最晚时间"
@@ -293,7 +294,7 @@
 // 数据源：主进程 scheduler（tasks.json 持久化）；执行结果落系统会话（「自动化」分组），
 // 运行/结束经 omnibuddy:event（automation:run / automation:done）实时刷新。
 // 运行历史（t.runs，主进程 append-only 保留最近 20 条）在本页展开查看
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { buddyApi, buddyApiSection } from '@/utils/buddy/buddy-api'
 import { getItem } from '@/utils/storage/db'
@@ -396,6 +397,41 @@ const wizard = reactive({
 // 主题联动任务名的上一次主题（非响应式，仅逻辑记忆）
 let lastTopic = ''
 let unsub = null
+
+// ===== 时间选择双向转换 =====
+// 表单存 HH:mm（调度仅取时:分），日期时间选择器绑定完整字符串；
+// 未选日期时以今天兜底，保证打开面板即有回显
+function todayDateStr() {
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+}
+
+const timePickerValue = computed({
+  get() {
+    return todayDateStr() + ' ' + (wizard.time || '09:00') + ':00'
+  },
+  set(v) {
+    // 调度只取时:分（任务按周期重复，所选日期不参与调度）
+    if (v && /^\d{4}-\d{2}-\d{2} (\d{2}:\d{2})/.test(v)) {
+      wizard.time = RegExp.$1
+    }
+  }
+})
+
+const timeRangeValue = computed({
+  get() {
+    const day = todayDateStr()
+    const s = (wizard.timeRange && wizard.timeRange[0]) || '09:00'
+    const e = (wizard.timeRange && wizard.timeRange[1]) || '10:00'
+    return [day + ' ' + s + ':00', day + ' ' + e + ':00']
+  },
+  set(v) {
+    if (Array.isArray(v) && v.length === 2) {
+      wizard.timeRange = v.map(x => (/^\d{4}-\d{2}-\d{2} (\d{2}:\d{2})/.exec(x) || [])[1] || '09:00')
+    }
+  }
+})
 
 function autoApi() {
   return buddyApiSection('automation')
@@ -1245,7 +1281,9 @@ onBeforeUnmount(() => {
 }
 
 .ob-auto-time-range {
-  width: 320px;
+  max-width: 100%;
+  flex: 1;
+  min-width: 300px;
 }
 
 .ob-auto-tip {
