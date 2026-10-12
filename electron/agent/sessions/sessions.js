@@ -126,6 +126,19 @@ function setFeedback(id, messageId, feedback) {
   return { ok: true }
 }
 
+// 更新某条消息的附加字段（thinkingSummary 等异步补写）：读全量 → 改目标行 → 整文件重写。
+// 读改写为同步连续执行（单线程事件循环内原子），与流式期间的 append 不会交错
+function updateMessageField(id, messageId, key, value) {
+  const file = path.join(sessionDir(id), 'messages.jsonl')
+  if (!fs.existsSync(file)) return { ok: false }
+  const list = readMessages(id)
+  const hit = list.find(m => m.id === messageId)
+  if (!hit) return { ok: false }
+  hit[key] = value
+  fs.writeFileSync(file, list.map(m => JSON.stringify(m)).join('\n') + '\n')
+  return { ok: true }
+}
+
 function touch(id) {
   const meta = readMeta(id)
   if (meta) {
@@ -353,6 +366,8 @@ module.exports = {
   getMessages,
   // 更新消息点赞/点踩标记
   setFeedback,
+  // 更新消息附加字段（异步补写，如 thinkingSummary）
+  updateMessageField,
   // 追加消息并同步元数据
   addMessage,
   // 手动重命名（停用自动标题）

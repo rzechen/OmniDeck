@@ -15,7 +15,7 @@ const piRuntime = require('../pi')
 const { emit, running, runAnchors, pendingAsks, pendingPermissions,
   touchAutomationHeartbeat, automationTurnErrors,
   isHeadlessRun, recordDeniedOp } = require('./chat-state')
-const { maybeAutoTitle, writeExitSummary, enqueueSummary } = require('./direct-llm')
+const { maybeAutoTitle, writeExitSummary, enqueueSummary, generateThinkingSummary } = require('./direct-llm')
 
 // ===== 无头定时执行短路（headless：schedule 触发的运行） =====
 // ask_user / permission_ask 的前端等待管线在无人值守时即永久挂起
@@ -211,6 +211,9 @@ function handlePiEvent(getWindow, e) {
       }
       // 首轮回答完成：后台生成会话标题（是否生成由 meta.autoTitle 判定，手动改名后跳过）
       maybeAutoTitle(getWindow, chatId, e.content)
+      // 思考段摘要：有思考内容的落盘记录后台补一句短语（前端分段折叠头标题），
+      // fire-and-forget（失败静默，前端退回首行截断兜底）
+      if (e.thinking) generateThinkingSummary(getWindow, chatId, saved.record.id, e.thinking)
       break
     case 'turn_error':
       // pi 吞掉的模型请求错误（如供应商 400）：原样透传前端 + 落盘（重开会话仍可见）

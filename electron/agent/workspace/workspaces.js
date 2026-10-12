@@ -1,6 +1,10 @@
 // OmniBuddy 工作空间管理（多工作空间，发送前必须选定）
-// 存储结构：<baseDir>/workspaces.json —— [{ id, name, path }]
+// 存储结构：<baseDir>/workspaces.json —— [{ id, name, path, memoryPolicy }]
 // 工作空间全部由用户添加的本地目录组成，无默认项。
+// memoryPolicy：记忆策略（缺省 global）——
+//   global  继承全局记忆（agentDir/memory，行为与旧版一致）
+//   isolate 本空间独立记忆（agentDir/memory-workspaces/<id>/，初始为空）
+//   clean   干净启动：不装载 pi-memory 扩展、不读写不注入任何记忆
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
@@ -8,6 +12,13 @@ const os = require('os')
 
 let baseDir = ''
 let defaultDir = '' // 兼容字段（历史引用）：不创建目录与登记
+
+// 合法记忆策略集合（未知值回退 global）
+const MEMORY_POLICIES = ['global', 'isolate', 'clean']
+
+function normalizePolicy(v) {
+  return MEMORY_POLICIES.indexOf(v) >= 0 ? v : 'global'
+}
 
 // ===== 初始化与存储 =====
 function storeFile() {
@@ -98,19 +109,46 @@ function add(dirPath, name) {
   const items = rawList()
   const existed = items.find(w => w.path === p)
   if (existed) {
-    // 目录已登记：幂等返回已有工作空间（便于对话关联）
-    return { ok: true, workspace: existed }
+    // 目录已登记：幂等返回已有工作空间（便于对话关联；created 标记供前端决定是否弹策略选择）
+    return { ok: true, workspace: existed, created: false }
   }
   const item = {
     id: 'ws-' + Date.now().toString(36) + '-' + crypto.randomBytes(2).toString('hex'),
     // 展示名缺省为空：前端按磁盘路径呈现（用户可在关联弹窗填写）
     name: String(name || '').trim().slice(0, 30),
-    path: p
+    path: p,
+    memoryPolicy: 'global'
   }
   items.push(item)
   const r = save(items)
   if (!r.ok) return r
-  return { ok: true, workspace: item }
+  return { ok: true, workspace: item, created: true }
+}
+
+// 更新记忆策略（global / isolate / clean；非法值回退 global）
+function setMemoryPolicy(id, policy) {
+  const items = rawList()
+  const hit = items.find(w => w.id === id)
+  if (!hit) return { ok: false, error: '工作空间不存在' }
+  hit.memoryPolicy = normalizePolicy(policy)
+  const r = save(items)
+  if (!r.ok) return r
+  return { ok: true, workspace: hit }
+}
+
+// 记忆策略 → 记忆目录映射（clean 返回 null：不装载记忆）
+// isolate 目录：<baseDir>/memory-workspaces/<id>/（惰性创建，随 OmniBuddy 数据管理）
+function memoryDirFor(id) {
+  const hit = rawList().find(w => w.id === id)
+  if (!hit) return { policy: 'global', dir: null }
+  const policy = normalizePolicy(hit.memoryPolicy)
+  if (policy === 'clean') return { policy, dir: null }
+  if (policy === 'isolate') {
+    const dir = path.join(baseDir, 'memory-workspaces', hit.id)
+    try { fs.mkdirSync(dir, { recursive: true }) } catch (e) { /* 写失败时会话回退 global */ }
+    return { policy, dir }
+  }
+  return { policy, dir: null }
 }
 
 // 更新展示名（空 = 清除，前端按磁盘路径呈现）
@@ -144,6 +182,10 @@ module.exports = {
   list,
   // 添加本地目录为工作空间
   add,
+  // 更新记忆策略（global / isolate / clean）
+  setMemoryPolicy,
+  // 记忆策略 → { policy, dir }（clean 时 dir 为 null；isolate 时保证目录存在）
+  memoryDirFor,
   // 更新展示名
   rename,
   // 移除工作空间（仅解除关联）

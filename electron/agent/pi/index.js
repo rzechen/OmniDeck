@@ -118,6 +118,8 @@ module.exports = {
   finalizeSession: piSession.finalizeSession,
   // 内存会话 id 清单
   listSessionIds: piSession.listSessionIds,
+  // 会话记忆目录解析（记忆策略 isolate/clean 的兜底摘要按此分目录）
+  getSessionMemoryInfo: piSession.getSessionMemoryInfo,
   // 当前 provider 配置快照（含 imageConfigured 能力判定）
   getProviderInfo: piProvider.getProviderInfo,
   // 中断会话当前回合（abort）

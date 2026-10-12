@@ -85,6 +85,8 @@
       <button class="sp-tool-btn" title="从本机导入文件" @click="emit('import')"><svg-icon icon-class="upload" /><span>导入</span></button>
       <!-- 空间规则：编辑当前工作空间的 AGENTS.md，仅该空间对话生效 -->
       <button class="sp-tool-btn" title="编辑此空间的规则，仅该空间对话生效" @click="emit('space-rule')"><svg-icon icon-class="rules" /><span>空间规则</span></button>
+      <!-- 记忆策略：切换此空间对话的记忆来源（继承全局 / 独立 / 干净启动） -->
+      <button class="sp-tool-btn" title="设置此空间的记忆策略" @click="emit('memory-policy')"><svg-icon icon-class="memory" /><span>记忆策略</span></button>
       <!-- 多选删除：选中项 ≥ 1 时出现，批量移入废纸篓（确认在页面层） -->
       <button
         v-if="selectedCount > 0"
@@ -162,7 +164,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:view', 'update:show-hidden', 'update:search', 'select-workspace',
   'create-folder', 'create-file', 'import', 'space-rule', 'trash-selected',
-  'empty', 'rename', 'refresh', 'unbind'
+  'empty', 'rename', 'refresh', 'unbind', 'memory-policy'
 ])
 
 // 下拉展开状态（组件内部管理，点击外部关闭）

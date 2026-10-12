@@ -1,67 +1,75 @@
 <template>
-  <!-- 深度思考区（可折叠）：思考文本 + Skill 激活 + 工具/MCP 调用，聚合于助手回复上方 -->
+  <!-- 深度思考区（分段时间线）：每个思考段独立折叠（折叠头 = 序号 + 摘要），
+       段内正文与其后续的工具 / Skill / 问答记录随段折叠；过程说明恒平铺
+       构成时间线脉络；待回答 ask 恒可见 -->
   <div class="ob-think">
-    <!-- 折叠头部：思考中 / 正文生成中均保持动态（星形脉动 + 文案呼吸，标识轮次未结束），
-         全部结束后恢复静态并显示步骤数 -->
-    <div
-      class="ob-think-header"
-      :class="{ thinking: isThinking, streaming: isStreaming && !isThinking }"
-      @click="toggleCollapse"
-    >
-      <svg-icon icon-class="sparkle" class="ob-think-hico" />
-      <span class="ob-think-title">{{ headerTitle }}</span>
-      <span v-if="!isThinking && !isStreaming && stepCount > 0" class="ob-think-count">{{ stepCount }} 个步骤</span>
-      <span v-if="!isThinking && !isStreaming && fileChangeCount > 0" class="ob-think-count ob-think-files">
-        <svg-icon icon-class="edit" class="ob-think-file-ico" />{{ fileChangeCount }} 个文件变更
-      </span>
-      <svg-icon
-        icon-class="arrow-down"
-        class="ob-think-arrow"
-        :class="{ collapsed }"
-      />
-    </div>
-
-    <!-- 内容主体（生成中默认展开、箭头朝下；用户可随时展开收起，待回答 ask 时不允许收起） -->
-    <div v-show="!collapsed" class="ob-think-body">
+    <div class="ob-think-body">
       <template v-for="(item, i) in items">
-        <!-- 思考文本（click 委托承接代码块复制按钮） -->
+        <!-- 思考段：流式期间与完成后均默认收起，仅折叠头带动态标识
+             （星形脉动 + 呼吸文案）；用户可随时展开收起任意段 -->
         <div
           v-if="item.type === 'thinking'"
           :key="'thinking-' + i"
-          class="ob-think-text"
+          class="ob-think-seg"
         >
-          <div class="ob-think-md" v-html="renderedCached(item, item.content)" @click="onMdClick"></div>
-          <span v-if="isThinking && i === items.length - 1" class="ob-cursor"></span>
+          <div
+            class="ob-seg-head"
+            :class="{ thinking: item === activeThinking }"
+            @click="toggleSeg(item)"
+          >
+            <svg-icon icon-class="sparkle" class="ob-seg-ico" />
+            <span class="ob-seg-idx">思考 {{ segIndexOf(i) }}</span>
+            <span class="ob-seg-title">{{ segTitle(item) }}</span>
+            <!-- 段内工具运行中标识：段默认收起，运行中的工具行（子代理委派等
+                 长任务）被折叠隐藏，折叠头补转圈 + 执行中文案，保证折叠期间
+                 仍可感知执行状态 -->
+            <svg-icon v-if="segRunning(i)" icon-class="loading" class="ob-seg-run" />
+            <span v-if="segRunning(i)" class="ob-seg-run-label">执行中</span>
+            <svg-icon
+              icon-class="arrow-down"
+              class="ob-seg-arrow"
+              :class="{ collapsed: !isSegOpen(item) }"
+            />
+          </div>
+          <div v-if="isSegOpen(item)" class="ob-think-text ob-seg-text">
+            <div class="ob-think-md" v-html="renderedCached(item, item.content)" @click="onMdClick"></div>
+            <span v-if="item === activeThinking" class="ob-cursor"></span>
+          </div>
         </div>
 
-        <!-- 过程说明（中途正文归位：本段正文之后仍有工具调用，收尾正文才进气泡） -->
+        <!-- 过程说明（中途正文归位）：恒平铺，与各段摘要同级衔接 -->
         <div
           v-else-if="item.type === 'narration'"
           :key="'narration-' + i"
           class="ob-think-text ob-narration"
         >
-          <div class="ob-narration-tag">过程说明</div>
           <div class="ob-think-md" v-html="renderedCached(item, item.content)" @click="onMdClick"></div>
         </div>
 
-        <!-- Skill 激活 -->
-        <div v-else-if="item.type === 'skill'" :key="'skill-' + i" class="ob-skill">
+        <!-- Skill 激活（随所属思考段折叠） -->
+        <div v-else-if="item.type === 'skill' && itemVisible(item, i)" :key="'skill-' + i" class="ob-skill">
           <svg-icon icon-class="magic-stick" class="ob-skill-ico" />
           <span class="ob-skill-label">SKILL</span>
           <span class="ob-skill-name">{{ item.skillName }}</span>
         </div>
 
-        <!-- ask_user 提问卡片（归位于思考区内，与工具条目同级；问答记录随思考区折叠） -->
+        <!-- ask_user 提问卡片（归位于思考区内，与工具条目同级）：挂起待答恒可见，
+             已答问答记录随所属思考段折叠 -->
         <ask-user-card
-          v-else-if="item.type === 'ask'"
+          v-else-if="item.type === 'ask' && itemVisible(item, i)"
           :key="'ask-' + i"
           class="ob-think-ask"
           :message="item"
           @answer="(msg, value) => emit('ask-answer', msg, value)"
         />
 
-        <!-- 工具调用（含 MCP 工具） -->
-        <div v-else-if="item.type === 'tool'" :key="toolKey(item)" class="ob-tool">
+        <!-- 工具调用（含 MCP 工具）：随所属思考段折叠；
+             挂有待答 ask 的工具条目恒可见（系统在等用户输入） -->
+        <div
+          v-else-if="item.type === 'tool' && itemVisible(item, i)"
+          :key="toolKey(item)"
+          class="ob-tool"
+        >
           <!-- 摘要行：状态图标三态（运行中 / 错误 / 完成）+ MCP 服务名 + 中文名 + 原始名 tag -->
           <div class="ob-tool-head" :class="{ error: item.isError }" @click="toggleTool(item)">
             <svg-icon
@@ -181,7 +189,7 @@
 
 <script setup>
 // OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) / ask_user 提问 的聚合渲染
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, onBeforeUnmount } from 'vue'
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
 import { buddyApi } from '@/utils/buddy/buddy-api'
 import { bus } from '@/utils/ui/bus'
@@ -278,12 +286,18 @@ const emit = defineEmits(['ask-answer'])
 
 const { message } = useFeedback()
 
-// 默认收起（含生成中；头部仍有动态标识轮次进度）；此后由用户自由展开收起
-const collapsed = ref(true)
-const toolOpenOverrides = ref({})
+// ===== 分段折叠状态 =====
+// 用户手动开合覆盖表（条目对象 → true/false，WeakMap 键即条目本身，
+// 跨消息切换天然隔离、条目回收不泄漏）。所有段默认收起（含流式期间），
+// 仅手动操作过的段以 override 为准。Vue2 下 WeakMap 变更不触发重渲染，
+// 由 segOpenTick 计数器驱动
+const segOpenOverrides = new WeakMap()
+const segOpenTick = ref(0)
 // 登录向导当前打开的站点集合（host → true）：login_wizard 广播驱动，
 // 工具卡片「打开登录向导」按钮据此翻转「登录中…」态
 const wizardHosts = ref({})
+// 工具二级折叠的用户开合覆盖表（条目对象 → true/false）
+const toolOpenOverrides = ref({})
 
 // 订阅登录向导开关广播（主进程 loginWizard 直发）：翻转向导打开态
 let unsubWizard = null
@@ -307,19 +321,88 @@ const mdCache = new WeakMap()
 // JSON.stringify 全量序列化每次渲染重复执行同样有开销
 const toolKeyCache = new WeakMap()
 
-// 是否存在待回答的 ask_user 卡片（独立暂存条目或挂接在工具条目上）：
-// 系统正等待用户输入，思考区不允许被折叠隐藏
-const hasPendingAsk = computed(() => {
-  return props.items.some(i =>
-    (i.type === 'ask' && !i.answered) || (i.type === 'tool' && i.ask && !i.ask.answered)
-  )
+// ===== 思考段折叠 =====
+// 活动思考段：isThinking 期间 items 中最后一个 thinking 块（该段正在流式累积）。
+// 仅用于折叠头动态标识（脉动 + 进行中文案 + 流式光标位），不改变默认收起：
+// 流式期间与完成后各段一律默认收起，用户点开才展开
+const activeThinking = computed(() => {
+  if (!props.isThinking) return null
+  for (let i = props.items.length - 1; i >= 0; i--) {
+    if (props.items[i].type === 'thinking') return props.items[i]
+  }
+  return null
 })
 
-// 系统等待用户回答时思考区不允许保持收起（提问卡片必须可见：
-// 历史加载时初始即有待回答 ask 的场景）
-watch(hasPendingAsk, (v) => {
-  if (v) collapsed.value = false
-}, { immediate: true })
+// 段序号（1-based）：该块是时间线中的第几个思考段
+function segIndexOf(i) {
+  let n = 0
+  for (let k = 0; k <= i; k++) {
+    if (props.items[k] && props.items[k].type === 'thinking') n++
+  }
+  return n
+}
+
+// 折叠头标题：模型摘要（后台补写）优先，无则取内容首行截断兜底；
+// 活动段且暂无内容时显示进行中文案。首行提取按「条目 + 内容」缓存，
+// 避免流式每 tick 对全部段全量 split
+const segTitleCache = new WeakMap()
+function segTitle(item) {
+  if (item.summary) return item.summary
+  let first = ''
+  const cached = segTitleCache.get(item)
+  if (cached && cached.content === item.content) {
+    first = cached.first
+  } else {
+    first = (item.content || '').split('\n').map(t => t.trim()).filter(Boolean)[0] || ''
+    segTitleCache.set(item, { content: item.content, first })
+  }
+  const plain = first.replace(/[#*`>_~[\]]/g, '').trim()
+  if (!plain) return item === activeThinking.value ? '深度思考中…' : '思考过程'
+  return plain.length > 20 ? plain.slice(0, 20) + '…' : plain
+}
+
+// 段是否展开：用户手动操作过以 override 为准；否则一律默认收起
+// （流式期间与完成后一致，活动段仅折叠头有动态标识）
+function isSegOpen(item) {
+  void segOpenTick.value // 依赖 tick：手动开合后触发重渲染（WeakMap 本身非响应式）
+  if (segOpenOverrides.has(item)) return segOpenOverrides.get(item)
+  return false
+}
+
+// 条目归属段（向前最近的思考块）是否展开：工具 / Skill / 问答记录随所属段折叠；
+// 思考块之前的游离条目（开场即工具调用等）无归属，恒平铺
+function ownerOpen(i) {
+  for (let k = i - 1; k >= 0; k--) {
+    if (props.items[k].type === 'thinking') return isSegOpen(props.items[k])
+  }
+  return true
+}
+
+// 段内是否有运行中工具：扫描该思考段到下一段之间的条目（即归属本段的工具行）。
+// 段默认收起时运行中的工具行被折叠隐藏（子代理委派等长任务可能持续数分钟），
+// 折叠头据此显示转圈 + 「执行中」，避免长时间无任何视觉反馈
+function segRunning(i) {
+  for (let k = i + 1; k < props.items.length; k++) {
+    const it = props.items[k]
+    if (it.type === 'thinking') break
+    if (it.type === 'tool' && it.status === 'running') return true
+  }
+  return false
+}
+
+// 条目可见性：过程说明恒平铺（收起后与各段摘要构成时间线脉络）；
+// 待回答 ask（独立条目或挂接工具）恒可见——系统在等用户输入，不能折叠隐藏
+function itemVisible(item, i) {
+  if (item.type === 'narration') return true
+  if (item.type === 'ask' && !item.answered) return true
+  if (item.type === 'tool' && item.ask && !item.ask.answered) return true
+  return ownerOpen(i)
+}
+
+function toggleSeg(item) {
+  segOpenOverrides.set(item, !isSegOpen(item))
+  segOpenTick.value++
+}
 
 onBeforeUnmount(() => {
   // 退出登录向导广播订阅（防泄漏）
@@ -328,37 +411,6 @@ onBeforeUnmount(() => {
     unsubWizard = null
   }
 })
-
-// 步骤数：工具与 Skill 计数（思考文本不计）
-const stepCount = computed(() => {
-  return props.items.filter(i => i.type === 'tool' || i.type === 'skill').length
-})
-
-// 本轮文件变更数（写工具产生的有效变更）
-const fileChangeCount = computed(() => {
-  return props.items.filter(i => i.type === 'tool' && i.fileChange).length
-})
-
-// 是否有运行中的工具（含等待授权：status 均为 running）
-const hasRunningTool = computed(() => {
-  return props.items.some(i => i.type === 'tool' && i.status === 'running')
-})
-
-// 头部文案：思考中 / 执行操作中（有运行中工具，含等待授权）/ 正文生成中 / 已完成
-// （与动态类同步区分轮次阶段；interleaved 输出下正文已出现但工具仍在跑时，
-//   "回答生成中"会误导用户以为卡在正文生成，实际在等工具/权限）
-const headerTitle = computed(() => {
-  if (props.isThinking) return '深度思考中…'
-  if (props.isStreaming && hasRunningTool.value) return '正在执行操作…'
-  if (props.isStreaming) return '回答生成中…'
-  return '已深度思考'
-})
-
-function toggleCollapse() {
-  // 存在待回答的 ask 卡片时不允许收起（提问卡片不能被折叠隐藏）
-  if (!collapsed.value && hasPendingAsk.value) return
-  collapsed.value = !collapsed.value
-}
 
 // Markdown 区点击委托：链接拦截 + 代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
 function onMdClick(e) {
@@ -630,9 +682,9 @@ function fcRemoved(fc) {
   margin-bottom: 8px;
 }
 
-/* ===== 折叠头部 ===== */
-.ob-think-header {
-  display: inline-flex;
+/* ===== 思考段折叠头 ===== */
+.ob-seg-head {
+  display: flex;
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
@@ -648,37 +700,56 @@ function fcRemoved(fc) {
     background: var(--search-bg-hover, rgba(0, 0, 0, 0.04));
   }
 
-  .ob-think-hico {
+  .ob-seg-ico {
     font-size: 12px;
     color: var(--text-secondary);
+    flex-shrink: 0;
   }
 
-  /* 思考中 / 正文流式生成中：星形主色 + 呼吸脉动（标识本轮问答尚未结束） */
-  &.thinking,
-  &.streaming {
-    .ob-think-hico {
+  /* 活动段（生成中）：星形主色 + 脉动 + 摘要呼吸 */
+  &.thinking {
+    .ob-seg-ico {
       color: var(--primary-color);
       animation: ob-think-pulse 1.2s ease-in-out infinite;
     }
 
-    .ob-think-title {
+    .ob-seg-title {
       animation: ob-think-breath 1.2s ease-in-out infinite;
     }
   }
 
-  .ob-think-title {
+  .ob-seg-idx {
+    flex-shrink: 0;
     font-weight: 500;
   }
 
-  .ob-think-count {
-    font-size: 12px;
-    color: var(--text-secondary);
-    opacity: 0.75;
+  .ob-seg-title {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 500;
   }
 
-  .ob-think-arrow {
+  /* 段内工具运行中：折叠头尾部转圈 + 主色文案（与工具行运行态同构） */
+  .ob-seg-run {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--primary-color);
+    animation: ob-tool-rotate 0.9s linear infinite;
+  }
+
+  .ob-seg-run-label {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--primary-color);
+    animation: ob-think-breath 1.2s ease-in-out infinite;
+  }
+
+  .ob-seg-arrow {
     font-size: 10px;
     color: var(--text-secondary);
+    flex-shrink: 0;
     transition: transform 0.2s ease;
 
     &.collapsed {
@@ -687,10 +758,25 @@ function fcRemoved(fc) {
   }
 }
 
-/* ===== 内容主体（缩进体现层级） ===== */
+/* 思考区时间线内容层：工具 / Skill / ask 卡片 / 思考段正文同层级缩进，
+   左侧统一竖线构成"过程内容"一列；思考段折叠头与过程说明在外层
+   平铺同级（构成时间线骨架）；段正文与折叠头另拉开上间距 */
+.ob-think-body > .ob-tool,
+.ob-think-body > .ob-skill,
+.ob-think-body > .ob-think-ask,
+.ob-think-body > .ob-think-seg .ob-seg-text {
+  margin-left: 20px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-color);
+}
+
+.ob-think-seg .ob-seg-text {
+  margin-top: 4px;
+}
+
+/* ===== 内容主体 ===== */
 .ob-think-body {
   margin-top: 4px;
-  padding-left: 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -822,20 +908,6 @@ function fcRemoved(fc) {
   }
 }
 
-/* 过程说明（中途正文归位块）：思考文本样式 + 小标签区分 */
-.ob-narration {
-  .ob-narration-tag {
-    display: inline-block;
-    font-size: 10.5px;
-    line-height: 1.5;
-    color: var(--text-secondary);
-    background: rgba(0, 0, 0, 0.05);
-    border-radius: 4px;
-    padding: 0 6px;
-    margin-bottom: 3px;
-  }
-}
-
 /* Skill 行 */
 .ob-skill {
   display: flex;
@@ -952,12 +1024,13 @@ function fcRemoved(fc) {
   }
 }
 
-/* 站点登录引导行（撞墙工具卡片内嵌）：提示语 + 一键打开登录向导 */
+/* 站点登录引导行（撞墙工具卡片内嵌）：提示语 + 一键打开登录向导
+   （工具卡片已在时间线内容列内，缩进减半避免双重嵌套） */
 .ob-tool-login {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 3px 0 4px 20px;
+  margin: 3px 0 4px 8px;
   padding: 5px 10px;
   border: 1px solid rgba(245, 158, 11, 0.35);
   border-radius: 8px;
@@ -993,9 +1066,10 @@ function fcRemoved(fc) {
   }
 }
 
-/* 详情容器（左侧 2px 竖线缩进） */
+/* 详情容器（左侧 2px 竖线缩进；工具卡片已在时间线内容列内，
+   摘要行自带 padding-left: 12px，详情再退 20px 与其拉开层级） */
 .ob-tool-detail {
-  margin: 2px 0 4px 20px;
+  margin: 2px 0 4px 8px;
   padding-left: 12px;
   border-left: 2px solid var(--border-color);
   display: flex;
@@ -1134,17 +1208,6 @@ function fcRemoved(fc) {
 }
 
 /* ===== 文件变更记录 ===== */
-/* 头部"N 个文件变更"计数 */
-.ob-think-files {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-
-  .ob-think-file-ico {
-    font-size: 11px;
-  }
-}
-
 /* 摘要行：文件名 + 类型徽章 + 增删行数 */
 .ob-fc-file {
   min-width: 0;

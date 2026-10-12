@@ -230,11 +230,26 @@ async function maybeAutoTitle(getWindow, chatId, assistantText) {
 const SUMMARY_MIN_MESSAGES = 4
 const summaryInflight = new Set()
 
-function dailyLogPath() {
+// 摘要落盘目录按会话记忆策略解析：clean 跳过（不落任何记忆）；isolate 落该空间
+// 独立目录；global（含无运行时会话的兜底）落全局 agentDir/memory。
+// pi-memory 目录由模块加载时 env 定死，pi-memory 扩展在会话创建时按 PI_MEMORY_DIR
+// 写自己的 daily —— 本兜底必须与之一致，否则同会话摘要分裂在两个目录。
+function dailyLogPathFor(chatId) {
+  let info = null
+  try { info = piRuntime.getSessionMemoryInfo(chatId) } catch (e) { /* pi 未初始化 */ }
+  if (info && info.policy === 'clean') return null
+  if (info && info.policy === 'isolate' && info.dir) {
+    return path.join(info.dir, 'daily')
+  }
+  return path.join(piRuntime.agentDir, 'memory', 'daily')
+}
+
+function dailyLogPath(chatId) {
   const d = new Date()
   const pad = x => String(x).padStart(2, '0')
   const date = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
-  return path.join(piRuntime.agentDir, 'memory', 'daily', date + '.md')
+  const dir = dailyLogPathFor(chatId)
+  return dir ? path.join(dir, date + '.md') : null
 }
 
 function isSummaryEmpty(text) {
@@ -276,7 +291,9 @@ async function writeExitSummary(chatId, presetMsgs) {
       const msgs = (Array.isArray(presetMsgs) ? presetMsgs : sessions.getMessages(chatId))
         .filter(m => m.role === 'user' || m.role === 'assistant')
       if (msgs.length < SUMMARY_MIN_MESSAGES) return
-      const file = dailyLogPath()
+      // clean 记忆策略：完全不落记忆摘要（dailyLogPath 返回 null）
+      const file = dailyLogPath(chatId)
+      if (!file) return
       const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : ''
       // 对话序列化（user/assistant 交替，限总长防超上下文）
       const lines = []
@@ -351,6 +368,48 @@ function enqueueSummary(task) {
   return summaryQueue
 }
 
+// ===== 思考段摘要（分段思考 UI 的折叠头标题） =====
+// 每段思考结束时，用 provider 端点直调把该段思考全文浓缩为一句短语（≤16 字），
+// 供前端「思考过程 N · <摘要>」折叠头展示。fire-and-forget：失败静默，
+// 前端无摘要时退回首行截断兜底，不影响对话
+async function generateThinkingSummary(getWindow, chatId, messageId, thinkingText) {
+  try {
+    const text = String(thinkingText || '').trim()
+    if (text.length < 40) return // 太短的思考不值得调一次模型，前端截断兜底
+    const info = piRuntime.getProviderInfo()
+    if (!info || !info.baseUrl || !info.model) return
+    const prompt = [
+      '用一句不超过 16 个字的中文短语概括下面这段 AI 思考过程正在做什么（如「分析需求 · 检索文件」）。',
+      '要求：只输出短语本身，不要引号、句号或任何解释；用「·」分隔并列要点，最多两个要点。',
+      '',
+      '<thinking>',
+      text.slice(0, 6000),
+      '</thinking>'
+    ].join('\n')
+    const req = buildDirectRequest(info, prompt, 512)
+    const res = await fetch(req.url, {
+      ...req.init,
+      signal: AbortSignal.timeout(15000)
+    })
+    if (!res.ok) {
+      console.warn('[omnibuddy:think-sum] HTTP', res.status, '—跳过')
+      return
+    }
+    const data = await res.json()
+    const raw = req.parse(data)
+    const firstLine = raw.split('\n').map(t => t.trim()).filter(Boolean)[0] || ''
+    const summary = firstLine
+      .replace(/^["'“”「『【(<（]+/, '')
+      .replace(/["'“”」』】>)）.。]+$/, '')
+    if (!summary) return
+    // 落盘（重开会话可回放）+ 实时广播（前端刷新折叠头标题）
+    sessions.updateMessageField(chatId, messageId, 'thinkingSummary', summary)
+    emit(getWindow, chatId, { type: 'thinking_summary', messageId, summary })
+  } catch (e) {
+    /* 失败静默：前端保留首行截断兜底 */
+  }
+}
+
 module.exports = {
   // 按 apiFormat 组装直调请求（端点 / 请求头 / 请求体 / 响应解析）
   buildDirectRequest,
@@ -360,6 +419,8 @@ module.exports = {
   maybeAutoTitle,
   // 会话记忆摘要（写入 pi-memory daily 文件，同会话条目整体替换）
   writeExitSummary,
+  // 思考段摘要（分段思考 UI 折叠头标题，fire-and-forget）
+  generateThinkingSummary,
   // 摘要写盘串行队列（防并发 upsert 覆盖丢条目）
   enqueueSummary
 }

@@ -140,6 +140,14 @@ function registerWorkspaceIpc(getWindow) {
     return r
   })
 
+  // 更新记忆策略（global / isolate / clean）：策略在会话创建时装载，
+  // 改完销毁全部 pi 会话，下次对话按新策略重建（与规则/记忆编辑同模式）
+  ipcMain.handle('omnibuddy:workspaces:set-memory-policy', async (_e, payload) => {
+    const r = workspaces.setMemoryPolicy(payload.id, payload.policy)
+    if (r.ok) await piRuntime.disposeAllSessions()
+    return r
+  })
+
   // ===== 空间文件管理（网盘风格）=====
   ipcMain.handle('omnibuddy:files:list', (_e, dir) => files.list(dir))
   ipcMain.handle('omnibuddy:files:list-tree', (_e, dir) => files.listTree(dir))

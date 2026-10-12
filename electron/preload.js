@@ -209,6 +209,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     addWorkspace: () => ipcRenderer.invoke('omnibuddy:workspaces:add'),
     removeWorkspace: id => ipcRenderer.invoke('omnibuddy:workspaces:remove', id),
     renameWorkspace: payload => ipcRenderer.invoke('omnibuddy:workspaces:rename', payload),
+    // 记忆策略（global 继承全局 / isolate 独立 / clean 干净启动）
+    setWorkspaceMemoryPolicy: payload => ipcRenderer.invoke('omnibuddy:workspaces:set-memory-policy', payload),
     sessionMeta: id => ipcRenderer.invoke('omnibuddy:session:meta', id),
     // 空间文件管理（网盘风格）：浏览 + 常规操作 + 导入
     files: {

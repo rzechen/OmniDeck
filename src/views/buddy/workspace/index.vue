@@ -35,6 +35,7 @@
         @rename="renameWorkspace"
         @unbind="confirmUnbind"
         @space-rule="openSpaceRule"
+        @memory-policy="openMemoryPolicy"
         @trash-selected="confirmTrashSelected"
         @empty="confirmEmpty"
       />
@@ -116,6 +117,16 @@
       @saved="onSpaceRuleSaved"
       @close="ruleDialog.visible = false"
     />
+
+    <!-- 记忆策略弹窗：切换当前空间记忆来源（继承全局 / 独立 / 干净启动） -->
+    <memory-policy-dialog
+      :visible="mpDialog.visible"
+      :workspace-id="activeId"
+      :workspace-name="active ? displayName(active) : ''"
+      :current="mpDialog.current"
+      @applied="onMemoryPolicyApplied"
+      @close="mpDialog.visible = false"
+    />
   </div>
 </template>
 
@@ -133,6 +144,7 @@ import SpaceList from '@/components/buddy/space/SpaceList.vue'
 import SpaceContextMenu from '@/components/buddy/space/SpaceContextMenu.vue'
 import SpaceFilePreview from '@/components/buddy/space/SpaceFilePreview.vue'
 import SpaceRuleDialog from '@/components/buddy/space/SpaceRuleDialog.vue'
+import MemoryPolicyDialog from '@/components/buddy/space/MemoryPolicyDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { isTextEntry } from '@/utils/ui/file-meta'
 import { getItem, setItem } from '@/utils/storage/db'
@@ -169,6 +181,8 @@ const dragDepth = ref(0)
 const preview = reactive({ visible: false, path: '', name: '', content: '', size: 0, mtime: 0, saving: false })
 // 空间规则弹窗（hasRule 经 rulesTargets 查询，保存后刷新）
 const ruleDialog = reactive({ visible: false, hasRule: false })
+// 记忆策略弹窗（current 取自当前空间登记的 memoryPolicy）
+const mpDialog = reactive({ visible: false, current: 'global' })
 
 const active = computed(() => {
   return workspaces.value.find(w => w.id === activeId.value) || null
@@ -292,6 +306,20 @@ function selectWorkspace(w) {
     currentDir.value = ''
     entries.value = []
   }
+}
+
+// 记忆策略：打开弹窗（回显当前登记的策略）
+function openMemoryPolicy() {
+  const ws = active.value
+  if (!ws) return
+  mpDialog.current = ws.memoryPolicy || 'global'
+  mpDialog.visible = true
+}
+
+// 记忆策略保存成功：刷新登记表（新策略下次会话创建时生效，主进程已销毁旧会话）
+async function onMemoryPolicyApplied() {
+  await loadWorkspaces()
+  bus.emit('omnibuddy:workspaces-changed')
 }
 
 // 重命名当前工作空间：改展示名（磁盘目录不动），成功后同步下拉与任务列表分组

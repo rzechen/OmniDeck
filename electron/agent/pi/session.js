@@ -19,6 +19,21 @@ const { createAskUserExtension, createCredentialGetExtension, createTodoExtensio
 const { systemPrompt } = require('./prompt')
 const { createUiContext, rejectUiAsks } = require('./ui-context')
 const { subscribeSessionEvents } = require('./session-events')
+const workspaces = require('../workspace/workspaces')
+
+// ===== 记忆策略（按工作空间） =====
+// workspaces.memoryPolicy：global 继承全局 / isolate 独立目录 / clean 不装载记忆。
+// 会话创建时解析策略：isolate 在扩展装载前把 PI_MEMORY_DIR 指到独立目录
+//（pi-memory 模块加载时读一次 env，SDK 扩展缓存按 cwd 失效重载——跨 cwd 必重装）；
+// clean 经 extensionsOverride 过滤掉 pi-memory 扩展（工具、上下文注入、退出摘要全断）。
+// 进程 env 是全局的：并发创建不同策略会话时注入窗口可能被覆盖 → 创建全程持锁串行。
+let sessionCreateLock = Promise.resolve()
+function withEnvLock(fn) {
+  const run = sessionCreateLock.then(fn, fn)
+  // 锁链自愈：异常也放行后续等待者
+  sessionCreateLock = run.then(() => {}, () => {})
+  return run
+}
 
 // ===== 工具扩展（会话闭包级） =====
 // 临时目录约定（按工作空间划分）：覆盖内置 bash，spawn 前注入 TMPDIR/TEMP/TMP
@@ -88,15 +103,39 @@ async function invalidateSessionFiles(chatId) {
 // workspaceDir 由调用方按用户选定的"工作空间"传入；
 // 同一会话切换工作空间时，旧 pi 会话必须丢弃重建（上下文与文件环境绑定）。
 async function getOrCreateSession(chatId, provider, historyTexts, onEvent, workspaceDir) {
-  const cwd = workspaceDir
   const cached = state.sessions.get(chatId)
   if (cached) {
-    if (cached.workspaceDir === cwd) return cached.session
-    // 工作空间变化：丢弃旧会话（含旧转录），下面按新配置重建
+    const policyNow = resolveMemoryPolicy(workspaceDir).policy
+    if (cached.workspaceDir === workspaceDir && cached.memoryPolicy === policyNow) return cached.session
+    // 工作空间或记忆策略变化：丢弃旧会话（含旧转录），下面按新配置重建
     await disposeSession(chatId)
   }
+  // 记忆策略注入与扩展装载必须串行（进程 env 全局，见 withEnvLock 注释）
+  return withEnvLock(() => createSessionInternal(chatId, provider, historyTexts, onEvent, workspaceDir))
+}
+
+// 工作空间目录 → 记忆策略（path 反查登记项；未登记回退 global）
+function resolveMemoryPolicy(workspaceDir) {
+  try {
+    const hit = workspaces.list().find(w => w.path === workspaceDir)
+    if (hit) return workspaces.memoryDirFor(hit.id)
+  } catch (e) { /* 读失败回退 global */ }
+  return { policy: 'global', dir: null }
+}
+
+async function createSessionInternal(chatId, provider, historyTexts, onEvent, workspaceDir) {
+  const cwd = workspaceDir
+  const memory = resolveMemoryPolicy(cwd)
   await ensureRuntime(provider)
   const pi = await loadPi()
+
+  // 记忆策略注入（锁内）：isolate 改 PI_MEMORY_DIR；clean 还原默认（全局）
+  const prevMemoryDir = process.env.PI_MEMORY_DIR
+  if (memory.policy === 'isolate' && memory.dir) {
+    process.env.PI_MEMORY_DIR = memory.dir
+  } else {
+    process.env.PI_MEMORY_DIR = path.join(state.agentDir, 'memory')
+  }
 
   const piSessionDir = path.join(state.agentDir, 'sessions', chatId)
   fs.mkdirSync(cwd, { recursive: true })
@@ -270,12 +309,23 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     factories.push(createTmpBashExtension(pi, cwd, getSkillEnv))
   }
 
-  const resourceLoader = new pi.DefaultResourceLoader({
+  // clean 档：过滤 pi-memory 扩展（packages 里注册路径含 "pi-memory"）
+  const loaderOptions = {
     cwd,
     agentDir: state.agentDir,
     systemPromptOverride: () => systemPrompt(),
     extensionFactories: factories
-  })
+  }
+  if (memory.policy === 'clean') {
+    loaderOptions.extensionsOverride = (base) => {
+      const kept = base.extensions.filter(ext => {
+        const p = String(ext && ext.path || '')
+        return p.indexOf('pi-memory') < 0
+      })
+      return Object.assign({}, base, { extensions: kept })
+    }
+  }
+  const resourceLoader = new pi.DefaultResourceLoader(loaderOptions)
   await resourceLoader.reload()
 
   // 关闭 SDK 自动重试（默认最多 3 次静默重试，期间前端一直停留在"思考中"）；
@@ -334,7 +384,10 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
     onEvent({ kind: 'skill', chatId, toolCallId, skillName, toolName })
   })
 
-  state.sessions.set(chatId, { session, unsubscribe, workspaceDir: cwd })
+  // 会话缓存带上策略（writeExitSummary 兜底按会话取目录；restore env）
+  state.sessions.set(chatId, { session, unsubscribe, workspaceDir: cwd, memoryPolicy: memory.policy })
+  // env 已在扩展装载时被读取，恢复进程默认（避免污染其它会话的 bash env 继承）
+  process.env.PI_MEMORY_DIR = prevMemoryDir
   return session
 }
 
@@ -382,6 +435,24 @@ function listSessionIds() {
   return Array.from(state.sessions.keys())
 }
 
+// 会话记忆目录解析（writeExitSummary 兜底用）：
+// 运行时会话直接取缓存；已销毁会话按其绑定的工作空间目录反查（历史会话摘要留档场景）
+function getSessionMemoryInfo(chatId) {
+  const entry = state.sessions.get(chatId)
+  if (entry) {
+    if (entry.memoryPolicy === 'clean') return { policy: 'clean', dir: null }
+    if (entry.memoryPolicy === 'isolate') {
+      const hit = workspaces.list().find(w => w.path === entry.workspaceDir)
+      if (hit) {
+        const info = workspaces.memoryDirFor(hit.id)
+        if (info.policy === 'isolate') return info
+      }
+    }
+    return { policy: 'global', dir: null }
+  }
+  return null
+}
+
 // 全量销毁运行中的 pi 会话（安装 MCP 适配器等扩展后调用，新会话重建时装载新扩展）
 async function disposeAllSessions() {
   const ids = Array.from(state.sessions.keys())
@@ -425,6 +496,8 @@ module.exports = {
   finalizeSession,
   // 内存会话 id 清单
   listSessionIds,
+  // 会话记忆目录解析（记忆策略 isolate/clean 的兜底摘要按此分目录）
+  getSessionMemoryInfo,
   // 中断会话当前回合（abort）
   interruptSession,
   // 运行中插话（排队转向消息，不打断进行中的回答）
