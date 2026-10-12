@@ -361,15 +361,7 @@ const sessionArtifacts = computed(() => {
   }
   return out
 })
-// 首个产物落地时自动弹一次聚合面板（让用户感知入口），此后不重复打扰；
-// 仅限本轮问答进行中（streaming）触发——打开/切换会话加载历史产物时不自动弹
-const artifactsAutoShown = ref(false)
-watch(sessionArtifacts, (list) => {
-  if (list.length && !artifactsAutoShown.value && streaming.value) {
-    artifactsAutoShown.value = true
-    artifactsOpen.value = true
-  }
-}, { flush: 'post' })
+// 产出聚合面板不自动弹出：历史加载与本轮问答产出均不弹，由工具栏入口手动打开
 // 任务清单：取当前分支视图里唯一的 todo 消息（固定面板展示，不进消息流）
 const todoTodos = computed(() => {
   const m = messages.value.find(x => x.role === 'todo')
