@@ -87,6 +87,11 @@
 | **剪贴板管理** |  |
 | ![剪贴板](docs/img/deck/clipboard.png) |  |
 
+## TODO · 后续计划
+
+- **AI 桌宠**：桌面宠物形态的 AI 助手，常驻桌面、随时唤起，让陪伴与效率共存
+- **UI-Agent**：界面级智能体，理解并自动操作应用 UI，把重复操作交给 Agent 完成
+
 ## Stargazers over time
 
 ![Stargazers over time](https://gitcode.com/m0_59492087/OmniDeck/starcharts.svg?variant=adaptive)
