@@ -128,13 +128,11 @@ async function revealArtifact(a) {
   align-items: center;
   gap: 8px;
   padding: 5px 10px;
-  border: 1px solid var(--border-color);
   border-radius: 9px;
   background: var(--card-bg, #fff);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: box-shadow 0.15s ease;
 
   &:hover {
-    border-color: rgba(var(--primary-color-rgb), 0.45);
     box-shadow: 0 1px 8px rgba(var(--primary-color-rgb), 0.08);
   }
 }
