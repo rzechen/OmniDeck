@@ -361,10 +361,11 @@ const sessionArtifacts = computed(() => {
   }
   return out
 })
-// 首个产物落地时自动弹一次聚合面板（让用户感知入口），此后不重复打扰
+// 首个产物落地时自动弹一次聚合面板（让用户感知入口），此后不重复打扰；
+// 仅限本轮问答进行中（streaming）触发——打开/切换会话加载历史产物时不自动弹
 const artifactsAutoShown = ref(false)
 watch(sessionArtifacts, (list) => {
-  if (list.length && !artifactsAutoShown.value) {
+  if (list.length && !artifactsAutoShown.value && streaming.value) {
     artifactsAutoShown.value = true
     artifactsOpen.value = true
   }
@@ -1751,11 +1752,34 @@ function backToBottom() {
 }
 
 /* ===== 产出入口按钮（工具栏内）：图标 + 计数徽标，激活态高亮 =====
-   （slot 内容带本组件 scope id，提高特异性覆盖 .bc-tool-btn 基色） */
+   （slot 内容只带本组件 scope id，吃不到 BuddyComposer 的 .bc-tool-btn 基类，
+    此处自带按钮重置：无边框、透明底，与工具栏其它按钮同款） */
 .bc-tool-btn.ob-out-trigger {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 8px;
   gap: 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
   color: var(--primary-color);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  .svg-icon {
+    font-size: 16px;
+  }
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb), 0.08);
+  }
+
+  &:active {
+    transform: scale(0.9);
+  }
 
   .ob-out-trigger-n {
     font-size: 11px;
