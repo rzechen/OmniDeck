@@ -127,6 +127,60 @@
   }
 }
 
+/* ===== Markdown 图片（markdown-it image 自定义渲染，v-html 内容须全局命中） =====
+   本地路径图片：渲染期输出占位 span，水合成功后替换为 .ob-img（dataURL）；
+   加载 / 读取失败降级为 .ob-img-chip 路径标签（点击唤起右栏产物预览）。
+   使用方：聊天气泡正文 / 思考区 / 工具结果 / 规则预览 / 详情弹窗 */
+.ob-img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 4px 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* 占位（IPC 读图中）：与 chip 同底不同字色，水合完成即被替换 */
+.ob-img-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  margin: 2px 0;
+  border-radius: 6px;
+  border: 1px dashed var(--border-color);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+/* 降级路径 chip：本地路径可点击（唤起右栏预览），远程失败仅展示 */
+.ob-img-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  margin: 2px 0;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-muted, rgba(0, 0, 0, 0.04));
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  word-break: break-all;
+  max-width: 100%;
+
+  &.local {
+    cursor: pointer;
+    color: var(--primary-color);
+    border-color: rgba(var(--primary-color-rgb), 0.35);
+
+    &:hover {
+      background: rgba(var(--primary-color-rgb), 0.09);
+    }
+  }
+}
+
 .ob-el-dialog {
   border-radius: 16px !important;
   border: 1px solid var(--border-color);

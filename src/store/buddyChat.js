@@ -125,13 +125,14 @@ function normalizeHistory(list) {
       }
       if (lastAssistant && sameAnchors(m.anchors, lastAssistant.anchors)) {
         // 中途旁白记录（mid：该轮流式以工具调用收尾）：思考与过程说明按原顺序
-        // 归位思考区，正文不并入（与实时渲染语义一致）
+        // 归位思考区，正文不并入（与实时渲染语义一致）；thinkingSummary 为该段
+        // 落盘记录的模型摘要（后台补写），随思考块回放
         if (m.mid) {
-          if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking })
+          if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking, summary: m.thinkingSummary || '' })
           if (m.content) lastAssistant.items.push({ type: 'narration', content: m.content })
         } else {
           if (m.content) lastAssistant.content = lastAssistant.content ? lastAssistant.content + '\n\n' + m.content : m.content
-          if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking })
+          if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking, summary: m.thinkingSummary || '' })
         }
         // token 用量累加（工具循环中被归并的多条助手记录）
         if (m.usage) {
@@ -149,7 +150,7 @@ function normalizeHistory(list) {
         continue
       }
       const msg = Object.assign({}, m, { items: [] })
-      if (m.thinking) msg.items.push({ type: 'thinking', content: m.thinking })
+      if (m.thinking) msg.items.push({ type: 'thinking', content: m.thinking, summary: m.thinkingSummary || '' })
       // 首条即为中途旁白（本轮开场即工具调用）：正文归位思考区
       if (m.mid && m.content) {
         msg.items.push({ type: 'narration', content: m.content })
@@ -524,10 +525,11 @@ export default {
           break
         }
         case 'thinking': {
-          // 思考过程：按轮次累积为独立内容块（同轮内持续覆盖累积文本）
+          // 思考过程：按轮次累积为独立内容块（同轮内持续覆盖累积文本）；
+          // summary 预置空串（Vue2 新增属性不响应，后补写须先有键）
           const msg = ensureTurnMessage(s)
           if (!s.thinkingItem) {
-            s.thinkingItem = { type: 'thinking', content: '' }
+            s.thinkingItem = { type: 'thinking', content: '', summary: '' }
             msg.items.push(s.thinkingItem)
           }
           s.thinkingItem.content = e.text || ''
@@ -556,6 +558,13 @@ export default {
           // 回填本轮首条落盘记录 id（仅首次）：实时聚合消息与重开归并消息
           // 指向同一条记录，点赞/点踩持久化与分支据此定位
           if (!msg.id && e.messageId) msg.id = e.messageId
+          // 摘要映射登记：本轮落盘记录 id → 当前思考块（s.thinkingItem 即本轮
+          // 累积的思考块，一轮模型调用内所有 thinking 事件写同一块；
+          // thinking_summary 异步到达时据此写入 summary 字段）
+          if (e.messageId && s.thinkingItem && (s.thinkingItem.content || '').trim()) {
+            s.sumPending = s.sumPending || {}
+            s.sumPending[e.messageId] = s.thinkingItem
+          }
           // token 用量：工具循环中多次模型调用，逐次累加；上下文占用取最新快照
           if (e.usage && (e.usage.input || e.usage.output || e.usage.contextTokens)) {
             const prev = msg.usage || { input: 0, output: 0 }
@@ -567,6 +576,31 @@ export default {
             }
           }
           s.thinkTicking = false
+          break
+        }
+        case 'thinking_summary': {
+          // 思考段摘要（主进程后台 LLM 补写）：按落盘记录 id 定位思考块，
+          // 写入 summary 字段刷新分段折叠头标题。实时映射未命中时（组件切走
+          // 后重载等时序错位）按 messageId 找消息，补其末段未命名的思考块
+          const pending = (s.sumPending || {})[e.messageId]
+          if (pending) {
+            pending.summary = e.summary || ''
+            delete s.sumPending[e.messageId]
+            break
+          }
+          for (let i = s.messages.length - 1; i >= 0; i--) {
+            const m = s.messages[i]
+            if (!m.items || m.id !== e.messageId) continue
+            // 同一消息内可能有多段 thinking：只补无 summary 的末段（实时
+            // 场景摘要几乎总在回合结束前后到达，末段即当前段）
+            for (let j = m.items.length - 1; j >= 0; j--) {
+              const it = m.items[j]
+              if (it.type !== 'thinking') continue
+              if (!it.summary) it.summary = e.summary || ''
+              break
+            }
+            break
+          }
           break
         }
         case 'skill': {

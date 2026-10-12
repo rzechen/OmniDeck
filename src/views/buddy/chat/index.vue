@@ -261,13 +261,23 @@
       :session-id="sessionId"
       @rolled-back="onCheckpointRolledBack"
     />
+
+    <!-- 记忆策略弹窗：首次关联新路径成功后选择（global / isolate / clean） -->
+    <memory-policy-dialog
+      :visible="mpDialog.visible"
+      :workspace-id="mpDialog.id"
+      :workspace-name="mpDialog.name"
+      :current="mpDialog.current"
+      @applied="onMemoryPolicyApplied"
+      @close="mpDialog.visible = false"
+    />
   </div>
 </template>
 
 <script setup>
 // OmniBuddy 对话主区：pi Agent 流式对话
 // 一次问答聚合为一条助手消息：正文 + 内嵌内容块（思考过程 / Skill / 工具含 MCP）
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated, toRaw } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated, toRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from 'vuex'
 import BuddyComposer from '@/components/buddy/BuddyComposer.vue'
@@ -281,6 +291,7 @@ import ArtifactsPopover from './components/ArtifactsPopover.vue'
 import TodoCard from '@/components/buddy/chat/TodoCard.vue'
 import QuestionOutline from './components/QuestionOutline.vue'
 import CheckpointDrawer from './components/CheckpointDrawer.vue'
+import MemoryPolicyDialog from '@/components/buddy/space/MemoryPolicyDialog.vue'
 import { getItem, setItem } from '@/utils/storage/db'
 import { computeBranchView } from '@/utils/buddy/branchView'
 import { importFileObject, parseAttachment, buddyApi } from '@/utils/buddy/buddy-api'
@@ -337,6 +348,8 @@ const branchView = computed(() => computeBranchView(rawMessages.value, (sess.val
 const messages = computed(() => branchView.value.list)
 // ===== 产出聚合（阶段三）：会话全部产物汇总 + 弹层开关 =====
 const artifactsOpen = ref(false)
+// 记忆策略弹窗（首次关联新路径成功后弹出选择）
+const mpDialog = reactive({ visible: false, id: '', name: '', current: 'global' })
 const sessionArtifacts = computed(() => {
   if (!Array.isArray(messages.value)) return []
   const out = []
@@ -572,6 +585,7 @@ function api() {
     addWorkspace: async () => ({ ok: false, canceled: true }),
     removeWorkspace: async () => ({ ok: false }),
     renameWorkspace: async () => ({ ok: false }),
+    setWorkspaceMemoryPolicy: async () => ({ ok: false, error: '仅桌面端可用' }),
     sessionMeta: async () => null,
     pickAttachments: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
     importAttachment: async () => ({ ok: false, error: '附件需要 OmniDeck 桌面端' }),
@@ -1136,9 +1150,19 @@ async function linkNewWorkspace() {
     setItem('omnibuddy:workspace-link', workspaceLink.value)
     bus.emit('omnibuddy:workspaces-changed')
     message.success('已关联：' + ws.path)
+    // 首次登记的新空间：弹记忆策略选择（已登记过的幂等返回不弹）
+    if (res.created) {
+      Object.assign(mpDialog, { visible: true, id: ws.id, name: ws.name || ws.path, current: ws.memoryPolicy || 'global' })
+    }
   } else if (res && !res.canceled && res.error) {
     message.error(res.error)
   }
+}
+
+// 记忆策略设置成功：刷新登记表（workspaces 内联对象已含新策略）
+function onMemoryPolicyApplied() {
+  loadWorkspaces()
+  bus.emit('omnibuddy:workspaces-changed')
 }
 
 // ===== 选择面板（打开状态集中管理，同时只展开一个） =====
