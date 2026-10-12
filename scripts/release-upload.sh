@@ -109,10 +109,39 @@ upload_gitcode() {
            \"body\":\"OmniDeck $TAG 发布。安装包与更新文件见附件。使用与再分发条款见仓库 LICENSE。\"}")
     echo "$rel" | grep -q '"tag_name"' || { echo "  ✗ 创建 release 失败：$rel"; return 1; }
   fi
+  # release 数字 id：删除同名附件走 attach_files 接口（按 release id 寻址）
+  local REL_ID
+  REL_ID=$(echo "$rel" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
 
   local fail=0
   for f in "${files[@]}"; do
     echo "→ [gitcode] 上传 $(basename "$f") ..."
+
+    # 0. 同名附件已存在则先删除（重传同名会触发 obs_callback 400；
+    #    每个文件前重拉详情，保证附件列表新鲜）
+    if [ -n "$REL_ID" ]; then
+      local rel_now dup_id
+      rel_now=$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" \
+        "https://api.gitcode.com/api/v5/repos/$OWNER/$REPO/releases/tags/$TAG")
+      dup_id=$(echo "$rel_now" | python3 -c "
+import json, sys
+name = sys.argv[1]
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for key in ('attach_files', 'assets'):
+    for a in (d.get(key) or []):
+        if a.get('name') == name and a.get('id'):
+            print(a['id'])
+            sys.exit(0)" "$(basename "$f")" 2>/dev/null)
+      if [ -n "$dup_id" ]; then
+        echo "  同名附件已存在，删除后重传 ..."
+        curl -s --max-time 20 -o /dev/null -H "Authorization: Bearer $TOKEN" \
+          -X DELETE "https://api.gitcode.com/api/v5/repos/$OWNER/$REPO/releases/$REL_ID/attach_files/$dup_id"
+        sleep 2
+      fi
+    fi
 
     # 1+2. 取预签名地址并 PUT 上传（失败自动换新预签名地址重试 1 次；响应体留存便于诊断）
     local resp attempt rc
@@ -137,7 +166,8 @@ for k, v in d['headers'].items():
 p = subprocess.run(cmd, capture_output=True)
 code = p.stdout.decode().strip()
 print('  上传响应:', code)
-if code != '200':
+# 200 与 203 均为成功：GitCode OBS 直传链路完成后常返回 203（附件已登记，勿误报）
+if code not in ('200', '203'):
     detail = ''
     try:
         detail = open(tmp, errors='replace').read(200)
