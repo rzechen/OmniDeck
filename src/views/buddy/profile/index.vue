@@ -373,7 +373,7 @@ onActivated(() => {
   padding: 20px 4px;
 }
 
-/* Hero 右侧操作（工作空间页口径：保存/刷新并排） */
+/* Hero 右侧操作（保存按钮） */
 .pf-hero-actions {
   display: flex;
   gap: 8px;
