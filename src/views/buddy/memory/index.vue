@@ -26,9 +26,6 @@
             <el-button size="small" round class="ob-mem-op" @click="exportMemory">
               <svg-icon icon-class="download" /> 导出记忆
             </el-button>
-            <el-button size="small" round class="ob-mem-op" @click="refresh">
-              <svg-icon icon-class="refresh-left" /> 刷新
-            </el-button>
           </span>
         </div>
       </div>
@@ -169,7 +166,7 @@
 // 记忆管理（增强）：pi-memory 记忆文件的查看 / 编辑页
 // 数据源：主进程 omnibuddy:memory:*（memory.js 读写 agentDir/memory 下的 markdown；
 // recovery 恢复记录只读展示；status 提供 pi-memory / qmd / collection 就绪状态）
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onActivated } from 'vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { useFeedback } from '@/composables/useFeedback'
 
@@ -410,11 +407,6 @@ async function exportMemory() {
   }
 }
 
-// 刷新：清单 + 就绪状态
-function refresh() {
-  load()
-}
-
 async function load() {
   if (!api.value) return
   loading.value = true
@@ -459,6 +451,18 @@ async function loadStatus() {
 
 // created：进入页面即拉取数据
 load()
+
+// keep-alive 激活（切入本菜单）即拉最新（清单 + 就绪状态）。首次激活跳过（setup
+// 已拉）；有未保存编辑时不重拉（load 会清列表重建视图，避免丢改动），编辑器内容
+// 的过期由保存/切换时服务端为准兜底
+let _memActivatedOnce = false
+onActivated(() => {
+  if (!_memActivatedOnce) {
+    _memActivatedOnce = true
+    return
+  }
+  if (!isDirty.value) load()
+})
 </script>
 
 <style lang="scss" scoped>

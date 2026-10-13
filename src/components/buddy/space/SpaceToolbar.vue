@@ -83,7 +83,7 @@
       <button class="sp-tool-btn" title="新建文件夹" @click="emit('create-folder')"><svg-icon icon-class="folder-add" /><span>文件夹</span></button>
       <button class="sp-tool-btn" title="新建文件" @click="emit('create-file')"><svg-icon icon-class="document-add" /><span>文件</span></button>
       <button class="sp-tool-btn" title="从本机导入文件" @click="emit('import')"><svg-icon icon-class="upload" /><span>导入</span></button>
-      <!-- 空间规则：编辑当前工作空间的 AGENTS.md，仅该空间对话生效 -->
+      <!-- 空间规则：编辑当前工作空间的规则（内部存储），仅该空间对话生效 -->
       <button class="sp-tool-btn" title="编辑此空间的规则，仅该空间对话生效" @click="emit('space-rule')"><svg-icon icon-class="rules" /><span>空间规则</span></button>
       <!-- 记忆策略：切换此空间对话的记忆来源（继承全局 / 独立 / 干净启动） -->
       <button class="sp-tool-btn" title="设置此空间的记忆策略" @click="emit('memory-policy')"><svg-icon icon-class="memory" /><span>记忆策略</span></button>
@@ -99,10 +99,8 @@
       <button class="sp-icon-btn" title="重命名此空间" @click="emit('rename')">
         <svg-icon icon-class="edit" />
       </button>
-      <button class="sp-icon-btn" title="刷新" @click="emit('refresh')">
-        <svg-icon icon-class="refresh-left" :class="{ spinning: loading }" />
-      </button>
       <!-- 解绑当前工作空间（连带删除该空间任务记录，二次确认在页面层） -->
+      <!-- 文件列表刷新：切入本页（keep-alive 激活）时自动拉取最新，无需手动按钮 -->
       <button class="sp-icon-btn" title="解绑此空间" @click="emit('unbind')">
         <svg-icon icon-class="unlink" />
       </button>
@@ -150,10 +148,6 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  loading: {
-    type: Boolean,
-    default: false
-  },
   // 当前目录多选中的条目数（> 0 时显示「删除所选」按钮）
   selectedCount: {
     type: Number,
@@ -164,7 +158,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:view', 'update:show-hidden', 'update:search', 'select-workspace',
   'create-folder', 'create-file', 'import', 'space-rule', 'trash-selected',
-  'empty', 'rename', 'refresh', 'unbind', 'memory-policy'
+  'empty', 'rename', 'unbind', 'memory-policy'
 ])
 
 // 下拉展开状态（组件内部管理，点击外部关闭）
@@ -471,15 +465,6 @@ onBeforeUnmount(() => {
     color: var(--primary-color);
     border-color: rgba(var(--primary-color-rgb), 0.5);
   }
-}
-
-/* 刷新图标旋转（loading 时） */
-.svg-icon.spinning {
-  animation: sp-rotate 0.8s linear infinite;
-}
-
-@keyframes sp-rotate {
-  to { transform: rotate(360deg); }
 }
 
 .sp-divider {

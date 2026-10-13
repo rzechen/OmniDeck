@@ -9,7 +9,10 @@
 
 ## 功能定位
 
-全局 / 工作空间两级 `AGENTS.md` 规则编辑，对话时自动注入系统提示词。
+全局 / 工作空间两级规则编辑，对话时自动注入系统提示词。
+
+- **全局规则**：`<agentDir>/AGENTS.md`，pi SDK 原生装载
+- **工作空间规则**：应用内部 `<agentDir>/rules/<空间id>.md`（不落工作空间磁盘，避免暴露给用户误删）；会话创建时经 `agentsFilesOverride` 注入为虚拟上下文文件
 
 ## 页面结构
 
@@ -32,6 +35,6 @@
 
 | 数据 | 位置 |
 | --- | --- |
-| 规则文件（AGENTS.md） | 主进程文件（IPC `rulesTargets / getRule / saveRule`） |
+| 规则内容 | 主进程文件（IPC `rulesTargets / getRule / saveRule`；全局 `<agentDir>/AGENTS.md`，工作空间 `<agentDir>/rules/<空间id>.md`） |
 
 规则随对话自动注入系统提示词，无需手动操作。
