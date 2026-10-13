@@ -146,7 +146,7 @@ import SpaceFilePreview from '@/components/buddy/space/SpaceFilePreview.vue'
 import SpaceRuleDialog from '@/components/buddy/space/SpaceRuleDialog.vue'
 import MemoryPolicyDialog from '@/components/buddy/space/MemoryPolicyDialog.vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
-import { isTextEntry } from '@/utils/ui/file-meta'
+import { isTextEntry, extOf } from '@/utils/ui/file-meta'
 import { getItem, setItem } from '@/utils/storage/db'
 import { bus } from '@/utils/ui/bus'
 import { useFeedback } from '@/composables/useFeedback'
@@ -430,6 +430,11 @@ function selectEntry(name, e) {
 function openEntry(en) {
   if (en.isDir) {
     currentDir.value = entryPath(en)
+    return
+  }
+  // 网页文件交给系统浏览器打开（主进程强制浏览器），不走源码预览
+  if (['html', 'htm'].includes(extOf(en.name))) {
+    openExternal(en)
     return
   }
   if (isTextEntry(en)) {
