@@ -1,5 +1,5 @@
 <template>
-  <!-- 工作空间规则抽屉：复用 RuleEditor 编辑当前空间的 AGENTS.md
+  <!-- 工作空间规则抽屉：复用 RuleEditor 编辑当前空间的规则（内部存储，不落空间磁盘）
        长文编辑场景 → 右侧全高抽屉（ob-drawer 体系），编辑器撑满剩余高度 -->
   <transition name="ob-drawer">
     <div v-if="visible" class="ob-drawer" @mousedown.self="emit('close')">

@@ -1,6 +1,7 @@
 <template>
   <div class="ob-manage-page">
-    <!-- 顶部 Hero：纯排版（无框无底色，标题 + 计数徽标 + 描述 + 刷新） -->
+    <!-- 顶部 Hero：纯排版（无框无底色，标题 + 计数徽标 + 描述。
+         索引在切入页面（keep-alive 激活）时自动拉取最新，无手动刷新按钮） -->
     <header class="ob-market-hero">
       <div class="ob-hero-content">
         <div class="ob-hero-title-group">
@@ -11,15 +12,6 @@
           探索并一键扩展 Agent 能力，安装后无须重启即刻生效
         </p>
       </div>
-      <el-button
-        size="small"
-        round
-        class="ob-refresh-btn"
-        :loading="loading"
-        @click="loadIndex"
-      >
-        <svg-icon icon-class="refresh-left" class="ob-btn-svg" />刷新市场
-      </el-button>
     </header>
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
@@ -436,10 +428,17 @@ onMounted(() => {
   loadIndex()
 })
 
+// 首次激活标记（onMounted 已拉，首次 onActivated 跳过）
+let _mktActivatedOnce = false
+
 onActivated(() => {
-  // keep-alive 页面重入：安装状态可能在别处已变更（如技能管理页删除 Skill），
-  // 重新拉取市场索引刷新 installed 状态（首次进入由 mounted 加载，items 为空时跳过）
-  if (!loading.value && (items.value.length || error.value)) loadIndex()
+  // keep-alive 页面重入：切入即重拉索引（installed 状态可能在别处已变更，如技能
+  // 管理页删除 Skill）；首次激活跳过（onMounted 已拉，避免重复请求）
+  if (!_mktActivatedOnce) {
+    _mktActivatedOnce = true
+    return
+  }
+  if (!loading.value) loadIndex()
 })
 </script>
 
@@ -492,15 +491,6 @@ onActivated(() => {
     margin: 6px 0 0 0;
     font-size: 12px;
     color: $text-secondary;
-  }
-
-  .ob-refresh-btn {
-    border-color: var(--border-color);
-    background: var(--card-bg, #fff);
-    &:hover {
-      border-color: var(--primary-color);
-      color: var(--primary-color);
-    }
   }
 }
 

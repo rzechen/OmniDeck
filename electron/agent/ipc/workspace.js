@@ -167,7 +167,7 @@ function registerWorkspaceIpc(getWindow) {
   ipcMain.handle('omnibuddy:files:import-dialog', (_e, dir) => files.importDialog(dir))
   ipcMain.handle('omnibuddy:files:import-paths', (_e, payload) => files.importPaths(payload.dir, payload.paths))
 
-  // ===== 项目规则：全局 / 工作空间 AGENTS.md 读写，pi SDK 原生装载 =====
+  // ===== 项目规则：全局 AGENTS.md / 工作空间规则（内部存储 + 会话虚拟注入） =====
   // 保存后销毁全部 pi 会话：规则注入发生在会话创建时，新会话才能装载新规则
   ipcMain.handle('omnibuddy:rules:targets', () => rules.targets())
 

@@ -13,6 +13,7 @@ const mcp = require('../integrations/mcp')
 const capabilities = require('../platform/capabilities')
 const docExport = require('../tools/doc-export')
 const imageGen = require('../tools/image-gen')
+const rules = require('../knowledge/rules')
 const { state, loadPi } = require('./state')
 const { ensureRuntime, thinkingLevelOf } = require('./provider')
 const { createAskUserExtension, createCredentialGetExtension, createTodoExtension } = require('./extensions')
@@ -314,7 +315,12 @@ async function createSessionInternal(chatId, provider, historyTexts, onEvent, wo
     cwd,
     agentDir: state.agentDir,
     systemPromptOverride: () => systemPrompt(),
-    extensionFactories: factories
+    extensionFactories: factories,
+    // 空间规则虚拟注入：规则存应用内部（不落工作空间磁盘），此处以虚拟上下文
+    // 文件并入 pi 原生发现的清单（全局 agentDir/AGENTS.md 与用户手写文件照常装载）
+    agentsFilesOverride: (base) => ({
+      agentsFiles: base.agentsFiles.concat(rules.sessionAgentsFiles(cwd))
+    })
   }
   if (memory.policy === 'clean') {
     loaderOptions.extensionsOverride = (base) => {

@@ -181,7 +181,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       installed: () => ipcRenderer.invoke('omnibuddy:market:installed'),
       openHome: url => ipcRenderer.invoke('omnibuddy:market:open-home', url)
     },
-    // 项目规则：全局 / 工作空间 AGENTS.md 管理（pi SDK 原生装载）
+    // 项目规则：全局 AGENTS.md + 工作空间规则（内部存储，会话创建时虚拟注入）
     rulesTargets: () => ipcRenderer.invoke('omnibuddy:rules:targets'),
     getRule: key => ipcRenderer.invoke('omnibuddy:rules:get', key),
     saveRule: payload => ipcRenderer.invoke('omnibuddy:rules:save', payload),

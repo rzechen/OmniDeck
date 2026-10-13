@@ -102,6 +102,7 @@
               @rename-chat="renameChat"
               @pin-chat="togglePinChat"
               @delete-chat="confirmDeleteChat"
+              @clear-group="confirmClearGroup"
             />
           </div>
         </div>
@@ -440,6 +441,41 @@ function confirmDeleteChat(c) {
       router.push('/omnibuddy').catch(() => {})
     }
     message.success('已删除')
+  }).catch(() => {})
+}
+
+// 清空工作空间下所有任务（任务列表分组标题的清空按钮）：二次确认后批量删除
+function confirmClearGroup(g) {
+  const ids = g.chats.map(c => c.id)
+  if (!ids.length) return
+  confirm(`将删除「${g.name}」下的 ${ids.length} 个任务，删除后记录将一并移除，确定清空吗？`, '清空任务', {
+    confirmButtonText: '清空',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    // 确认后再次校验：弹窗期间可能有任务开始执行，此时不允许清空
+    const busy = ids.some(id => {
+      const s = store.getters['buddyChat/session'](id)
+      return s && (s.streaming || (s.permQueue && s.permQueue.length) || (s.bgRuns && s.bgRuns.length))
+    })
+    if (busy) {
+      message.warning('有任务正在执行，暂不能清空')
+      return
+    }
+    const api = buddyApi()
+    for (const id of ids) {
+      if (api) await api.deleteSession(id)
+      // 同步移除该会话的缓存登记，并清理会话状态池（防泄漏）
+      store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + id })
+      store.commit('buddyChat/DROP_SESSION', id)
+    }
+    const removed = new Set(ids)
+    chats.value = chats.value.filter(x => !removed.has(x.id))
+    // 当前会话被清掉：回到新建页
+    if (removed.has(activeChatId.value)) {
+      router.push('/omnibuddy').catch(() => {})
+    }
+    message.success('已清空')
   }).catch(() => {})
 }
 

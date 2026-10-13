@@ -23,7 +23,6 @@
         v-model:view="view"
         v-model:show-hidden="showHidden"
         v-model:search="search"
-        :loading="loading"
         :workspaces="workspaceItems"
         :active-id="activeId"
         :selected-count="selected.length"
@@ -31,7 +30,6 @@
         @create-folder="createFolder"
         @create-file="createFile"
         @import="importDialog"
-        @refresh="load"
         @rename="renameWorkspace"
         @unbind="confirmUnbind"
         @space-rule="openSpaceRule"
@@ -133,7 +131,7 @@
 <script setup>
 // OmniBuddy 工作空间页：网盘风格的本地文件管理（状态与业务编排，UI 见 components/buddy/space/）
 // 工作空间来源 = 对话中「关联本地磁盘路径」登记的目录；默认为空状态占位
-import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, onActivated, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useStore } from 'vuex'
 import SpaceBlank from '@/components/buddy/space/SpaceBlank.vue'
@@ -709,6 +707,19 @@ watch(() => currentDir.value, () => {
   selected.value = []
   lastAnchor.value = ''
   search.value = ''
+  load()
+})
+
+// keep-alive 激活（切入工作空间菜单）即拉最新：外部改动（访达 / 终端等）无需手动刷新。
+// loadWorkspaces 同空间不重置 currentDir（watch 不触发），需补一次 load 重拉目录；
+// 首次激活跳过：setup 已拉过，避免重复请求
+let _wsActivatedOnce = false
+onActivated(() => {
+  if (!_wsActivatedOnce) {
+    _wsActivatedOnce = true
+    return
+  }
+  loadWorkspaces()
   load()
 })
 

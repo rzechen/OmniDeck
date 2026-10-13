@@ -1,6 +1,7 @@
 <template>
   <div class="ob-manage-page">
-    <!-- 顶部 Hero（与其他管理页同款：标题 + 徽标 + 描述；保存/刷新在右侧，工作空间页口径） -->
+    <!-- 顶部 Hero（与其他管理页同款：标题 + 徽标 + 描述；保存按钮在右侧。
+         数据在切入页面（keep-alive 激活）时自动拉取最新，无手动刷新按钮） -->
     <header class="ob-hero">
       <div class="ob-hero-content">
         <div class="ob-hero-title-group">
@@ -12,7 +13,6 @@
         </p>
       </div>
       <div class="pf-hero-actions">
-        <el-button size="small" round @click="refresh"><svg-icon icon-class="refresh-left" /> 刷新</el-button>
         <el-button size="small" round type="primary" :loading="saving" @click="save">
           <svg-icon icon-class="check" /> {{ activeTab === 'rule' ? '保存规则' : '保存资料' }}
         </el-button>
@@ -179,7 +179,7 @@
 // - 我的凭据 → safeStorage 加密存储，对话中 credential_get 按名取用（默认 ask）
 // - 全局规则 → AGENTS.md（pi 原生装载），保存即销毁 pi 会话（主进程内置）
 // - 工作空间规则入口在工作空间页工具栏（SpaceToolbar「空间规则」按钮）
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onActivated } from 'vue'
 import { downloadText } from '@/utils/ui/download'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import RuleEditor from '@/components/buddy/RuleEditor.vue'
@@ -253,7 +253,6 @@ async function load() {
   }
   loading.value = false
 }
-
 // 凭据列表（全量，含连接器类以外的所有条目；用途徽标由字段区分）
 async function loadCreds() {
   const a = api()
@@ -270,10 +269,6 @@ async function loadCreds() {
 function openCred(item) {
   credDialog.item = item
   credDialog.visible = true
-}
-
-function refresh() {
-  load()
 }
 
 function addCustom() {
@@ -295,6 +290,7 @@ async function save() {
     const res = await a.profileSave({ fields: fields.value, customs: customs.value })
     if (res && res.ok) {
       customs.value = (res.data.customs || []).map(c => Object.assign({}, c))
+      _pfSavedSnapshot = JSON.stringify({ f: fields.value, c: customs.value })
       message.success('已保存，新对话生效')
     } else {
       message.error((res && res.error) || '保存失败')
@@ -338,6 +334,32 @@ async function exportGlobalRule() {
 
 // created：进入页面即拉取数据
 load()
+
+// keep-alive 激活（切入本菜单）即拉最新。首次激活跳过（setup 已拉）；
+// 表单有未保存编辑时不整体 reload（避免覆盖），仅静默刷新凭据与规则徽标
+let _pfActivatedOnce = false
+let _pfSavedSnapshot = ''
+function profileDirty() {
+  return JSON.stringify({ f: fields.value, c: customs.value }) !== _pfSavedSnapshot
+}
+onActivated(() => {
+  if (!_pfActivatedOnce) {
+    _pfActivatedOnce = true
+    _pfSavedSnapshot = JSON.stringify({ f: fields.value, c: customs.value })
+    return
+  }
+  const a = api()
+  if (!a) return
+  if (!profileDirty()) {
+    load()
+  } else {
+    loadCreds()
+  }
+  a.rulesTargets().then(targets => {
+    const g = (targets || []).find(t => t.kind === 'global')
+    globalRule.value = g || { hasRule: false }
+  }).catch(() => {})
+})
 </script>
 
 <style lang="scss" scoped>

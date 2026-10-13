@@ -14,11 +14,25 @@
     </div>
 
     <div v-for="g in groups" :key="g.key" class="buddy-group">
-      <!-- 分组标题：展示名（无则磁盘路径），title 提示完整路径；点击展开/收起组内任务 -->
-      <div class="buddy-group-title" :class="{ collapsed: !!collapsedGroups[g.key] }" :title="g.dir" @click="toggleGroup(g.key)">
+      <!-- 分组标题：展示名（无则磁盘路径），title 提示完整路径；点击展开/收起组内任务。
+           收起时若组内有正在执行的任务，名称加呼吸动效提示（has-running） -->
+      <div
+        class="buddy-group-title"
+        :class="{ collapsed: !!collapsedGroups[g.key], 'has-running': !!collapsedGroups[g.key] && groupRunning(g) }"
+        :title="g.dir"
+        @click="toggleGroup(g.key)"
+      >
         <svg-icon icon-class="arrow-down" class="buddy-group-arrow" />
         <svg-icon icon-class="folder" class="buddy-group-ico" />
         <span class="buddy-group-name">{{ g.name }}</span>
+        <!-- 清空本工作空间任务：hover 分组标题浮现；组内有任务执行中时禁用（防误删运行数据） -->
+        <svg-icon
+          icon-class="eraser"
+          class="buddy-group-clear"
+          :class="{ disabled: groupRunning(g) }"
+          :title="groupRunning(g) ? '有任务正在执行，暂不能清空' : '清空该工作空间的任务'"
+          @click.stop="onClearGroup(g)"
+        />
         <span class="buddy-group-count">{{ g.chats.length }}</span>
       </div>
 
@@ -100,7 +114,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['select-chat', 'pin-chat', 'rename-chat', 'delete-chat'])
+const emit = defineEmits(['select-chat', 'pin-chat', 'rename-chat', 'delete-chat', 'clear-group'])
 
 const store = useStore()
 
@@ -165,6 +179,18 @@ function stateOf(c) {
   if (s.bgRuns && s.bgRuns.length) return 'running'
   return ''
 }
+// 分组内是否有正在执行的任务（streaming/pending/running 任一）：
+// 收起分组时由标题呼吸动效提示，避免用户漏看后台仍在跑的任务
+function groupRunning(g) {
+  return g.chats.some(c => stateOf(c))
+}
+
+// 清空工作空间下所有任务：组内有任务执行中时禁止（防误删运行数据），否则交父组件二次确认
+function onClearGroup(g) {
+  if (groupRunning(g)) return
+  emit('clear-group', g)
+}
+
 // ===== 对话名称 hover 滚动（超长标题从右向左滚动展示） =====
 function onChatEnter(e) {
   const wrap = e.currentTarget.querySelector('.buddy-chat-name')
@@ -241,6 +267,12 @@ function onChatLeave(e) {
     white-space: nowrap;
   }
 
+  /* 收起且组内有任务在执行：名称呼吸闪烁提示（展开后组内任务行自带状态标记，无需呼吸） */
+  &.collapsed.has-running .buddy-group-name {
+    color: var(--primary-color);
+    animation: ob-group-breath 1.6s ease-in-out infinite;
+  }
+
   .buddy-group-count {
     flex-shrink: 0;
     font-size: 10px;
@@ -250,6 +282,33 @@ function onChatLeave(e) {
     border-radius: 999px;
     padding: 0 6px;
     line-height: 15px;
+  }
+
+  /* 清空按钮：默认隐藏，hover 分组标题时浮现（禁用态也浮现，便于 hover 查看 title 原因） */
+  .buddy-group-clear {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: $text-secondary;
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.15s ease, color 0.15s ease;
+
+    &:hover {
+      color: var(--danger-color);
+    }
+
+    /* 有任务执行中：置灰禁点（点击在 onClearGroup 内拦截） */
+    &.disabled {
+      cursor: not-allowed;
+
+      &:hover {
+        color: $text-secondary;
+      }
+    }
+  }
+
+  &:hover .buddy-group-clear {
+    opacity: 1;
   }
 }
 
@@ -451,6 +510,18 @@ function onChatLeave(e) {
 @keyframes ob-bgrun-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
+}
+
+/* 收起分组的名称呼吸（有任务执行中）：透明度 + 微弱光晕同步起伏 */
+@keyframes ob-group-breath {
+  0%, 100% {
+    opacity: 1;
+    text-shadow: 0 0 0 rgba(var(--primary-color-rgb, 64, 158, 255), 0);
+  }
+  50% {
+    opacity: 0.45;
+    text-shadow: 0 0 6px rgba(var(--primary-color-rgb, 64, 158, 255), 0.5);
+  }
 }
 
 </style>
