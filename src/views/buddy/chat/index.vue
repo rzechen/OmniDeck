@@ -1265,7 +1265,8 @@ async function editResend({ message: msg, text }) {
   const sendRes = await api().sendMessage({
     id: sid.value,
     text,
-    provider: currentProvider.value,
+    // 浅拷贝穿透响应式 Proxy（IPC 结构化克隆无法序列化 Proxy），并附加档位映射，与主发送路径一致
+    provider: Object.assign({}, currentProvider.value, { tiers: tierMapping.value }),
     workspaceId: workspaceLink.value.workspaceId,
     displayName: workspaceLink.value.name,
     anchors,
