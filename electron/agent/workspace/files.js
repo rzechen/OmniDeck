@@ -346,9 +346,59 @@ function reveal(p) {
 async function open(p) {
   const abs = safePath(p)
   if (!abs || !fs.existsSync(abs)) return { ok: false, error: '路径不存在' }
+  // 网页文件：系统默认应用不保证是浏览器（常见被 VSCode 等编辑器抢占），
+  // 强制走系统浏览器打开，保证「打开即所见」
+  if (/\.html?$/i.test(abs)) return openInBrowser(abs)
   const err = await shell.openPath(abs)
   if (err) return { ok: false, error: err }
   return { ok: true }
+}
+
+// 浏览器打开：.html 的系统默认应用可能被编辑器抢占，
+// 解析系统默认浏览器（https 处理器）用 open -b 强制指定应用打开
+const { execFile } = require('child_process')
+
+async function openInBrowser(abs) {
+  const bundle = await getHttpsHandler()
+  // 逐段编码（中文文件名安全），斜杠保持分隔符
+  const url = 'file://' + abs.split('/').map(encodeURIComponent).join('/')
+  try {
+    if (bundle && process.platform === 'darwin') {
+      await new Promise((resolve, reject) => {
+        execFile('open', ['-b', bundle, url], e => (e ? reject(e) : resolve()))
+      })
+      return { ok: true }
+    }
+    await shell.openExternal(url)
+    return { ok: true }
+  } catch (e) {
+    const err = await shell.openPath(abs)
+    return err ? { ok: false, error: err } : { ok: true }
+  }
+}
+
+// 提取系统默认浏览器 bundle id（https 协议处理器；仅 macOS，失败返回空）
+let httpsHandlerCache = null
+function getHttpsHandler() {
+  if (httpsHandlerCache !== null) return Promise.resolve(httpsHandlerCache)
+  if (process.platform !== 'darwin') {
+    httpsHandlerCache = ''
+    return Promise.resolve(httpsHandlerCache)
+  }
+  return new Promise(resolve => {
+    const plist = path.join(process.env.HOME || '', 'Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist')
+    execFile('plutil', ['-convert', 'json', '-o', '-', plist], (err, stdout) => {
+      if (err) return resolve((httpsHandlerCache = ''))
+      try {
+        const handlers = JSON.parse(stdout).LSHandlers || []
+        const h = handlers.find(x => x.LSHandlerURLScheme === 'https' && x.LSHandlerRoleAll)
+        httpsHandlerCache = (h && h.LSHandlerRoleAll) || ''
+      } catch (e) {
+        httpsHandlerCache = ''
+      }
+      resolve(httpsHandlerCache)
+    })
+  })
 }
 
 // ===== 导入 =====
