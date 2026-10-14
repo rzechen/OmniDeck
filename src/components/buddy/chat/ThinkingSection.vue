@@ -1,7 +1,8 @@
 <template>
   <!-- 深度思考区（分段时间线）：每个思考段独立折叠（折叠头 = 序号 + 摘要），
-       段内正文与其后续的工具 / Skill / 问答记录随段折叠；过程说明恒平铺
-       构成时间线脉络；待回答 ask 恒可见 -->
+       段内正文与其后续的工具 / Skill / 问答记录随段折叠；过程说明（narration）
+       按事件时序平铺（无缩进，时间线骨架层）——时序为思考 → 说明 → 工具调用
+       （说明是该轮动作发起前对用户的预告），不可重排；待回答 ask 恒可见 -->
   <div class="ob-think">
     <div class="ob-think-body">
       <template v-for="(item, i) in items">
@@ -37,7 +38,9 @@
           </div>
         </div>
 
-        <!-- 过程说明（中途正文归位）：恒平铺，与各段摘要同级衔接 -->
+        <!-- 过程说明（中途正文归位）：按事件时序平铺（无缩进，时间线骨架层），
+             位置在所属思考段之后、工具调用之前——动作发起前对用户的预告；
+             正文主色与思考文本（灰色）区分，明确"对用户的发言"而非推理内容 -->
         <div
           v-else-if="item.type === 'narration'"
           :key="'narration-' + i"
@@ -759,8 +762,9 @@ function fcRemoved(fc) {
 }
 
 /* 思考区时间线内容层：工具 / Skill / ask 卡片 / 思考段正文同层级缩进，
-   左侧统一竖线构成"过程内容"一列；思考段折叠头与过程说明在外层
-   平铺同级（构成时间线骨架）；段正文与折叠头另拉开上间距 */
+   左侧统一竖线构成"过程内容"一列；思考段折叠头与过程说明在外层平铺
+   （时间线骨架；说明按事件时序穿插于其间，靠正文色与段内容区分）；
+   段正文与折叠头另拉开上间距 */
 .ob-think-body > .ob-tool,
 .ob-think-body > .ob-skill,
 .ob-think-body > .ob-think-ask,
@@ -838,7 +842,6 @@ function fcRemoved(fc) {
   font-size: 13px;
   line-height: 1.65;
   color: var(--text-secondary);
-
   .ob-think-md {
     :deep(p) { margin: 0 0 4px; }
     :deep(p:last-child) { margin-bottom: 0; }
@@ -906,6 +909,13 @@ function fcRemoved(fc) {
       }
     }
   }
+}
+
+/* 过程说明（中途正文）：按事件时序平铺时间线骨架层（无缩进无竖线，位置在
+   所属思考段之后、工具调用之前——动作发起前对用户的预告）；正文主色与
+   思考文本（灰色）区分，明确"对用户的发言"而非推理内容 */
+.ob-narration {
+  color: var(--text-primary);
 }
 
 /* Skill 行 */
