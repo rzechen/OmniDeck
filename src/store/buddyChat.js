@@ -55,6 +55,22 @@ function sameAnchors(a, b) {
 //    （两轮问答之间必有 user 记录，遇到 user 即开启新一轮归并）
 function normalizeHistory(list) {
   const out = []
+  // 预扫描兜底 mid 判定（与实时渲染 tool_start 兜底封存语义一致）：落盘记录
+  // mid 标记缺失时（旧版白名单漏存等），assistant 记录之后在本轮内
+  // （下一 user / assistant 记录之前）紧跟 tool 记录，即表明该段正文以
+  // 工具调用收尾 → 过程说明而非最终答复，回放须归位思考区穿插展示；
+  // ask_user / permission / todo 等展示行不打断判定（倒序扫描，遇
+  // tool 记住、遇 user / assistant 结算后重置）
+  const followedByTool = new Array(list.length).fill(false)
+  let sawTool = false
+  for (let i = list.length - 1; i >= 0; i--) {
+    const r = list[i].role
+    if (r === 'tool') { sawTool = true; continue }
+    if (r === 'user' || r === 'assistant') {
+      followedByTool[i] = sawTool
+      sawTool = false
+    }
+  }
   // 当前轮次的助手消息（归并目标）：permission / ask_user / todo 等展示行不打断归并
   let lastAssistant = null
   // 暂存的 ask_user 问答（其落盘早于 tool(ask_user) 记录，等 tool 记录到达时挂接）
@@ -76,7 +92,8 @@ function normalizeHistory(list) {
     }
     pendingAsk = null
   }
-  for (const m of list) {
+  for (let li = 0; li < list.length; li++) {
+    const m = list[li]
     if (m.role === 'tool') {
       if (lastAssistant && sameAnchors(m.anchors, lastAssistant.anchors)) {
         const item = {
@@ -126,8 +143,9 @@ function normalizeHistory(list) {
       if (lastAssistant && sameAnchors(m.anchors, lastAssistant.anchors)) {
         // 中途旁白记录（mid：该轮流式以工具调用收尾）：思考与过程说明按原顺序
         // 归位思考区，正文不并入（与实时渲染语义一致）；thinkingSummary 为该段
-        // 落盘记录的模型摘要（后台补写），随思考块回放
-        if (m.mid) {
+        // 落盘记录的模型摘要（后台补写），随思考块回放。
+        // mid 字段缺失的存量记录走 followedByTool 兜底（判定见预扫描）
+        if (m.mid || followedByTool[li]) {
           if (m.thinking) lastAssistant.items.push({ type: 'thinking', content: m.thinking, summary: m.thinkingSummary || '' })
           if (m.content) lastAssistant.items.push({ type: 'narration', content: m.content })
         } else {
@@ -151,8 +169,8 @@ function normalizeHistory(list) {
       }
       const msg = Object.assign({}, m, { items: [] })
       if (m.thinking) msg.items.push({ type: 'thinking', content: m.thinking, summary: m.thinkingSummary || '' })
-      // 首条即为中途旁白（本轮开场即工具调用）：正文归位思考区
-      if (m.mid && m.content) {
+      // 首条即为中途旁白（本轮开场即工具调用，含 mid 缺失的存量兜底）：正文归位思考区
+      if ((m.mid || followedByTool[li]) && m.content) {
         msg.items.push({ type: 'narration', content: m.content })
         msg.content = ''
       }
