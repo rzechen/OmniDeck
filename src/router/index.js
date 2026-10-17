@@ -30,18 +30,8 @@ const routes = [
         component: () => import('@/views/buddy/providers/index.vue'),
         meta: { title: '模型管理' }
       },
-      {
-        path: 'mcp',
-        name: 'OmniBuddyMcp',
-        component: () => import('@/views/buddy/mcp/index.vue'),
-        meta: { title: '连接器' }
-      },
-      {
-        path: 'skills',
-        name: 'OmniBuddySkills',
-        component: () => import('@/views/buddy/skills/index.vue'),
-        meta: { title: '技能' }
-      },
+      // 「我的技能 / 我的连接器」已并入资源市场页（market 页内类型 tag + 广场/我的视图切换），
+      // 原独立路由移除（组件由 market/index.vue 内嵌复用）
       {
         path: 'profile',
         name: 'OmniBuddyProfile',
@@ -832,6 +822,11 @@ router.afterEach((to) => {
     let title = meta.title || to.path
     // 空白对话页显示「新任务」（有会话 id 时标题由 BuddyLayout 按任务名补齐）
     if (side === 'buddy' && to.path === '/omnibuddy' && !to.query.s) title = '新任务'
+    // 资源市场按 类型+视图 显示页签名（技能广场 / 我的技能 / 子代理广场 / …）
+    if (side === 'buddy' && to.path === '/omnibuddy/market') {
+      const t = { skill: '技能', agent: '子代理', connector: '连接器' }[to.query.type]
+      if (t) title = to.query.view === 'mine' ? '我的' + t : t + '广场'
+    }
     store.commit('tagsView/ADD_TAB', { side, path: to.path, fullPath: to.fullPath, title })
   }
 })

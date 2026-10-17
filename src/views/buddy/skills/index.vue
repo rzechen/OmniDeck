@@ -1,23 +1,17 @@
 <template>
   <div class="ob-manage-page">
-    <!-- 顶部 Hero（市场页同款：极简标题 + 数量徽标 + 描述 + 右侧操作） -->
+    <!-- 顶部 Hero（市场页同款：极简标题 + 数量徽标 + 描述；
+         导入入口已收至资源市场页「添加」下拉，页面不再单独提供） -->
     <header class="ob-hero">
       <div class="ob-hero-content">
         <div class="ob-hero-title-group">
-          <h2 class="ob-section-title">技能</h2>
+          <h2 class="ob-section-title">我的技能</h2>
           <span class="ob-hero-badge" v-if="skillList.length">{{ skillList.length }} 个已安装</span>
         </div>
         <p class="ob-section-desc">
           为 Agent 定义可复用的技能手册（SKILL.md），Agent 按需渐进加载
         </p>
       </div>
-      <el-button
-        size="small"
-        round
-        type="primary"
-        class="ob-hero-btn"
-        @click="openSkillCreate"
-      ><svg-icon icon-class="plus" class="ob-btn-svg" />导入 Skill</el-button>
     </header>
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
@@ -67,13 +61,7 @@
           <svg-icon icon-class="skill" />
         </div>
         <div class="ob-empty-title">暂无 Skill</div>
-        <div class="ob-empty-desc">导入一个 Skill（ZIP），让 Agent 掌握特定任务的操作手册</div>
-        <el-button
-          size="small"
-          round
-          type="primary"
-          @click="openSkillCreate"
-        ><svg-icon icon-class="plus" class="ob-btn-svg" />导入 Skill</el-button>
+        <div class="ob-empty-desc">从资源市场「添加 → 创建技能 → 导入技能」导入一个 Skill（ZIP）</div>
       </div>
 
       <!-- Skill 卡片网格 -->
@@ -201,13 +189,8 @@ async function loadSkills() {
   loadSkillCreds()
 }
 
-// 新建（ZIP 导入）：仅打开弹窗，ZIP 状态由弹窗自行重置
-function openSkillCreate() {
-  skillEditing.value = null
-  skillDialogVisible.value = true
-}
-
 // 编辑：仅打开弹窗并传入目标，SKILL.md 内容由弹窗自行读取回填
+// （新建导入入口已移至资源市场页「添加」下拉，本页弹窗仅承载编辑）
 function openSkillEdit(s) {
   skillEditing.value = s
   skillDialogVisible.value = true

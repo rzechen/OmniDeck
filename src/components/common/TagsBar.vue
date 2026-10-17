@@ -98,12 +98,10 @@ const deckIconMap = (() => {
   return map
 })()
 
-// buddy 侧路径 → 图标（与 BuddyLayout 菜单一致）
+// buddy 侧路径 → 图标（与 BuddyLayout 菜单一致；技能/连接器管理已并入资源市场页）
 const buddyIconMap = {
   '/omnibuddy': 'chat-dot-round',
   '/omnibuddy/market': 'market',
-  '/omnibuddy/skills': 'skill',
-  '/omnibuddy/mcp': 'mcp',
   '/omnibuddy/profile': 'user',
   '/omnibuddy/permissions': 'key',
   '/omnibuddy/workspace': 'folder',
