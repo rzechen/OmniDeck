@@ -57,7 +57,8 @@
             </div>
           </div>
 
-          <!-- 菜单区（分组）：资源市场 → 能力（技能/连接器/项目规则/权限策略）→ 配置（工作空间/模型管理）→ 用量统计/能力清单 -->
+          <!-- 菜单区（分组）：资源市场（技能/子代理/连接器的广场与我的已合并为页内导航）→
+               能力（定时任务/记忆管理/权限策略）→ 配置 → 用量统计 -->
           <nav class="buddy-menu">
             <div
               v-for="(group, gi) in menuGroups"
@@ -192,8 +193,8 @@ const { message, confirm, prompt, notify } = useFeedback()
 
 // Windows 无边框窗口：主区顶部保留窗口控制条（macOS 走系统红绿灯）
 const isWindows = !!(window.electronAPI && window.electronAPI.platform === 'win32')
-// 侧边栏菜单（分组，置于任务列表上方）：市场独立置顶 → 能力（含定时任务）→ 配置 → 用量统计独立
-// 命名与分组对齐业界（Claude Capabilities / Cursor Customize）：技能+规则+连接器聚合为「能力」
+// 侧边栏菜单（分组，置于任务列表上方）：资源市场独立置顶 → 能力 → 配置 → 用量统计
+// 原独立的「技能」「连接器」菜单已并入资源市场页（页内类型 tag + 广场/我的视图切换）
 const menuGroups = [
   {
     title: '',
@@ -204,8 +205,6 @@ const menuGroups = [
   {
     title: '能力',
     items: [
-      { label: '技能', name: 'OmniBuddySkills', path: '/omnibuddy/skills', icon: 'skill' },
-      { label: '连接器', name: 'OmniBuddyMcp', path: '/omnibuddy/mcp', icon: 'mcp' },
       { label: '定时任务', name: 'OmniBuddyAutomation', path: '/omnibuddy/automation', icon: 'auto' },
       { label: '记忆管理', name: 'OmniBuddyMemory', path: '/omnibuddy/memory', icon: 'memory' },
       { label: '权限策略', name: 'OmniBuddyPermissions', path: '/omnibuddy/permissions', icon: 'key' }

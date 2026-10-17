@@ -1,21 +1,14 @@
 <template>
   <div class="ob-manage-page">
-    <!-- 顶部 Hero（市场页同款） -->
+    <!-- 顶部 Hero（市场页同款；新增入口已收至资源市场页「添加」下拉，页面不再单独提供） -->
     <header class="ob-hero">
       <div class="ob-hero-content">
         <div class="ob-hero-title-group">
-          <h2 class="ob-section-title">连接器</h2>
+          <h2 class="ob-section-title">我的连接器</h2>
           <span class="ob-hero-badge" v-if="mcpServers.length">{{ mcpServers.length }} 个已接入</span>
         </div>
         <p class="ob-section-desc">接入官方连接器或自定义 MCP Server，为 Agent 扩展外部工具；配置全量本地保存</p>
       </div>
-      <el-button
-        size="small"
-        round
-        type="primary"
-        class="ob-hero-btn"
-        @click="openMcpAdd"
-      ><svg-icon icon-class="plus" class="ob-btn-svg" />新增连接器</el-button>
     </header>
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
@@ -53,13 +46,7 @@
           <svg-icon icon-class="mcp" />
         </div>
         <div class="ob-empty-title">暂无连接器</div>
-        <div class="ob-empty-desc">接入一个 MCP Server，让 Agent 获得外部工具能力</div>
-        <el-button
-          size="small"
-          round
-          type="primary"
-          @click="openMcpAdd"
-        ><svg-icon icon-class="plus" class="ob-btn-svg" />新增连接器</el-button>
+        <div class="ob-empty-desc">从资源市场「添加 → 新增连接器」接入一个 MCP Server，让 Agent 获得外部工具能力</div>
       </div>
 
       <!-- 服务卡片网格 -->
@@ -305,11 +292,7 @@ async function loadMcp() {
   mcpLoading.value = false
 }
 
-function openMcpAdd() {
-  mcpEditing.value = null
-  mcpModalVisible.value = true
-}
-
+// 编辑：仅打开弹窗并传入目标（新增入口已移至资源市场页「添加」下拉，本页弹窗仅承载编辑）
 function openMcpEdit(s) {
   mcpEditing.value = s
   mcpModalVisible.value = true
