@@ -1,11 +1,11 @@
 <template>
   <!-- 深度思考区（分段时间线）：每个思考段独立折叠（折叠头 = 序号 + 摘要），
        段内正文与其后续的工具 / Skill / 问答记录随段折叠；过程说明（narration）
-       按事件时序平铺（无缩进，时间线骨架层）——时序为思考 → 说明 → 工具调用
-       （说明是该轮动作发起前对用户的预告），不可重排；待回答 ask 恒可见 -->
+       渲染于所属思考段上方（阅读顺序：说明 → 思考 → 动作，先预告后过程）；
+       待回答 ask 恒可见 -->
   <div class="ob-think">
     <div class="ob-think-body">
-      <template v-for="(item, i) in items">
+      <template v-for="(item, i) in displayItems">
         <!-- 思考段：流式期间与完成后均默认收起，仅折叠头带动态标识
              （星形脉动 + 呼吸文案）；用户可随时展开收起任意段 -->
         <div
@@ -38,8 +38,8 @@
           </div>
         </div>
 
-        <!-- 过程说明（中途正文归位）：按事件时序平铺（无缩进，时间线骨架层），
-             位置在所属思考段之后、工具调用之前——动作发起前对用户的预告；
+        <!-- 过程说明（中途正文归位）：渲染于所属思考段上方（阅读顺序：
+             说明 → 思考 → 动作，动作发起前对用户的预告先行呈现）；
              正文主色与思考文本（灰色）区分，明确"对用户的发言"而非推理内容 -->
         <div
           v-else-if="item.type === 'narration'"
@@ -324,6 +324,44 @@ const mdCache = new WeakMap()
 // JSON.stringify 全量序列化每次渲染重复执行同样有开销
 const toolKeyCache = new WeakMap()
 
+// ===== 展示序列重排 =====
+// 过程说明（narration）与文字上下互换：items 时序为 思考 → 说明 → 工具
+// （说明紧跟所属思考段之后），渲染重排为 说明 → 思考 → 工具（先预告后过程）。
+// 每条 narration 上移至其紧邻的前置思考段折叠头上方；前面无思考段的
+// 游离 narration（开场即旁白等）保持原位。思考块相对顺序与工具条目
+// 归属段均不变（narration 非工具，折叠归属逻辑不受影响）
+const displayItems = computed(() => {
+  const src = props.items
+  const out = []
+  const narrRun = []
+  let narrAfterSeg = false // 本轮 narration 是否紧随思考段（决定是否上移）
+  const flushNarr = () => {
+    if (!narrRun.length) return
+    if (narrAfterSeg && out.length && out[out.length - 1].type === 'thinking') {
+      // 上移：插到末位思考段之前（narration 紧随其后，末位即其所属段）
+      for (let n = 0; n < narrRun.length; n++) out.splice(out.length - 1, 0, narrRun[n])
+    } else {
+      for (let n = 0; n < narrRun.length; n++) out.push(narrRun[n])
+    }
+    narrRun.length = 0
+    narrAfterSeg = false
+  }
+  for (let k = 0; k < src.length; k++) {
+    const it = src[k]
+    if (it.type === 'narration') {
+      if (!narrRun.length && out.length && out[out.length - 1].type === 'thinking') {
+        narrAfterSeg = true
+      }
+      narrRun.push(it)
+    } else {
+      flushNarr()
+      out.push(it)
+    }
+  }
+  flushNarr()
+  return out
+})
+
 // ===== 思考段折叠 =====
 // 活动思考段：isThinking 期间 items 中最后一个 thinking 块（该段正在流式累积）。
 // 仅用于折叠头动态标识（脉动 + 进行中文案 + 流式光标位），不改变默认收起：
@@ -340,7 +378,7 @@ const activeThinking = computed(() => {
 function segIndexOf(i) {
   let n = 0
   for (let k = 0; k <= i; k++) {
-    if (props.items[k] && props.items[k].type === 'thinking') n++
+    if (displayItems.value[k] && displayItems.value[k].type === 'thinking') n++
   }
   return n
 }
@@ -373,10 +411,13 @@ function isSegOpen(item) {
 }
 
 // 条目归属段（向前最近的思考块）是否展开：工具 / Skill / 问答记录随所属段折叠；
-// 思考块之前的游离条目（开场即工具调用等）无归属，恒平铺
+// 思考块之前的游离条目（开场即工具调用等）无归属，恒平铺。
+// 基于重排后的 displayItems 扫描（narration 上移不影响工具归属判断：
+// 归属扫描只认 thinking 块，narration 位置变化被自然跳过）
 function ownerOpen(i) {
+  const arr = displayItems.value
   for (let k = i - 1; k >= 0; k--) {
-    if (props.items[k].type === 'thinking') return isSegOpen(props.items[k])
+    if (arr[k].type === 'thinking') return isSegOpen(arr[k])
   }
   return true
 }
@@ -385,8 +426,9 @@ function ownerOpen(i) {
 // 段默认收起时运行中的工具行被折叠隐藏（子代理委派等长任务可能持续数分钟），
 // 折叠头据此显示转圈 + 「执行中」，避免长时间无任何视觉反馈
 function segRunning(i) {
-  for (let k = i + 1; k < props.items.length; k++) {
-    const it = props.items[k]
+  const arr = displayItems.value
+  for (let k = i + 1; k < arr.length; k++) {
+    const it = arr[k]
     if (it.type === 'thinking') break
     if (it.type === 'tool' && it.status === 'running') return true
   }
@@ -763,7 +805,7 @@ function fcRemoved(fc) {
 
 /* 思考区时间线内容层：工具 / Skill / ask 卡片 / 思考段正文同层级缩进，
    左侧统一竖线构成"过程内容"一列；思考段折叠头与过程说明在外层平铺
-   （时间线骨架；说明按事件时序穿插于其间，靠正文色与段内容区分）；
+   （说明渲染于所属思考段上方，靠正文色与段内容区分）；
    段正文与折叠头另拉开上间距 */
 .ob-think-body > .ob-tool,
 .ob-think-body > .ob-skill,
@@ -911,8 +953,8 @@ function fcRemoved(fc) {
   }
 }
 
-/* 过程说明（中途正文）：按事件时序平铺时间线骨架层（无缩进无竖线，位置在
-   所属思考段之后、工具调用之前——动作发起前对用户的预告）；正文主色与
+/* 过程说明（中途正文）：渲染于所属思考段上方（无缩进无竖线，阅读顺序
+   说明 → 思考 → 动作——动作发起前对用户的预告先行呈现）；正文主色与
    思考文本（灰色）区分，明确"对用户的发言"而非推理内容 */
 .ob-narration {
   color: var(--text-primary);
