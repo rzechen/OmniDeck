@@ -25,12 +25,13 @@
         <svg-icon icon-class="arrow-down" class="buddy-group-arrow" />
         <svg-icon icon-class="folder" class="buddy-group-ico" />
         <span class="buddy-group-name">{{ g.name }}</span>
-        <!-- 清空本工作空间任务：hover 分组标题浮现；组内有任务执行中时禁用（防误删运行数据） -->
+        <!-- 清除本工作空间已结束的任务：hover 分组标题浮现；仅清除非运行中的任务（运行中保留），
+             组内任务全部执行中时禁用（无可清除项） -->
         <svg-icon
           icon-class="eraser"
           class="buddy-group-clear"
-          :class="{ disabled: groupRunning(g) }"
-          :title="groupRunning(g) ? '有任务正在执行，暂不能清空' : '清空该工作空间的任务'"
+          :class="{ disabled: !clearableCount(g) }"
+          :title="clearTitle(g)"
           @click.stop="onClearGroup(g)"
         />
         <span class="buddy-group-count">{{ g.chats.length }}</span>
@@ -185,9 +186,23 @@ function groupRunning(g) {
   return g.chats.some(c => stateOf(c))
 }
 
-// 清空工作空间下所有任务：组内有任务执行中时禁止（防误删运行数据），否则交父组件二次确认
+// 组内可清除的任务数（非运行中的任务）
+function clearableCount(g) {
+  return g.chats.filter(c => !stateOf(c)).length
+}
+
+// 清除按钮提示：全部执行中无可清除项；部分执行中提示将保留运行任务；无运行任务提示全量清空
+function clearTitle(g) {
+  const total = g.chats.length
+  const clearable = clearableCount(g)
+  if (!clearable) return '任务全部执行中，无可清除任务'
+  if (clearable < total) return `清除该工作空间已结束的 ${clearable} 个任务（执行中的保留）`
+  return '清空该工作空间的任务'
+}
+
+// 清除工作空间下已结束的任务（运行中保留）：无可清除项时禁止，否则交父组件二次确认
 function onClearGroup(g) {
-  if (groupRunning(g)) return
+  if (!clearableCount(g)) return
   emit('clear-group', g)
 }
 
