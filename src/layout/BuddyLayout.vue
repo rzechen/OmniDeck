@@ -443,22 +443,27 @@ function confirmDeleteChat(c) {
   }).catch(() => {})
 }
 
-// 清空工作空间下所有任务（任务列表分组标题的清空按钮）：二次确认后批量删除
+// 清除工作空间下已结束的任务（任务列表分组标题的清除按钮）：二次确认后批量删除，运行中保留
 function confirmClearGroup(g) {
-  const ids = g.chats.map(c => c.id)
-  if (!ids.length) return
-  confirm(`将删除「${g.name}」下的 ${ids.length} 个任务，删除后记录将一并移除，确定清空吗？`, '清空任务', {
-    confirmButtonText: '清空',
+  // 弹窗前先过滤出可清除任务（streaming/pending/running 视为执行中，保留）
+  const isBusy = c => {
+    const s = store.getters['buddyChat/session'](c.id)
+    return !!(s && (s.streaming || (s.permQueue && s.permQueue.length) || (s.bgRuns && s.bgRuns.length)))
+  }
+  let targets = g.chats.filter(c => !isBusy(c))
+  if (!targets.length) return
+  const kept = g.chats.length - targets.length
+  const keptTip = kept ? `，${kept} 个执行中的任务将保留` : ''
+  confirm(`将删除「${g.name}」下已结束的 ${targets.length} 个任务${keptTip}，删除后记录将一并移除，确定清除吗？`, '清除任务', {
+    confirmButtonText: '清除',
     cancelButtonText: '取消',
     type: 'warning'
   }).then(async () => {
-    // 确认后再次校验：弹窗期间可能有任务开始执行，此时不允许清空
-    const busy = ids.some(id => {
-      const s = store.getters['buddyChat/session'](id)
-      return s && (s.streaming || (s.permQueue && s.permQueue.length) || (s.bgRuns && s.bgRuns.length))
-    })
-    if (busy) {
-      message.warning('有任务正在执行，暂不能清空')
+    // 确认后再次过滤：弹窗期间可能有任务开始执行，执行中的同样保留
+    targets = targets.filter(c => !isBusy(c))
+    const ids = targets.map(c => c.id)
+    if (!ids.length) {
+      message.warning('任务均正在执行，无可清除任务')
       return
     }
     const api = buddyApi()
@@ -474,7 +479,7 @@ function confirmClearGroup(g) {
     if (removed.has(activeChatId.value)) {
       router.push('/omnibuddy').catch(() => {})
     }
-    message.success('已清空')
+    message.success('已清除')
   }).catch(() => {})
 }
 
