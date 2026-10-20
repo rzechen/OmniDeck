@@ -64,12 +64,12 @@
           <span
             v-else-if="stateOf(c) === 'running'"
             class="buddy-state-bgrun"
-            title="子代理后台运行中"
+            title="专家后台运行中"
           ></span>
           <!-- 分叉创建的会话用 fork 图标（与气泡分叉按钮同图标，不做常亮高亮） -->
           <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
           <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
-          <span class="buddy-chat-actions" @click.stop>
+          <span class="buddy-chat-actions" :class="{ pinned: c.pinned }" @click.stop>
             <!-- 置顶：已置顶时常亮显示（hover 外也可见，颜色不变），未置顶时随行 hover 浮现 -->
             <svg-icon
               icon-class="pin"
@@ -211,18 +211,25 @@ function onChatEnter(e) {
   const wrap = e.currentTarget.querySelector('.buddy-chat-name')
   const inner = wrap && wrap.firstElementChild
   if (!wrap || !inner) return
-  const diff = inner.scrollWidth - wrap.clientWidth
   wrap.classList.remove('scrolling')
-  if (diff > 4) {
-    // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
-    wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
-    void wrap.offsetWidth // 强制 reflow 以重启动画
-    wrap.classList.add('scrolling')
-  }
+  clearTimeout(wrap._scrollTimer)
+  // 操作区展开过渡（0.15s）会挤压名称宽度，待过渡结束后再测量，避免滚动距离偏大
+  wrap._scrollTimer = setTimeout(() => {
+    const diff = inner.scrollWidth - wrap.clientWidth
+    if (diff > 4) {
+      // 宽度差写入 CSS 变量，重置动画后播放（从 0 滚到 -diff）
+      wrap.style.setProperty('--scroll-x', -(diff + 4) + 'px')
+      void wrap.offsetWidth // 强制 reflow 以重启动画
+      wrap.classList.add('scrolling')
+    }
+  }, 170)
 }
 function onChatLeave(e) {
   const wrap = e.currentTarget.querySelector('.buddy-chat-name')
-  if (wrap) wrap.classList.remove('scrolling')
+  if (wrap) {
+    wrap.classList.remove('scrolling')
+    clearTimeout(wrap._scrollTimer)
+  }
 }
 </script>
 
@@ -439,13 +446,17 @@ function onChatLeave(e) {
   }
 }
 
-/* 对话行内操作：默认隐藏、hover 浮现。
+/* 对话行内操作：默认不占宽（max-width:0 收起，名称延伸至行尾），hover 时展开浮现图标。
    注意：不能在父容器上整体 opacity（子元素无法穿透），需按图标单独控制，
    否则置顶常亮标识会一并被隐藏 */
 .buddy-chat-actions {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 0.15s ease;
 
   .svg-icon {
     font-size: 12px;
@@ -463,9 +474,22 @@ function onChatLeave(e) {
       color: var(--danger-color);
     }
   }
+
+  /* 已置顶：容器保留置顶钮宽度（hover 外也可见），名称不挤占置顶位；置顶钮常亮不高亮 */
+  &.pinned {
+    max-width: 30px;
+
+    .ob-pin {
+      opacity: 1;
+    }
+  }
 }
 
-/* 行 hover：操作图标全部浮现 */
+/* 行 hover：操作区展开，图标浮现 */
+.buddy-chat:hover .buddy-chat-actions {
+  max-width: 90px;
+}
+
 .buddy-chat:hover .buddy-chat-actions .svg-icon {
   opacity: 1;
 }
@@ -475,11 +499,6 @@ function onChatLeave(e) {
 .buddy-chat.running:hover .buddy-chat-actions .ob-del {
   opacity: 0;
   pointer-events: none;
-}
-
-/* 已置顶：置顶钮常亮（hover 区外也可见），颜色与普通图标一致不高亮 */
-.buddy-chat .ob-pin.pinned {
-  opacity: 1;
 }
 
 /* ===== 实时状态标记 ===== */

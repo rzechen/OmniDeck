@@ -172,7 +172,7 @@ const iconOf = computed(() => {
   return typeOf.value === 'connector' ? 'mcp' : typeOf.value === 'agent' ? 'subagent' : 'skill'
 })
 const typeLabel = computed(() => {
-  const map = { skill: '技能', agent: '子代理', connector: '连接器', mcp: '连接器' }
+  const map = { skill: '技能', agent: '专家', connector: '连接器', mcp: '连接器' }
   return map[(props.item && props.item.type) || 'skill'] || '技能'
 })
 

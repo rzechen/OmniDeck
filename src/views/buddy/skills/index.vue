@@ -22,7 +22,7 @@
           <svg-icon icon-class="tips" class="ob-tip-icon" />
           <div class="ob-tip-text">
             <b>编写 Skill 前先看工具边界：</b>
-            SKILL.md 主体在主会话执行（全部工具可用），agents/*.md 子代理只认 pi 内置工具、联网工具与 MCP——curl / python 等写入子代理白名单会报错，展开看完整清单。
+            SKILL.md 主体在主会话执行（全部工具可用），agents/*.md 专家只认 pi 内置工具、联网工具与 MCP——curl / python 等写入专家白名单会报错，展开看完整清单。
           </div>
           <svg-icon :icon-class="toolTipOpen ? 'arrow-up' : 'arrow-down'" class="ob-tip-arrow" />
         </div>
@@ -41,7 +41,7 @@
             </div>
           </div>
           <div class="ob-tip-case">
-            <div class="ob-tip-case-title">子代理 agents/*.md 可用工具</div>
+            <div class="ob-tip-case-title">专家 agents/*.md 可用工具</div>
             <div class="ob-tip-case-body">
               <p><span class="ok">文件与命令</span>：read、bash、edit、write、find、grep、ls、codemode、tool_search</p>
               <p><span class="ok">联网</span>：web_search、fetch_content、source_check、get_search_content</p>
@@ -61,7 +61,7 @@
           <svg-icon icon-class="skill" />
         </div>
         <div class="ob-empty-title">暂无 Skill</div>
-        <div class="ob-empty-desc">从资源市场「添加 → 创建技能 → 导入技能」导入一个 Skill（ZIP）</div>
+        <div class="ob-empty-desc">从资源市场「添加 → 导入技能」导入一个 Skill（ZIP）</div>
       </div>
 
       <!-- Skill 卡片网格 -->

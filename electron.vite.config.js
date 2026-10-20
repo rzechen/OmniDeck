@@ -31,6 +31,7 @@ const agentNames = [
   'ipc/chat', 'ipc/sessions', 'ipc/settings', 'ipc/workspace', 'ipc/automation',
   'sessions/sessions', 'sessions/checkpoints', 'sessions/file-changes', 'sessions/exports-diff', 'sessions/branchView', 'sessions/export',
   'knowledge/skills', 'knowledge/rules', 'knowledge/profile', 'knowledge/memory', 'knowledge/market',
+  'knowledge/agents',
   'integrations/mcp', 'integrations/connectors', 'integrations/credentials', 'integrations/web-search',
   'integrations/site-auth', 'integrations/login-wizard', 'integrations/notify', 'integrations/workflows',
   'integrations/pkg-registry', 'integrations/subagents',
