@@ -58,7 +58,7 @@ const routes = [
         path: 'market',
         name: 'OmniBuddyMarket',
         component: () => import('@/views/buddy/market/index.vue'),
-        meta: { title: '资源市场' }
+        meta: { title: '专家 · 技能 · 连接器' }
       },
       {
         path: 'usage',
@@ -824,7 +824,7 @@ router.afterEach((to) => {
     if (side === 'buddy' && to.path === '/omnibuddy' && !to.query.s) title = '新任务'
     // 资源市场按 类型+视图 显示页签名（技能广场 / 我的技能 / 子代理广场 / …）
     if (side === 'buddy' && to.path === '/omnibuddy/market') {
-      const t = { skill: '技能', agent: '子代理', connector: '连接器' }[to.query.type]
+      const t = { skill: '技能', agent: '专家', connector: '连接器' }[to.query.type]
       if (t) title = to.query.view === 'mine' ? '我的' + t : t + '广场'
     }
     store.commit('tagsView/ADD_TAB', { side, path: to.path, fullPath: to.fullPath, title })

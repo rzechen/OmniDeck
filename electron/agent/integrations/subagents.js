@@ -140,11 +140,11 @@ function snapshotOf(runId) {
     const count = s => steps.filter(x => x && x.status === s).length
     const done = count('complete') + count('partial')
     const rec = registry.get(runId)
-    const agents = steps.map(x => (x && (x.label || x.agent)) || '子代理').slice(0, 8)
+    const agents = steps.map(x => (x && (x.label || x.agent)) || '专家').slice(0, 8)
     return {
       runId: st.runId,
       kind: 'subagent',
-      name: rec && rec.agent ? rec.agent : (st.mode === 'chain' ? '子代理链' : '子代理任务'),
+      name: rec && rec.agent ? rec.agent : (st.mode === 'chain' ? '专家链' : '专家任务'),
       status: st.state === 'complete' ? 'completed'
         : st.state === 'partial' ? 'completed'
           : st.state === 'stopped' ? 'stopped'
@@ -162,7 +162,7 @@ function snapshotOf(runId) {
       },
       activeLabels: steps
         .filter(x => x && x.status === 'running')
-        .map(x => x.label || x.agent || '子代理')
+        .map(x => x.label || x.agent || '专家')
         .slice(0, 6),
       steps: steps.map(x => ({
         agent: (x && (x.label || x.agent)) || '',
@@ -251,7 +251,7 @@ function watchRun(runId, chatId, onProgress, onTerminal, onStale) {
           const failSnap = {
             runId,
             kind: 'subagent',
-            name: (rec && rec.agent) || '子代理任务',
+            name: (rec && rec.agent) || '专家任务',
             status: 'failed',
             counts: {},
             activeLabels: [],

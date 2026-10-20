@@ -36,22 +36,31 @@
           <span v-if="typeMeta.todo" class="ob-view-todo">TODO</span>
         </button>
 
-        <!-- 右侧公共操作区：添加下拉 + 搜索框（过滤当前广场资源） -->
+        <!-- 右侧公共操作区：新增图标下拉 + 搜索框（过滤当前广场资源） -->
         <div class="ob-view-actions">
-          <!-- 添加：标准级联下拉组件（hover 一级右展二级，popper 宽度自适应无遮挡） -->
-          <el-cascader
-            v-model="addValue"
-            :options="addOptions"
-            :props="{ expandTrigger: 'hover' }"
-            placeholder="添加"
-            popper-class="ob-add-cascader-popper"
-            class="ob-add-cascader"
-            @change="onAddSelect"
+          <!-- 新增：圆形主题色图标按钮，点击弹出 macOS 风格菜单 -->
+          <el-dropdown
+            trigger="click"
+            popper-class="ob-add-dropdown-popper"
+            @command="onAddCommand"
           >
-            <template #prefix>
-              <svg-icon icon-class="plus" class="ob-add-icon" />
+            <button type="button" class="ob-add-btn" title="添加">
+              <svg-icon icon-class="plus" />
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="skill-import">
+                  <svg-icon icon-class="skill" class="ob-add-menu-icon" />导入技能
+                </el-dropdown-item>
+                <el-dropdown-item command="agent-add">
+                  <svg-icon icon-class="subagent" class="ob-add-menu-icon" />新增专家
+                </el-dropdown-item>
+                <el-dropdown-item command="mcp-add">
+                  <svg-icon icon-class="mcp" class="ob-add-menu-icon" />新增连接器
+                </el-dropdown-item>
+              </el-dropdown-menu>
             </template>
-          </el-cascader>
+          </el-dropdown>
 
           <div class="ob-market-search">
             <svg-icon icon-class="search" class="search-icon" />
@@ -71,20 +80,11 @@
       </div>
     </div>
 
-    <!-- ===== 我的视图：本地已装资源管理（技能 / 连接器 复用原管理页；子代理 TODO 占位） ===== -->
+    <!-- ===== 我的视图：本地已装资源管理（技能 / 专家 / 连接器 复用原管理页组件） ===== -->
     <div v-if="viewMode === 'mine'" class="ob-mine-view">
       <skills-view v-if="typeFilter === 'skill'" />
       <mcp-view v-else-if="typeFilter === 'connector'" />
-      <div v-else class="ob-empty">
-        <div class="ob-empty-icon">
-          <svg-icon icon-class="subagent" />
-        </div>
-        <div class="ob-empty-title">
-          我的子代理
-          <span class="ob-view-todo">TODO</span>
-        </div>
-        <div class="ob-empty-desc">子代理的本地管理（新增 / 编辑 / 删除）开发中，敬请期待</div>
-      </div>
+      <agents-view v-else ref="agentsViewRef" @edit="openAgentEdit" @add="openAgentAdd" />
     </div>
 
     <!-- ===== 广场视图：分类 chips + 市场卡片（仅此区域滚动） ===== -->
@@ -222,6 +222,13 @@
       :editing="null"
       :servers="mcpServers"
     />
+
+    <!-- 新增 / 编辑专家（agents/<name>.md 表单） -->
+    <agent-form-dialog
+      v-model:visible="agentDialogVisible"
+      :editing="agentEditing"
+      @saved="onAgentSaved"
+    />
   </div>
 </template>
 
@@ -235,9 +242,12 @@ import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 // 「我的技能 / 我的连接器」视图复用原管理页组件（原独立路由已并入资源市场）
 import SkillsView from '@/views/buddy/skills/index.vue'
 import McpView from '@/views/buddy/mcp/index.vue'
+// 我的专家视图（本地 agents 目录管理）
+import AgentsView from './components/AgentsView.vue'
 // 添加入口弹窗（创建技能 / 新增连接器，与原管理页同款组件复用）
 import SkillImportDialog from '@/views/buddy/skills/components/SkillImportDialog.vue'
 import McpFormDialog from '@/views/buddy/mcp/components/McpFormDialog.vue'
+import AgentFormDialog from './components/AgentFormDialog.vue'
 import { buddyApi, buddyApiSection } from '@/utils/buddy/buddy-api'
 import { useFeedback } from '@/composables/useFeedback'
 
@@ -251,7 +261,7 @@ const { message } = useFeedback()
 // 类型定义：tag 展示名 / 图标 / 广场视图名 / 我的视图名（todo = 我的视图暂未提供）
 const TYPES = {
   skill: { label: '技能', icon: 'skill', square: '技能广场', mine: '我的技能' },
-  agent: { label: '子代理', icon: 'subagent', square: '子代理广场', mine: '我的子代理', todo: true },
+  agent: { label: '专家', icon: 'subagent', square: '专家广场', mine: '我的专家' },
   connector: { label: '连接器', icon: 'mcp', square: '连接器广场', mine: '我的连接器' }
 }
 
@@ -285,7 +295,7 @@ const categories = computed(() => {
 
   return [
     { label: '技能', value: 'skill', count: counts.skill },
-    { label: '子代理', value: 'agent', count: counts.agent },
+    { label: '专家', value: 'agent', count: counts.agent },
     { label: '连接器', value: 'connector', count: counts.connector }
   ]
 })
@@ -406,34 +416,16 @@ function resetFilter() {
   categoryFilter.value = ''
 }
 
-// ---------- 添加下拉（视图切换行右侧 + 按钮） ----------
-const addValue = ref([])          // 级联选中值（选中叶子后重置，避免残留高亮）
-// 级联选项：创建技能 → 导入技能；创建子代理 → 新增子代理（TODO）；新增连接器（叶子直接弹窗）
-const addOptions = [
-  {
-    value: 'skill',
-    label: '创建技能',
-    children: [{ value: 'skill-import', label: '导入技能' }]
-  },
-  {
-    value: 'agent',
-    label: '创建子代理',
-    children: [{ value: 'agent-add', label: '新增子代理' }]
-  },
-  { value: 'mcp-add', label: '新增连接器' }
-]
-
-// 选中叶子：按 value 分发到对应弹窗 / 占位提示，随后重置选中值
-function onAddSelect(path) {
-  const key = Array.isArray(path) ? path[path.length - 1] : path
+// ---------- 新增菜单（视图切换行右侧图标按钮下拉） ----------
+// 选中菜单项：按 command 分发到对应弹窗
+function onAddCommand(key) {
   if (key === 'skill-import') {
     skillDialogVisible.value = true
   } else if (key === 'agent-add') {
-    message.info('「新增子代理」功能开发中，敬请期待')
+    openAgentAdd()
   } else if (key === 'mcp-add') {
     openMcpAdd()
   }
-  addValue.value = []
 }
 
 // 创建技能 → 导入 Skill（ZIP）弹窗
@@ -441,6 +433,30 @@ const skillDialogVisible = ref(false)
 // 新增连接器弹窗（servers 供重名校验，打开前拉取）
 const mcpModalVisible = ref(false)
 const mcpServers = ref([])
+
+// ===== 专家（agents 目录）=====
+// 新增 / 编辑专家弹窗
+const agentDialogVisible = ref(false)
+// 我的专家视图引用（保存后刷新列表）
+const agentsViewRef = ref(null)
+// 编辑中的专家（null 表示新增）
+const agentEditing = ref(null)
+
+function openAgentAdd() {
+  agentEditing.value = null
+  agentDialogVisible.value = true
+}
+
+function openAgentEdit(agent) {
+  agentEditing.value = agent
+  agentDialogVisible.value = true
+}
+
+// 专家保存成功：刷新内嵌视图列表（当前未挂载时忽略，进入视图时 onActivated 自会拉取）
+function onAgentSaved() {
+  agentEditing.value = null
+  if (agentsViewRef.value) agentsViewRef.value.reload()
+}
 
 // 导入成功：重拉市场索引同步「已安装」徽标
 function onSkillSaved() {
@@ -701,50 +717,30 @@ onActivated(() => {
   }
 }
 
-/* 添加下拉（el-cascader）：紧凑胶囊输入框 + plus 前缀图标 */
-.ob-add-cascader {
+/* 新增图标按钮：30px 圆形主题色实底 + 白色 plus 图标 */
+.ob-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-family: inherit;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
+  border: none;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(var(--primary-color-rgb), 0.35);
+  cursor: pointer;
   flex-shrink: 0;
-  width: 92px;
+  transition: filter 0.15s ease;
 
-  :deep(.el-input__wrapper) {
-    height: 30px;
-    padding: 0 10px 0 28px;
-    border-radius: 15px;
-    background: linear-gradient(135deg, var(--primary-color-hover), var(--primary-color));
-    box-shadow: 0 1px 3px rgba(var(--primary-color-rgb), 0.35);
-    border: none;
-    cursor: pointer;
-    transition: filter 0.15s ease;
-
-    &:hover {
-      filter: brightness(1.1);
-    }
-  }
-
-  :deep(.el-input__inner) {
-    font-size: 12px;
-    font-weight: 500;
-    color: #fff;
-    cursor: pointer;
-
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.9);
-    }
-  }
-
-  :deep(.el-input__suffix) {
-    display: none; /* 隐藏默认下拉箭头（前缀 plus 已示意添加） */
-  }
-
-  .ob-add-icon {
-    position: absolute;
-    left: 9px;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 1;
+  .svg-icon {
     font-size: 14px;
-    color: #fff;
-    pointer-events: none;
+  }
+
+  &:hover {
+    filter: brightness(1.1);
   }
 }
 
@@ -935,81 +931,23 @@ onActivated(() => {
 </style>
 
 <style lang="scss">
-/* ===== 添加下拉面板（el-cascader popper 挂 body 需全局样式）
-   对齐项目 el-dropdown 的 macOS 菜单配方：毛玻璃 + 大圆角 + 30px 胶囊项 ===== */
-.ob-add-cascader-popper {
-  padding: 0 !important;
-  border-radius: 12px !important;
-  border: 1px solid var(--border-color) !important;
-  background: rgba(255, 255, 255, 0.92) !important;
-  backdrop-filter: blur(20px) saturate(1.5);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06) !important;
-  overflow: hidden;
+/* ===== 新增下拉面板（el-dropdown popper 挂 body 需全局样式）
+   项目 el-dropdown 已有 macOS 菜单全局配方（theme.scss），此处仅补菜单项图标间距 */
+.ob-add-dropdown-popper {
+  .el-dropdown-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 
-  .el-popper__arrow {
-    display: none;
-  }
-
-  .el-cascader-panel {
-    /* 去列间 EP 默认边框（分隔线改由下方规则控制） */
-    --el-cascader-menu-border: none;
-    --el-cascader-menu-fill: transparent;
-    --el-cascader-node-background-hover: rgba(var(--primary-color-rgb), 0.08);
-    --el-cascader-menu-selected-text-color: var(--primary-color);
-    border: none;
-    background: transparent;
-    /* 各列独立高度（默认 stretch 等高拉伸，二级仅 1 项时列被拉出大片留白） */
-    align-items: flex-start;
-  }
-
-  .el-cascader-menu {
-    min-width: 128px;
-    padding: 5px;
-    background: transparent;
-    border-right: none;
-
-    /* 右列（二级）与左列之间的细分隔线 */
-    & + .el-cascader-menu {
-      border-left: 1px solid var(--border-color);
-    }
-  }
-
-  .el-cascader-node {
-    height: 30px;
-    line-height: 30px;
-    padding: 0 12px;
-    border-radius: 7px;
-    font-size: 12.5px;
-    color: var(--text-primary);
-    transition: background 0.12s ease, color 0.12s ease;
-
-    /* 默认 label 自带 8px 内边距抵消紧凑观感 */
-    .el-cascader-node__label {
-      padding: 0;
+    .ob-add-menu-icon {
+      font-size: 14px;
+      color: var(--text-secondary);
     }
 
-    /* 带右箭头（postfix 绝对定位 right:10px）的一级项：右侧留位避免文字压箭头 */
-    &:has(.el-cascader-node__postfix) {
-      padding-right: 28px;
-    }
-
-    &:hover {
-      background: rgba(var(--primary-color-rgb), 0.08);
+    &:not(.is-disabled):hover .ob-add-menu-icon,
+    &:not(.is-disabled):focus .ob-add-menu-icon {
       color: var(--primary-color);
     }
-
-    /* 激活路径（当前展开的一级）：主题色 */
-    &.in-active-path,
-    &.is-active {
-      color: var(--primary-color);
-      font-weight: 600;
-    }
   }
-}
-
-/* 暗色：macOS 菜单暗色版（与 el-dropdown 暗色同配方） */
-html[data-theme='dark'] .ob-add-cascader-popper {
-  background: rgba(46, 46, 52, 0.92) !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.24) !important;
 }
 </style>

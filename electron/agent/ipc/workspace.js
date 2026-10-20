@@ -6,6 +6,7 @@ const sessions = require('../sessions/sessions')
 const workspaces = require('../workspace/workspaces')
 const files = require('../workspace/files')
 const skills = require('../knowledge/skills')
+const agents = require('../knowledge/agents')
 const attachments = require('../workspace/attachments')
 const rules = require('../knowledge/rules')
 const profile = require('../knowledge/profile')
@@ -102,6 +103,17 @@ function registerWorkspaceIpc(getWindow) {
 
   // 导出 Skill 为 ZIP（返回 Buffer，前端触发下载）
   ipcMain.handle('omnibuddy:skills:export-zip', (_e, dir) => skills.exportZip(dir))
+
+  // ===== 专家（子代理）管理 =====
+  ipcMain.handle('omnibuddy:agents:list', () => agents.listAgents())
+
+  ipcMain.handle('omnibuddy:agents:create', (_e, agent) => agents.createAgent(agent || {}))
+
+  ipcMain.handle('omnibuddy:agents:get', (_e, file) => agents.getAgent(file))
+
+  ipcMain.handle('omnibuddy:agents:update', (_e, payload) => agents.updateAgent(payload))
+
+  ipcMain.handle('omnibuddy:agents:delete', (_e, file) => agents.deleteAgent(file))
 
   // ===== 工作空间管理（多工作空间，发送前必须选定） =====
   ipcMain.handle('omnibuddy:workspaces:list', () => workspaces.list())

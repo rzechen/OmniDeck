@@ -339,9 +339,9 @@ function handlePiEvent(getWindow, e) {
             snap => {
               emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap })
               const okDone = snap.status === 'completed'
-              const label = snap.name || srInfo.agent || '子代理'
+              const label = snap.name || srInfo.agent || '专家'
               notify.dispatch(okDone ? 'subagent.completed' : 'subagent.failed', {
-                title: okDone ? '子代理任务完成' : '子代理任务未完成',
+                title: okDone ? '专家任务完成' : '专家任务未完成',
                 body: '「' + label + '」' + (okDone
                   ? '已在后台完成，点击查看结果'
                   : (snap.status === 'stopped' ? '已被停止' : ('已失败' + (snap.error ? '：' + String(snap.error).slice(0, 80) : ''))) + '，点击查看详情'),
@@ -352,8 +352,8 @@ function handlePiEvent(getWindow, e) {
             snap => {
               emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap })
               notify.dispatch('subagent.stale', {
-                title: '子代理任务疑似挂起',
-                body: '「' + (snap.name || srInfo.agent || '子代理') + '」超过 90 秒无进展（可能在等待授权），点击前往处理',
+                title: '专家任务疑似挂起',
+                body: '「' + (snap.name || srInfo.agent || '专家') + '」超过 90 秒无进展（可能在等待授权），点击前往处理',
                 ok: false,
                 dedupeKey: 'subagent-stale:' + e.subagentRun.runId,
                 click: focusChat

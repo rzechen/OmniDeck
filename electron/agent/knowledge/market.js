@@ -1,7 +1,10 @@
 // 资源市场：GitCode 仓库做索引源，零自建后端
 // - 索引：omnibuddy-market 仓库 index.json，经 GitCode OpenAPI raw 端点匿名拉取（主进程 net）
 //   （raw.gitcode.com 域名对个人仓库返回「暂不支持预览」，统一走 api.gitcode.com）
-// - 安装：下载 zip → 复用 skills.js 的 importZip 安全校验管线 → 落 <agentDir>/skills/
+// - 安装：下载 zip → 按索引 type 分流：
+//     skill → skills.importZip 落 <agentDir>/skills/<name>/
+//     agent → agents.importAgentZip 落 <agentDir>/agents/<itemId>/（专家集合包）
+//   两类管线均含 frontmatter / zip-slip 安全校验
 // - 记录：market-installed.json 存已装项来源与版本，供「已安装」状态与更新对比
 // - 429 防护：索引内存缓存（TTL）+ install 优先复用缓存，减少 raw 请求；限流时错误明确提示
 const path = require('path')
@@ -9,6 +12,7 @@ const fs = require('fs')
 const electron = require('electron')
 const { ipcMain, net, shell } = electron
 const skills = require('./skills')
+const agents = require('./agents')
 const remote = require('../../../src/config/remote.cjs')
 
 // ===== 初始化 =====
@@ -206,7 +210,12 @@ function compareVersions(a, b) {
   return 0
 }
 
-// ---------- 安装 / 更新（缓存索引取 url → 下载 zip → importZip 覆盖安装） ----------
+// ---------- 安装 / 更新（缓存索引取 url → 下载 → 按类型与内容格式分流安装管线） ----------
+// skill：复用 skills.importZip 校验管线落 skills/<name>/
+// agent（zip 集合包）：agents.importAgentZip 落 agents/<itemId>/（集合目录整体覆盖）
+// agent（裸 md 单专家）：agents.importAgentFile 落 agents/market/<slug>.md（raw md 直链下载，
+//   按内容魔数 PK 头识别，不依赖 url 后缀）
+// 市场语义：安装/更新/重新安装一律覆盖（已存在不算错误）
 async function install(itemId) {
   const res = await fetchIndex(true)
   if (!res.ok) return { ok: false, error: res.error }
@@ -216,31 +225,61 @@ async function install(itemId) {
   const dl = await downloadBuffer(item.url)
   if (!dl.ok) return { ok: false, error: dl.error }
 
-  // 复用 skills.js 既有安装管线（frontmatter/zip-slip 校验全都有）
-  // 市场语义：安装/更新/重新安装一律覆盖（已存在不算错误）
-  const installed = await skills.importZip(dl.data, true)
-  if (!installed.ok) return installed
-
-  // 写入/刷新已装记录
-  const list = readInstalled().filter(r => r.id !== itemId)
-  list.push({
+  // 已装记录公共段（类型无关）
+  const rec = {
     id: item.id,
     name: item.name,
     type: item.type,
     version: item.version,
-    skillDir: installed.skill && installed.skill.name,
     installedAt: readInstalledRec(itemId).installedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
-  })
+  }
+
+  if (item.type === 'agent') {
+    // 按内容魔数分流（比 url 后缀可靠）：ZIP 以 "PK" 开头，否则按裸 md 单专家安装
+    const isZip = dl.data.length > 4 && dl.data[0] === 0x50 && dl.data[1] === 0x4b
+    if (!isZip) {
+      const installed = await agents.importAgentFile(dl.data, item.id)
+      if (!installed.ok) return installed
+      Object.assign(rec, { agentFile: installed.file })
+      const list = readInstalled().filter(r => r.id !== itemId)
+      list.push(rec)
+      writeInstalled(list)
+      return { ok: true, skill: installed.skill }
+    }
+    // zip 集合包：落 agents/<itemId>/（集合目录幂等覆盖）
+    const installed = await agents.importAgentZip(dl.data, item.id, true)
+    if (!installed.ok) return installed
+    Object.assign(rec, { collection: installed.collection, agentCount: installed.count })
+    const list = readInstalled().filter(r => r.id !== itemId)
+    list.push(rec)
+    writeInstalled(list)
+    return { ok: true, skill: installed.skill }
+  }
+
+  // 技能类型：复用 skills.js 既有安装管线（frontmatter/zip-slip 校验全都有）
+  const installed = await skills.importZip(dl.data, true)
+  if (!installed.ok) return installed
+  Object.assign(rec, { skillDir: installed.skill && installed.skill.name })
+  const list = readInstalled().filter(r => r.id !== itemId)
+  list.push(rec)
   writeInstalled(list)
   return { ok: true, skill: installed.skill }
 }
 
-// ---------- 卸载：删除 skill 目录 + 移除记录 ----------
+// ---------- 卸载：按类型与形态删除对应文件/目录 + 移除记录 ----------
 function uninstall(itemId) {
   const rec = readInstalledRec(itemId)
   if (!rec.id) return { ok: false, error: '未安装该资源' }
-  if (rec.skillDir) {
+  if (rec.type === 'agent') {
+    if (rec.agentFile) {
+      const del = agents.deleteAgent(rec.agentFile)
+      if (!del.ok) return del
+    } else if (rec.collection) {
+      const del = agents.deleteCollection(rec.collection)
+      if (!del.ok) return del
+    }
+  } else if (rec.skillDir) {
     const del = skills.deleteSkill(rec.skillDir)
     if (!del.ok) return del
   }
@@ -248,16 +287,34 @@ function uninstall(itemId) {
   return { ok: true }
 }
 
-// ---------- 已装列表（合并本地 skill 目录实时状态） ----------
+// ---------- 已装列表（合并本地目录实时状态） ----------
 function listInstalled() {
   const list = readInstalled()
   const localSkills = skills.listSkills().map(s => s.dir)
+  const localCollections = fs.existsSync(agents.agentsRoot())
+    ? fs.readdirSync(agents.agentsRoot(), { withFileTypes: true })
+      .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+      .map(e => e.name)
+    : []
   return {
     ok: true,
-    items: list.map(rec => Object.assign({}, rec, {
-      // skill 目录已被手动删除时标记丢失
-      missing: !!(rec.skillDir && !localSkills.includes(rec.skillDir))
-    }))
+    items: list.map(rec => {
+      let missing = false
+      if (rec.type === 'agent') {
+        if (rec.agentFile) {
+          // 裸 md 单专家：文件级丢失检测（deleteAgent 同源的路径解析）
+          try {
+            const abs = path.join(agents.agentsRoot(), rec.agentFile)
+            missing = !fs.existsSync(abs)
+          } catch (e) { missing = true }
+        } else if (rec.collection) {
+          missing = !localCollections.includes(rec.collection)
+        }
+      } else if (rec.skillDir) {
+        missing = !localSkills.includes(rec.skillDir)
+      }
+      return Object.assign({}, rec, { missing })
+    })
   }
 }
 

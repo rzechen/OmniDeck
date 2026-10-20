@@ -239,7 +239,7 @@ const TOOL_LABELS = {
   bg_wait: '等待后台任务',
   contact_supervisor: '联系父会话',
   structured_output: '提交结构化输出',
-  subagent_supervisor: '监督子代理',
+  subagent_supervisor: '监督专家',
   // 语义记忆（pi-memory 扩展注册）
   memory_write: '写入记忆',
   memory_read: '读取记忆',

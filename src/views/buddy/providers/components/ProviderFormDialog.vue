@@ -271,14 +271,14 @@
                         <template #content>
                           <div>
                             深度研究是多代理并行编排（资料搜集、交叉验证、报告撰写）。<br />
-                            在此为子代理的三个档位指派模型：轻量跑检索摘要、标准做日常分析、强力做复杂推理。<br />
+                            在此为专家的三个档位指派模型：轻量跑检索摘要、标准做日常分析、强力做复杂推理。<br />
                             同一档位全局仅一个模型（选新顶旧）；不指定则该档回落主对话模型。
                           </div>
                         </template>
                         <svg-icon icon-class="warning-outline" class="ob-tier-help" />
                       </el-tooltip>
                     </span>
-                    <span class="pf-adv-desc">为深度研究子代理指派档位</span>
+                    <span class="pf-adv-desc">为深度研究专家指派档位</span>
                     <!-- 同档位已被其它模型占用时提示（保存时自动顶替旧配置） -->
                     <span v-if="tierOccupiedBy" class="pf-adv-desc pf-tier-warn">
                       「{{ tierOccupiedBy.name }}」当前占用该档位，保存后自动替换

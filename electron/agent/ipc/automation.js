@@ -343,8 +343,8 @@ function createAutomation({ getWindow, handlePiEvent }) {
                 emit(getWindow, chatId, { type: 'workflow_progress', workflow: snap })
                 const okDone = snap.status === 'completed'
                 notify.dispatch(okDone ? 'subagent.completed' : 'subagent.failed', {
-                  title: okDone ? '子代理任务完成' : '子代理任务未完成',
-                  body: '「' + (snap.name || r.agent || '子代理') + '」' + (okDone ? '已完成' : '已结束'),
+                  title: okDone ? '专家任务完成' : '专家任务未完成',
+                  body: '「' + (snap.name || r.agent || '专家') + '」' + (okDone ? '已完成' : '已结束'),
                   ok: okDone,
                   click: () => {
                     const win = getWindow()

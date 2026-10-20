@@ -172,6 +172,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     importSkillZip: payload => ipcRenderer.invoke('omnibuddy:skills:import-zip', payload),
     // 导出 Skill 为 ZIP
     exportSkillZip: dir => ipcRenderer.invoke('omnibuddy:skills:export-zip', dir),
+    // 专家（子代理）管理：agents 目录扫描/新建/查看/编辑/删除
+    agents: {
+      list: () => ipcRenderer.invoke('omnibuddy:agents:list'),
+      create: agent => ipcRenderer.invoke('omnibuddy:agents:create', agent),
+      get: file => ipcRenderer.invoke('omnibuddy:agents:get', file),
+      update: payload => ipcRenderer.invoke('omnibuddy:agents:update', payload),
+      remove: file => ipcRenderer.invoke('omnibuddy:agents:delete', file)
+    },
     // 资源市场（N2）：索引浏览 / 一键安装 / 更新 / 卸载 / 已装列表
     market: {
       index: useCache => ipcRenderer.invoke('omnibuddy:market:index', useCache),

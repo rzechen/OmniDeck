@@ -243,7 +243,7 @@ function docTools() {
 // 深度研究工具：@quintinshaw/pi-dynamic-workflows 社区扩展注册
 // （pi.js 启动时自动安装，失败下次启动重试）
 const WORKFLOW_TOOLS = [
-  { name: 'workflow', label: '编排工作流', description: '编排多代理工作流（深度研究 / 多视角分析等），子代理并行搜集与验证后汇总结论（后台运行，进度在对话卡片实时呈现）。', perm: 'ask' },
+  { name: 'workflow', label: '编排工作流', description: '编排多代理工作流（深度研究 / 多视角分析等），专家并行搜集与验证后汇总结论（后台运行，进度在对话卡片实时呈现）。', perm: 'ask' },
   { name: 'workflow_control', label: '控制工作流', description: '查询 / 暂停 / 恢复 / 停止进行中的工作流运行。', perm: 'allow' }
 ]
 
@@ -260,9 +260,9 @@ function workflowTools() {
 // subagent 条目按后台并行开关动态生成（asyncEnabled 开启时描述含后台能力）
 function subagentToolEntry() {
   if (subagents.asyncEnabled()) {
-    return { name: 'subagent', label: '子任务委派', description: '将子任务委派给子代理执行：省略 async 为前台同步（阻塞到完成，过程实时可见）；显式 async:true 时后台并行执行，进度在对话卡片实时呈现，完成/失败/挂起均有系统通知。', perm: 'allow' }
+    return { name: 'subagent', label: '子任务委派', description: '将子任务委派给专家执行：省略 async 为前台同步（阻塞到完成，过程实时可见）；显式 async:true 时后台并行执行，进度在对话卡片实时呈现，完成/失败/挂起均有系统通知。', perm: 'allow' }
   }
-  return { name: 'subagent', label: '子任务委派', description: '将独立子任务委派给子代理前台同步执行（阻塞到完成，过程与结果实时可见；后台异步已禁用）。', perm: 'allow' }
+  return { name: 'subagent', label: '子任务委派', description: '将独立子任务委派给专家前台同步执行（阻塞到完成，过程与结果实时可见；后台异步已禁用）。', perm: 'allow' }
 }
 
 const UI_TOOLS = [
@@ -280,13 +280,13 @@ const UI_TOOLS = [
   // pi-subagents 运行时配套工具（主会话与 child 内均可能经权限门；缺省落
   // '*' 兜底会在无头流水线中弹确认打断）：bg_wait 等待/收拢后台 run，
   // contact_supervisor / structured_output 为 child 内通信与交付面，均无副作用
-  { name: 'bg_wait', label: '等待后台任务', description: '等待无原生完成通知的后台子代理 / 供给者任务完成并返回结果（控制面，无副作用）。', perm: 'allow' },
-  { name: 'contact_supervisor', label: '联系父会话', description: '子代理内向父 / 监督会话发起决策请求、结构化访谈或进度汇报。', perm: 'allow' },
-  { name: 'structured_output', label: '提交结构化输出', description: '子代理内提交该步骤要求的最终结构化结果并结束步骤。', perm: 'allow' },
+  { name: 'bg_wait', label: '等待后台任务', description: '等待无原生完成通知的后台专家 / 供给者任务完成并返回结果（控制面，无副作用）。', perm: 'allow' },
+  { name: 'contact_supervisor', label: '联系父会话', description: '专家内向父 / 监督会话发起决策请求、结构化访谈或进度汇报。', perm: 'allow' },
+  { name: 'structured_output', label: '提交结构化输出', description: '专家内提交该步骤要求的最终结构化结果并结束步骤。', perm: 'allow' },
   // subagent_supervisor：pi-subagents 的监督控制面（与子代理会话交互 / 下发
   // 监督指令）。必须登记，否则用户经确认条「始终允许」写入的键在能力
   // 清单无对应条目（权限有、清单无的漂移源）
-  { name: 'subagent_supervisor', label: '监督子代理', description: '以监督者身份与子代理会话交互（下发指令 / 汇报与管控），pi-subagents 运行时配套控制面，无文件副作用。', perm: 'allow' }
+  { name: 'subagent_supervisor', label: '监督专家', description: '以监督者身份与专家会话交互（下发指令 / 汇报与管控），pi-subagents 运行时配套控制面，无文件副作用。', perm: 'allow' }
 ]
 
 // 语义记忆工具（pi-memory 社区扩展注册，pi.js 启动时自动安装；

@@ -199,7 +199,7 @@ const menuGroups = [
   {
     title: '',
     items: [
-      { label: '资源市场', name: 'OmniBuddyMarket', path: '/omnibuddy/market', icon: 'market' }
+      { label: '专家 · 技能 · 连接器', name: 'OmniBuddyMarket', path: '/omnibuddy/market', icon: 'market' }
     ]
   },
   {
