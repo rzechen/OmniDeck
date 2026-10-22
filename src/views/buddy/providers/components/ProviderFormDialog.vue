@@ -506,9 +506,12 @@ function resetForm() {
   message.info('已重置')
 }
 
-// 切换 API 格式：清掉地址错误提示（校验文案按格式变化）
+// 切换 API 格式：地址错误提示按新格式重判（错配检测取决于地址与格式的组合）
 function onFormatChange() {
   clearFieldError('baseUrl')
+  if ((form.value.baseUrl || '').trim() && !isImage.value) {
+    validateField('baseUrl')
+  }
 }
 
 function closeDialog() {
@@ -524,6 +527,18 @@ function resetErrors() {
   errors.apiKey = ''
 }
 
+// baseUrl 与 API 格式错配检测（高置信特征）：地址含 anthropic（如智谱
+// https://open.bigmodel.cn/api/anthropic、https://api.anthropic.com）却未选
+// Anthropic 格式时，流式响应解析不出 finish_reason，聊天会报
+// "Stream ended without finish_reason"——在表单阶段即拦截
+function formatMismatchMessage(baseUrl, apiFormat) {
+  if (!baseUrl || isImage.value) return ''
+  if (apiFormat !== 'anthropic' && baseUrl.toLowerCase().includes('anthropic')) {
+    return '地址疑似 Anthropic 兼容端点，当前 API 格式无法与之通信（聊天会报 Stream ended without finish_reason）：请将 API 格式切换为「Anthropic Messages 格式」，或核对接口地址'
+  }
+  return ''
+}
+
 function validateField(field) {
   const val = (form.value[field] || '').trim()
   if (!val) {
@@ -534,6 +549,11 @@ function validateField(field) {
       apiKey: '请输入 API 密钥'
     }
     errors[field] = msgs[field]
+    return false
+  }
+  const mismatch = field === 'baseUrl' ? formatMismatchMessage(val, form.value.apiFormat) : ''
+  if (mismatch) {
+    errors.baseUrl = mismatch
     return false
   }
   errors[field] = ''
