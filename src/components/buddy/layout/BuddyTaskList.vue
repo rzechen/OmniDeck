@@ -69,6 +69,8 @@
           <!-- 分叉创建的会话用 fork 图标（与气泡分叉按钮同图标，不做常亮高亮） -->
           <svg-icon v-else :icon-class="c.branch ? 'fork' : 'chat-dot-round'" />
           <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
+          <!-- 更新时间人性化显示（刚刚/x分钟前/x小时前…），hover 行时让位给操作按钮 -->
+          <span class="buddy-chat-time">{{ timeAgo(c.updatedAt) }}</span>
           <span class="buddy-chat-actions" :class="{ pinned: c.pinned }" @click.stop>
             <!-- 置顶：已置顶时常亮显示（hover 外也可见，颜色不变），未置顶时随行 hover 浮现 -->
             <svg-icon
@@ -91,7 +93,7 @@
 <script setup>
 // OmniBuddy 侧边栏任务列表：按会话工作空间的展示名（displayName）分组
 // 分组名 = displayName || workspaceDir（快照自会话元数据），纯展示组件
-import { computed, reactive } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useStore } from 'vuex'
 import { getItem, setItem } from '@/utils/storage/db'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
@@ -204,6 +206,28 @@ function clearTitle(g) {
 function onClearGroup(g) {
   if (!clearableCount(g)) return
   emit('clear-group', g)
+}
+
+// ===== 任务更新时间人性化显示 =====
+// now 为响应式基准时间，定时刷新使「x分钟前」随时间推进自动更新
+const now = ref(Date.now())
+let nowTimer = null
+onMounted(() => {
+  nowTimer = setInterval(() => { now.value = Date.now() }, 30000)
+})
+onBeforeUnmount(() => clearInterval(nowTimer))
+
+// 相对时间描述：刚刚 / x分钟前 / x小时前 / x天前；超过 7 天回落为日期（同年省略年份）
+function timeAgo(ts) {
+  if (!ts) return ''
+  const diff = now.value - ts
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`
+  const d = new Date(ts)
+  const md = `${d.getMonth() + 1}月${d.getDate()}日`
+  return d.getFullYear() === new Date(now.value).getFullYear() ? md : `${d.getFullYear()}年${md}`
 }
 
 // ===== 对话名称 hover 滚动（超长标题从右向左滚动展示） =====
@@ -375,6 +399,27 @@ function onChatLeave(e) {
       text-overflow: clip;
       animation: ob-name-scroll 3.5s ease-in-out 0.35s forwards;
     }
+  }
+
+  /* 更新时间：贴名称右侧弱化显示，hover 行时收窄让位给操作按钮（宽度过渡收起，缩短名称与置顶钮的间距） */
+  .buddy-chat-time {
+    flex-shrink: 0;
+    max-width: 120px;
+    margin-left: 2px;
+    font-size: 10.5px;
+    color: $text-secondary;
+    opacity: 0.75;
+    overflow: hidden;
+    /* 收窄过渡中禁止换行，避免行高变化导致整行抖动 */
+    white-space: nowrap;
+    transition: opacity 0.15s ease, max-width 0.15s ease, margin-left 0.15s ease;
+    pointer-events: none;
+  }
+
+  &:hover .buddy-chat-time {
+    opacity: 0;
+    max-width: 0;
+    margin-left: 0;
   }
 
   &:hover {

@@ -264,6 +264,8 @@ module.exports = {
   modelConfig,
   // 确保模型运行时就绪（配置指纹变化时重建并清空旧会话）
   ensureRuntime,
+  // provider 配置指纹（会话缓存比对：模型/密钥/高级配置变化需重建会话）
+  providerKeyOf,
   // 当前 provider 配置快照（含 imageConfigured 能力判定）
   getProviderInfo
 }

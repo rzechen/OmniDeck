@@ -15,7 +15,7 @@ const docExport = require('../tools/doc-export')
 const imageGen = require('../tools/image-gen')
 const rules = require('../knowledge/rules')
 const { state, loadPi } = require('./state')
-const { ensureRuntime, thinkingLevelOf } = require('./provider')
+const { ensureRuntime, thinkingLevelOf, providerKeyOf } = require('./provider')
 const { createAskUserExtension, createCredentialGetExtension, createTodoExtension } = require('./extensions')
 const { systemPrompt } = require('./prompt')
 const { createUiContext, rejectUiAsks } = require('./ui-context')
@@ -107,8 +107,13 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
   const cached = state.sessions.get(chatId)
   if (cached) {
     const policyNow = resolveMemoryPolicy(workspaceDir).policy
-    if (cached.workspaceDir === workspaceDir && cached.memoryPolicy === policyNow) return cached.session
-    // 工作空间或记忆策略变化：丢弃旧会话（含旧转录），下面按新配置重建
+    const keyNow = providerKeyOf(provider)
+    if (cached.workspaceDir === workspaceDir && cached.memoryPolicy === policyNow && cached.providerKey === keyNow) return cached.session
+    // 工作空间 / 记忆策略 / 模型配置变化：丢弃旧会话（含旧转录），下面按新配置重建
+    // （原生 resume 保留上下文，provider 变化由 pi 以 model_change 条目衔接）
+    if (cached.providerKey !== keyNow) {
+      console.log('[omnibuddy:pi] 会话缓存丢弃（模型配置已切换）：', chatId)
+    }
     await disposeSession(chatId)
   }
   // 记忆策略注入与扩展装载必须串行（进程 env 全局，见 withEnvLock 注释）
@@ -390,8 +395,9 @@ async function createSessionInternal(chatId, provider, historyTexts, onEvent, wo
     onEvent({ kind: 'skill', chatId, toolCallId, skillName, toolName })
   })
 
-  // 会话缓存带上策略（writeExitSummary 兜底按会话取目录；restore env）
-  state.sessions.set(chatId, { session, unsubscribe, workspaceDir: cwd, memoryPolicy: memory.policy })
+  // 会话缓存带上策略与模型配置指纹（getOrCreateSession 比对：切换模型即重建；
+  // writeExitSummary 兜底按会话取目录；restore env）
+  state.sessions.set(chatId, { session, unsubscribe, workspaceDir: cwd, memoryPolicy: memory.policy, providerKey: providerKeyOf(provider) })
   // env 已在扩展装载时被读取，恢复进程默认（避免污染其它会话的 bash env 继承）
   process.env.PI_MEMORY_DIR = prevMemoryDir
   return session
