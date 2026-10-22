@@ -210,7 +210,9 @@ function registerChatIpc(getWindow) {
       }
 
       if (session) {
-        entry.abort = () => { piRuntime.interruptSession(id) }
+        // 中断即标记用户主动停止：session:interrupt / 删除会话都经此闭包，
+        // session:send 的异常中止检测据此跳过报错（用户停止不算异常）
+        entry.abort = () => { entry.userInterrupted = true; piRuntime.interruptSession(id) }
         // prompt 前打书签（回合结束后收集 pi 树新增条目做映射对齐）
         piRuntime.markSessionBookmark(id)
         // streamingBehavior=followUp：后台子代理唤醒等注入驱动的续跑回合可能
@@ -219,12 +221,35 @@ function registerChatIpc(getWindow) {
         await session.prompt(promptText, Object.assign(
           { streamingBehavior: 'followUp' },
           imageBlocks.length ? { images: imageBlocks } : {}))
+        // 先快照本回合产出（下方映射同步会清空 assistantIds）
+        const turnOutputCount = (entry.assistantIds && entry.assistantIds.length) || 0
+        const openTools = (entry.openToolCalls && entry.openToolCalls.length) || 0
         // 回合映射同步（pi 树新增 ↔ 自有 JSONL 新增，严格对齐失败则
         // 跳过本批，后续分支切换自动兜底回放）与回放重建映射的全量落盘
         syncPiEntryMapAfterTurn(id, record.id, entry)
         const replayMap = piRuntime.consumeReplayMap(id)
         if (replayMap && replayMap.length) sessions.replacePiEntries(id, replayMap)
         const meta = sessions.touch(id)
+        // 异常中止检测：pi 的 abort 语义是 prompt() 正常 resolve 且不发
+        // turn_error——异常中止（限流/网络闪断打断 LLM 请求或前台子代理）会被
+        // 当成正常完成静默收尾，页面无任何报错。以两条信号判定并显式抛错：
+        //   a) 回合结束时仍有未闭合工具调用（tool_start 无 tool_end）
+        //   b) 完全空回合（无任何 assistant 内容落盘）
+        // 用户主动停止（userInterrupted，经 entry.abort 设置）与模型报错
+        // （turnError，turn_error 已落盘并 emit error）不在此列。
+        if (!entry.userInterrupted && !entry.turnError && (openTools || !turnOutputCount)) {
+          const errMsg = openTools
+            ? '回合异常中止：工具执行被取消（模型服务无响应或请求被中断，如限流/网络闪断），本回合未能完成'
+            : '回合异常中止：模型服务无响应或请求被取消，本回合无任何输出'
+          console.warn('[omnibuddy] session:send 异常中止 id=', id, '| openTools=', openTools, '| output=', turnOutputCount)
+          try {
+            sessions.addMessage(id, { role: 'assistant', content: '', error: errMsg })
+          } catch (err) { /* 会话已删除等忽略 */ }
+          emit(getWindow, id, { type: 'error', error: errMsg })
+          // 每轮对话结束即沉淀会话记忆摘要（异步，不阻塞返回；同会话条目覆盖式刷新）
+          writeExitSummary(id)
+          return { ok: false, error: errMsg }
+        }
         console.log('[omnibuddy][diag] done session:send 完成 id=', id) // 临时诊断
         emit(getWindow, id, { type: 'done', title: meta && meta.title })
         // 每轮对话结束即沉淀会话记忆摘要（异步，不阻塞返回；同会话条目覆盖式刷新）

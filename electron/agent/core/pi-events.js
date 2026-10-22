@@ -220,7 +220,11 @@ function handlePiEvent(getWindow, e) {
       console.log('[omnibuddy] turn_error <-', e.error)
       // 定时任务执行体登记：prompt 不抛异常，须据此把空回合判为失败
       automationTurnErrors.set(chatId, e.error || '模型请求失败')
+      // 会话层回合标记：session:send 据此跳过「异常中止」判定
+      // （本分支已落盘错误并 emit error，无需重复报错）
       {
+        const errEntry = running.get(chatId)
+        if (errEntry) errEntry.turnError = e.error || '模型请求失败'
         const errAnchors = runAnchors(chatId)
         sessions.addMessage(chatId, Object.assign(
           { role: 'assistant', content: '', error: e.error },
@@ -230,6 +234,16 @@ function handlePiEvent(getWindow, e) {
       emit(getWindow, chatId, { type: 'error', error: e.error })
       break
     case 'tool_start':
+      // 未闭合工具登记（session:send 异常中止判定信号 b）：tool_start 计入、
+      // tool_end 移除——回合正常结束时必然清空；pi abort 打断运行中工具
+      // （如前台子代理请求被限流/断网取消）时，残留项即异常中止证据
+      {
+        const tsEntry = running.get(chatId)
+        if (tsEntry) {
+          if (!Array.isArray(tsEntry.openToolCalls)) tsEntry.openToolCalls = []
+          tsEntry.openToolCalls.push(String(e.toolCallId || ''))
+        }
+      }
       // 检查点（N4 §18.3）：写操作工具执行前快照工作空间（skipped 静默；失败不阻断执行）
       // 文件变更记录：写工具执行前采集旧内容（供 tool_end 计算 diff）
       if (checkpoints.WRITE_TOOLS.has(e.toolName) || fileChanges.CHANGE_TOOLS.has(e.toolName)) {
@@ -253,6 +267,14 @@ function handlePiEvent(getWindow, e) {
       emit(getWindow, chatId, { type: 'tool_update', toolCallId: e.toolCallId, partial: e.partial })
       break
     case 'tool_end': {
+      // 未闭合工具移除（与 tool_start 登记对应，见上方注释）
+      {
+        const teEntry = running.get(chatId)
+        if (teEntry && Array.isArray(teEntry.openToolCalls)) {
+          const idx = teEntry.openToolCalls.indexOf(String(e.toolCallId || ''))
+          if (idx >= 0) teEntry.openToolCalls.splice(idx, 1)
+        }
+      }
       // 文件变更记录：写工具执行后对比新旧内容算 diff（失败调用不产生变更）
       let fileChange = null
       try {
