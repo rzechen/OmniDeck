@@ -56,6 +56,43 @@
           <span class="ob-skill-name">{{ item.skillName }}</span>
         </div>
 
+        <!-- 正文代码块（MessageBubble 从助手正文拆出收入）：
+             有归属思考段 → 随段折叠（段展开时直接显示代码）；
+             无归属段（纯正文直答等游离条目）→ 自带折叠头，默认收起，
+             点击切换（否则无段可折叠，代码块恒平铺在外）。
+             markdown 渲染（代码复制 / 放大按钮可用） -->
+        <div
+          v-else-if="item.type === 'code' && itemVisible(item, i)"
+          :key="'code-' + i"
+          class="ob-code-item"
+        >
+          <!-- 游离代码块的自带折叠头（默认收起） -->
+          <div
+            v-if="!hasOwnerSeg(i)"
+            class="ob-seg-head ob-code-free-head"
+            @click="toggleSeg(item)"
+          >
+            <svg-icon icon-class="code" class="ob-seg-ico" />
+            <span class="ob-seg-idx">正文代码</span>
+            <span class="ob-seg-title">{{ (item.lang || '代码块') + ' · ' + item.lines + ' 行' }}</span>
+            <svg-icon
+              icon-class="arrow-down"
+              class="ob-seg-arrow"
+              :class="{ collapsed: !isSegOpen(item) }"
+            />
+          </div>
+          <!-- 代码内容：有归属段随段显隐；游离条目按自带折叠头显隐 -->
+          <div v-if="hasOwnerSeg(i) || isSegOpen(item)">
+            <div class="ob-code-item-head">
+              <svg-icon icon-class="code" class="ob-code-item-ico" />
+              <span class="ob-code-item-label">代码块</span>
+              <span v-if="item.lang" class="ob-tool-tag">{{ item.lang }}</span>
+              <span class="ob-code-item-lines">{{ item.lines }} 行</span>
+            </div>
+            <div class="ob-think-md" v-html="renderedCached(item, codeFence(item))" @click="onMdClick"></div>
+          </div>
+        </div>
+
         <!-- ask_user 提问卡片（归位于思考区内，与工具条目同级）：挂起待答恒可见，
              已答问答记录随所属思考段折叠 -->
         <ask-user-card
@@ -410,6 +447,11 @@ function isSegOpen(item) {
   return false
 }
 
+// code 条目回拼 fence 供 markdown 渲染（复用正文代码块的复制 / 放大交互）
+function codeFence(item) {
+  return '```' + (item.lang || '') + '\n' + (item.code || '') + '\n```'
+}
+
 // 条目归属段（向前最近的思考块）是否展开：工具 / Skill / 问答记录随所属段折叠；
 // 思考块之前的游离条目（开场即工具调用等）无归属，恒平铺。
 // 基于重排后的 displayItems 扫描（narration 上移不影响工具归属判断：
@@ -420,6 +462,17 @@ function ownerOpen(i) {
     if (arr[k].type === 'thinking') return isSegOpen(arr[k])
   }
   return true
+}
+
+// code 条目是否有归属思考段（向前最近 thinking，narration 等跳过）：
+// 有 → 随段折叠（段展开即显示代码）；无（纯正文直答的游离条目）→
+// 自带折叠头默认收起，避免无段可折恒平铺在思考区外
+function hasOwnerSeg(i) {
+  const arr = displayItems.value
+  for (let k = i - 1; k >= 0; k--) {
+    if (arr[k].type === 'thinking') return true
+  }
+  return false
 }
 
 // 段内是否有运行中工具：扫描该思考段到下一段之间的条目（即归属本段的工具行）。
@@ -983,6 +1036,46 @@ function fcRemoved(fc) {
     font-size: 13px;
     font-weight: 500;
     color: #7C3AED;
+  }
+}
+
+/* 正文代码块条目（助手正文拆出收入思考区）：摘要行 + markdown 代码体 */
+.ob-code-item {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 游离代码块自带折叠头（复用思考段头样式，顶部留间距与段头对齐） */
+.ob-code-free-head {
+  margin-top: 2px;
+}
+
+.ob-code-item-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 22px;
+  padding: 2px 0;
+  user-select: none;
+
+  .ob-code-item-ico {
+    font-size: 13px;
+    flex-shrink: 0;
+    color: var(--text-secondary);
+  }
+
+  .ob-code-item-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .ob-code-item-lines {
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
   }
 }
 

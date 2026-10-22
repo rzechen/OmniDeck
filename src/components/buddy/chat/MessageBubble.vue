@@ -18,10 +18,10 @@
         </div>
       </div>
 
-      <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP + ask_user 提问） -->
+      <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP + ask_user 提问 + 正文代码块） -->
       <thinking-section
         v-if="hasSection"
-        :items="message.items || []"
+        :items="sectionItems"
         :is-thinking="!!message.isThinking"
         :is-streaming="!!message.streaming"
         :perm-pending="permPending"
@@ -39,9 +39,10 @@
         <svg-icon icon-class="loading" class="ob-think-spin" />
         <span>思考中</span><span class="ob-thinking-sec">{{ message.seconds }}s</span>
       </div>
-      <!-- 助手：正文 Markdown（click 委托承接代码块复制按钮；压缩摘要收起时不渲染，展开时以缩进+背景突出） -->
+      <!-- 助手：正文 Markdown（click 委托承接代码块复制按钮；压缩摘要收起时不渲染，展开时以缩进+背景突出）；
+           代码块已拆出收入思考区，此处仅渲染文字部分（displayContent 为拆分后文本） -->
       <div
-        v-else-if="message.role === 'assistant' && message.content && (!message.compaction || compactionOpen)"
+        v-else-if="message.role === 'assistant' && displayContent && (!message.compaction || compactionOpen)"
         class="ob-md"
         :class="{ 'ob-md-compaction': message.compaction }"
         v-html="rendered"
@@ -304,7 +305,59 @@ const branchInfo = computed(() => {
   return (b && b.total > 1) ? b : null
 })
 
-// 实际渲染/复制的正文：压缩摘要为兼容旧落盘数据，剔除误留的系统注入块（如 <read-files>…</read-files>）
+// 正文代码块拆分：成对 fence（``` / ~~~，语言标记取首 token）整块提取为
+// code 条目收入深度思考区（随所属思考段折叠），正文仅保留文字部分；
+// 未闭合 fence（流式生成中）留在正文原位，闭合瞬间移入思考区。
+// 按行扫描（非正则跨行匹配）：fence 处留占位空行维持前后段落间距
+function splitCodeBlocks(content) {
+  const lines = String(content || '').split('\n')
+  const codes = []
+  const out = []
+  for (let i = 0; i < lines.length; i++) {
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[i])
+    if (open) {
+      const fenceCh = open[1][0]
+      const fenceLen = open[1].length
+      let closed = -1
+      for (let j = i + 1; j < lines.length; j++) {
+        const cm = new RegExp('^ {0,3}\\' + fenceCh + '{' + fenceLen + ',}[ \t]*$').exec(lines[j])
+        if (cm) { closed = j; break }
+      }
+      if (closed > 0) {
+        codes.push({
+          type: 'code',
+          lang: String(open[2] || '').trim().split(/\s+/)[0] || '',
+          code: lines.slice(i + 1, closed).join('\n'),
+          lines: closed - i - 1
+        })
+        out.push('')
+        i = closed
+        continue
+      }
+    }
+    out.push(lines[i])
+  }
+  return { text: out.join('\n').replace(/\n{3,}/g, '\n\n').trim(), codes }
+}
+
+// 实例级拆分缓存：同 content 复用结果；content 增长重拆时，未变化的代码块
+// 复用旧条目对象（引用稳定 → 思考区 markdown 渲染缓存命中，流式不卡顿）
+let splitState = { content: '', text: '', codes: [] }
+function splitCached(content) {
+  const src = String(content || '')
+  if (splitState.content === src) return splitState
+  const r = splitCodeBlocks(src)
+  const prev = splitState.codes
+  for (let k = 0; k < r.codes.length; k++) {
+    const p = prev[k]
+    if (p && p.code === r.codes[k].code && p.lang === r.codes[k].lang) r.codes[k] = p
+  }
+  splitState = { content: src, text: r.text, codes: r.codes }
+  return splitState
+}
+
+// 实际渲染/复制的正文：压缩摘要为兼容旧落盘数据，剔除误留的系统注入块（如 <read-files>…</read-files>）；
+// 普通正文先拆出代码块（收入思考区），此处为拆分后的文字部分
 const displayContent = computed(() => {
   let text = String(props.message.content || '')
   if (props.message.compaction) {
@@ -312,18 +365,31 @@ const displayContent = computed(() => {
       .replace(/<read-files>[\s\S]*?<\/read-files>/gi, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim()
+    return text
   }
-  return text
+  return splitCached(text).text
+})
+
+// 正文拆出的代码块条目（追加思考区末尾，归属最近思考段折叠）
+const contentCodes = computed(() => {
+  if (props.message.compaction) return []
+  return splitCached(String(props.message.content || '')).codes
 })
 
 const rendered = computed(() => {
   return renderMarkdown(displayContent.value)
 })
 
-// 是否展示深度思考区（已有内容块）
+// 思考区条目：原有内容块 + 正文代码块（追加末尾）
+const sectionItems = computed(() => {
+  const base = props.message.items || []
+  return contentCodes.value.length ? base.concat(contentCodes.value) : base
+})
+
+// 是否展示深度思考区（已有内容块，含拆出的代码块条目）
 const hasSection = computed(() => {
   return props.message.role === 'assistant' &&
-    !!(props.message.items && props.message.items.length > 0)
+    !!sectionItems.value.length
 })
 
 // 尚无任何内容块时，退回「思考中 Ns」占位
