@@ -33,6 +33,11 @@ function inlineSingleFile() {
       })
       // modulepreload 残链清除（单文件无需预载）
       src = src.replace(/<link[^>]*rel="modulepreload"[^>]*>/g, '')
+      // 构建时间戳注入标题：手机端刷新后标题带时间即页面已更新（排障用）
+      const d = new Date()
+      const pad = n => String(n).padStart(2, '0')
+      const stamp = pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+      src = src.replace(/<title>([^<]*)<\/title>/, '<title>$1 · ' + stamp + '</title>')
       html.source = src
     }
   }
