@@ -6,8 +6,8 @@
       :running="false" @back="back"
     />
     <div class="compose-body">
-      <!-- 品牌区（logo · OmniDeck · 任务不停 ● 思考不断）；键盘弹出时平滑淡出 -->
-      <div class="hero" :class="{ hidden: kbOpen }">
+      <!-- 品牌区（logo · OmniDeck · 任务不停 ● 思考不断） -->
+      <div class="hero">
         <img class="hero-logo" :src="logoUrl" alt="OmniDeck">
         <b class="hero-name">OmniDeck</b>
         <div class="hero-slogan">
@@ -74,8 +74,8 @@ const pvName = computed(() => {
 })
 
 // 软键盘适配：#app 高度跟随 visualViewport（键盘上方区域），输入框贴键盘
-// 正上方、浏览器不再上推页面；kbOpen 时品牌区平滑淡出
-const { kbOpen } = useKeyboard()
+// 正上方、浏览器不再上推页面（品牌区不随键盘变化，保持原样）
+useKeyboard()
 
 onMounted(() => {
   // 入口带参则预选（分组头 + 携带空间）
@@ -118,13 +118,11 @@ function submit(text) {
 .page { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .compose-body { flex: 1; overflow-y: auto; padding: 8px 16px 16px; -webkit-overflow-scrolling: touch; }
 
-/* 品牌区（键盘弹出时淡出让位——滚动复位锁已防止页面被顶出空白） */
+/* 品牌区（不随键盘变化） */
 .hero {
   display: flex; flex-direction: column; align-items: center;
   padding: 10vh 0 5vh;
-  transition: opacity .22s ease;
 }
-.hero.hidden { opacity: 0; pointer-events: none; }
 .hero-logo { width: 64px; height: 64px; border-radius: 18px; box-shadow: 0 5px 18px rgba(51, 102, 255, .16); }
 .hero-name { margin-top: 14px; font-size: 22px; font-weight: 700; letter-spacing: .8px; }
 .hero-slogan {

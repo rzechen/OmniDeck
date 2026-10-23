@@ -12,6 +12,9 @@
       <div class="answer-body" v-html="md(item.text)"></div>
     </div>
     <div v-if="!item.streaming && item.text" class="answer-meta">
+      <span v-if="item.usage && (item.usage.input || item.usage.output)" class="meta-tokens">
+        输入 {{ fmtTokens(item.usage.input) }} tokens · 输出 {{ fmtTokens(item.usage.output) }} tokens
+      </span>
       <button class="meta-btn" :class="{ ok: copied }" :title="copied ? '已复制' : '复制'" @click="copy(item.text)">
         <span class="ico" v-html="copied ? checkIcon : copyIcon"></span>
       </button>
@@ -38,7 +41,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import ProcessGroup from './ProcessGroup.vue'
-import { md } from '../format'
+import { md, fmtTokens } from '../format'
 import copyIcon from '@/assets/icons/svg/buddy/copy.svg?raw'
 import checkIcon from '@/assets/icons/svg/buddy/check.svg?raw'
 import successIcon from '@/assets/icons/svg/buddy/success.svg?raw'
@@ -116,7 +119,6 @@ function copy(text) {
 /* ===== 最终回答：全宽扁平排版（主体，字号层级最高） ===== */
 .answer { font-size: 16px; line-height: 1.78; color: var(--text); }
 .answer-body { word-break: break-word; overflow-wrap: anywhere; }
-.answer-body:empty::before { content: '…'; color: var(--muted); }
 .answer-body > *:first-child { margin-top: 0; }
 .answer-body > *:last-child { margin-bottom: 0; }
 .answer p { margin: 8px 0; }
@@ -147,8 +149,11 @@ function copy(text) {
 }
 @keyframes caret { 50% { opacity: 0; } }
 
-/* 回答操作行：左下角复制（纯图标，与正文字号一致 1em，负边距与文字左缘对齐） */
-.answer-meta { display: flex; justify-content: flex-start; margin-top: 4px; }
+/* 回答操作行：token 用量（与 PC 同格式）+ 左下角复制 */
+.answer-meta { display: flex; align-items: center; margin-top: 4px; }
+.meta-tokens { font-size: 12px; color: var(--muted); margin-left: -7px; }
+/* 有 token 文字时复制按钮不再负边距对齐（避免压住文字） */
+.meta-tokens + .meta-btn { margin-left: 2px; }
 .meta-btn {
   width: auto; height: auto; padding: 6px; margin: 0 0 0 -7px;
   background: transparent; color: var(--muted);

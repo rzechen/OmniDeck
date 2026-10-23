@@ -16,8 +16,10 @@ const crypto = require('crypto')
 const sessions = require('../sessions/sessions')
 const workspaces = require('../workspace/workspaces')
 const scheduler = require('../platform/scheduler')
+const permissions = require('../platform/permissions')
+const sandbox = require('../platform/sandbox')
 const piRuntime = require('../pi')
-const { emit, running, automationTurnErrors, addEmitListener } = require('../core/chat-state')
+const { emit, running, automationTurnErrors, addEmitListener, pendingPermissions, pendingAsks } = require('../core/chat-state')
 const { writeExitSummary } = require('../core/direct-llm')
 
 const DEFAULT_PORT = 7360
@@ -131,7 +133,7 @@ function broadcastSse(event) {
 // 事件瘦身：白名单类型 + 字段裁剪（公网链路只传移动端渲染所需的最小载荷）
 const SLIM_TYPES = new Set([
   'user_message', 'assistant_start', 'delta', 'thinking', 'assistant_end',
-  'tool_start', 'tool_end', 'todo_update', 'permission_ask', 'ask_user',
+  'tool_start', 'tool_end', 'todo_update', 'permission_ask', 'permission_done', 'ask_user', 'ask_done',
   'done', 'error', 'interrupted', 'pi_unavailable'
 ])
 // 各字段保留长度（默认 300；正文类放宽）
@@ -186,11 +188,19 @@ function slimEvent(data) {
   } else if (t === 'permission_ask') {
     out.askId = data.askId
     out.surface = data.surface || data.toolName || ''
+    out.toolName = data.toolName || ''
     out.brief = briefArgs({ command: data.command, url: data.url, path: data.value || data.path })
+  } else if (t === 'permission_done') {
+    // 审批已决（任一端：PC / 手机）：移动端移除待审批条
+    out.askId = data.askId
   } else if (t === 'ask_user') {
     out.callId = data.callId
     out.question = clip(data.question, 1000)
     out.options = Array.isArray(data.options) ? data.options.slice(0, 8) : []
+    out.multiSelect = !!data.multiSelect
+  } else if (t === 'ask_done') {
+    // 问答已答（任一端：PC / 手机）：移动端移除待回答条
+    out.callId = data.callId
   } else if (t === 'error') {
     out.error = clip(data.error, 1000)
   }
@@ -376,14 +386,16 @@ function sessionView(id) {
     if (m.role === 'user') {
       items.push({ kind: 'user', text: clip(m.content, 12000) })
     } else if (m.role === 'assistant') {
-      // thinking / mid 随行带出：回放侧按「思考进过程组、中途正文归过程说明、
-      // 最终回答连续合并」重建，与 PC 端回合语义一致
+      // thinking / mid / usage 随行带出：回放侧按「思考进过程组、中途正文归
+      // 过程说明、最终回答连续合并」重建，与 PC 端回合语义一致（usage 供
+      // 回答下方的 token 用量展示）
       items.push({
         kind: 'assistant',
         text: clip(m.content, 12000),
         thinking: m.thinking ? clip(m.thinking, 6000) : '',
         mid: !!m.mid,
-        error: m.error ? clip(m.error, 1000) : ''
+        error: m.error ? clip(m.error, 1000) : '',
+        usage: m.usage || null
       })
     } else if (m.role === 'tool') {
       // 内部机制类工具与实时流同口径过滤
@@ -513,7 +525,8 @@ async function handleApi(req, res, urlObj) {
     // 空间名（详情页输入框锁定展示；定时任务等无空间会话回退 displayName）
     const wsHit = meta.workspaceId ? workspaces.list().find(w => w.id === meta.workspaceId) : null
     const wsName = wsHit ? (wsHit.name || wsHit.path || '') : (meta.displayName || '')
-    return json(res, 200, { ok: true, items, workspaceName: clip(wsName, 200) })
+    // 运行态（PC 会话与远程任务同判定）：进页恢复，执行中禁用追问输入框
+    return json(res, 200, { ok: true, items, workspaceName: clip(wsName, 200), running: running.has(id) })
   }
 
   if (p === '/api/workspaces' && req.method === 'GET') {
@@ -566,9 +579,105 @@ async function handleApi(req, res, urlObj) {
   }
 
   if (p === '/api/interrupt' && req.method === 'POST') {
-    if (!currentRemote || !running.has(currentRemote)) return json(res, 200, { ok: true, idle: true })
-    const entry = running.get(currentRemote)
+    // sessionId 有值可停任意运行中会话（PC 会话 + 远程任务统一 abort 协议）；
+    // 缺省停当前远程任务。中断后 interrupted 事件 → 终态 → 各端恢复空闲
+    const sid = String(body.sessionId || currentRemote || '')
+    const entry = sid ? running.get(sid) : null
+    if (!entry) return json(res, 200, { ok: true, idle: true })
     try { entry.abort && entry.abort() } catch (e) { /* 忽略 */ }
+    return json(res, 200, { ok: true })
+  }
+
+  // ===== 人工审批（移动端命令审批） =====
+  // 未决审批清单：pendingPermissions 快照（chain 路径）+ ui.select 兜底路径的
+  // pendingUiAsks（ui- 前缀，replyUiAsk 应答）。详情页按 sessionId 过滤
+  if (p === '/api/permission/pending' && req.method === 'GET') {
+    const asks = []
+    for (const [askId, entry] of pendingPermissions) {
+      asks.push({
+        askId,
+        sessionId: entry.chatId,
+        surface: entry.info.surface || entry.info.toolName || '',
+        toolName: entry.info.toolName || '',
+        brief: briefArgs({ command: entry.info.command, url: entry.info.url, path: entry.info.value || entry.info.path })
+      })
+    }
+    for (const u of (piRuntime.getPendingUiAsks() || [])) {
+      asks.push({
+        askId: u.askId,
+        sessionId: u.sessionId,
+        surface: u.surface || u.toolName || '',
+        toolName: u.toolName || '',
+        brief: briefArgs({ command: u.command, url: u.url, path: u.value || u.path })
+      })
+    }
+    return json(res, 200, { ok: true, asks })
+  }
+
+  // 审批决策：与 PC 端 omnibuddy:permission:reply 同一 resolve 通道
+  // （pendingPermissions → verdictPromise），action 白名单一致；
+  // ui- 前缀走 replyUiAsk（select 兜底路径）；广播 permission_done
+  // 让 PC 确认卡与移动端待审批条同步移除
+  if (p === '/api/permission' && req.method === 'POST') {
+    const askId = String(body.askId || '')
+    const sid = String(body.sessionId || '')
+    const act = ['allow', 'allow_session', 'allow_always', 'deny'].indexOf(body.action) >= 0 ? body.action : 'deny'
+    // select 兜底路径：先校验归属再应答（replyUiAsk 先删后 resolve，无法回退）
+    if (askId.startsWith('ui-')) {
+      const u = (piRuntime.getPendingUiAsks() || []).find(x => x.askId === askId)
+      if (!u || u.sessionId !== sid) return json(res, 404, { ok: false, error: '审批请求不存在或已处理' })
+      piRuntime.replyUiAsk(askId, act)
+      emit(getWindow, sid, { type: 'permission_done', askId })
+      return json(res, 200, { ok: true })
+    }
+    const entry = pendingPermissions.get(askId)
+    if (!entry || entry.chatId !== sid) return json(res, 404, { ok: false, error: '审批请求不存在或已处理' })
+    pendingPermissions.delete(askId)
+    if (act === 'allow_always') {
+      // 始终允许：策略持久化与 PC 端同源（网络面写沙箱配置，其余写权限 config）
+      if (entry.info.surface === 'network') sandbox.persistNetworkAllow(entry.info.value)
+      else permissions.persistAlwaysAllow(piRuntime.agentDir, entry.info.surface)
+    }
+    emit(getWindow, entry.chatId, { type: 'permission_done', askId })
+    entry.resolve(act)
+    return json(res, 200, { ok: true })
+  }
+
+  // ===== ask_user 问答（移动端回答 Agent 中途提问） =====
+  // 未决问答清单：pendingAsks 快照，详情页按 sessionId 过滤
+  if (p === '/api/ask/pending' && req.method === 'GET') {
+    const asks = []
+    for (const [callId, entry] of pendingAsks) {
+      asks.push({
+        callId,
+        sessionId: entry.chatId,
+        question: clip(entry.question, 1000),
+        options: Array.isArray(entry.options) ? entry.options.slice(0, 8) : [],
+        multiSelect: !!entry.multiSelect
+      })
+    }
+    return json(res, 200, { ok: true, asks })
+  }
+
+  // 问答应答：与 PC 端 omnibuddy:ask-user:reply 同一 resolve 通道 + 落盘
+  // role:'ask_user' 记录（回放一致）；广播 ask_done 让 PC 卡片与移动端
+  // 待回答条同步移除
+  if (p === '/api/ask' && req.method === 'POST') {
+    const callId = String(body.callId || '')
+    const sid = String(body.sessionId || '')
+    const value = String(body.value == null ? '' : body.value)
+    const entry = pendingAsks.get(callId)
+    if (!entry || entry.chatId !== sid) return json(res, 404, { ok: false, error: '问答请求不存在或已回答' })
+    pendingAsks.delete(callId)
+    entry.resolve(value)
+    sessions.addMessage(sid, Object.assign({
+      role: 'ask_user',
+      question: entry.question,
+      options: entry.options,
+      multiSelect: entry.multiSelect || undefined,
+      answer: value
+    }, entry.anchors && entry.anchors.length ? { anchors: entry.anchors } : {}))
+    emit(getWindow, sid, { type: 'ask_done', callId })
     return json(res, 200, { ok: true })
   }
 

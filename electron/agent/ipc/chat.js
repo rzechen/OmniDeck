@@ -344,6 +344,8 @@ function registerChatIpc(getWindow) {
     const p = pendingAsks.get(callId)
     if (!p || p.chatId !== sessionId) return { ok: false }
     pendingAsks.delete(callId)
+    // 广播 ask_done：移动端待回答条同步移除（PC 端不认识该类型，安全忽略）
+    emit(getWindow, sessionId, { type: 'ask_done', callId })
     p.resolve(String(value || ''))
     // 持久化问答记录
     sessions.addMessage(sessionId, Object.assign({
