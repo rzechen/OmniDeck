@@ -588,6 +588,15 @@ bus.on('buddy:sidebar-hold', onSidebarHold)
       if (e.type === 'remote_state') {
         loadChats()
       }
+      // 任务被删除（手机端发起）：侧栏同步移除并清理会话状态池/页签；
+      // 正打开该会话则回到新建页（与本地 confirmDeleteChat 的清理动作一致）
+      if (e.type === 'chat_deleted') {
+        const sid = e.sessionId
+        chats.value = chats.value.filter(x => x.id !== sid)
+        store.commit('buddyChat/DROP_SESSION', sid)
+        store.commit('tagsView/DEL_TAB', { side: 'buddy', fullPath: '/omnibuddy?s=' + sid })
+        if (activeChatId.value === sid) router.push('/omnibuddy').catch(() => {})
+      }
       // 产出落地（阶段三交付物闭环）：就地累加徽标计数，不整表重拉
       if (e.type === 'tool_end' && Array.isArray(e.artifacts) && e.artifacts.length) {
         const c = chats.value.find(x => x.id === e.sessionId)

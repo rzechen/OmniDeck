@@ -30,7 +30,7 @@
         <WorkspaceGroup
           v-for="g in store.overview.groups" :key="g.id"
           :group="g" :expanded="!!expandedGroups[g.id]"
-          @toggle="toggleGroup(g.id)" @open="openTask" @more="loadMore(g)"
+          @toggle="toggleGroup(g.id)" @open="openTask" @more="loadMore(g)" @del="onDelTask"
         />
       </template>
     </div>
@@ -40,6 +40,7 @@
 <script setup>
 import { reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import AppHeader from '../components/AppHeader.vue'
 import WorkspaceGroup from '../components/WorkspaceGroup.vue'
 import { store } from '../store'
@@ -58,6 +59,41 @@ function toggleGroup(id) {
 
 function openTask(t) {
   router.push({ name: 'task-detail', params: { id: t.id }, query: { title: t.title || '' } })
+}
+
+// 长按删除：二次确认（文案对齐 PC 端删除任务弹窗）后走服务端快速通道
+// （运行中的任务会被中止后删除），成功后本地立即移除
+function onDelTask(t) {
+  ElMessageBox.confirm('删除后该任务的记录将一并移除，确定删除吗？', '删除任务', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    api('POST', '/api/task/delete', { sessionId: t.id }).then(r => {
+      if (!r || !r.ok) {
+        ElMessage({ message: (r && r.error) || '删除失败', type: 'error', duration: 2200 })
+        return
+      }
+      removeLocal(t.id)
+      ElMessage({ message: '已删除', type: 'success', duration: 1500 })
+    }).catch(() => {
+      ElMessage({ message: '网络错误', type: 'error', duration: 2200 })
+    })
+  }).catch(() => {})
+}
+
+// 本地移除：分组内任务行 + total 计数同步修正；删除的是运行中任务则清运行态
+// （服务端 remote_state 广播也会触发 App.vue 刷新总览，此处即时反馈不等回环）
+function removeLocal(id) {
+  for (const g of store.overview.groups) {
+    const i = (g.tasks || []).findIndex(x => x.id === id)
+    if (i >= 0) {
+      g.tasks.splice(i, 1)
+      g.total = Math.max(0, (g.total || 0) - 1)
+      break
+    }
+  }
+  if (store.runningId === id) store.runningId = ''
 }
 
 // 新建任务：顶栏 + 全局进入（不带空间）；分组头 + 进入则预选该空间
