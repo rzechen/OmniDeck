@@ -21,6 +21,7 @@ const sandbox = require('../platform/sandbox')
 const piRuntime = require('../pi')
 const { emit, running, automationTurnErrors, addEmitListener, pendingPermissions, pendingAsks } = require('../core/chat-state')
 const { writeExitSummary } = require('../core/direct-llm')
+const { deleteSessionFast } = require('../core/pi-events')
 
 const DEFAULT_PORT = 7360
 
@@ -134,6 +135,7 @@ function broadcastSse(event) {
 const SLIM_TYPES = new Set([
   'user_message', 'assistant_start', 'delta', 'thinking', 'assistant_end',
   'tool_start', 'tool_end', 'todo_update', 'permission_ask', 'permission_done', 'ask_user', 'ask_done',
+  'chat_deleted',
   'done', 'error', 'interrupted', 'pi_unavailable'
 ])
 // 各字段保留长度（默认 300；正文类放宽）
@@ -201,6 +203,8 @@ function slimEvent(data) {
   } else if (t === 'ask_done') {
     // 问答已答（任一端：PC / 手机）：移动端移除待回答条
     out.callId = data.callId
+  } else if (t === 'chat_deleted') {
+    // 任务被删除（任一端发起）：移动端正查看该详情则退回列表（sessionId 已统一携带）
   } else if (t === 'error') {
     out.error = clip(data.error, 1000)
   }
@@ -576,6 +580,25 @@ async function handleApi(req, res, urlObj) {
       : await runRemoteTask(text, body.workspaceId, body.providerId)
     // 事件流（user_message 等）已由 emit 分流先行推送；此处仅回执行结果
     return json(res, r.ok ? 200 : 409, r)
+  }
+
+  // 删除任务（移动端发起）：与 PC 端 omnibuddy:session:delete 同一快速通道
+  // （deleteSessionFast：中止运行中回合 → 清运行时与磁盘记录 → 后台摘要留档）。
+  // 顺带清该会话的审批/问答挂起与远程任务引用；广播 remote_state（列表刷新）
+  // + chat_deleted（PC 侧栏移除 / 移动端详情页退回），双端同步
+  if (p === '/api/task/delete' && req.method === 'POST') {
+    const sid = String(body.sessionId || '')
+    if (!sid) return json(res, 400, { ok: false, error: '缺少 sessionId' })
+    try { await deleteSessionFast(sid) } catch (e) {
+      return json(res, 500, { ok: false, error: '删除失败：' + (e && e.message || e) })
+    }
+    if (currentRemote === sid) currentRemote = ''
+    for (const [askId, e] of pendingPermissions) { if (e.chatId === sid) pendingPermissions.delete(askId) }
+    for (const [callId, e] of pendingAsks) { if (e.chatId === sid) pendingAsks.delete(callId) }
+    broadcastSse({ type: 'remote_state', current: stateView().current })
+    broadcastSse({ type: 'chat_deleted', sessionId: sid })
+    emit(getWindow, sid, { type: 'chat_deleted', sessionId: sid })
+    return json(res, 200, { ok: true })
   }
 
   if (p === '/api/interrupt' && req.method === 'POST') {

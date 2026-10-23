@@ -10,12 +10,13 @@
 
     <div v-show="expanded" class="wgroup-body">
       <div v-if="!group.tasks.length && !group.hasMore" class="group-empty">暂无任务</div>
-      <div v-for="t in group.tasks" :key="t.id" class="task" @click="$emit('open', t)">
+      <div v-for="t in group.tasks" :key="t.id" class="task" @click="onTap(t)">
         <span class="t-run" :class="{ on: t.running }"></span>
         <div class="t-info">
           <div class="t-title">{{ t.title }}</div>
           <div class="t-time">{{ t.running ? '执行中…' : fmtTime(t.updatedAt) }}</div>
         </div>
+        <button class="t-del" title="删除" @click.stop="emit('del', t)" v-html="deleteIcon"></button>
         <span class="ico chev" v-html="rightIcon"></span>
       </div>
       <div v-if="group.hasMore" class="more" @click="$emit('more')">
@@ -27,6 +28,7 @@
 
 <script setup>
 import arrowDownIcon from '@/assets/icons/svg/buddy/arrow-down.svg?raw'
+import deleteIcon from '@/assets/icons/svg/buddy/delete.svg?raw'
 import folderIcon from '@/assets/icons/svg/buddy/folder.svg?raw'
 import rightIcon from '@/assets/icons/svg/buddy/right.svg?raw'
 import { fmtTime } from '../format'
@@ -35,7 +37,11 @@ defineProps({
   group: { type: Object, required: true }, // { id, name, wsId, tasks, total, hasMore }
   expanded: { type: Boolean, default: false }
 })
-defineEmits(['toggle', 'open', 'more'])
+const emit = defineEmits(['toggle', 'open', 'more', 'del'])
+
+function onTap(t) {
+  emit('open', t)
+}
 </script>
 
 <style>
@@ -72,6 +78,12 @@ defineEmits(['toggle', 'open', 'more'])
 .t-info { flex: 1; min-width: 0; }
 .t-title { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .t-time { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.t-del {
+  flex: none; border: none; background: none; padding: 6px; cursor: pointer;
+  color: var(--muted); opacity: .5;
+}
+.t-del:active { opacity: 1; color: var(--red); }
+.t-del svg { width: 15px; height: 15px; display: block; }
 .chev { color: var(--muted); opacity: .6; }
 .chev svg { width: 15px; height: 15px; }
 .more { padding: 12px 2px; text-align: center; font-size: 13px; color: var(--brand); cursor: pointer; border-top: 1px solid var(--line); }
