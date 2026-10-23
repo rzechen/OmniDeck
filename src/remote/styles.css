@@ -1,0 +1,66 @@
+/* 移动端远程任务页全局基础样式：CSS 变量 / reset / 通用类（组件样式在各 SFC 内） */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  /* 固定亮色主题：白底浅灰卡片（与 PC 端浅色模式一致） */
+  --bg: #FFFFFF;
+  --card: #F5F6F8;
+  --card2: #EDEFF2;
+  --line: rgba(0, 0, 0, 0.06);
+  --text: #1A1D24;
+  --muted: #6B7280;
+  /* 与 PC 端一致的主题色（styles/theme.scss --primary-color） */
+  --brand: #3366FF;
+  --brand-hover: #5C85FF;
+  --success: #16A34A;
+  --red: #E8463A;
+  --amber: #D97706;
+  --warn-bg: #FFF7E8;
+  --shadow: none;
+}
+html, body, #app { height: 100%; }
+/* Element Plus 主题对齐（主色 / 圆角与移动端一致） */
+:root {
+  --el-color-primary: var(--brand);
+  --el-color-primary-light-3: #668CFF;
+  --el-color-primary-light-5: #99B3FF;
+  --el-color-primary-light-7: #CCD9FF;
+  --el-color-primary-light-8: #E0E8FF;
+  --el-color-primary-light-9: #EFF3FF;
+  --el-color-primary-dark-2: #2952CC;
+  --el-border-radius-base: 10px;
+}
+/* 长内容（代码块/表格/长链接）只允许在自身容器内横向滚动，页面整体禁止横滑；
+   touch-action: pan-x pan-y 仅允许单指平移——双击缩放与双指捏合均禁用
+   （iOS 10+ 忽略 user-scalable=no，捏合须由 touch-action 拦截） */
+html, body { overflow-x: hidden; touch-action: pan-x pan-y; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.65 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, sans-serif;
+  max-width: 100vw;
+}
+#app { display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+.main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* ===== 图标（统一取自 PC 图标库 svg，?raw 内联 + CSS 控色/尺寸） ===== */
+.ico { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.ico svg { width: 1em; height: 1em; fill: currentColor; }
+
+/* ===== 通用 ===== */
+.empty { text-align: center; margin-top: 34vh; transform: translateY(-50%); }
+.empty .emoji { font-size: 42px; display: block; margin-bottom: 10px; }
+.empty p { color: var(--muted); font-size: 13px; }
+button { border: none; cursor: pointer; font-family: inherit; }
+button:active { opacity: .8; }
+button:disabled { opacity: .4; }
+.pill {
+  flex: none; font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); display: inline-flex; align-items: center; gap: 5px;
+}
+.pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.pill.on { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 35%, transparent); }
+.pill.on i { background: var(--brand); }
+.pill.run { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.pill.run i { background: var(--amber); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+.logo { flex: none; width: 32px; height: 32px; border-radius: 8px; }
+.logo-lg { display: block; margin: 0 auto; width: 64px; height: 64px; border-radius: 16px; box-shadow: var(--shadow); }

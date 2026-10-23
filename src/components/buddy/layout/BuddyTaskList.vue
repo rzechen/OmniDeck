@@ -509,6 +509,8 @@ function onChatLeave(e) {
     color: $text-secondary;
     cursor: pointer;
     opacity: 0;
+    /* 容器按状态收窄 max-width（置顶 30px），透明图标仍占位；禁止收缩才能完整显示 pin、由 overflow 裁掉其余 */
+    flex-shrink: 0;
     transition: opacity 0.15s ease, color 0.15s ease;
 
     &:hover {

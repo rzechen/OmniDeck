@@ -53,8 +53,6 @@ let getWindow = null
 let handlePiEvent = null
 // 当前运行中的远程会话 id（空 = 空闲；单并发，新任务在运行中会被拒绝）
 let currentRemote = ''
-// 远程会话集合（SSE 过滤依据；init 时按 meta.remote 恢复）
-const remoteSessions = new Set()
 // SSE 客户端：Set<ServerResponse>
 const sseClients = new Set()
 let sseHeartbeat = null
@@ -154,9 +152,14 @@ function briefArgs(args) {
   try { return clip(JSON.stringify(args), 200) } catch (e) { return '' }
 }
 
+// 内部机制类工具不进移动端过程流（框架自身的检索/延迟加载与第三方 MCP
+// 接入细节，对用户是噪音；内置业务工具照常展示）
+const HIDDEN_TOOLS = /^(mcp__|tool_search$)/
+
 function slimEvent(data) {
   if (!data || !SLIM_TYPES.has(data.type)) return null
   const t = data.type
+  if ((t === 'tool_start' || t === 'tool_end') && HIDDEN_TOOLS.test(String(data.toolName || ''))) return null
   const out = { type: t, sessionId: data.sessionId }
   if (t === 'user_message') {
     out.message = { id: data.message && data.message.id, role: 'user', content: clip(data.message && data.message.content, 12000) }
@@ -194,32 +197,23 @@ function slimEvent(data) {
   return out
 }
 
-// emit 分流 → SSE（仅远程会话）
+// emit 分流 → SSE：推全部会话事件（PC 端 + 手机端发起），
+// 页面按 viewId 自行过滤；token 鉴权下仅用户自己可达
 function onEmit(data) {
-  if (!remoteSessions.has(data.sessionId)) return
   const slim = slimEvent(data)
   if (slim) broadcastSse(slim)
 }
 
 // ===== 远程任务执行体（仿 automation manual 触发的简化版：单次执行、无重试） =====
 // workspaceId 可选：手机端选定的工作空间；缺省回落列表第一个
+// providerId 可选：手机端指定的模型；缺省按 最近对话快照 → 默认模型 回落
 // 返回 { ok, sessionId } / { ok: false, error }
-async function runRemoteTask(text, workspaceId) {
+async function runRemoteTask(text, workspaceId, providerId) {
   if (currentRemote) return { ok: false, error: '已有远程任务在运行中，请等待完成或先停止' }
 
-  // 模型：最近对话快照 → 默认模型（与定时任务未绑定模型时的回落一致）
-  const providers = scheduler.getProviders()
-  const snap = scheduler.getProviderSnapshot()
-  let provider = null
-  if (snap && snap.baseUrl && snap.model) {
-    provider = providers.find(x => x.id === snap.id) || snap
-  }
-  if (!provider || !provider.baseUrl || !provider.model) {
-    provider = providers.find(x => x.isDefault) || providers[0] || null
-  }
-  if (!provider || !provider.baseUrl || !provider.model) {
-    return { ok: false, error: '未配置模型：请先在 PC 端「模型管理」添加模型' }
-  }
+  // 模型：指定 → 最近对话快照 → 默认模型（resolveProvider 公共回落）
+  const provider = resolveProvider(providerId)
+  if (provider.error) return provider
 
   // 工作空间：手机端选定 → 校验存在；缺省回落列表第一个
   // displayName 取该空间名——PC 侧栏按 displayName 分组，远程任务与 PC 端
@@ -244,37 +238,83 @@ async function runRemoteTask(text, workspaceId) {
   const body = String(text || '').trim().slice(0, 8000)
   if (!body) return { ok: false, error: '任务内容为空' }
 
-  const pad = n => String(n).padStart(2, '0')
-  const d = new Date()
-  const stamp = pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
-  // 系统会话：remote 标记供远程服务过滤；displayName 与 PC 端同空间一致
+  // 会话与 PC 端发起的会话完全同构：不传标题（'新对话' 起步，addMessage
+  // 取首条消息前 24 字，首轮回答后由 LLM 生成正式标题）、不区分来源
   const meta = sessions.createSession({
-    title: (body.slice(0, 24) || '远程任务') + ' · ' + stamp,
     workspaceId: wsId,
     workspaceDir: wsDir,
-    displayName: wsName,
-    autoTitle: false,
-    remote: { ts: Date.now() }
+    displayName: wsName
   })
   const chatId = meta.id
-  remoteSessions.add(chatId)
   currentRemote = chatId
 
-  const promptText = [
-    '这是从手机远程下发的任务（执行时间 ' + stamp + '）。',
-    '',
-    body,
-    '',
-    '请自动完成上述任务：优先使用联网搜索等只读工具收集信息，独立完成全部步骤，最终以回复正文交付完整结果；' +
-      '写入文件等操作需要授权且手机端无法及时应答（将在 PC 端弹出确认），请仅在必要时使用。'
-  ].join('\n')
-
-  // 落盘用户消息（PC 端重开会话可见完整请求）
-  const { record } = sessions.addMessage(chatId, { role: 'user', content: promptText })
+  // 用户消息即原文（与 PC 端发送一致，不加任何远程前缀话术）
+  const { record } = sessions.addMessage(chatId, { role: 'user', content: body })
   emit(getWindow, chatId, { type: 'user_message', message: record })
 
+  // 回合后台执行：HTTP 即时返回 sessionId（新建后立即跳详情页），过程/终态走 SSE
+  executeTurn(chatId, provider.value, wsDir, body).catch(e => {
+    console.warn('[omnibuddy:remote] 回合执行异常：', e && e.message)
+  })
+  return { ok: true, sessionId: chatId }
+}
+
+// 会话追问（手机详情页继续对话）：原文注入既有会话，不加强制前缀
+async function runRemoteFollowup(sessionId, text, providerId) {
+  if (!sessionId) return { ok: false, error: '会话不存在' }
+  if (running.has(sessionId)) return { ok: false, error: '当前任务正在执行中，请等待完成' }
+  const meta = sessions.readMeta(sessionId)
+  if (!meta) return { ok: false, error: '会话不存在' }
+
+  const provider = resolveProvider(providerId)
+  if (provider.error) return provider
+  const wsDir = meta.workspaceId ? workspaces.resolve(meta.workspaceId) : ''
+  if (!wsDir) return { ok: false, error: '会话工作空间不可用' }
+
+  const body = String(text || '').trim().slice(0, 8000)
+  if (!body) return { ok: false, error: '内容为空' }
+
+  const { record } = sessions.addMessage(sessionId, { role: 'user', content: body })
+  emit(getWindow, sessionId, { type: 'user_message', message: record })
+
+  // 回合后台执行：即时返回，追问气泡与回答由事件流渲染
+  executeTurn(sessionId, provider.value, wsDir, body).catch(e => {
+    console.warn('[omnibuddy:remote] 回合执行异常：', e && e.message)
+  })
+  return { ok: true, sessionId }
+}
+
+// 模型解析（新建 / 追问共用）：指定 → 最近对话快照 → 默认模型；
+// 返回 { value: provider } 或 { error }
+function resolveProvider(providerId) {
+  const providers = scheduler.getProviders()
+  if (providerId) {
+    const hit = providers.find(x => x.id === providerId) || null
+    if (!hit) return { error: '所选模型不存在，请重新选择' }
+    return { value: hit }
+  }
+  const snap = scheduler.getProviderSnapshot()
+  let provider = null
+  if (snap && snap.baseUrl && snap.model) {
+    provider = providers.find(x => x.id === snap.id) || snap
+  }
+  if (!provider || !provider.baseUrl || !provider.model) {
+    provider = providers.find(x => x.isDefault) || providers[0] || null
+  }
+  if (!provider || !provider.baseUrl || !provider.model) {
+    return { error: '未配置模型：请先在 PC 端「模型管理」添加模型' }
+  }
+  return { value: provider }
+}
+
+// 回合执行核心（新建 / 追问共用）：running 注册 → pi 会话 prompt → 终态广播
+async function executeTurn(chatId, provider, wsDir, promptText) {
+  currentRemote = chatId
   const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [] }
   running.set(chatId, entry)
+  // 运行态广播：已连接的移动端即时更新 runningId（输入框禁用 / 列表运行徽标）；
+  // 终态由 done/error/interrupted 事件清除
+  try { broadcastSse({ type: 'remote_state', current: { sessionId: chatId } }) } catch (e) { /* 忽略 */ }
   let interruptedBy = '' // '' 无 / 'manual' 用户停止
   entry.abort = () => { interruptedBy = 'manual'; piRuntime.interruptSession(chatId) }
   let result = { ok: true, sessionId: chatId }
@@ -336,8 +376,18 @@ function sessionView(id) {
     if (m.role === 'user') {
       items.push({ kind: 'user', text: clip(m.content, 12000) })
     } else if (m.role === 'assistant') {
-      items.push({ kind: 'assistant', text: clip(m.content, 12000), error: m.error ? clip(m.error, 1000) : '' })
+      // thinking / mid 随行带出：回放侧按「思考进过程组、中途正文归过程说明、
+      // 最终回答连续合并」重建，与 PC 端回合语义一致
+      items.push({
+        kind: 'assistant',
+        text: clip(m.content, 12000),
+        thinking: m.thinking ? clip(m.thinking, 6000) : '',
+        mid: !!m.mid,
+        error: m.error ? clip(m.error, 1000) : ''
+      })
     } else if (m.role === 'tool') {
+      // 内部机制类工具与实时流同口径过滤
+      if (HIDDEN_TOOLS.test(String(m.toolName || ''))) continue
       items.push({ kind: 'tool', toolName: m.toolName || '', brief: briefArgs(m.args), isError: !!m.isError })
     } else if (m.role === 'permission') {
       items.push({ kind: 'permission', surface: m.surface || m.toolName || '', decided: m.decided || '' })
@@ -348,52 +398,63 @@ function sessionView(id) {
   return items
 }
 
-// 总览（移动端列表页数据源）：按工作空间分组的远程任务清单。
-// 空间组全部呈现（无任务的组显示空态）；会话绑定的空间已被删除的归
+// 总览（移动端列表页数据源）：按工作空间分组的任务清单——该空间下
+// 的全部会话（PC 端发起 + 手机远程下发），与 PC 侧栏分组口径一致。
+// 空间组全部呈现（无任务的组显示空态）；未绑定/空间已删的会话归
 // 「其他」兜底组（无内容不返回）。每组只带首页任务（分页拉取 /api/tasks）
 const PAGE_SIZE = 10 // 每页条数（列表首页 & 加载更多共用）
 
-// 任务条目映射（stateView 首页 / /api/tasks 分页共用）
-function taskItem(m, runningId) {
+// 任务条目映射（stateView 首页 / /api/tasks 分页共用）；
+// running 直查运行注册表（PC 会话与远程任务同样判定）
+function taskItem(m) {
   return {
     id: m.id,
-    title: m.title || '远程任务',
+    title: m.title || '未命名任务',
     updatedAt: m.updatedAt || 0,
-    running: m.id === runningId
+    running: running.has(m.id)
   }
 }
 
-// 按空间归组（other 收集无有效空间的会话），返回 { groups, other }
-function groupRemoteSessions() {
-  const groups = workspaces.list().map(w => ({
-    id: w.id,
-    name: w.name || w.path || '未命名空间',
-    tasks: []
-  }))
-  const other = { id: '', name: '其他', tasks: [] }
-  for (const m of sessions.listSessions()) {
-    if (!m.remote || !m.id) continue
-    const g = groups.find(x => x.id === m.workspaceId)
-    ;(g || other).tasks.push(m)
+// 按空间归组——与 PC 侧栏（BuddyTaskList）完全同规则：
+// 分组键 = displayName || workspaceDir || '未关联目录'（定时任务会话
+// displayName 固定为「定时任务」，自然成组）；组顺序按组内最新会话出现序
+// （listSessions 按 updatedAt 倒序遍历，插入序即最新组在前）
+function groupSessions() {
+  const map = new Map()
+  const groups = []
+  const groupKeyOf = (m) => {
+    const n = m.displayName && String(m.displayName).trim()
+    return n || m.workspaceDir || '未关联目录'
   }
-  return { groups, other }
+  for (const m of sessions.listSessions()) {
+    if (!m.id) continue
+    const key = groupKeyOf(m)
+    let g = map.get(key)
+    if (!g) {
+      g = { id: key, name: key, wsId: '', tasks: [] }
+      map.set(key, g)
+      groups.push(g)
+    }
+    if (!g.wsId && m.workspaceId) g.wsId = m.workspaceId
+    g.tasks.push(m)
+  }
+  return { groups }
 }
 
 function stateView() {
-  const runningId = (currentRemote && running.has(currentRemote)) ? currentRemote : ''
-  const { groups, other } = groupRemoteSessions()
+  const { groups } = groupSessions()
   const paginate = (g) => {
     g.total = g.tasks.length
-    g.tasks = g.tasks.slice(0, PAGE_SIZE).map(m => taskItem(m, runningId))
+    g.tasks = g.tasks.slice(0, PAGE_SIZE).map(m => taskItem(m))
     g.hasMore = g.total > g.tasks.length
     return g
   }
   return {
     ok: true,
     // 当前正在运行的远程任务（空 = 空闲）
-    current: runningId ? { sessionId: runningId } : null,
-    workspaces: groups.map(paginate),
-    other: other.tasks.length ? paginate(other) : null
+    current: (currentRemote && running.has(currentRemote)) ? { sessionId: currentRemote } : null,
+    // 分组仅从会话派生（与 PC 一致：空工作空间不显示组）
+    groups: groups.map(paginate)
   }
 }
 
@@ -444,10 +505,15 @@ async function handleApi(req, res, urlObj) {
 
   if (p === '/api/session' && req.method === 'GET') {
     const id = String(urlObj.searchParams.get('id') || '')
-    if (!id || !remoteSessions.has(id)) return json(res, 404, { ok: false, error: 'session not found' })
+    // 会话存在即可查（PC 端 + 手机端发起的任务统一开放）
+    const meta = sessions.readMeta(id)
+    if (!id || !meta) return json(res, 404, { ok: false, error: 'session not found' })
     const items = sessionView(id)
     if (!items) return json(res, 404, { ok: false, error: 'session not found' })
-    return json(res, 200, { ok: true, items })
+    // 空间名（详情页输入框锁定展示；定时任务等无空间会话回退 displayName）
+    const wsHit = meta.workspaceId ? workspaces.list().find(w => w.id === meta.workspaceId) : null
+    const wsName = wsHit ? (wsHit.name || wsHit.path || '') : (meta.displayName || '')
+    return json(res, 200, { ok: true, items, workspaceName: clip(wsName, 200) })
   }
 
   if (p === '/api/workspaces' && req.method === 'GET') {
@@ -455,26 +521,46 @@ async function handleApi(req, res, urlObj) {
     return json(res, 200, { ok: true, workspaces: workspaces.list().map(w => ({ id: w.id, name: w.name })) })
   }
 
-  // 组内任务分页：workspaceId 缺省/__other = 「其他」组（空间已删）；
-  // 按 updatedAt 倒序（listSessions 天然倒序），offset/limit 分页
+  // 组内任务分页：group = 分组键（displayName || workspaceDir || 未关联目录，
+  // 与 /api.state 的 groups[].id 同源）；按 updatedAt 倒序，offset/limit 分页
   if (p === '/api/tasks' && req.method === 'GET') {
-    const qWs = String(urlObj.searchParams.get('workspaceId') || '')
-    const wantOther = !qWs || qWs === '__other'
+    const qGroup = String(urlObj.searchParams.get('group') || '')
+    if (!qGroup) return json(res, 400, { ok: false, error: 'group required' })
     const offset = Math.max(0, Math.floor(Number(urlObj.searchParams.get('offset')) || 0))
     const limit = Math.min(50, Math.max(1, Math.floor(Number(urlObj.searchParams.get('limit')) || PAGE_SIZE)))
-    const runningId = (currentRemote && running.has(currentRemote)) ? currentRemote : ''
-    const { groups, other } = groupRemoteSessions()
-    const bucket = wantOther ? other : (groups.find(x => x.id === qWs) || null)
-    if (!bucket) return json(res, 404, { ok: false, error: 'workspace not found' })
+    const { groups } = groupSessions()
+    const bucket = groups.find(x => x.id === qGroup) || null
+    if (!bucket) return json(res, 404, { ok: false, error: 'group not found' })
     const total = bucket.tasks.length
-    const tasks = bucket.tasks.slice(offset, offset + limit).map(m => taskItem(m, runningId))
+    const tasks = bucket.tasks.slice(offset, offset + limit).map(m => taskItem(m))
     return json(res, 200, { ok: true, tasks, total, hasMore: offset + tasks.length < total })
+  }
+
+  // 模型清单（新建任务页选择）：镜像列表（不含 apiKey），defaultId 为默认选中
+  // （最近对话快照 → 默认模型，与任务执行的回落一致）
+  if (p === '/api/providers' && req.method === 'GET') {
+    const providers = scheduler.getProviders()
+    const snap = scheduler.getProviderSnapshot()
+    let defaultId = (snap && snap.baseUrl && snap.model && providers.some(x => x.id === snap.id)) ? snap.id : ''
+    if (!defaultId) {
+      const def = providers.find(x => x.isDefault) || providers[0]
+      defaultId = def ? def.id : ''
+    }
+    return json(res, 200, {
+      ok: true,
+      defaultId,
+      providers: providers.map(x => ({ id: x.id, name: x.name || '', model: x.model || '', isDefault: !!x.isDefault }))
+    })
   }
 
   if (p === '/api/task' && req.method === 'POST') {
     const text = String(body.text || '')
     if (!text.trim()) return json(res, 400, { ok: false, error: '任务内容为空' })
-    const r = await runRemoteTask(text, body.workspaceId)
+    // sessionId 有值 = 详情页追问（既有会话继续对话）；否则新建远程任务
+    const sid = String(body.sessionId || '')
+    const r = sid
+      ? await runRemoteFollowup(sid, text, body.providerId)
+      : await runRemoteTask(text, body.workspaceId, body.providerId)
     // 事件流（user_message 等）已由 emit 分流先行推送；此处仅回执行结果
     return json(res, r.ok ? 200 : 409, r)
   }
@@ -600,12 +686,6 @@ function init(baseDir, deps) {
   cfg = readConfig()
   getWindow = deps.getWindow
   handlePiEvent = deps.handlePiEvent
-  // 恢复远程会话集合（SSE 过滤 + 历史回放）
-  try {
-    for (const m of sessions.listSessions()) {
-      if (m.remote && m.id) remoteSessions.add(m.id)
-    }
-  } catch (e) { /* 忽略 */ }
   addEmitListener(onEmit)
   // SSE 心跳：防隧道空闲断连（15s 注释行）
   sseHeartbeat = setInterval(() => {
