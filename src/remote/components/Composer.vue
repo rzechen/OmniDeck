@@ -16,11 +16,13 @@
       <div class="composer-bar">
         <!-- 工具栏左侧：空间/模型切换（经 slot 注入，与 PC tools slot 同构） -->
         <div class="composer-tools"><slot name="tools"></slot></div>
+        <!-- 运行中变停止键：中断当前任务执行 -->
         <button
-          class="send" :class="{ ready: canSend }"
-          :disabled="!canSend" title="发送" @click="submit"
+          class="send" :class="{ ready: canSend, stop: running }"
+          :disabled="btnDisabled" :title="running ? '停止' : '发送'"
+          @click="onBtn"
         >
-          <span class="ico" v-html="topIcon"></span>
+          <span class="ico" v-html="running ? stopIcon : topIcon"></span>
         </button>
       </div>
     </div>
@@ -32,18 +34,22 @@
 // 移动端惯例：Enter 换行、右下按钮发送（多行文本区，非单行输入）
 import { ref, computed, nextTick } from 'vue'
 import topIcon from '@/assets/icons/svg/buddy/top.svg?raw'
+import stopIcon from '@/assets/icons/svg/buddy/stop.svg?raw'
 
 const props = defineProps({
   placeholder: { type: String, default: '描述要执行的任务…' },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  running: { type: Boolean, default: false }
 })
-const emit = defineEmits(['send'])
+const emit = defineEmits(['send', 'stop'])
 
 const text = ref('')
 const taRef = ref(null)
 const isFocus = ref(false)
 
 const canSend = computed(() => !!text.value.trim() && !props.disabled)
+// 运行中按钮始终可点（变停止键）；空闲时仅有内容才可发
+const btnDisabled = computed(() => !props.running && !canSend.value)
 
 function autoSize() {
   const el = taRef.value
@@ -57,7 +63,13 @@ function submit() {
   if (!t || props.disabled) return
   emit('send', t)
   text.value = ''
+  taRef.value && taRef.value.blur() // 发送即收起键盘（移动端惯例：发送后专注看回答）
   nextTick(autoSize)
+}
+
+function onBtn() {
+  if (props.running) { emit('stop'); return }
+  submit()
 }
 </script>
 
@@ -80,8 +92,10 @@ function submit() {
   resize: none; border: none; outline: none; background: transparent;
   color: var(--text); -webkit-appearance: none;
   /* 不用 font 简写：`font: 16px/1.6 inherit` 是非法声明（CSS 宽关键字
-     不能作简写分量），整条会被浏览器丢弃 → 回退 iOS 默认 13px 小字 */
-  font-family: inherit; font-size: 16px; line-height: 1.6;
+     不能作简写分量），整条会被浏览器丢弃 → 回退 iOS 默认 13px 小字。
+     line-height 用固定 22px：iOS caret 高度 = line-height，1.6 倍行距
+     会让回车后的光标高达 25.6px 显得过大 */
+  font-family: inherit; font-size: 16px; line-height: 22px;
   overflow-y: auto;
 }
 .composer textarea::placeholder { color: var(--muted); }
@@ -97,4 +111,6 @@ function submit() {
 .composer .send.ready { background: var(--brand); color: #fff; }
 .composer .send:active { transform: scale(.9); }
 .composer .send svg { width: 17px; height: 17px; }
+/* 运行中停止键：红色警示底（与审批抽屉 deny 同色系） */
+.composer .send.stop { background: var(--red); color: #fff; }
 </style>

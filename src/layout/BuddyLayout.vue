@@ -583,6 +583,11 @@ bus.on('buddy:sidebar-hold', onSidebarHold)
       if (e.type === 'automation:run') {
         loadChats()
       }
+      // 远程任务开始（手机端下发）：侧栏实时出现新会话并进入流式状态
+      // （消息池由 store 的 user_message ENSURE 逻辑承接，此处只刷列表）
+      if (e.type === 'remote_state') {
+        loadChats()
+      }
       // 产出落地（阶段三交付物闭环）：就地累加徽标计数，不整表重拉
       if (e.type === 'tool_end' && Array.isArray(e.artifacts) && e.artifacts.length) {
         const c = chats.value.find(x => x.id === e.sessionId)

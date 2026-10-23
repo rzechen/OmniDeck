@@ -8,6 +8,9 @@ import { ref } from 'vue'
 
 export function useTimeline() {
   const msgs = ref([])
+  // 执行阶段（驱动时间线末尾的呼吸指示器）：
+  //   thinking 思考中 / tool 工具执行中 / streaming 回答流式中（自带打字光标）/ '' 空闲
+  const phase = ref('')
 
   function last(pred) {
     for (let i = msgs.value.length - 1; i >= 0; i--) {
@@ -39,6 +42,7 @@ export function useTimeline() {
 
   function reset() {
     msgs.value = []
+    phase.value = ''
     p_curThink = null
   }
 
@@ -49,10 +53,13 @@ export function useTimeline() {
     if (!ev.sessionId) return false
     const t = ev.type
     if (t === 'user_message') {
+      phase.value = 'thinking'
       msgs.value.push({ kind: 'user', text: (ev.message && ev.message.content) || '' })
     } else if (t === 'assistant_start') {
+      phase.value = 'thinking'
       p_curThink = null // 新 cycle：思考开新段（聚合进组内唯一 think 条目）
     } else if (t === 'thinking') {
+      phase.value = 'thinking'
       const p = ensureProcess()
       if (!p.thinkItem) {
         p.thinkItem = { type: 'think', parts: [] }
@@ -65,11 +72,14 @@ export function useTimeline() {
       }
       p_curThink.text = ev.text || ''
     } else if (t === 'delta') {
+      phase.value = 'streaming'
       ensureAnswer().text = ev.text || ''
     } else if (t === 'assistant_end') {
+      phase.value = '' // 本轮流式结束（后续 tool_start / done 再行驱动）
       const a = ensureAnswer()
       a.streaming = false
       if (ev.content) a.text = ev.content
+      if (ev.usage) a.usage = ev.usage
       if (ev.mid) {
         // 中途正文（工具调用收尾）：降级为过程组内"过程输出"，不占主线
         const p = ensureProcess()
@@ -78,11 +88,13 @@ export function useTimeline() {
         if (idx >= 0) msgs.value.splice(idx, 1)
       }
     } else if (t === 'tool_start') {
+      phase.value = 'tool'
       const p = ensureProcess()
       const item = { type: 'tool', id: ev.toolCallId, toolName: ev.toolName || '', brief: ev.brief || '', state: 'running', open: false }
       p.items.push(item)
       p.current = (ev.toolName || '工具') + ' 执行中…'
     } else if (t === 'tool_end') {
+      phase.value = 'tool'
       const p = last(m => m.kind === 'process')
       if (p) {
         for (let i = p.items.length - 1; i >= 0; i--) {
@@ -110,19 +122,38 @@ export function useTimeline() {
       if (lastT) lastT.items = items
       else p.items.push({ type: 'todos', items })
     } else if (t === 'permission_ask') {
-      msgs.value.push({ kind: 'warn', ic: 'lock', text: '等待 PC 端授权：' + (ev.surface || '操作') + (ev.brief ? ' · ' + ev.brief : ''), sub: '确认后继续执行' })
+      // askId 关联待审批条目（含 ui- 前缀的 select 兜底路径，移动端可应答）
+      const askId = String(ev.askId || '')
+      msgs.value.push({
+        kind: 'warn', ic: 'lock', askId,
+        text: '权限确认：' + (ev.surface || '操作') + (ev.brief ? ' · ' + ev.brief : ''), sub: '等待确认'
+      })
+    } else if (t === 'permission_done') {
+      // 任一端已决策：同步时间线上的等待条目状态
+      const askId = String(ev.askId || '')
+      const w = last(m => m.kind === 'warn' && m.askId === askId)
+      if (w) { w.sub = '已确认，继续执行'; w.askId = '' }
     } else if (t === 'ask_user') {
-      msgs.value.push({ kind: 'warn', ic: 'chat', text: ev.question || '', sub: '请在 PC 端回答' })
+      msgs.value.push({ kind: 'warn', ic: 'chat', callId: String(ev.callId || ''), text: ev.question || '', sub: '等待回答' })
+    } else if (t === 'ask_done') {
+      // 任一端已回答：同步时间线上的等待条目状态
+      const callId = String(ev.callId || '')
+      const w = last(m => m.kind === 'warn' && m.callId === callId)
+      if (w) { w.sub = '已回答，继续执行'; w.callId = '' }
     } else if (t === 'done') {
+      phase.value = ''
       msgs.value.push({ kind: 'end', level: 'ok', text: '任务完成' })
       onRunChange && onRunChange(false)
     } else if (t === 'error') {
+      phase.value = ''
       msgs.value.push({ kind: 'end', level: 'err', text: ev.error || '执行失败' })
       onRunChange && onRunChange(false)
     } else if (t === 'interrupted') {
+      phase.value = ''
       msgs.value.push({ kind: 'end', text: '已停止' })
       onRunChange && onRunChange(false)
     } else if (t === 'pi_unavailable') {
+      phase.value = ''
       msgs.value.push({ kind: 'warn', ic: 'warning', text: 'Agent 运行时不可用：' + (ev.error || ''), sub: '' })
     } else {
       return false
@@ -160,8 +191,9 @@ export function useTimeline() {
             const last = msgs.value[msgs.value.length - 1]
             if (last && last.kind === 'answer' && !last.streaming) {
               last.text = last.text + '\n\n' + it.text
+              if (it.usage) last.usage = it.usage
             } else {
-              msgs.value.push({ kind: 'answer', text: it.text, streaming: false })
+              msgs.value.push({ kind: 'answer', text: it.text, streaming: false, usage: it.usage || null })
             }
           }
         }
@@ -176,5 +208,5 @@ export function useTimeline() {
     }
   }
 
-  return { msgs, reset, loadItems, handleEvent }
+  return { msgs, phase, reset, loadItems, handleEvent }
 }

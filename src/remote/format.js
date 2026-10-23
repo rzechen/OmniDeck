@@ -8,6 +8,13 @@ export function md(src) {
   return mdi.render(String(src == null ? '' : src))
 }
 
+// token 用量缩写（对齐 PC formatTokens：万位以上 k 缩写）
+export function fmtTokens(n) {
+  const v = Number(n) || 0
+  if (v >= 10000) return (v / 1000).toFixed(1) + 'k'
+  return String(v)
+}
+
 export function fmtTime(ts) {
   if (!ts) return ''
   const d = new Date(ts)
