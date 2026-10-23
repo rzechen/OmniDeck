@@ -12,6 +12,7 @@ const memory = require('../knowledge/memory')
 const webSearch = require('../integrations/web-search')
 const workflows = require('../integrations/workflows')
 const subagents = require('../integrations/subagents')
+const computerUse = require('../integrations/computer-use')
 
 // ===== 工具目录（静态定义） =====
 // pi 内置工具（pi-coding-agent 核心工具集）
@@ -353,6 +354,30 @@ const CREDENTIAL_TOOLS = [
   { name: 'credential_get', label: '取用凭据', description: '按名称取用用户预录的凭据（API Key、账号等），用于登录、调接口等鉴权场景。', perm: 'allow' }
 ]
 
+// 桌面控制工具（UI-TARS 范式的原子动作面，builtin-tools.js 注册；
+// 循环由主 agent 驱动：截屏 → 模型决策 → 注入鼠标键盘 → 观测回填）。
+// 受「桌面控制」总开关管控（默认关，设置 → 桌面控制可开启）：
+// 关闭时工具不注册且按禁用态呈现。权限默认：截屏只读放行，
+// 点击/键入/滚动/打开属真实键鼠注入，逐次确认（可在权限策略调整）
+const COMPUTER_TOOLS = [
+  { name: 'computer_screenshot', label: '截取屏幕', description: '截取当前主显示器画面（JPEG，最长边 1920）；产物落当前目录 .tmp/ 下，用 read 工具读图查看。', perm: 'allow' },
+  { name: 'computer_click', label: '点击屏幕', description: '在截图像素坐标处模拟鼠标单击（先移动再点击，自动处理 Retina 坐标换算）。', perm: 'ask' },
+  { name: 'computer_double_click', label: '双击屏幕', description: '在截图像素坐标处模拟鼠标双击。', perm: 'ask' },
+  { name: 'computer_type', label: '键入文字', description: '向前台应用键入文字：纯 ASCII 直接敲键盘，含中文经剪贴板粘贴（cmd+v）。', perm: 'ask' },
+  { name: 'computer_key', label: '按快捷键', description: '向前台应用发送按键组合，如 enter、esc、cmd+v、cmd+tab。', perm: 'ask' },
+  { name: 'computer_scroll', label: '滚动屏幕', description: '在当前位置滚动（up / down / left / right，幅度 1-10 默认 3）。', perm: 'ask' },
+  { name: 'computer_open', label: '打开应用/链接', description: '用系统默认方式打开 macOS 应用（open -a）或 URL（支持 https:// 与私有协议）。', perm: 'ask' }
+]
+
+// 按桌面控制开关动态标注（关闭 → 禁用态卡片 + 引导说明，联网开关同模式）
+function computerTools() {
+  if (computerUse.enabled()) return COMPUTER_TOOLS
+  return COMPUTER_TOOLS.map(t => Object.assign({}, t, {
+    disabled: true,
+    description: '桌面控制开关已关闭（设置 → 桌面控制可开启，需授予辅助功能与屏幕录制权限）。' + t.description
+  }))
+}
+
 // ===== 能力清单组装 =====
 // ui 组在组装时刷新 subagent 条目（asyncEnabled 开关即时反映；TOOL_GROUPS
 // 权限派生不受影响——两分支 perm 恒 'allow'）
@@ -372,6 +397,7 @@ function listCapabilities() {
     ui: uiTools(),
     memory: memoryTools(),
     credentials: CREDENTIAL_TOOLS,
+    computer: computerTools(),
     connectors: connectorEntries()
   }
 }
@@ -389,7 +415,8 @@ const TOOL_GROUPS = [
   ['workflow', WORKFLOW_TOOLS],
   ['ui', UI_TOOLS],
   ['memory', MEMORY_TOOLS],
-  ['credentials', CREDENTIAL_TOOLS]
+  ['credentials', CREDENTIAL_TOOLS],
+  ['computer', COMPUTER_TOOLS]
 ]
 
 // 工具名 → 默认权限规则（标量或 pattern 映射对象），供 permissions.js
@@ -417,6 +444,11 @@ function webToolNames() {
   return WEB_TOOLS.map(t => t.name)
 }
 
+// 桌面控制工具名清单：桌面控制开关关闭时的 excludeTools 黑名单（session.js 消费）
+function computerToolNames() {
+  return COMPUTER_TOOLS.map(t => t.name)
+}
+
 module.exports = {
   // 能力清单（分类目录，能力页与权限页消费）
   listCapabilities,
@@ -425,5 +457,7 @@ module.exports = {
   // 工具名 → 默认权限规则（permissions.js 派生默认策略与启动补齐）
   toolPermissionDefaults,
   // 联网工具名清单（联网开关关闭时的 excludeTools 黑名单）
-  webToolNames
+  webToolNames,
+  // 桌面控制工具名清单（桌面控制开关关闭时的 excludeTools 黑名单）
+  computerToolNames
 }

@@ -28,6 +28,13 @@ export const CAPABILITY_CATEGORIES = [
     logo: 'logo-skill'
   },
   {
+    key: 'computer',
+    label: '桌面控制',
+    desc: '截屏观察与鼠标键盘模拟（需在设置 → 桌面控制开启，并授予辅助功能与屏幕录制权限；仅 macOS）',
+    icon: 'monitor',
+    logo: 'logo-skill'
+  },
+  {
     key: 'docs',
     label: '文档交付',
     desc: '把回答与 Markdown 内容导出为 Word / PDF / HTML 正式文档（Word 支持套用模板样式）',

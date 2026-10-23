@@ -505,6 +505,138 @@ function createSiteAuthExtension(onReport) {
   }
 }
 
+// ---------- 桌面控制：UI-TARS 原子动作面（computer-use.js 执行体） ----------
+// 截屏 → 模型决策 → 注入鼠标键盘 → 观测回填的循环由主 agent 驱动，
+// 本工厂只注册原子工具（截屏/点击/键入/滚动/打开）。截图产物落
+// <cwd>/.tmp/，引导模型用 pi 内置 read 工具读图查看（支持图片）；
+// 点击坐标一律按「最近一张截图的像素坐标」给出，worker 内做 Retina 换算
+function createComputerUseExtension(cwdState) {
+  const computerUse = require('../integrations/computer-use')
+  const call = (action, params) => computerUse.call(action, params)
+  const hint = '如需继续操作，请先重新截屏观察最新画面（每次动作后画面可能已变化）。'
+  return function (piApi) {
+    piApi.registerTool({
+      name: 'computer_screenshot',
+      label: '截取屏幕',
+      description: '截取当前主显示器画面为 JPEG（最长边 1920）。返回截图文件路径与像素尺寸，'
+        + '必须用 read 工具读取该图片查看画面；后续点击工具的坐标以截图像素为准。',
+      parameters: { type: 'object', properties: {} },
+      execute: async (_id, _params) => {
+        const shot = await call('screenshot')
+        const dir = path.join(cwdState.dir, '.tmp')
+        fs.mkdirSync(dir, { recursive: true })
+        const file = path.join(dir, 'screen-' + Date.now() + '.jpg')
+        fs.writeFileSync(file, Buffer.from(shot.b64, 'base64'))
+        return textResult('截图已保存：' + file + '（像素 ' + shot.width + 'x' + shot.height + '）\n'
+          + '请立即用 read 工具读取该图片查看画面；computer_click / computer_double_click 的 x/y '
+          + '以此截图的像素坐标为准。')
+      }
+    })
+
+    piApi.registerTool({
+      name: 'computer_click',
+      label: '点击屏幕',
+      description: '在截图像素坐标处模拟鼠标单击（先移动再点击，Retina 坐标自动换算）。'
+        + '坐标必须来自最近一次 computer_screenshot 的截图像素。',
+      parameters: {
+        type: 'object',
+        properties: {
+          x: { type: 'number', description: '目标元素中心的横坐标（截图像素）' },
+          y: { type: 'number', description: '目标元素中心的纵坐标（截图像素）' }
+        },
+        required: ['x', 'y']
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('click', { x: params.x, y: params.y }) + '\n' + hint)
+      }
+    })
+
+    piApi.registerTool({
+      name: 'computer_double_click',
+      label: '双击屏幕',
+      description: '在截图像素坐标处模拟鼠标双击。坐标必须来自最近一次 computer_screenshot 的截图像素。',
+      parameters: {
+        type: 'object',
+        properties: {
+          x: { type: 'number', description: '目标元素中心的横坐标（截图像素）' },
+          y: { type: 'number', description: '目标元素中心的纵坐标（截图像素）' }
+        },
+        required: ['x', 'y']
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('double_click', { x: params.x, y: params.y }) + '\n' + hint)
+      }
+    })
+
+    piApi.registerTool({
+      name: 'computer_type',
+      label: '键入文字',
+      description: '向前台应用键入文字。纯 ASCII 直接敲键盘；含中文自动经剪贴板粘贴（cmd+v，会覆盖用户剪贴板）。'
+        + '输入前须先点击目标输入框使其聚焦。',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: '要键入的文字' }
+        },
+        required: ['text']
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('type', { text: String(params.text ?? '') }) + '\n' + hint)
+      }
+    })
+
+    piApi.registerTool({
+      name: 'computer_key',
+      label: '按快捷键',
+      description: '向前台应用发送按键组合，如 enter、esc、tab、cmd+v、cmd+tab、alt+f4（macOS 修饰键用 cmd/alt/ctrl/shift）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          combo: { type: 'string', description: '按键组合（+ 连接），如 enter / cmd+v / cmd+shift+t' }
+        },
+        required: ['combo']
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('key', { combo: params.combo }) + '\n' + hint)
+      }
+    })
+
+    piApi.registerTool({
+      name: 'computer_scroll',
+      label: '滚动屏幕',
+      description: '在当前鼠标位置滚动页面（up / down / left / right，幅度 1-10 默认 3）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          direction: { type: 'string', description: '滚动方向：up / down / left / right', enum: ['up', 'down', 'left', 'right'] },
+          amount: { type: 'number', description: '滚动幅度 1-10（默认 3）' }
+        },
+        required: ['direction']
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('scroll', { direction: params.direction, amount: params.amount }) + '\n' + hint)
+      }
+    })
+
+    piApi.registerTool({
+      name: 'computer_open',
+      label: '打开应用/链接',
+      description: '用系统默认方式打开 macOS 应用（应用名，如 "备忘录" / "Safari" / "Finder"）'
+        + '或 URL（https:// 与 dingtalk:// 等私有协议）。操作后须重新截屏确认结果。',
+      parameters: {
+        type: 'object',
+        properties: {
+          app: { type: 'string', description: 'macOS 应用名（与 url 二选一）' },
+          url: { type: 'string', description: '要打开的 URL（与 app 二选一）' }
+        }
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('open', { app: params.app, url: params.url }) + '\n' + hint)
+      }
+    })
+  }
+}
+
 module.exports = {
   // 初始化 agentDir 并注册内置 subagents
   init,
@@ -523,5 +655,7 @@ module.exports = {
   // todo_read 工具扩展工厂
   createTodoReadExtension,
   // report_site_auth 登录态上报工具工厂
-  createSiteAuthExtension
+  createSiteAuthExtension,
+  // 桌面控制工具扩展工厂（截屏/点击/键入/滚动/打开）
+  createComputerUseExtension
 }

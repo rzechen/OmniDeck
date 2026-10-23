@@ -3,6 +3,7 @@
 // mcp_servers 段，此处只保留使用引导。
 const mcp = require('../integrations/mcp')
 const webSearch = require('../integrations/web-search')
+const computerUse = require('../integrations/computer-use')
 const subagents = require('../integrations/subagents')
 const profile = require('../knowledge/profile')
 const credentials = require('../integrations/credentials')
@@ -43,6 +44,18 @@ function systemPrompt() {
     lines.push('联网等外部能力优先使用已配置的 MCP 服务（清单与用途见系统提示词的 mcp_servers 段，工具经 codemode 脚本调用）；均不适用时可用 curl 工具发起 HTTP 请求获取公开数据。')
   } else {
     lines.push('当前未配置 MCP 服务；联网需求直接用 curl 工具发起 HTTP 请求获取公开数据，不要尝试搜索 MCP 工具。')
+  }
+  // 桌面控制引导（UI-TARS 观测-决策-动作循环）：仅开关开启时注入。
+  // 截屏是唯一的观测通道——每步动作后画面可能已变化，先截屏再决策；
+  // 坐标一律按最近一张截图像素给出（worker 内做 Retina 换算）
+  if (computerUse.enabled()) {
+    lines.push([
+      '桌面控制（computer_* 工具）：需要操作本机 GUI 应用（点按钮、填表单、发消息等）时使用，工作循环为「computer_screenshot 截屏 → 用 read 工具读图观察 → 决策一个原子动作（computer_click / computer_type / computer_key / computer_scroll / computer_open）→ 重新截屏验证」。规则：',
+      '- 每步只做一个动作；点击坐标必须取自最近一张截图的像素（不要凭记忆猜坐标）。',
+      '- 键入文字前必须先点击输入框使其聚焦；聊天应用发送消息用 computer_key enter。',
+      '- 动作结果与预期不符时，先重新截屏观察再调整，不要盲目重试同一动作。',
+      '- 执行期间用户可能正在使用电脑：仅做任务必需的最少动作，避免移动窗口、关启应用等干扰；任务完成或无法继续时立即停止操作并汇报。'
+    ].join('\n'))
   }
   // # 引用 token 契约（10-11 事故实证：裸 token 进上下文且无解释时，
   // 模型把它当"未知物"向用户讲解内部协议，替代了实际任务）

@@ -6,6 +6,7 @@ const permissions = require('../platform/permissions')
 const sandbox = require('../platform/sandbox')
 const credentials = require('../integrations/credentials')
 const webSearch = require('../integrations/web-search')
+const computerUse = require('../integrations/computer-use')
 const mcp = require('../integrations/mcp')
 const connectors = require('../integrations/connectors')
 const notify = require('../integrations/notify')
@@ -206,6 +207,25 @@ function registerSettingsIpc() {
   // 联网搜索（pi-web-access 内置扩展，免配置即用）：总开关（输入框联网按钮）
   ipcMain.handle('omnibuddy:web-search:get', () => ({ enabled: webSearch.enabled() }))
   ipcMain.handle('omnibuddy:web-search:set-enabled', (_e, enabled) => webSearch.setEnabled(!!enabled))
+
+  // ===== 桌面控制（UI-TARS 原子动作面）：开关 / 权限探测 / 系统设置直达 =====
+  // 开关变更后新会话生效（会话创建时锁定，与联网开关同模式）
+  ipcMain.handle('omnibuddy:computer-use:get', () => ({ enabled: computerUse.enabled() }))
+  ipcMain.handle('omnibuddy:computer-use:set-enabled', (_e, enabled) => {
+    const enabledNow = computerUse.setEnabled(!!enabled)
+    return { enabled: enabledNow }
+  })
+
+  // 权限探测：辅助功能 / 屏幕录制（macOS TCC）+ nut.js 可用性（探测期间懒启动 worker）
+  ipcMain.handle('omnibuddy:computer-use:probe', () => computerUse.probe())
+
+  // 直达系统设置对应权限页（kind: 'accessibility' | 'screen'；非 macOS 返回不支持）
+  ipcMain.handle('omnibuddy:computer-use:open-permission', (_e, kind) => {
+    if (process.platform !== 'darwin') return { ok: false, error: '桌面控制目前仅支持 macOS' }
+    const anchor = kind === 'screen' ? 'Privacy_ScreenCapture' : 'Privacy_Accessibility'
+    require('electron').shell.openExternal('x-apple.systempreferences:com.apple.preference.security?' + anchor)
+    return { ok: true }
+  })
 
   // ===== 沙箱执行 =====
   ipcMain.handle('omnibuddy:sandbox:get', () => sandbox.getSandboxConfig())

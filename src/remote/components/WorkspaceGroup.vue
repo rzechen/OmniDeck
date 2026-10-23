@@ -5,6 +5,7 @@
       <span class="ico folder-ico" v-html="folderIcon"></span>
       <span class="gname">{{ group.name }}</span>
       <span class="gcount" :class="{ zero: !group.total }">{{ group.total }}</span>
+      <button class="g-clear" title="清除已结束的任务" @click.stop="$emit('clear')" v-html="eraserIcon"></button>
       <span class="ico arrow" :class="{ collapsed: !expanded }" v-html="arrowDownIcon"></span>
     </div>
 
@@ -29,6 +30,7 @@
 <script setup>
 import arrowDownIcon from '@/assets/icons/svg/buddy/arrow-down.svg?raw'
 import deleteIcon from '@/assets/icons/svg/buddy/delete.svg?raw'
+import eraserIcon from '@/assets/icons/svg/buddy/eraser.svg?raw'
 import folderIcon from '@/assets/icons/svg/buddy/folder.svg?raw'
 import rightIcon from '@/assets/icons/svg/buddy/right.svg?raw'
 import { fmtTime } from '../format'
@@ -37,7 +39,7 @@ defineProps({
   group: { type: Object, required: true }, // { id, name, wsId, tasks, total, hasMore }
   expanded: { type: Boolean, default: false }
 })
-const emit = defineEmits(['toggle', 'open', 'more', 'del'])
+const emit = defineEmits(['toggle', 'open', 'more', 'del', 'clear'])
 
 function onTap(t) {
   emit('open', t)
@@ -64,6 +66,12 @@ function onTap(t) {
 .arrow { color: var(--muted); transition: transform .18s ease; }
 .arrow.collapsed { transform: rotate(-90deg); }
 .arrow svg { width: 14px; height: 14px; }
+.g-clear {
+  flex: none; border: none; background: none; padding: 6px; cursor: pointer;
+  color: var(--muted); opacity: .5;
+}
+.g-clear:active { opacity: 1; color: var(--red); }
+.g-clear svg { width: 15px; height: 15px; display: block; }
 
 .wgroup-body { border-top: 1px solid var(--line); }
 .group-empty { padding: 16px 2px; color: var(--muted); font-size: 13px; }

@@ -35,6 +35,7 @@ const checkpoints = require('./sessions/checkpoints')
 const scheduler = require('./platform/scheduler')
 const notify = require('./integrations/notify')
 const siteAuth = require('./integrations/site-auth')
+const computerUse = require('./integrations/computer-use')
 const workflows = require('./integrations/workflows')
 const { handlePiEvent } = require('./core/pi-events')
 const { writeExitSummary } = require('./core/direct-llm')
@@ -108,6 +109,8 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   app.on('before-quit', (event) => {
     if (quitFinalized) return
     quitFinalized = true
+    // 桌面控制 worker 为独立子进程，同步 kill 即回收，不阻塞记忆摘要与退出
+    try { computerUse.dispose() } catch (e) { /* 退出路径忽略回收失败 */ }
     event.preventDefault()
     const ids = piRuntime.listSessionIds()
     console.log('[omnibuddy] 退出前触发会话记忆摘要（' + ids.length + ' 个活跃会话）…')

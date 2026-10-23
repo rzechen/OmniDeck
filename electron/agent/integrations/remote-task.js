@@ -67,8 +67,19 @@ function defaultConfig() {
     port: DEFAULT_PORT,
     // 默认仅回环：由隧道客户端（飞鸽 / frp 等）转发，不直接暴露局域网；改 0.0.0.0 可局域网直连
     host: '127.0.0.1',
-    token: crypto.randomBytes(16).toString('hex')
+    token: crypto.randomBytes(16).toString('hex'),
+    // 代理（隧道/反向代理）地址：配置后访问链接新增「代理」条目（置顶，二维码随首条切换）
+    proxyUrl: ''
   }
+}
+
+// 代理地址规范化：trim / 去尾斜杠 / 无协议头补 https://；非法返回空串
+function normalizeProxyUrl(v) {
+  let s = typeof v === 'string' ? v.trim() : ''
+  if (!s) return ''
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s
+  s = s.replace(/\/+$/, '')
+  return /^https?:\/\/[^\s/]+/i.test(s) ? s.slice(0, 500) : ''
 }
 
 function readConfig() {
@@ -80,7 +91,8 @@ function readConfig() {
       enabled: saved.enabled === true,
       port: Number(saved.port) > 0 ? Math.floor(Number(saved.port)) : def.port,
       host: saved.host === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1',
-      token: typeof saved.token === 'string' && saved.token.length >= 16 ? saved.token : def.token
+      token: typeof saved.token === 'string' && saved.token.length >= 16 ? saved.token : def.token,
+      proxyUrl: normalizeProxyUrl(saved.proxyUrl)
     }
   } catch (e) {
     return def
@@ -108,16 +120,20 @@ function lanIps() {
   return out
 }
 
-// 访问地址清单（含 token）：本机回环 / 局域网 IP（0.0.0.0 时），
+// 访问地址清单（含 token）：本机回环 / 局域网 IP（0.0.0.0 时）；
+// 已配置代理地址时「代理」条目置顶（二维码取首条，公网扫码优先走代理），
 // 公网可达性由用户自备的隧道（飞鸽等）转发本机端口实现
 function accessUrls() {
   const q = '/?token=' + cfg.token
+  const urls = []
+  if (cfg.proxyUrl) urls.push({ label: '代理', url: cfg.proxyUrl + q })
   if (cfg.host === '0.0.0.0') {
-    const urls = lanIps().map(ip => ({ label: '局域网', url: 'http://' + ip + ':' + cfg.port + q }))
+    urls.push(...lanIps().map(ip => ({ label: '局域网', url: 'http://' + ip + ':' + cfg.port + q })))
     urls.push({ label: '本机', url: 'http://127.0.0.1:' + cfg.port + q })
     return urls
   }
-  return [{ label: '本机', url: 'http://127.0.0.1:' + cfg.port + q }]
+  urls.push({ label: '本机', url: 'http://127.0.0.1:' + cfg.port + q })
+  return urls
 }
 
 // ===== SSE =====
@@ -601,6 +617,33 @@ async function handleApi(req, res, urlObj) {
     return json(res, 200, { ok: true })
   }
 
+  // 清空分组已结束的任务（与 PC 端 confirmClearGroup 同规则）：
+  // 执行中（运行 / 挂起审批 / 挂起提问）保留，其余逐个走删除快速通道；
+  // 逐条广播 chat_deleted（PC 侧栏精确移除），最后一条 remote_state 刷双端列表
+  if (p === '/api/task/clear' && req.method === 'POST') {
+    const gid = String(body.groupId || '')
+    if (!gid) return json(res, 400, { ok: false, error: '缺少 groupId' })
+    const g = groupSessions().groups.find(x => x.id === gid)
+    if (!g) return json(res, 200, { ok: true, removed: 0, kept: 0 })
+    const busy = (m) => running.has(m.id)
+      || [...pendingPermissions.values()].some(e => e.chatId === m.id)
+      || [...pendingAsks.values()].some(e => e.chatId === m.id)
+    let removed = 0
+    for (const m of g.tasks) {
+      if (busy(m)) continue
+      const sid = m.id
+      try { await deleteSessionFast(sid) } catch (e) { continue }
+      if (currentRemote === sid) currentRemote = ''
+      for (const [askId, e] of pendingPermissions) { if (e.chatId === sid) pendingPermissions.delete(askId) }
+      for (const [callId, e] of pendingAsks) { if (e.chatId === sid) pendingAsks.delete(callId) }
+      broadcastSse({ type: 'chat_deleted', sessionId: sid })
+      emit(getWindow, sid, { type: 'chat_deleted', sessionId: sid })
+      removed++
+    }
+    if (removed) broadcastSse({ type: 'remote_state', current: stateView().current })
+    return json(res, 200, { ok: true, removed, kept: g.tasks.length - removed })
+  }
+
   if (p === '/api/interrupt' && req.method === 'POST') {
     // sessionId 有值可停任意运行中会话（PC 会话 + 远程任务统一 abort 协议）；
     // 缺省停当前远程任务。中断后 interrupted 事件 → 终态 → 各端恢复空闲
@@ -769,7 +812,8 @@ function registerIpc() {
         enabled: cfg.enabled,
         port: cfg.port,
         host: cfg.host,
-        token: cfg.token
+        token: cfg.token,
+        proxyUrl: cfg.proxyUrl
       },
       urls: accessUrls(),
       running: !!currentRemote,
@@ -796,12 +840,17 @@ function registerIpc() {
         restart = true
       }
     }
+    if (p.proxyUrl !== undefined) {
+      // 代理地址：规范化后写入（空 = 清除代理条目），不影响监听无需重启
+      const proxyUrl = normalizeProxyUrl(p.proxyUrl)
+      if (proxyUrl !== cfg.proxyUrl) cfg.proxyUrl = proxyUrl
+    }
     persistConfig()
     if (restart) {
       stopServer()
       if (cfg.enabled) startServer()
     }
-    return { ok: true, urls: accessUrls(), listening: !!server }
+    return { ok: true, urls: accessUrls(), listening: !!server, config: { proxyUrl: cfg.proxyUrl } }
   })
 
   // 重置配对 token（旧手机立即失效）

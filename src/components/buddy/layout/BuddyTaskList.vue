@@ -71,17 +71,34 @@
           <span class="buddy-chat-name"><span class="ob-name-inner">{{ c.title }}</span></span>
           <!-- 更新时间人性化显示（刚刚/x分钟前/x小时前…），hover 行时让位给操作按钮 -->
           <span class="buddy-chat-time">{{ timeAgo(c.updatedAt) }}</span>
+          <!-- 操作区：hover 浮现 more 菜单（置顶/编辑/删除统一入口）；已置顶时 pin 常亮作状态标识 -->
           <span class="buddy-chat-actions" :class="{ pinned: c.pinned }" @click.stop>
-            <!-- 置顶：已置顶时常亮显示（hover 外也可见，颜色不变），未置顶时随行 hover 浮现 -->
-            <svg-icon
-              icon-class="pin"
-              class="ob-pin"
-              :class="{ pinned: c.pinned }"
-              :title="c.pinned ? '取消置顶' : '置顶'"
-              @click.stop="emit('pin-chat', c)"
-            />
-            <svg-icon icon-class="edit" class="ob-edit" title="重命名" @click.stop="emit('rename-chat', c)" />
-            <svg-icon icon-class="delete" class="ob-del" title="删除任务" @click.stop="emit('delete-chat', c)" />
+            <svg-icon v-if="c.pinned" icon-class="pin" class="ob-pin" title="已置顶" />
+            <el-dropdown
+              trigger="click"
+              placement="bottom-end"
+              popper-class="ob-task-more-popper"
+              @command="cmd => onMoreCommand(cmd, c)"
+            >
+              <span class="ob-more" title="更多操作">
+                <svg-icon icon-class="more" />
+              </span>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <!-- 置顶切换：文案随置顶状态变化；运行中也可切换（与原直点 pin 行为一致） -->
+                  <el-dropdown-item command="pin">
+                    <svg-icon icon-class="pin" />{{ c.pinned ? '取消置顶' : '置顶' }}
+                  </el-dropdown-item>
+                  <!-- 运行中禁用编辑/删除，防误操作（沿用原 hover 隐藏 edit/del 的防护） -->
+                  <el-dropdown-item command="rename" :disabled="!!stateOf(c)">
+                    <svg-icon icon-class="edit" />编辑
+                  </el-dropdown-item>
+                  <el-dropdown-item command="delete" divided :disabled="!!stateOf(c)" class="ob-menu-del">
+                    <svg-icon icon-class="delete" />删除
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </span>
         </div>
         </template>
@@ -206,6 +223,13 @@ function clearTitle(g) {
 function onClearGroup(g) {
   if (!clearableCount(g)) return
   emit('clear-group', g)
+}
+
+// more 菜单命令分发：置顶/编辑/删除统一入口，转发既有事件链路（父组件已有对应处理）
+function onMoreCommand(cmd, c) {
+  if (cmd === 'pin') emit('pin-chat', c)
+  else if (cmd === 'rename') emit('rename-chat', c)
+  else if (cmd === 'delete') emit('delete-chat', c)
 }
 
 // ===== 任务更新时间人性化显示 =====
@@ -491,7 +515,7 @@ function onChatLeave(e) {
   }
 }
 
-/* 对话行内操作：默认不占宽（max-width:0 收起，名称延伸至行尾），hover 时展开浮现图标。
+/* 对话行内操作：默认不占宽（max-width:0 收起，名称延伸至行尾），hover 时展开浮现 more 菜单钮。
    注意：不能在父容器上整体 opacity（子元素无法穿透），需按图标单独控制，
    否则置顶常亮标识会一并被隐藏 */
 .buddy-chat-actions {
@@ -503,49 +527,48 @@ function onChatLeave(e) {
   white-space: nowrap;
   transition: max-width 0.15s ease;
 
-  .svg-icon {
+  /* 已置顶标识：纯状态展示（置顶/取消置顶操作统一走 more 菜单），不可点击 */
+  .ob-pin {
     font-size: 12px;
+    margin: 0 3px;
+    flex-shrink: 0;
+    color: $text-secondary;
+    cursor: default;
+  }
+
+  /* more 菜单触发钮 */
+  .ob-more {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
     margin: 0 3px;
     color: $text-secondary;
     cursor: pointer;
     opacity: 0;
-    /* 容器按状态收窄 max-width（置顶 30px），透明图标仍占位；禁止收缩才能完整显示 pin、由 overflow 裁掉其余 */
-    flex-shrink: 0;
     transition: opacity 0.15s ease, color 0.15s ease;
+
+    .svg-icon {
+      font-size: 12px;
+    }
 
     &:hover {
       color: var(--primary-color);
     }
-
-    &.ob-del:hover {
-      color: var(--danger-color);
-    }
   }
 
-  /* 已置顶：容器保留置顶钮宽度（hover 外也可见），名称不挤占置顶位；置顶钮常亮不高亮 */
+  /* 已置顶：容器保留置顶标识宽度（hover 外也可见），名称不挤占置顶位 */
   &.pinned {
     max-width: 30px;
-
-    .ob-pin {
-      opacity: 1;
-    }
   }
 }
 
-/* 行 hover：操作区展开，图标浮现 */
+/* 行 hover：操作区展开，more 浮现（运行中任务的编辑/删除防误操作改由菜单项禁用承担） */
 .buddy-chat:hover .buddy-chat-actions {
-  max-width: 90px;
+  max-width: 48px;
 }
 
-.buddy-chat:hover .buddy-chat-actions .svg-icon {
+.buddy-chat:hover .buddy-chat-actions .ob-more {
   opacity: 1;
-}
-
-/* 任务运行中（流式输出/待权限确认）：hover 不浮现重命名与删除，且不可点击，防误操作 */
-.buddy-chat.running:hover .buddy-chat-actions .ob-edit,
-.buddy-chat.running:hover .buddy-chat-actions .ob-del {
-  opacity: 0;
-  pointer-events: none;
 }
 
 /* ===== 实时状态标记 ===== */
@@ -605,4 +628,26 @@ function onChatLeave(e) {
   }
 }
 
+</style>
+
+<style lang="scss">
+/* 任务 more 下拉菜单（popper teleport 到 body，需全局样式；菜单本体 mac 风格见 theme.scss 全局定制） */
+.ob-task-more-popper {
+  .el-dropdown-menu__item {
+    .svg-icon {
+      font-size: 13px;
+      margin-right: 6px;
+      color: var(--text-secondary);
+    }
+
+    /* 删除项红色警示（禁用态保持灰） */
+    &.ob-menu-del:not(.is-disabled) {
+      color: var(--danger-color);
+
+      .svg-icon {
+        color: var(--danger-color);
+      }
+    }
+  }
+}
 </style>

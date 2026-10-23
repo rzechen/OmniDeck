@@ -30,7 +30,7 @@
         <WorkspaceGroup
           v-for="g in store.overview.groups" :key="g.id"
           :group="g" :expanded="!!expandedGroups[g.id]"
-          @toggle="toggleGroup(g.id)" @open="openTask" @more="loadMore(g)" @del="onDelTask"
+          @toggle="toggleGroup(g.id)" @open="openTask" @more="loadMore(g)" @del="onDelTask" @clear="onClearGroup(g)"
         />
       </template>
     </div>
@@ -94,6 +94,31 @@ function removeLocal(id) {
     }
   }
   if (store.runningId === id) store.runningId = ''
+}
+
+// 清空分组：二次确认（文案对齐 PC 端清除弹窗）→ 服务端批量删除已结束任务
+// （执行中的保留），removed=0 说明组内全在执行中；结果经广播双端同步
+function onClearGroup(g) {
+  ElMessageBox.confirm(`将删除「${g.name}」下已结束的任务，执行中的将保留，删除后记录将一并移除，确定清除吗？`, '清除任务', {
+    confirmButtonText: '清除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    api('POST', '/api/task/clear', { groupId: g.id }).then(r => {
+      if (!r || !r.ok) {
+        ElMessage({ message: (r && r.error) || '清除失败', type: 'error', duration: 2200 })
+        return
+      }
+      if (!r.removed) {
+        ElMessage({ message: '任务均在执行中，无可清除任务', type: 'warning', duration: 2200 })
+        return
+      }
+      refresh()
+      ElMessage({ message: `已清除 ${r.removed} 个任务`, type: 'success', duration: 1500 })
+    }).catch(() => {
+      ElMessage({ message: '网络错误', type: 'error', duration: 2200 })
+    })
+  }).catch(() => {})
 }
 
 // 新建任务：顶栏 + 全局进入（不带空间）；分组头 + 进入则预选该空间

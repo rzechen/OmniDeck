@@ -813,6 +813,23 @@
               </div>
               <el-input-number :model-value="remoteCfg.port" size="small" :min="1" :max="65535" :controls="false" style="width: 120px" @change="v => saveRemote({ port: v })" />
             </div>
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">代理地址</span>
+                <span class="label-desc">隧道 / 反向代理域名（如飞鸽、frp 映射的公网地址）；保存后访问链接将新增「代理」条目并置顶，二维码同步切换，手机公网扫码直达</span>
+              </div>
+              <div class="remote-proxy">
+                <el-input
+                  v-model="remoteProxyInput"
+                  size="small"
+                  clearable
+                  placeholder="https://your-proxy.example.com"
+                  style="width: 320px"
+                  @keyup.enter="saveProxyUrl"
+                />
+                <el-button size="small" round type="primary" :loading="remoteProxySaving" @click="saveProxyUrl">保存</el-button>
+              </div>
+            </div>
           </div>
 
           <!-- 配对：token + 二维码 + 访问链接 -->
@@ -820,7 +837,7 @@
             <div class="settings-row">
               <div class="row-label">
                 <span class="label-text">配对 Token</span>
-                <span class="label-desc">手机首次访问需携带（下方链接已自动附带；公网访问时把链接中的 主机:端口 替换为隧道域名即可）；重置后已配对设备立即失效</span>
+                <span class="label-desc">手机首次访问需携带（下方链接已自动附带）；公网访问可在上方「代理地址」配置隧道域名，链接自动生成；重置后已配对设备立即失效</span>
               </div>
               <div class="remote-token">
                 <code>{{ remoteCfg.token }}</code>
@@ -838,6 +855,44 @@
                   <span class="remote-url-text">{{ u.url }}</span>
                   <el-button size="small" text type="primary" @click="copyRemoteUrl(u.url)">复制</el-button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 桌面控制（截屏观察 + 鼠标键盘模拟；macOS 需辅助功能 + 屏幕录制授权） -->
+        <template v-else-if="activeTab === 'computer'">
+          <header class="settings-section-header">
+            <h2 class="section-title">桌面控制</h2>
+            <p class="section-desc">开启后助手可获得截屏观察、鼠标点击、键盘键入、滚动与打开应用等能力，用于操作不具备 API 的本地应用（视觉理解 → 模拟操作 → 再观察循环）；截屏为只读自动放行，点击 / 键入等真实操作默认逐次确认</p>
+          </header>
+
+          <div class="settings-group">
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">启用桌面控制</span>
+                <span class="label-desc">{{ computerCfg.enabled ? '已开启 · 新建会话将挂载桌面控制工具' : '已关闭（默认） · 开启后对新建会话生效，进行中的会话不受影响' }}</span>
+              </div>
+              <el-switch :model-value="computerCfg.enabled" @change="v => saveComputer(v)" />
+            </div>
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">系统权限</span>
+                <span class="label-desc">{{ computerProbeText }}</span>
+              </div>
+              <div class="computer-perm-actions">
+                <el-button size="small" round @click="openComputerPermission('accessibility')">辅助功能设置</el-button>
+                <el-button size="small" round @click="openComputerPermission('screen')">屏幕录制设置</el-button>
+                <el-button size="small" round type="primary" :loading="computerProbing" @click="probeComputer">重新检测</el-button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">安全说明</span>
+                <span class="label-desc">桌面控制会把截屏画面发送给当前配置的模型用于视觉决策；点击 / 键入 / 打开应用等动作默认在对话中逐次确认（可在「权限策略」页按工具调整为自动放行）。涉及敏感账号操作时请保持人工确认，不用时建议保持关闭</span>
               </div>
             </div>
           </div>
@@ -1094,6 +1149,7 @@ const tabs = [
   { key: 'security', label: '安全项', icon: 'lock' },
   { key: 'notify', label: '通知项', icon: 'chat-dot-round' },
   { key: 'remote', label: '移动端', icon: 'phone' },
+  { key: 'computer', label: '桌面控制', icon: 'monitor' },
   { key: 'runtime', label: '运行时', icon: 'cpu' },
   // 版本 / 反馈为应用级公共页：复用整页组件内嵌渲染（不再单独跳转）
   { key: 'version', label: '版本页', icon: 'info' },
@@ -1966,10 +2022,19 @@ const remoteCfg = ref({
   port: 7360,
   host: '127.0.0.1',
   token: '',
+  proxyUrl: '',
   urls: [],
   listening: false
 })
 const remoteQr = ref('')
+// 代理地址本地输入缓冲：与 remoteCfg 解耦（避免异步保存回写干扰输入），
+// 点保存/回车才提交；loadRemote 成功后回填已存值
+const remoteProxyInput = ref('')
+const remoteProxySaving = ref(false)
+function saveProxyUrl() {
+  remoteProxySaving.value = true
+  saveRemote({ proxyUrl: remoteProxyInput.value }).finally(() => { remoteProxySaving.value = false })
+}
 
 function remoteApi() {
   const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
@@ -1982,6 +2047,7 @@ async function loadRemote() {
     const res = await api.config()
     if (res && res.ok) {
       remoteCfg.value = Object.assign({}, res.config, { urls: res.urls || [], listening: !!res.listening })
+      remoteProxyInput.value = res.config.proxyUrl || ''
       renderRemoteQr()
     }
   } catch (e) { /* 忽略加载失败 */ }
@@ -1997,6 +2063,8 @@ async function saveRemote(patch) {
     if (res && res.ok) {
       remoteCfg.value.listening = !!res.listening
       remoteCfg.value.urls = res.urls || []
+      // 代理地址以服务端规范化结果为准（补协议头 / 去尾斜杠；非法回退空）
+      if (res.config && res.config.proxyUrl !== undefined) remoteCfg.value.proxyUrl = res.config.proxyUrl
       renderRemoteQr()
     } else {
       remoteCfg.value = prev
@@ -2035,6 +2103,69 @@ async function copyRemoteUrl(url) {
     await navigator.clipboard.writeText(url)
     message.success('已复制')
   } catch (e) { message.error('复制失败') }
+}
+
+// ===== 桌面控制（截屏观察 + 鼠标键盘模拟；macOS 需辅助功能 + 屏幕录制授权） =====
+const computerCfg = ref({ enabled: false, probe: null })
+const computerProbing = ref(false)
+
+function computerApi() {
+  const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
+  return (api && api.computerUse) || null
+}
+const computerProbeText = computed(() => {
+  const p = computerCfg.value.probe
+  if (!p) return '未检测 · 点击「重新检测」获取当前权限状态'
+  if (p.platform !== 'darwin') return '桌面控制仅支持 macOS'
+  const missing = []
+  if (!p.accessibility) missing.push('辅助功能')
+  if (!p.screen) missing.push('屏幕录制' + (p.screenNote ? '（' + p.screenNote + '）' : ''))
+  if (missing.length) return '缺少 ' + missing.join('、') + ' 权限，请到「系统设置 → 隐私与安全性」授权后重新检测'
+  if (!p.nut) return '权限齐备，但执行引擎不可用' + (p.nutError ? '：' + p.nutError : '')
+  return '权限齐备 · 可正常使用'
+})
+async function loadComputer() {
+  const api = computerApi()
+  if (!api) return
+  try {
+    const res = await api.get()
+    if (res) computerCfg.value.enabled = !!res.enabled
+  } catch (e) { /* 忽略加载失败 */ }
+  probeComputer()
+}
+async function probeComputer() {
+  const api = computerApi()
+  if (!api) return
+  computerProbing.value = true
+  try {
+    const res = await api.probe()
+    if (res) computerCfg.value.probe = res
+  } catch (e) { /* 忽略探测失败 */ }
+  computerProbing.value = false
+}
+async function saveComputer(v) {
+  const api = computerApi()
+  if (!api) return
+  // 先本地回写再保存，失败回滚（与 remote 同模式）
+  const prev = computerCfg.value.enabled
+  computerCfg.value.enabled = !!v
+  try {
+    const res = await api.set(!!v)
+    if (res && res.ok) {
+      message.success(v ? '已开启，对新建会话生效' : '已关闭')
+    } else {
+      computerCfg.value.enabled = prev
+      message.error((res && res.error) || '保存失败')
+    }
+  } catch (e) {
+    computerCfg.value.enabled = prev
+    message.error('保存失败')
+  }
+}
+async function openComputerPermission(kind) {
+  const api = computerApi()
+  if (!api) return
+  try { await api.openPermission(kind) } catch (e) { /* 忽略 */ }
 }
 
 // ===== 通知中心（类型 × 渠道矩阵 + Webhook 配置） =====
@@ -2694,6 +2825,7 @@ onMounted(() => {
   loadBuddySessions()
   loadNotify()
   loadRemote()
+  loadComputer()
 })
 
 onBeforeUnmount(() => {
@@ -2850,6 +2982,12 @@ onBeforeUnmount(() => {
 }
 
 /* ===== 移动端（手机遥控配对：token + 二维码 + 访问链接） ===== */
+.remote-proxy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .remote-token {
   display: flex;
   align-items: center;
@@ -2864,6 +3002,13 @@ onBeforeUnmount(() => {
     letter-spacing: 0.5px;
     user-select: all;
   }
+}
+
+.computer-perm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .remote-pair-row {

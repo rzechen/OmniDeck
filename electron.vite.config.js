@@ -35,7 +35,7 @@ const agentNames = [
   'integrations/mcp', 'integrations/connectors', 'integrations/credentials', 'integrations/web-search',
   'integrations/site-auth', 'integrations/login-wizard', 'integrations/notify', 'integrations/workflows',
   'integrations/pkg-registry', 'integrations/subagents',
-  'integrations/remote-task',
+  'integrations/remote-task', 'integrations/computer-use',
   'workspace/workspaces', 'workspace/files', 'workspace/attachments',
   'platform/permissions', 'platform/capabilities', 'platform/runtime', 'platform/sandbox',
   'platform/scheduler', 'platform/usage',
@@ -55,7 +55,9 @@ const agentNames = [
 // pptxgenjs / exceljs 由 agent/tools/doc-export.js 运行时 require（doc_export 工具
 // pptx/xlsx 生成；含体积较大的内嵌模板与依赖链，保留原生调用走 node_modules）；
 // markdown-it 由 agent/sessions/export.js 运行时 require，保留原生调用；
-// electron-updater 由 core/updater.js 运行时 require，保留原生调用
+// electron-updater 由 core/updater.js 运行时 require，保留原生调用；
+// @nut-tree-fork/nut-js 由 agent/integrations/computer-use.js 以 require.resolve 定位入口
+// （ELECTRON_RUN_AS_NODE 子进程动态 import），保留原生调用
 const runtimeDeps = [
   '@earendil-works/pi-coding-agent',
   '@anthropic-ai/sandbox-runtime',
@@ -63,6 +65,7 @@ const runtimeDeps = [
   'pi-mcp-adapter',
   'pi-subagents',
   'pi-web-access',
+  '@nut-tree-fork/nut-js',
   'adm-zip',
   'officeparser',
   'pptxgenjs',

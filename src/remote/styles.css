@@ -64,3 +64,7 @@ button:disabled { opacity: .4; }
 @keyframes pulse { 50% { opacity: .3; } }
 .logo { flex: none; width: 32px; height: 32px; border-radius: 8px; }
 .logo-lg { display: block; margin: 0 auto; width: 64px; height: 64px; border-radius: 16px; box-shadow: var(--shadow); }
+
+/* ===== ElMessageBox 移动端适配：默认 420px 超出小屏，收窄 + 圆角贴合移动风格 ===== */
+.el-message-box { width: calc(100vw - 48px) !important; max-width: 420px; border-radius: 16px; }
+.el-message-box__btns .el-button { padding: 10px 18px; }
