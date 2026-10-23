@@ -127,10 +127,20 @@ function walkAgents(dir, rel, depth, out) {
 //   market/   — 市场安装的专家（列表正常显示，子目录仅为卸载定位）
 const HIDDEN_DIRS = ['pipeline']
 
+// 内置专家目录（builtin.js 启动时随包部署，列表展示带「系统」标识、只读）
+const BUILTIN_DIR = 'builtin'
+
+function isBuiltinAgentFile(file) {
+  return String(file || '').replace(/\\/g, '/').startsWith(BUILTIN_DIR + '/')
+}
+
 function listAgents() {
   const out = []
   walkAgents(agentsDir(), '', 0, out)
-  return out.filter(a => !HIDDEN_DIRS.some(d => a.file.startsWith(d + '/')))
+  return out
+    .filter(a => !HIDDEN_DIRS.some(d => a.file.startsWith(d + '/')))
+    // 内置专家标记（UI 隐藏编辑/删除，仅允许查看详情；后端 update/delete 另有拒绝兜底）
+    .map(a => ({ ...a, builtin: isBuiltinAgentFile(a.file) }))
 }
 
 function createAgent({ name, description, content, tools } = {}) {
@@ -178,7 +188,9 @@ function getAgent(file) {
 }
 
 // 更新专家：重写 .md（frontmatter + 正文；文件名即调用名不可改）
+// 系统内置专家只读（builtin/ 目录），拒绝更新
 function updateAgent({ file, name, description, content, tools } = {}) {
+  if (isBuiltinAgentFile(file)) return { ok: false, error: '系统内置专家不可编辑' }
   const abs = resolveAgentFile(file)
   if (!abs || !fs.existsSync(abs)) return { ok: false, error: '专家不存在' }
   if (!String(description || '').trim()) {
@@ -193,6 +205,7 @@ function updateAgent({ file, name, description, content, tools } = {}) {
 }
 
 function deleteAgent(file) {
+  if (isBuiltinAgentFile(file)) return { ok: false, error: '系统内置专家不可删除' }
   const abs = resolveAgentFile(file)
   if (!abs || !fs.existsSync(abs)) return { ok: false, error: '专家不存在' }
   try {
@@ -286,6 +299,7 @@ function importAgentFile(data, itemId) {
 // overwrite=true 时先清空集合目录（市场语义：安装/更新/重装一律覆盖）
 function importAgentZip(data, collection, overwrite) {
   const col = String(collection || '').trim()
+  if (col === BUILTIN_DIR) return { ok: false, error: '不可使用系统内置目录名：' + col }
   if (!validName(col)) return { ok: false, error: '集合名称无效：' + (col || '(空)') }
   const parsed = parseAgentZip(data)
   if (parsed.error) return { ok: false, error: parsed.error }
@@ -323,8 +337,10 @@ function importAgentZip(data, collection, overwrite) {
 }
 
 // 删除整个专家集合目录（市场卸载用；仅允许集合目录名，防穿越）
+// 内置专家目录（builtin/）只读，拒绝删除
 function deleteCollection(collection) {
   const col = String(collection || '').trim()
+  if (col === BUILTIN_DIR) return { ok: false, error: '系统内置专家集合不可删除' }
   if (!validName(col)) return { ok: false, error: '集合名称无效' }
   const dir = path.join(agentsDir(), col)
   if (!fs.existsSync(dir)) return { ok: false, error: '专家集合不存在' }

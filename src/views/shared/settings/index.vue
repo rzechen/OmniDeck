@@ -781,6 +781,68 @@
           </div>
         </template>
 
+        <!-- 手机远程任务（内网穿透遥控：手机发任务 / 实时进度） -->
+        <template v-else-if="activeTab === 'remote'">
+          <header class="settings-section-header">
+            <h2 class="section-title">移动端</h2>
+            <p class="section-desc">手机经内网穿透（飞鸽 / frp / Tailscale）随时下发任务：本机起 HTTP 服务托管极简遥控页，手机端自选工作空间、实时看执行进度；模型自动回落（最近对话 → 默认）。请保持电脑唤醒（休眠 / 合盖时服务不可达，任务无法执行）</p>
+          </header>
+
+          <div class="settings-group">
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">启用远程任务</span>
+                <span class="label-desc">{{ remoteCfg.listening ? '服务监听中 · ' + remoteCfg.host + ':' + remoteCfg.port : '服务未监听' }}</span>
+              </div>
+              <el-switch v-model="remoteCfg.enabled" @change="v => saveRemote({ enabled: v })" />
+            </div>
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">监听地址</span>
+                <span class="label-desc">默认仅本机回环（隧道客户端转发，不暴露局域网）；选「全部接口」可在同一局域网直连</span>
+              </div>
+              <el-radio-group :model-value="remoteCfg.host" size="small" @change="v => saveRemote({ host: v })">
+                <el-radio-button value="127.0.0.1">仅本机（推荐）</el-radio-button>
+                <el-radio-button value="0.0.0.0">全部接口</el-radio-button>
+              </el-radio-group>
+            </div>
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">端口</span>
+                <span class="label-desc">隧道转发目标端口（将此端口交由飞鸽等隧道代理，手机即可公网访问），修改后需同步更新隧道配置</span>
+              </div>
+              <el-input-number :model-value="remoteCfg.port" size="small" :min="1" :max="65535" :controls="false" style="width: 120px" @change="v => saveRemote({ port: v })" />
+            </div>
+          </div>
+
+          <!-- 配对：token + 二维码 + 访问链接 -->
+          <div class="settings-group">
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">配对 Token</span>
+                <span class="label-desc">手机首次访问需携带（下方链接已自动附带；公网访问时把链接中的 主机:端口 替换为隧道域名即可）；重置后已配对设备立即失效</span>
+              </div>
+              <div class="remote-token">
+                <code>{{ remoteCfg.token }}</code>
+                <el-button size="small" round @click="regenRemoteToken">重置</el-button>
+              </div>
+            </div>
+            <div class="settings-row remote-pair-row">
+              <div class="remote-qr">
+                <img v-if="remoteQr" :src="remoteQr" alt="扫码访问远程任务页" />
+                <div v-else class="remote-qr-tip">{{ remoteCfg.enabled ? '二维码生成中…' : '启用服务后生成二维码' }}</div>
+              </div>
+              <div class="remote-urls">
+                <div v-for="(u, i) in remoteCfg.urls" :key="i" class="remote-url-item">
+                  <span class="remote-url-label">{{ u.label }}</span>
+                  <span class="remote-url-text">{{ u.url }}</span>
+                  <el-button size="small" text type="primary" @click="copyRemoteUrl(u.url)">复制</el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
         <!-- 运行时组件（按需在线装配：瘦身版安装包的 python-env / node 等大组件） -->
         <template v-else-if="activeTab === 'runtime'">
           <header class="settings-section-header">
@@ -938,6 +1000,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from 'vuex'
+import QRCode from 'qrcode'
 import { bus } from '@/utils/ui/bus'
 import { useFeedback } from '@/composables/useFeedback'
 import { presetColors, themeModes, applyTheme } from '@/utils/ui/theme'
@@ -1030,6 +1093,7 @@ const tabs = [
   { key: 'tray', label: '托盘项', icon: 'menu' },
   { key: 'security', label: '安全项', icon: 'lock' },
   { key: 'notify', label: '通知项', icon: 'chat-dot-round' },
+  { key: 'remote', label: '移动端', icon: 'phone' },
   { key: 'runtime', label: '运行时', icon: 'cpu' },
   // 版本 / 反馈为应用级公共页：复用整页组件内嵌渲染（不再单独跳转）
   { key: 'version', label: '版本页', icon: 'info' },
@@ -1896,6 +1960,83 @@ function resetMenuOrder() {
     })
     .catch(() => {})
 }
+// ===== 手机远程任务（远程端 tab：配置 / 配对二维码） =====
+const remoteCfg = ref({
+  enabled: false,
+  port: 7360,
+  host: '127.0.0.1',
+  token: '',
+  urls: [],
+  listening: false
+})
+const remoteQr = ref('')
+
+function remoteApi() {
+  const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
+  return (api && api.remote) || null
+}
+async function loadRemote() {
+  const api = remoteApi()
+  if (!api) return
+  try {
+    const res = await api.config()
+    if (res && res.ok) {
+      remoteCfg.value = Object.assign({}, res.config, { urls: res.urls || [], listening: !!res.listening })
+      renderRemoteQr()
+    }
+  } catch (e) { /* 忽略加载失败 */ }
+}
+async function saveRemote(patch) {
+  const api = remoteApi()
+  if (!api) return
+  // 受控组件（radio / input-number / select）先本地回写再保存，失败回滚
+  const prev = Object.assign({}, remoteCfg.value)
+  Object.assign(remoteCfg.value, patch)
+  try {
+    const res = await api.save(patch)
+    if (res && res.ok) {
+      remoteCfg.value.listening = !!res.listening
+      remoteCfg.value.urls = res.urls || []
+      renderRemoteQr()
+    } else {
+      remoteCfg.value = prev
+      if (res && res.ok === false) message.error(res.error || '保存失败')
+    }
+  } catch (e) {
+    remoteCfg.value = prev
+    message.error('保存失败')
+  }
+}
+async function regenRemoteToken() {
+  const api = remoteApi()
+  if (!api) return
+  try {
+    await confirm('重置后已配对的手机将立即失效，需要重新扫码，确定重置？', '重置配对 Token', { type: 'warning' })
+  } catch (e) { return /* 取消 */ }
+  try {
+    const res = await api.regenToken()
+    if (res && res.ok) {
+      remoteCfg.value.token = res.token
+      remoteCfg.value.urls = res.urls || []
+      renderRemoteQr()
+      message.success('已重置，请重新扫码配对')
+    }
+  } catch (e) { message.error('重置失败') }
+}
+function renderRemoteQr() {
+  const first = (remoteCfg.value.urls || [])[0]
+  if (!first) { remoteQr.value = ''; return }
+  QRCode.toDataURL(first.url, { width: 200, margin: 1 })
+    .then(d => { remoteQr.value = d })
+    .catch(() => { remoteQr.value = '' })
+}
+async function copyRemoteUrl(url) {
+  try {
+    await navigator.clipboard.writeText(url)
+    message.success('已复制')
+  } catch (e) { message.error('复制失败') }
+}
+
 // ===== 通知中心（类型 × 渠道矩阵 + Webhook 配置） =====
 async function loadNotify() {
   const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
@@ -2552,6 +2693,7 @@ onMounted(() => {
   loadBrowserSettings()
   loadBuddySessions()
   loadNotify()
+  loadRemote()
 })
 
 onBeforeUnmount(() => {
@@ -2705,6 +2847,85 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding-left: 62px; // 与输入框左缘对齐
+}
+
+/* ===== 移动端（手机遥控配对：token + 二维码 + 访问链接） ===== */
+.remote-token {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+
+  code {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: $surface-muted;
+    letter-spacing: 0.5px;
+    user-select: all;
+  }
+}
+
+.remote-pair-row {
+  align-items: flex-start;
+}
+
+.remote-qr {
+  width: 148px;
+  height: 148px;
+  flex-shrink: 0;
+  border: 1px solid $divider;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+
+  img {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+}
+
+.remote-qr-tip {
+  font-size: 12px;
+  color: $text-secondary;
+  text-align: center;
+  padding: 0 10px;
+  line-height: 1.5;
+}
+
+.remote-urls {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+}
+
+.remote-url-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.remote-url-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: $text-secondary;
+}
+
+.remote-url-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 
 /* ============ Mac 式设置分组（圆角卡片 + 行布局） ============ */

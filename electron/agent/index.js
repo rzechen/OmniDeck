@@ -20,6 +20,7 @@ const piSetup = require('./pi/setup')
 const sandbox = require('./platform/sandbox')
 const skills = require('./knowledge/skills')
 const agents = require('./knowledge/agents')
+const builtin = require('./knowledge/builtin')
 const workspaces = require('./workspace/workspaces')
 const files = require('./workspace/files')
 const mcp = require('./integrations/mcp')
@@ -38,6 +39,7 @@ const workflows = require('./integrations/workflows')
 const { handlePiEvent } = require('./core/pi-events')
 const { writeExitSummary } = require('./core/direct-llm')
 const { createAutomation } = require('./ipc/automation')
+const remoteTask = require('./integrations/remote-task')
 const { registerChatIpc } = require('./ipc/chat')
 const { registerSessionsIpc } = require('./ipc/sessions')
 const { registerSettingsIpc } = require('./ipc/settings')
@@ -52,6 +54,9 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   sandbox.init(path.join(baseDir, 'pi-agent'))
   skills.init(path.join(baseDir, 'pi-agent'))
   agents.init(path.join(baseDir, 'pi-agent'))
+  // 内置资源同步（技能平铺 + 专家 builtin/ 子目录；幂等，应用升级自动更新，
+  // 用户自建同名优先；详见 knowledge/builtin.js）
+  builtin.sync(path.join(baseDir, 'pi-agent'))
   workspaces.init(baseDir)
   files.init(baseDir, getWindow)
   mcp.init(path.join(baseDir, 'pi-agent'))
@@ -73,6 +78,10 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   const automation = createAutomation({ getWindow, handlePiEvent })
   scheduler.setRunner(automation.runAutomationTask)
   automation.registerIpc()
+
+  // ===== 手机远程任务（内网穿透遥控：HTTP 服务 + 移动页 + SSE 进度） =====
+  remoteTask.init(baseDir, { getWindow, handlePiEvent })
+  remoteTask.registerIpc()
 
   // 通知中心 / 站点登录态登记（任务完成 / 权限审批 / 登录墙引导的统一投递）
   notify.init(baseDir)

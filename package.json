@@ -7,11 +7,12 @@
   "author": "OmniDeck",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "vite build --config vite.remote.config.js && electron-vite dev",
     "dev:clean": "kill -9 $(lsof -ti:5173) 2>/dev/null; electron-vite dev",
-    "build": "electron-vite build",
-    "build:mac": "electron-vite build && electron-builder --mac",
-    "build:win": "electron-vite build && electron-builder --win --x64",
+    "build": "electron-vite build && vite build --config vite.remote.config.js",
+    "build:remote": "vite build --config vite.remote.config.js",
+    "build:mac": "electron-vite build && vite build --config vite.remote.config.js && electron-builder --mac",
+    "build:win": "electron-vite build && vite build --config vite.remote.config.js && electron-builder --win --x64",
     "release": "bash scripts/release-upload.sh"
   },
   "dependencies": {
@@ -103,6 +104,14 @@
           "trayTemplate@2x.png",
           "trayTemplate@4x.png",
           "tray-win.png"
+        ]
+      },
+      {
+        "from": "builtin",
+        "to": "builtin",
+        "filter": [
+          "**/*",
+          "!**/.DS_Store"
         ]
       }
     ],

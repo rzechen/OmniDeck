@@ -81,12 +81,15 @@ function serverName(id) {
   return 'connector-' + id
 }
 
-// 目录视图（渲染进程）：合并 mcp.list() 实时状态
+// 目录视图（渲染进程）：合并 mcp.list() 实时状态。
+// 内置连接器（transport: 'builtin'，如网页访问）随包常开：connected 恒 true
+// 并带 builtin 标识——@ 引用浮层据此列出并显示「系统」标识（管理页不呈现内置）
 function listConnectors(mcpServers) {
   const names = new Set((mcpServers || []).map(s => s.name))
   return CONNECTORS.map(c => Object.assign({}, c, {
     serverName: serverName(c.id),
-    connected: names.has(serverName(c.id)),
+    connected: c.transport === 'builtin' ? true : names.has(serverName(c.id)),
+    builtin: c.transport === 'builtin',
     // 凭证字段（credential 对象本身不回传 hint 之外的敏感定义）
     needsCredential: !!c.credential
   }))

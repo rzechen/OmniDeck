@@ -68,7 +68,8 @@
 
 <script setup>
 // 我的专家视图（市场页内嵌）：本地 agents 目录列表 + 卡片（编辑 / 删除）；
-// 新增与编辑弹窗由市场页统一持有（AgentFormDialog），本组件只上抛事件
+// 新增与编辑弹窗由市场页统一持有（AgentFormDialog），本组件只上抛事件；
+// 系统内置专家（builtin）不在本页展示——仅对话 @ 引用呈现（带「系统」标识）
 import { ref, onActivated } from 'vue'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApi } from '@/utils/buddy/buddy-api'
@@ -88,7 +89,8 @@ async function loadAgents() {
   try {
     const api = buddyApi()
     const res = api && api.agents ? await api.agents.list() : []
-    agentList.value = Array.isArray(res) ? res : []
+    // 系统内置专家过滤：仅展示用户自建 / 市场安装的
+    agentList.value = (Array.isArray(res) ? res : []).filter(a => !a.builtin)
   } catch (e) {
     agentList.value = []
   }

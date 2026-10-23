@@ -13,32 +13,6 @@
 
     <!-- 内容区（hero 固定，仅此区域滚动） -->
     <div class="ob-page-body">
-      <!-- ===== 内置浏览器（系统级能力，随包内置、不可移除） ===== -->
-      <section class="ob-connector-section">
-        <div class="ob-builtin-card">
-          <div class="ob-builtin-main">
-            <div class="ob-builtin-icon"><svg-icon icon-class="browser" /></div>
-            <div class="ob-builtin-info">
-              <div class="ob-builtin-title">
-                内置浏览器（Playwright）
-                <span class="ob-builtin-tag">系统内置</span>
-              </div>
-              <div class="ob-builtin-desc">
-                无头浏览器自动化（登录态保存已启用）：访问站点遇登录墙自动通知，一键打开登录向导小窗完成登录，成功后自动保存登录态并关闭，各站点首登一次后免登录
-              </div>
-              <div class="ob-builtin-tip" v-if="wizardHost">
-                登录向导已打开（{{ wizardHost }}）：在弹出的窗口中完成登录即可，成功后自动保存并关闭；关闭窗口视为取消
-              </div>
-            </div>
-          </div>
-          <div class="ob-builtin-ctrl">
-            <el-tag size="small" :type="wizardHost ? 'warning' : 'info'">
-              {{ wizardHost ? '登录中 · ' + wizardHost : '无头 · 自动' }}
-            </el-tag>
-          </div>
-        </div>
-      </section>
-
       <!-- ===== 连接器（MCP Server） ===== -->
       <!-- 空状态直接挂在 .ob-page-body 下，flex:1 占满剩余空间实现垂直居中 -->
       <div v-if="!mcpServers.length && !mcpLoading" class="ob-empty">
@@ -125,8 +99,6 @@ const { message, confirm } = useFeedback()
 
 const mcpServers = ref([])
 const mcpLoading = ref(false)
-// 登录向导当前打开的站点（空 = 未开）：login_wizard 事件实时驱动
-const wizardHost = ref('')
 // 新增/编辑弹窗显隐与编辑对象（null 表示新增）
 const mcpModalVisible = ref(false)
 const mcpEditing = ref(null)
@@ -343,14 +315,13 @@ function removeMcpItem(s) {
 loadMcp()
 
 onMounted(() => {
-  // 登录向导开/关由主进程广播实时驱动（徽标翻转 + 成功提示）；
-  // 撞墙引导入口已收敛到聊天思考区工具卡片内嵌按钮，本页不再展示站点登记表
+  // 登录向导成功提示实时广播（内置浏览器卡片已随「内置资源仅在 @ 引用呈现」
+  // 收敛移除；撞墙引导入口在聊天思考区工具卡片内嵌按钮）
   const omnibuddy = buddyApi()
   if (omnibuddy && omnibuddy.onEvent) {
     unsubPw = omnibuddy.onEvent(e => {
-      if (e && e.type === 'login_wizard') {
-        wizardHost.value = e.phase === 'open' ? e.host : ''
-        if (e.phase === 'success') message.success('「' + e.host + '」登录成功，登录态已保存')
+      if (e && e.type === 'login_wizard' && e.phase === 'success') {
+        message.success('「' + e.host + '」登录成功，登录态已保存')
       }
     })
   }
@@ -372,82 +343,7 @@ onBeforeUnmount(() => {
   margin-bottom: 26px;
 }
 
-/* 内置浏览器卡片（系统级固定能力：有头首登开关） */
-.ob-builtin-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  border-radius: 12px;
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border-color);
-}
-
-.ob-builtin-main {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  min-width: 0;
-}
-
-.ob-builtin-icon {
-  flex-shrink: 0;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(var(--primary-color-rgb), 0.1);
-  color: var(--primary-color);
-
-  .svg-icon {
-    width: 20px;
-    height: 20px;
-  }
-}
-
-.ob-builtin-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: $text-primary;
-}
-
-.ob-builtin-tag {
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: var(--primary-color);
-  background: rgba(var(--primary-color-rgb), 0.1);
-}
-
-.ob-builtin-desc {
-  margin-top: 4px;
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: $text-secondary;
-}
-
-.ob-builtin-tip {
-  margin-top: 6px;
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: var(--warning-color, #efaa17);
-}
-
-.ob-builtin-ctrl {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-/* 站点登录卡片已移除（撞墙引导收敛到思考区工具卡片内嵌按钮 + 系统通知） */
+/* 内置浏览器卡片已移除（内置资源仅在对话 @ 引用呈现，带「系统」标识） */
 
 /* 加载骨架容器内边距 */
 .ob-sk-wrap {

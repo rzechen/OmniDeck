@@ -56,6 +56,17 @@
         @select="onAtSelect"
       />
 
+      <!-- @ 引用技能 / 专家 / 连接器浮层（与 # 浮层同构：被动展示，键盘转发；
+           两阶段：root = @Skill/@Expert/@Connector 入口，列表 = 分类条目） -->
+      <at-mention-popover
+        ref="mentionPop"
+        :visible="mentionOpen"
+        :phase="mentionPhase"
+        :query="mentionQuery"
+        @expand="onMentionExpand"
+        @select="onMentionSelect"
+      />
+
       <!-- 富文本输入区：contenteditable（# 引用 tag 以不可编辑原子节点内联，
            与文字自然穿插、Backspace 整体删除）；序列化文本随 v-model 落草稿；
            流式生成中置 contenteditable=false 锁定输入；
@@ -117,9 +128,12 @@
 // # 引用：输入 # 上拉两阶段菜单（#Folder / #File → 条目列表），
 // 选中后以内联 tag（不可编辑原子节点）插入正文，与文字穿插呈现；
 // 序列化为 #Folder:相对路径 / #File:相对路径 token 随草稿落盘，可完整往返
+// @ 引用：输入 @ 上拉两阶段菜单（@Skill / @Expert / @Connector → 条目列表），
+// 与 # 同构，token 为 @Skill:目录名 / @Expert:文件路径 / @Connector:连接器 id
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { fileIcon, formatSize, FOLDER_ICON } from '@/utils/ui/file-meta'
 import AtFilePopover from '@/components/buddy/chat/AtFilePopover.vue'
+import AtMentionPopover from '@/components/buddy/chat/AtMentionPopover.vue'
 
 defineOptions({ name: 'BuddyComposer' })
 
@@ -130,7 +144,7 @@ const props = defineProps({
   },
   placeholder: {
     type: String,
-    default: '有问题尽管问（# 可引用工作空间文件 / 文件夹）'
+    default: '有问题尽管问（@ 可引用技能 / 专家 / 连接器，# 可引用工作空间文件）'
   },
   // 流式生成中：发送按钮切换为停止按钮
   streaming: {
@@ -178,39 +192,78 @@ const fileCards = computed(() => {
   return props.files.map((f, i) => ({ f, i }))
 })
 
-// ===== # 引用内联 tag（contenteditable 不可编辑原子节点） =====
+// ===== # / @ 引用内联 tag（contenteditable 不可编辑原子节点） =====
 // token 契约：#Folder:相对路径（根目录存 /） / #File:相对路径
-// —— chip 只显示末级名称 + 类型图标（可见文本与 token 不同长，
+//            @Skill:技能目录名 / @Expert:专家文件路径 / @Connector:连接器 id
+// —— chip 只显示名称 + 类型图标（可见文本与 token 不同长，
 //    光标偏移由 getCaretOffset/setCaretOffset 按 token 长度显式换算）
-const TOKEN_RE = /#(Folder|File):([^\s#]+)/g
+const TOKEN_RE = /#(Folder|File):([^\s#@]+)|@(Skill|Expert|Connector):([^\s#@]+)/g
+
+// kind → token 前缀（dir/file 为 # 引用，skill/expert/connector 为 @ 引用）
+const CHIP_TOKEN_PREFIX = {
+  dir: '#Folder:',
+  file: '#File:',
+  skill: '@Skill:',
+  expert: '@Expert:',
+  connector: '@Connector:'
+}
+
+// @ 引用 chip 的 sprite 图标（# 引用用文件类型图标 img）
+const CHIP_SPRITE_ICON = { skill: 'skill', expert: 'user', connector: 'connection' }
 
 function chipToken(kind, path) {
-  return '#' + (kind === 'dir' ? 'Folder' : 'File') + ':' + path
+  return CHIP_TOKEN_PREFIX[kind] + path
+}
+
+// chip 显示名缺省推导：# 类取末级路径名（根目录为「整个工作空间」），
+// @ 类 expert 取文件名去 .md，skill / connector 直接显示标识值
+function chipDisplayName(kind, val, name) {
+  if (name) return name
+  if (kind === 'dir' || kind === 'file') {
+    return (val === '' || val === '/') ? '整个工作空间' : val.split('/').pop()
+  }
+  if (kind === 'expert') return val.split('/').pop().replace(/\.md$/i, '')
+  return val
 }
 
 // 生成内联 tag 节点（data-* 随节点留存：发送时收集 atRefs）
-function makeChip(kind, rel, abs) {
-  const path = rel === '' ? '/' : rel
-  // 根目录（rel 归一为 '/'）显示「整个工作空间」，避免 split 得空名
-  const name = (rel === '' || rel === '/') ? '整个工作空间' : rel.split('/').pop()
+function makeChip(kind, val, abs, name) {
+  const path = val === '' ? '/' : val
+  const displayName = chipDisplayName(kind, path, name)
   const el = document.createElement('span')
-  el.className = 'bc-chip' + (kind === 'dir' ? ' dir' : '')
+  el.className = 'bc-chip' + (kind === 'dir' ? ' dir' : '') + (CHIP_SPRITE_ICON[kind] ? ' at' : '')
   el.contentEditable = 'false'
   el.dataset.kind = kind
   el.dataset.path = path
   el.dataset.abs = abs || ''
-  el.dataset.name = name
+  el.dataset.name = displayName
+  el.appendChild(makeChipIcon(kind, displayName))
+  const label = document.createElement('span')
+  label.className = 'bc-chip-name'
+  label.textContent = displayName
+  el.appendChild(label)
+  return el
+}
+
+// chip 头像：# 类按目录 / 文件后缀取类型图标（img）；
+// @ 类用 sprite 图标（svg use，主色着色）
+function makeChipIcon(kind, name) {
+  if (CHIP_SPRITE_ICON[kind]) {
+    const href = '#icon-' + CHIP_SPRITE_ICON[kind]
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('class', 'bc-chip-ico')
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use')
+    use.setAttribute('href', href)
+    use.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', href)
+    svg.appendChild(use)
+    return svg
+  }
   const icon = document.createElement('img')
   icon.className = 'bc-chip-ico'
   icon.src = kind === 'dir' ? FOLDER_ICON : fileIcon(name)
   icon.alt = ''
   icon.draggable = false
-  el.appendChild(icon)
-  const label = document.createElement('span')
-  label.className = 'bc-chip-name'
-  label.textContent = name
-  el.appendChild(label)
-  return el
+  return icon
 }
 
 // DOM → 序列化文本（chip → token，文本节点原样）
@@ -226,7 +279,8 @@ function serializeDom(el) {
 
 // 序列化文本 → DOM（token → chip；用于挂载初始渲染、外部赋值回填与文本级编辑重建）
 // chip 的绝对路径由 工作空间根目录 + 相对路径 恢复（token 只含 rel，
-// 全量重建不能丢 abs —— 发送时 collectAtRefs 依赖它，气泡预览反查同源）
+// 全量重建不能丢 abs —— 发送时 collectAtRefs 依赖它，气泡预览反查同源）；
+// @ 引用（skill/expert/connector）非路径引用，重建不带 abs
 function renderFromText(el, text, root) {
   const frag = document.createDocumentFragment()
   const wsRoot = String(root || '')
@@ -236,9 +290,15 @@ function renderFromText(el, text, root) {
   const src = String(text || '')
   while ((m = TOKEN_RE.exec(src))) {
     if (m.index > last) frag.appendChild(document.createTextNode(src.slice(last, m.index)))
-    const rel = m[2]
-    const abs = wsRoot ? (rel === '/' ? wsRoot : wsRoot + '/' + rel) : ''
-    frag.appendChild(makeChip(m[1] === 'Folder' ? 'dir' : 'file', rel, abs))
+    if (m[1]) {
+      // # 引用：#Folder: / #File:
+      const rel = m[2]
+      const abs = wsRoot ? (rel === '/' ? wsRoot : wsRoot + '/' + rel) : ''
+      frag.appendChild(makeChip(m[1] === 'Folder' ? 'dir' : 'file', rel, abs))
+    } else {
+      // @ 引用：@Skill: / @Expert: / @Connector:
+      frag.appendChild(makeChip(m[3].toLowerCase(), m[4], ''))
+    }
     last = TOKEN_RE.lastIndex
   }
   if (last < src.length) frag.appendChild(document.createTextNode(src.slice(last)))
@@ -311,10 +371,12 @@ function setCaretOffset(el, offset) {
 }
 
 // 发送时从 DOM 收集 # 引用清单（按绝对路径去重；rel 供气泡 token 反查）
+// @ 引用（skill/expert/connector）非路径引用，不进 atRefs（token 已随正文）
 function collectAtRefs(el) {
   const seen = Object.create(null)
   const out = []
   el.querySelectorAll('.bc-chip').forEach(c => {
+    if (c.dataset.kind !== 'dir' && c.dataset.kind !== 'file') return
     const abs = c.dataset.abs || ''
     if (abs && seen[abs]) return
     if (abs) seen[abs] = 1
@@ -408,6 +470,78 @@ function onAtBack() {
   atOpen.value = true
 }
 
+// ===== @ 触发检测（技能 / 专家 / 连接器，两阶段状态机，与 # 同构） =====
+// root：@ 后未跟 Skill:/Expert:/Connector: 前缀（入口菜单，打字过滤入口）
+// skill / expert / connector：@Skill: 等前缀后（条目列表，打字过滤）
+const mentionOpen = ref(false)
+const mentionPhase = ref('root') // root | skill | expert | connector
+const mentionQuery = ref('')
+const mentionStart = ref(-1) // 触发 @ 在序列化文本中的下标
+const mentionPop = ref(null)
+
+// kind ↔ token 前缀词（skill → Skill）
+const MENTION_WORD = { skill: 'Skill', expert: 'Expert', connector: 'Connector' }
+const MENTION_KIND = { Skill: 'skill', Expert: 'expert', Connector: 'connector' }
+
+function syncMention(text, caret) {
+  if (typeof caret !== 'number' || caret <= 0) {
+    mentionOpen.value = false
+    return
+  }
+  const before = text.slice(0, caret)
+  // @ 前须行首/空白（防误触），@ 与光标之间无空白/#/@
+  const m = before.match(/(?:^|\s)@((?:Skill|Expert|Connector):)?([^\s#@]*)$/)
+  if (!m) {
+    mentionOpen.value = false
+    return
+  }
+  mentionStart.value = caret - m[0].length + (m[0].startsWith('@') ? 0 : 1)
+  mentionQuery.value = m[2]
+  mentionPhase.value = m[1] ? MENTION_KIND[m[1].slice(0, -1)] : 'root'
+  mentionOpen.value = true
+}
+
+// 阶段一 → 阶段二：把触发片段替换为 @Skill: / @Expert: / @Connector: 前缀（浮层保持打开）
+function onMentionExpand(kind) {
+  const el = edit.value
+  const text = serializeDom(el)
+  const caret = getCaretOffset(el)
+  const end = typeof caret === 'number' ? caret : mentionStart.value + 1
+  const insert = '@' + MENTION_WORD[kind] + ':'
+  applyText(text.slice(0, mentionStart.value) + insert + text.slice(end), mentionStart.value + insert.length)
+  mentionPhase.value = kind
+  mentionQuery.value = ''
+  mentionOpen.value = true
+}
+
+// 阶段二选中条目：触发片段替换为内联 tag（标识入 token，显示名入 chip；
+// 前后补空格防 token 与文字粘连，chip 后总是补空格防直接打字拼进 token）
+function onMentionSelect(item) {
+  const el = edit.value
+  const text = serializeDom(el)
+  const caret = getCaretOffset(el)
+  const end = typeof caret === 'number' ? caret : mentionStart.value + 1
+  const token = '@' + MENTION_WORD[item.kind] + ':' + item.id
+  const before = text.slice(0, mentionStart.value)
+  const after = text.slice(end)
+  const padL = before && !/\s$/.test(before) ? ' ' : ''
+  const padR = !after || !/^\s/.test(after) ? ' ' : ''
+  applyText(before + padL + token + padR + after, mentionStart.value + padL.length + token.length + padR.length)
+  mentionOpen.value = false
+}
+
+// 阶段二 ← 回退：触发片段缩回 @（回入口菜单）
+function onMentionBack() {
+  const el = edit.value
+  const text = serializeDom(el)
+  const caret = getCaretOffset(el)
+  const end = typeof caret === 'number' ? caret : mentionStart.value + 1
+  applyText(text.slice(0, mentionStart.value) + '@' + text.slice(end), mentionStart.value + 1)
+  mentionPhase.value = 'root'
+  mentionQuery.value = ''
+  mentionOpen.value = true
+}
+
 // ===== 输入 / 键盘 =====
 function onInput() {
   const el = edit.value
@@ -417,11 +551,48 @@ function onInput() {
   if (!text && el.innerHTML !== '') el.innerHTML = ''
   emit('update:modelValue', text)
   syncHash(text, getCaretOffset(el))
+  syncMention(text, getCaretOffset(el))
   nextTick(autoResize)
 }
 
-// 统一键盘入口：# 浮层打开时接管 ↑↓/Enter/Esc/→/←，否则回车发送
+// 统一键盘入口：# / @ 浮层打开时接管 ↑↓/Enter/Esc/→/←，否则回车发送
 function onKeydown(e) {
+  if (mentionOpen.value && mentionPop.value) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      mentionPop.value.move(e.key === 'ArrowDown' ? 1 : -1)
+      return
+    }
+    if (e.key === 'Enter') {
+      // 输入法组合中的回车不确认（确认候选词）
+      if (isComposing.value || e.isComposing) return
+      e.preventDefault()
+      mentionPop.value.confirm()
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      mentionOpen.value = false
+      return
+    }
+    // →：root 阶段展开高亮入口（列表阶段放行移动光标）
+    if (e.key === 'ArrowRight' && mentionPhase.value === 'root') {
+      e.preventDefault()
+      mentionPop.value.confirm()
+      return
+    }
+    // ←：列表阶段且光标在触发片段末尾时回入口菜单（否则放行移动光标）
+    if (e.key === 'ArrowLeft' && mentionPhase.value !== 'root') {
+      const el = edit.value
+      const caret = getCaretOffset(el)
+      const text = serializeDom(el)
+      if (typeof caret === 'number' && !/\s@$/.test(text.slice(0, caret)) && /^[^\s#@]/.test(text.slice(caret))) return
+      e.preventDefault()
+      onMentionBack()
+      return
+    }
+    return
+  }
   if (atOpen.value && atPop.value) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
@@ -467,6 +638,7 @@ function onKeydown(e) {
 function onBlur() {
   isFocus.value = false
   atOpen.value = false
+  mentionOpen.value = false
 }
 // 回车发送：输入法组合中（确认候选词的回车）不发送。
 // Chrome 下确认候选词时 keydown 先于 compositionend 触发且 isComposing 仍为 true，
@@ -513,7 +685,7 @@ function onDrop(e) {
   for (const f of files) emit('import-file', f)
 }
 
-// 可发送：剥离 # token 后仍有文字，或存在粘贴/拖拽附件（纯引用不可发，防空消息）
+// 可发送：剥离 # / @ token 后仍有文字，或存在粘贴/拖拽附件（纯引用不可发，防空消息）
 const plainDraft = computed(() => (props.modelValue || '').replace(TOKEN_RE, ' ').trim())
 const canSend = computed(() => !!plainDraft.value || props.extraSendable)
 
@@ -825,7 +997,7 @@ defineExpose({ focus })
   }
 }
 
-/* # 引用内联 tag：不可编辑原子节点（Backspace 整体删除），
+/* # / @ 引用内联 tag：不可编辑原子节点（Backspace 整体删除），
    小圆角矩形（非全圆胶囊）；JS 动态创建的节点不带 scoped data-v
    属性，须 :deep 穿透（宿主 .bc-edit 带 data-v）才能命中样式 */
 :deep(.bc-chip) {
@@ -839,15 +1011,16 @@ defineExpose({ focus })
   border: 1px solid rgba(var(--primary-color-rgb), 0.5);
   background: rgba(var(--primary-color-rgb), 0.06);
   font-size: 12px;
-  line-height: 1;
+  /* 行高留足 descent 空间：中文（苹方等）字形实际高约 1.3em，
+     line-height:1 时 descender 溢出行盒，若被裁切即文字底部缺一块 */
+  line-height: 1.4;
   vertical-align: baseline; /* inline-flex baseline 取内部文字基线，与正文基线对齐即视觉居中 */
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: default;
   user-select: all; /* 整体选中，避免光标进入 */
 
-  /* 类型图标：目录 / 文件（替代 #Folder: #File: 文本前缀） */
+  /* 类型图标：目录 / 文件（替代 #Folder: #File: 文本前缀）；
+     @ 类为 sprite svg use（主色着色，替代 @Skill: 等文本前缀） */
   .bc-chip-ico {
     flex-shrink: 0;
     width: 11px;
@@ -856,7 +1029,16 @@ defineExpose({ focus })
     pointer-events: none; /* 不拦截点击/拖拽，chip 整体原子 */
   }
 
-  /* 名称省略（title 已提示完整路径） */
+  /* @ 引用（技能 / 专家 / 连接器）：svg 图标主色填充 */
+  &.at {
+    .bc-chip-ico {
+      color: var(--primary-color);
+      fill: currentColor;
+    }
+  }
+
+  /* 名称省略（title 已提示完整路径）；chip 自身不裁切（overflow:hidden
+     会切掉行高溢出的字形底部），截断由名称节点独立负责 */
   .bc-chip-name {
     min-width: 0;
     overflow: hidden;

@@ -63,7 +63,8 @@ function readMessages(id) {
 // ===== 会话 CRUD =====
 // automation（定时任务）：任务生成的系统会话标记（taskId/taskName），
 // 侧栏据此归入「⏰ 自动化」分组；autoTitle=false 保留固定标题不被 LLM 重命名
-function createSession({ spaceId, title, workspaceId, workspaceDir, displayName, autoTitle, automation } = {}) {
+// remote（手机远程任务）：远程下发的系统会话标记（ts），远程服务据此过滤会话
+function createSession({ spaceId, title, workspaceId, workspaceDir, displayName, autoTitle, automation, remote } = {}) {
   const id = newId()
   const now = Date.now()
   const meta = {
@@ -81,6 +82,7 @@ function createSession({ spaceId, title, workspaceId, workspaceDir, displayName,
   }
   if (autoTitle === false) meta.autoTitle = false
   if (automation && typeof automation === 'object') meta.automation = automation
+  if (remote && typeof remote === 'object') meta.remote = remote
   writeMeta(id, meta)
   return meta
 }

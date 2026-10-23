@@ -5,8 +5,14 @@
 const path = require('path')
 const fs = require('fs')
 const AdmZip = require('adm-zip')
+const { SKILL_MARKER } = require('./builtin')
 
 let agentDir = ''
+
+// 系统内置技能判定：目录内含 builtin.js 部署的标记文件（内置随包分发、只读）
+function isBuiltinSkillDir(skillDir) {
+  return fs.existsSync(path.join(skillDir, SKILL_MARKER))
+}
 
 // ===== 基础目录与 frontmatter 解析 =====
 function skillsDir() {
@@ -161,6 +167,8 @@ function listSkills() {
         description: meta.description || '',
         envKeys: collectEnvKeys(path.join(dir, entry.name), meta['env-keys']),
         content: text,
+        // 系统内置（随包分发、只读，UI 呈现「系统」标识且隐藏编辑/删除/导出）
+        builtin: isBuiltinSkillDir(path.join(dir, entry.name)),
         // 属于哪个多 skill 包（空 = 独立技能）；包主条目另带 packageMembers
         packageOf: packageOf(entry.name)
       })
@@ -197,6 +205,9 @@ function deleteSkill(dir) {
   }
   const skillDir = path.join(skillsDir(), dir)
   if (!fs.existsSync(skillDir)) return { ok: false, error: 'Skill 不存在' }
+  if (isBuiltinSkillDir(skillDir)) {
+    return { ok: false, error: '系统内置技能不可删除' }
+  }
   // 包级联删除：主技能目录内的嵌套子 skill（多 skill 包形态）对应的顶层平铺目录
   // 一并删除——否则主目录删除后成员「孤儿化」，UI 变独立卡片须逐个再删
   const removedMembers = []
@@ -244,6 +255,9 @@ function updateSkill({ name, description, content, envKeys } = {}) {
   }
   const skillDir = path.join(skillsDir(), dirName)
   if (!fs.existsSync(skillDir)) return { ok: false, error: 'Skill 不存在' }
+  if (isBuiltinSkillDir(skillDir)) {
+    return { ok: false, error: '系统内置技能不可编辑' }
+  }
   try {
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), buildFrontmatter(dirName, description, envKeys) + String(content || ''))
     return { ok: true }
@@ -349,6 +363,9 @@ function importZip(data, overwrite) {
   }
   const targetDir = path.join(skillsDir(), name)
   if (fs.existsSync(targetDir)) {
+    if (isBuiltinSkillDir(targetDir)) {
+      return { ok: false, exists: true, error: '「' + name + '」为系统内置技能，不可覆盖导入' }
+    }
     if (!overwrite) return { ok: false, exists: true, error: '同名 Skill 已存在：' + name }
     fs.rmSync(targetDir, { recursive: true, force: true })
   }
@@ -388,6 +405,11 @@ function importZip(data, overwrite) {
     if (!fs.existsSync(path.join(targetDir, e.name, 'SKILL.md'))) continue
     const subDst = path.join(skillsDir(), e.name)
     if (fs.existsSync(subDst)) {
+      // 子技能为系统内置：跳过（覆盖模式同样不覆盖内置）
+      if (isBuiltinSkillDir(subDst)) {
+        skippedSkills.push(e.name)
+        continue
+      }
       if (!overwrite) {
         skippedSkills.push(e.name)
         continue
@@ -406,9 +428,11 @@ function importZip(data, overwrite) {
 }
 
 // 导出 ZIP：将 <skillsDir>/<dir>/ 打包为 <name>.zip（递归收集，排除临时文件）
+// 系统内置技能不支持导出（内置只读，仅允许查看详情）
 function exportZip(dir) {
   const skillDir = path.join(skillsDir(), String(dir || ''))
   if (!fs.existsSync(skillDir)) return { ok: false, error: 'Skill 目录不存在' }
+  if (isBuiltinSkillDir(skillDir)) return { ok: false, error: '系统内置技能不支持导出' }
   // zip-slip 防护：规范化后必须仍在 skills 目录内
   const resolved = path.resolve(skillDir)
   if (!resolved.startsWith(skillsDir() + path.sep)) return { ok: false, error: '路径无效' }

@@ -92,7 +92,8 @@
           <span class="ob-edit-btn go" @mousedown.prevent @click="submitEdit">重新提问</span>
         </div>
       </div>
-      <!-- 用户：正文分段渲染 —— # 引用 token（#Folder:相对路径 / #File:相对路径）
+      <!-- 用户：正文分段渲染 —— # / @ 引用 token（#Folder:相对路径 / #File:相对路径 /
+           @Skill:目录名 / @Expert:文件路径 / @Connector:连接器 id）
            以内联 chip 呈现（与输入框内联 tag 同构、可穿插文字）；file 类 chip 点击
            唤起右栏产物预览（同代码块放大）；无 token 时整段纯文本直出 -->
       <template v-else-if="message.role === 'user' && userSegments.length">
@@ -102,10 +103,10 @@
             v-else
             :key="'c' + i"
             class="ob-chip"
-            :class="{ dir: seg.kind === 'dir' }"
-            :title="seg.abs || seg.rel"
+            :class="{ dir: seg.kind === 'dir', at: AT_SPRITE_ICON[seg.kind] }"
+            :title="seg.title"
             @click="onChipClick(seg)"
-          ><img class="ob-chip-ico" :src="seg.kind === 'dir' ? folderIcon : fileIcon(seg.name)" alt="" draggable="false" /><span class="ob-chip-name">{{ seg.name }}</span></span>
+          ><img v-if="seg.kind === 'dir' || seg.kind === 'file'" class="ob-chip-ico" :src="seg.kind === 'dir' ? folderIcon : fileIcon(seg.name)" alt="" draggable="false" /><svg-icon v-else class="ob-chip-ico ob-chip-svg" :icon-class="AT_SPRITE_ICON[seg.kind]" /><span class="ob-chip-name">{{ seg.name }}</span></span>
         </template>
       </template>
       <template v-else-if="message.role === 'user'">{{ message.content }}</template>
@@ -451,10 +452,15 @@ const fileAttachmentList = computed(() => {
   return props.message.fileAttachments
 })
 
-// ===== 用户消息正文分段：# 引用 token → 内联 chip =====
+// ===== 用户消息正文分段：# / @ 引用 token → 内联 chip =====
 // token 契约与 composer 一致：#Folder:相对路径（根目录 /）/ #File:相对路径；
-// chip 的绝对路径从消息级 atRefs 按 rel（旧数据无 rel 时按 kind+name）反查
-const TOKEN_RE = /#(Folder|File):([^\s#]+)/g
+// @Skill:目录名 / @Expert:文件路径 / @Connector:连接器 id。
+// # chip 的绝对路径从消息级 atRefs 按 rel（旧数据无 rel 时按 kind+name）反查；
+// @ chip 非路径引用，name 由 token 值推导（expert 去扩展名）
+const TOKEN_RE = /#(Folder|File):([^\s#@]+)|@(Skill|Expert|Connector):([^\s#@]+)/g
+
+// @ 引用 chip 的 sprite 图标（# 引用用文件类型图标 img）
+const AT_SPRITE_ICON = { skill: 'skill', expert: 'user', connector: 'connection' }
 
 // 文件夹图标（目录 chip 用；文件 chip 按扩展名取类型图标）
 const folderIcon = FOLDER_ICON
@@ -470,11 +476,21 @@ const userSegments = computed(() => {
   let m
   while ((m = TOKEN_RE.exec(src))) {
     if (m.index > last) segs.push({ type: 'text', text: src.slice(last, m.index) })
-    const kind = m[1] === 'Folder' ? 'dir' : 'file'
-    const rel = m[2]
-    const name = rel === '/' ? '整个工作空间' : rel.split('/').pop()
-    const ref = refs.find(r => r && (r.rel === rel || (!r.rel && r.kind === kind && r.name === name)))
-    segs.push({ type: 'chip', kind, name, rel, abs: ref ? ref.path : '' })
+    if (m[1]) {
+      // # 引用：#Folder: / #File:
+      const kind = m[1] === 'Folder' ? 'dir' : 'file'
+      const rel = m[2]
+      const name = rel === '/' ? '整个工作空间' : rel.split('/').pop()
+      const ref = refs.find(r => r && (r.rel === rel || (!r.rel && r.kind === kind && r.name === name)))
+      const abs = ref ? ref.path : ''
+      segs.push({ type: 'chip', kind, name, rel, abs, title: abs || rel })
+    } else {
+      // @ 引用：@Skill: / @Expert: / @Connector:（非路径，仅展示）
+      const kind = m[3].toLowerCase()
+      const val = m[4]
+      const name = kind === 'expert' ? val.split('/').pop().replace(/\.md$/i, '') : val
+      segs.push({ type: 'chip', kind, name, rel: '', abs: '', title: '@' + m[3] + ':' + val })
+    }
     last = TOKEN_RE.lastIndex
   }
   if (last < src.length) segs.push({ type: 'text', text: src.slice(last) })
@@ -863,9 +879,9 @@ async function exportAs(format) {
   display: block;
 }
 
-/* 用户消息正文内联 # 引用 chip（与 composer 内联 tag 同构：6px 小圆角 + 类型图标）。
+/* 用户消息正文内联 # / @ 引用 chip（与 composer 内联 tag 同构：6px 小圆角 + 类型图标）。
    用户气泡为主色渐变底、白字环境：chip 用白色半透明底/边框，目录稍深以示区分；
-   file 类可点击预览（手型 + hover 提亮），dir 类仅展示 */
+   file 类可点击预览（手型 + hover 提亮），dir / @ 类仅展示 */
 .ob-chip {
   display: inline-flex;
   align-items: center;
@@ -878,17 +894,23 @@ async function exportAs(format) {
   border: 1px solid rgba(255, 255, 255, 0.38);
   background: rgba(255, 255, 255, 0.18);
   font-size: 12px;
-  line-height: 1;
+  /* 行高留足 descent 空间（中文字形实际高约 1.3em），防底部被贴边裁切 */
+  line-height: 1.4;
   vertical-align: baseline; /* 与正文基线对齐即视觉居中 */
   user-select: none;
   cursor: default;
 
-  /* 类型图标：目录 / 文件（替代 #Folder: #File: 文本前缀） */
+  /* 类型图标：目录 / 文件（替代 #Folder: #File: 文本前缀）；
+     @ 类为 sprite svg（白色随文，替代 @Skill: 等文本前缀） */
   .ob-chip-ico {
     flex-shrink: 0;
     width: 11px;
     height: 11px;
     pointer-events: none;
+  }
+
+  .ob-chip-svg {
+    fill: currentColor;
   }
 
   /* 名称部分省略（title 已提示完整路径） */
@@ -905,8 +927,8 @@ async function exportAs(format) {
     background: rgba(255, 255, 255, 0.28);
   }
 
-  /* file 类可点击预览 */
-  &:not(.dir) {
+  /* file 类可点击预览（dir / @ 引用类仅展示） */
+  &:not(.dir):not(.at) {
     cursor: pointer;
     transition: background 0.12s ease;
 

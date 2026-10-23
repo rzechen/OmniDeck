@@ -1,0 +1,625 @@
+// OmniBuddy 手机远程任务：内网穿透场景下的极简遥控入口。
+// 形态：agent 进程内起一个 Node http 服务（默认仅 127.0.0.1，由飞鸽 / frp /
+// Tailscale 等隧道转发到公网），托管一个自包含移动端页面——发任务、
+// 实时看执行进度（SSE）。每次任务创建一个系统会话（meta.remote 标记），
+// 复用 pi 会话工厂与 handlePiEvent 事件链（与定时任务 manual 触发同模式）；
+// 权限确认 / ask_user 沿现有前端管线（PC 端确认，手机端仅展示等待提示）。
+// 事件分流：chat-state.emit 的同进程订阅（addEmitListener）→ 按白名单
+// 瘦身 → SSE 广播；结果推送不做（用户要求，实时进度已覆盖）。
+// 配置：<baseDir>/remote.json { enabled, port, host, token, publicUrl, workspaceId }
+const { ipcMain } = require('electron')
+const http = require('http')
+const os = require('os')
+const fs = require('fs')
+const path = require('path')
+const crypto = require('crypto')
+const sessions = require('../sessions/sessions')
+const workspaces = require('../workspace/workspaces')
+const scheduler = require('../platform/scheduler')
+const piRuntime = require('../pi')
+const { emit, running, automationTurnErrors, addEmitListener } = require('../core/chat-state')
+const { writeExitSummary } = require('../core/direct-llm')
+
+const DEFAULT_PORT = 7360
+
+// ===== 远程页面（Vue 独立构建：vite.remote.config.js → dist/remote.html 单文件内联） =====
+// 开发态在项目根 dist/，打包后在 asar 根 dist/（与渲染产物同目录）。
+// mtime 热载：build:remote 重跑后无需重启应用，页面即时换新（文件未变则走缓存）
+const REMOTE_PAGE_FILE = path.join(__dirname, '..', '..', '..', 'dist', 'remote.html')
+let pageHtmlCache = ''
+let pageMtimeMs = 0
+
+function loadPage() {
+  try {
+    const st = fs.statSync(REMOTE_PAGE_FILE)
+    if (pageHtmlCache && st.mtimeMs === pageMtimeMs) return pageHtmlCache
+    pageHtmlCache = fs.readFileSync(REMOTE_PAGE_FILE, 'utf-8')
+    pageMtimeMs = st.mtimeMs
+    return pageHtmlCache
+  } catch (e) {
+    console.warn('[omnibuddy:remote] 远程页面未构建（dist/remote.html 缺失），请执行 npm run build:remote')
+    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1"></head>' +
+      '<body style="font:15px/1.6 -apple-system,sans-serif;padding:32px;color:#666">' +
+      '远程页面未构建：请先在 PC 端执行 <b>npm run build:remote</b></body></html>'
+  }
+}
+
+// ===== 运行态 =====
+let cfgFile = ''
+let cfg = null
+let server = null
+let getWindow = null
+let handlePiEvent = null
+// 当前运行中的远程会话 id（空 = 空闲；单并发，新任务在运行中会被拒绝）
+let currentRemote = ''
+// 远程会话集合（SSE 过滤依据；init 时按 meta.remote 恢复）
+const remoteSessions = new Set()
+// SSE 客户端：Set<ServerResponse>
+const sseClients = new Set()
+let sseHeartbeat = null
+
+// ===== 配置读写 =====
+function defaultConfig() {
+  return {
+    enabled: false,
+    port: DEFAULT_PORT,
+    // 默认仅回环：由隧道客户端（飞鸽 / frp 等）转发，不直接暴露局域网；改 0.0.0.0 可局域网直连
+    host: '127.0.0.1',
+    token: crypto.randomBytes(16).toString('hex')
+  }
+}
+
+function readConfig() {
+  const def = defaultConfig()
+  try {
+    const saved = JSON.parse(fs.readFileSync(cfgFile, 'utf-8'))
+    if (!saved || typeof saved !== 'object') return def
+    return {
+      enabled: saved.enabled === true,
+      port: Number(saved.port) > 0 ? Math.floor(Number(saved.port)) : def.port,
+      host: saved.host === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1',
+      token: typeof saved.token === 'string' && saved.token.length >= 16 ? saved.token : def.token
+    }
+  } catch (e) {
+    return def
+  }
+}
+
+function persistConfig() {
+  try {
+    fs.mkdirSync(path.dirname(cfgFile), { recursive: true })
+    fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+  } catch (e) {
+    console.warn('[omnibuddy:remote] 配置写入失败：', e && e.message)
+  }
+}
+
+// 局域网 IPv4 清单（访问地址展示 / 二维码用）
+function lanIps() {
+  const out = []
+  const ifs = os.networkInterfaces()
+  for (const name of Object.keys(ifs)) {
+    for (const it of ifs[name] || []) {
+      if (it.family === 'IPv4' && !it.internal) out.push(it.address)
+    }
+  }
+  return out
+}
+
+// 访问地址清单（含 token）：本机回环 / 局域网 IP（0.0.0.0 时），
+// 公网可达性由用户自备的隧道（飞鸽等）转发本机端口实现
+function accessUrls() {
+  const q = '/?token=' + cfg.token
+  if (cfg.host === '0.0.0.0') {
+    const urls = lanIps().map(ip => ({ label: '局域网', url: 'http://' + ip + ':' + cfg.port + q }))
+    urls.push({ label: '本机', url: 'http://127.0.0.1:' + cfg.port + q })
+    return urls
+  }
+  return [{ label: '本机', url: 'http://127.0.0.1:' + cfg.port + q }]
+}
+
+// ===== SSE =====
+function sseWrite(res, event) {
+  try {
+    res.write('data: ' + JSON.stringify(event) + '\n\n')
+  } catch (e) { /* 客户端已断开 */ }
+}
+
+function broadcastSse(event) {
+  for (const res of Array.from(sseClients)) sseWrite(res, event)
+}
+
+// 事件瘦身：白名单类型 + 字段裁剪（公网链路只传移动端渲染所需的最小载荷）
+const SLIM_TYPES = new Set([
+  'user_message', 'assistant_start', 'delta', 'thinking', 'assistant_end',
+  'tool_start', 'tool_end', 'todo_update', 'permission_ask', 'ask_user',
+  'done', 'error', 'interrupted', 'pi_unavailable'
+])
+// 各字段保留长度（默认 300；正文类放宽）
+const SLIM_LENGTH = { text: 12000, content: 12000, thinking: 4000, result: 2000, question: 1000 }
+
+function clip(v, max) {
+  const s = String(v == null ? '' : v)
+  return s.length > max ? s.slice(0, max) + '…' : s
+}
+
+// 工具参数摘要：常见键直取，其余整体 JSON 截断（工具条一行展示用）
+function briefArgs(args) {
+  if (!args || typeof args !== 'object') return ''
+  const keys = ['command', 'url', 'path', 'pattern', 'query', 'file_path', 'filePath', 'expr', 'script', 'content']
+  for (const k of keys) {
+    if (args[k]) return clip(args[k], 200)
+  }
+  try { return clip(JSON.stringify(args), 200) } catch (e) { return '' }
+}
+
+function slimEvent(data) {
+  if (!data || !SLIM_TYPES.has(data.type)) return null
+  const t = data.type
+  const out = { type: t, sessionId: data.sessionId }
+  if (t === 'user_message') {
+    out.message = { id: data.message && data.message.id, role: 'user', content: clip(data.message && data.message.content, 12000) }
+  } else if (t === 'delta' || t === 'thinking') {
+    out.text = clip(data.text, SLIM_LENGTH.text)
+  } else if (t === 'assistant_end') {
+    out.content = clip(data.content, SLIM_LENGTH.content)
+    out.thinking = clip(data.thinking, SLIM_LENGTH.thinking)
+    out.usage = data.usage || null
+  } else if (t === 'tool_start') {
+    out.toolCallId = data.toolCallId
+    out.toolName = data.toolName
+    out.brief = briefArgs(data.args)
+  } else if (t === 'tool_end') {
+    out.toolCallId = data.toolCallId
+    out.toolName = data.toolName
+    out.isError = !!data.isError
+    out.result = clip(data.result, SLIM_LENGTH.result)
+    out.artifacts = Array.isArray(data.artifacts)
+      ? data.artifacts.slice(0, 5).map(a => ({ name: a && (a.name || a.path || '') })).filter(a => a.name)
+      : undefined
+  } else if (t === 'todo_update') {
+    out.todos = Array.isArray(data.todos) ? data.todos.slice(0, 30) : []
+  } else if (t === 'permission_ask') {
+    out.askId = data.askId
+    out.surface = data.surface || data.toolName || ''
+    out.brief = briefArgs({ command: data.command, url: data.url, path: data.value || data.path })
+  } else if (t === 'ask_user') {
+    out.callId = data.callId
+    out.question = clip(data.question, 1000)
+    out.options = Array.isArray(data.options) ? data.options.slice(0, 8) : []
+  } else if (t === 'error') {
+    out.error = clip(data.error, 1000)
+  }
+  return out
+}
+
+// emit 分流 → SSE（仅远程会话）
+function onEmit(data) {
+  if (!remoteSessions.has(data.sessionId)) return
+  const slim = slimEvent(data)
+  if (slim) broadcastSse(slim)
+}
+
+// ===== 远程任务执行体（仿 automation manual 触发的简化版：单次执行、无重试） =====
+// workspaceId 可选：手机端选定的工作空间；缺省回落列表第一个
+// 返回 { ok, sessionId } / { ok: false, error }
+async function runRemoteTask(text, workspaceId) {
+  if (currentRemote) return { ok: false, error: '已有远程任务在运行中，请等待完成或先停止' }
+
+  // 模型：最近对话快照 → 默认模型（与定时任务未绑定模型时的回落一致）
+  const providers = scheduler.getProviders()
+  const snap = scheduler.getProviderSnapshot()
+  let provider = null
+  if (snap && snap.baseUrl && snap.model) {
+    provider = providers.find(x => x.id === snap.id) || snap
+  }
+  if (!provider || !provider.baseUrl || !provider.model) {
+    provider = providers.find(x => x.isDefault) || providers[0] || null
+  }
+  if (!provider || !provider.baseUrl || !provider.model) {
+    return { ok: false, error: '未配置模型：请先在 PC 端「模型管理」添加模型' }
+  }
+
+  // 工作空间：手机端选定 → 校验存在；缺省回落列表第一个
+  // displayName 取该空间名——PC 侧栏按 displayName 分组，远程任务与 PC 端
+  // 同空间的会话归入同一分组，不产生独立的「手机任务」组
+  let wsId = typeof workspaceId === 'string' && workspaceId ? workspaceId : ''
+  let wsDir = wsId ? workspaces.resolve(wsId) : ''
+  let wsName = ''
+  const resolveName = (id) => {
+    const hit = workspaces.list().find(w => w.id === id)
+    return hit ? (hit.name || hit.path || '') : ''
+  }
+  if (wsId && !wsDir) return { ok: false, error: '所选工作空间不存在，请重新选择' }
+  if (!wsDir) {
+    const list = workspaces.list()
+    if (!list.length) return { ok: false, error: '未配置工作空间：请先在 PC 端添加' }
+    wsId = list[0].id
+    wsDir = workspaces.resolve(wsId)
+    if (!wsDir) return { ok: false, error: '工作空间不可用' }
+  }
+  wsName = resolveName(wsId)
+
+  const body = String(text || '').trim().slice(0, 8000)
+  if (!body) return { ok: false, error: '任务内容为空' }
+
+  const pad = n => String(n).padStart(2, '0')
+  const d = new Date()
+  const stamp = pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+  // 系统会话：remote 标记供远程服务过滤；displayName 与 PC 端同空间一致
+  const meta = sessions.createSession({
+    title: (body.slice(0, 24) || '远程任务') + ' · ' + stamp,
+    workspaceId: wsId,
+    workspaceDir: wsDir,
+    displayName: wsName,
+    autoTitle: false,
+    remote: { ts: Date.now() }
+  })
+  const chatId = meta.id
+  remoteSessions.add(chatId)
+  currentRemote = chatId
+
+  const promptText = [
+    '这是从手机远程下发的任务（执行时间 ' + stamp + '）。',
+    '',
+    body,
+    '',
+    '请自动完成上述任务：优先使用联网搜索等只读工具收集信息，独立完成全部步骤，最终以回复正文交付完整结果；' +
+      '写入文件等操作需要授权且手机端无法及时应答（将在 PC 端弹出确认），请仅在必要时使用。'
+  ].join('\n')
+
+  // 落盘用户消息（PC 端重开会话可见完整请求）
+  const { record } = sessions.addMessage(chatId, { role: 'user', content: promptText })
+  emit(getWindow, chatId, { type: 'user_message', message: record })
+
+  const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [] }
+  running.set(chatId, entry)
+  let interruptedBy = '' // '' 无 / 'manual' 用户停止
+  entry.abort = () => { interruptedBy = 'manual'; piRuntime.interruptSession(chatId) }
+  let result = { ok: true, sessionId: chatId }
+  let failError = ''
+  let failFromEvent = false // turn_error 事件路径（错误已落盘并广播，勿重复）
+  automationTurnErrors.delete(chatId)
+
+  try {
+    // 复用 pi 会话工厂与事件链：PC 端打开该会话即可看到与手机一致的执行过程
+    const session = await piRuntime.getOrCreateSession(chatId, provider, [], e => {
+      return handlePiEvent(getWindow, e)
+    }, wsDir)
+    await session.prompt(promptText, { streamingBehavior: 'followUp' })
+    if (interruptedBy === 'manual') {
+      failError = '执行被中断'
+    } else {
+      failError = automationTurnErrors.get(chatId) || ''
+      failFromEvent = !!failError
+    }
+  } catch (err) {
+    const aborted = err && (err.name === 'AbortError' || /abort/i.test(String(err.message || '')))
+    failError = interruptedBy || aborted ? '执行被中断' : ((err && err.message) || '未知错误')
+  } finally {
+    running.delete(chatId)
+    currentRemote = ''
+  }
+
+  if (!failError) {
+    // 完成：显式释放流式态（远程任务不走 session:send，无 done 发射点；幂等）
+    emit(getWindow, chatId, { type: 'done' })
+    sessions.touch(chatId)
+    try { writeExitSummary(chatId) } catch (e) { /* 摘要失败不影响结果 */ }
+  } else {
+    if (!failFromEvent) {
+      try {
+        sessions.addMessage(chatId, {
+          role: 'assistant',
+          content: '（任务' + (failError === '执行被中断' ? '中断：' : '执行失败：') + failError + '）',
+          error: failError
+        })
+      } catch (e) { /* 会话已删除等忽略 */ }
+      emit(getWindow, chatId, failError === '执行被中断'
+        ? { type: 'interrupted' }
+        : { type: 'error', error: failError })
+    }
+    result = { ok: false, sessionId: chatId, error: failError }
+  }
+  return result
+}
+
+// ===== 会话数据（恢复 / 回放） =====
+// JSONL 记录 → 移动端时间线项（瘦身：只保留页面渲染所需字段）
+function sessionView(id) {
+  let msgs = []
+  try { msgs = sessions.getMessages(id) } catch (e) { return null }
+  const items = []
+  for (const m of msgs) {
+    if (!m || !m.role) continue
+    if (m.role === 'user') {
+      items.push({ kind: 'user', text: clip(m.content, 12000) })
+    } else if (m.role === 'assistant') {
+      items.push({ kind: 'assistant', text: clip(m.content, 12000), error: m.error ? clip(m.error, 1000) : '' })
+    } else if (m.role === 'tool') {
+      items.push({ kind: 'tool', toolName: m.toolName || '', brief: briefArgs(m.args), isError: !!m.isError })
+    } else if (m.role === 'permission') {
+      items.push({ kind: 'permission', surface: m.surface || m.toolName || '', decided: m.decided || '' })
+    } else if (m.role === 'ask_user') {
+      items.push({ kind: 'ask', question: clip(m.question, 1000), answer: clip(m.answer, 1000) })
+    }
+  }
+  return items
+}
+
+// 总览（移动端列表页数据源）：按工作空间分组的远程任务清单。
+// 空间组全部呈现（无任务的组显示空态）；会话绑定的空间已被删除的归
+// 「其他」兜底组（无内容不返回）。每组只带首页任务（分页拉取 /api/tasks）
+const PAGE_SIZE = 10 // 每页条数（列表首页 & 加载更多共用）
+
+// 任务条目映射（stateView 首页 / /api/tasks 分页共用）
+function taskItem(m, runningId) {
+  return {
+    id: m.id,
+    title: m.title || '远程任务',
+    updatedAt: m.updatedAt || 0,
+    running: m.id === runningId
+  }
+}
+
+// 按空间归组（other 收集无有效空间的会话），返回 { groups, other }
+function groupRemoteSessions() {
+  const groups = workspaces.list().map(w => ({
+    id: w.id,
+    name: w.name || w.path || '未命名空间',
+    tasks: []
+  }))
+  const other = { id: '', name: '其他', tasks: [] }
+  for (const m of sessions.listSessions()) {
+    if (!m.remote || !m.id) continue
+    const g = groups.find(x => x.id === m.workspaceId)
+    ;(g || other).tasks.push(m)
+  }
+  return { groups, other }
+}
+
+function stateView() {
+  const runningId = (currentRemote && running.has(currentRemote)) ? currentRemote : ''
+  const { groups, other } = groupRemoteSessions()
+  const paginate = (g) => {
+    g.total = g.tasks.length
+    g.tasks = g.tasks.slice(0, PAGE_SIZE).map(m => taskItem(m, runningId))
+    g.hasMore = g.total > g.tasks.length
+    return g
+  }
+  return {
+    ok: true,
+    // 当前正在运行的远程任务（空 = 空闲）
+    current: runningId ? { sessionId: runningId } : null,
+    workspaces: groups.map(paginate),
+    other: other.tasks.length ? paginate(other) : null
+  }
+}
+
+// ===== HTTP 服务 =====
+function tokenFromReq(req, urlObj, body) {
+  const q = urlObj.searchParams.get('token') || ''
+  const auth = req.headers.authorization || ''
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : ''
+  const b = body && typeof body === 'object' ? String(body.token || '') : ''
+  return q || bearer || b
+}
+
+function authorized(req, urlObj, body) {
+  return tokenFromReq(req, urlObj, body) === cfg.token
+}
+
+function json(res, code, data) {
+  const buf = Buffer.from(JSON.stringify(data))
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': buf.length, 'Cache-Control': 'no-store' })
+  res.end(buf)
+}
+
+function readBody(req) {
+  return new Promise(resolve => {
+    let raw = ''
+    req.on('data', c => {
+      raw += c
+      if (raw.length > 64 * 1024) req.destroy() // 超限断开
+    })
+    req.on('end', () => {
+      try { resolve(JSON.parse(raw || '{}')) } catch (e) { resolve({}) }
+    })
+    req.on('error', () => resolve({}))
+  })
+}
+
+async function handleApi(req, res, urlObj) {
+  const p = urlObj.pathname
+  // 健康探测（无 token，无敏感信息）
+  if (p === '/api/health') return json(res, 200, { ok: true, name: 'OmniDeck Remote' })
+
+  const body = (req.method === 'POST') ? await readBody(req) : {}
+  if (!authorized(req, urlObj, body)) return json(res, 401, { ok: false, error: 'unauthorized' })
+
+  if (p === '/api/state' && req.method === 'GET') {
+    return json(res, 200, stateView())
+  }
+
+  if (p === '/api/session' && req.method === 'GET') {
+    const id = String(urlObj.searchParams.get('id') || '')
+    if (!id || !remoteSessions.has(id)) return json(res, 404, { ok: false, error: 'session not found' })
+    const items = sessionView(id)
+    if (!items) return json(res, 404, { ok: false, error: 'session not found' })
+    return json(res, 200, { ok: true, items })
+  }
+
+  if (p === '/api/workspaces' && req.method === 'GET') {
+    // 工作空间清单（手机端任务发起前选择）
+    return json(res, 200, { ok: true, workspaces: workspaces.list().map(w => ({ id: w.id, name: w.name })) })
+  }
+
+  // 组内任务分页：workspaceId 缺省/__other = 「其他」组（空间已删）；
+  // 按 updatedAt 倒序（listSessions 天然倒序），offset/limit 分页
+  if (p === '/api/tasks' && req.method === 'GET') {
+    const qWs = String(urlObj.searchParams.get('workspaceId') || '')
+    const wantOther = !qWs || qWs === '__other'
+    const offset = Math.max(0, Math.floor(Number(urlObj.searchParams.get('offset')) || 0))
+    const limit = Math.min(50, Math.max(1, Math.floor(Number(urlObj.searchParams.get('limit')) || PAGE_SIZE)))
+    const runningId = (currentRemote && running.has(currentRemote)) ? currentRemote : ''
+    const { groups, other } = groupRemoteSessions()
+    const bucket = wantOther ? other : (groups.find(x => x.id === qWs) || null)
+    if (!bucket) return json(res, 404, { ok: false, error: 'workspace not found' })
+    const total = bucket.tasks.length
+    const tasks = bucket.tasks.slice(offset, offset + limit).map(m => taskItem(m, runningId))
+    return json(res, 200, { ok: true, tasks, total, hasMore: offset + tasks.length < total })
+  }
+
+  if (p === '/api/task' && req.method === 'POST') {
+    const text = String(body.text || '')
+    if (!text.trim()) return json(res, 400, { ok: false, error: '任务内容为空' })
+    const r = await runRemoteTask(text, body.workspaceId)
+    // 事件流（user_message 等）已由 emit 分流先行推送；此处仅回执行结果
+    return json(res, r.ok ? 200 : 409, r)
+  }
+
+  if (p === '/api/interrupt' && req.method === 'POST') {
+    if (!currentRemote || !running.has(currentRemote)) return json(res, 200, { ok: true, idle: true })
+    const entry = running.get(currentRemote)
+    try { entry.abort && entry.abort() } catch (e) { /* 忽略 */ }
+    return json(res, 200, { ok: true })
+  }
+
+  return json(res, 404, { ok: false, error: 'not found' })
+}
+
+function startServer() {
+  if (server) return
+  server = http.createServer((req, res) => {
+    const urlObj = new URL(req.url, 'http://localhost')
+    // 移动端页面（Vue 单文件内联产物，同源部署零额外请求）
+    if (req.method === 'GET' && (urlObj.pathname === '/' || urlObj.pathname === '/index.html')) {
+      const buf = Buffer.from(loadPage())
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': buf.length, 'Cache-Control': 'no-store' })
+      return res.end(buf)
+    }
+    // SSE：手机页实时进度流（token 走 query：EventSource 无法带 header）
+    if (req.method === 'GET' && urlObj.pathname === '/api/events') {
+      if (!authorized(req, urlObj, null)) return json(res, 401, { ok: false, error: 'unauthorized' })
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      })
+      res.write(':connect\n\n')
+      sseClients.add(res)
+      // 立即补发当前状态（重连后页面据此恢复运行中标识）
+      try { sseWrite(res, { type: 'remote_state', current: stateView().current }) } catch (e) { /* 忽略 */ }
+      req.on('close', () => sseClients.delete(res))
+      return
+    }
+    if (urlObj.pathname.startsWith('/api/')) {
+      handleApi(req, res, urlObj).catch(err => {
+        try { json(res, 500, { ok: false, error: (err && err.message) || 'server error' }) } catch (e) { /* 已响应忽略 */ }
+      })
+      return
+    }
+    json(res, 404, { ok: false, error: 'not found' })
+  })
+  server.on('error', err => {
+    console.warn('[omnibuddy:remote] HTTP 服务异常：', err && err.message)
+    server = null
+  })
+  server.listen(cfg.port, cfg.host, () => {
+    console.log('[omnibuddy:remote] 远程任务服务已启动：' + cfg.host + ':' + cfg.port)
+  })
+}
+
+function stopServer() {
+  if (!server) return
+  try { server.close() } catch (e) { /* 忽略 */ }
+  server = null
+  for (const res of Array.from(sseClients)) {
+    try { res.end() } catch (e) { /* 忽略 */ }
+  }
+  sseClients.clear()
+}
+
+// ===== 设置页 IPC =====
+function registerIpc() {
+  ipcMain.handle('omnibuddy:remote:config', () => {
+    return {
+      ok: true,
+      config: {
+        enabled: cfg.enabled,
+        port: cfg.port,
+        host: cfg.host,
+        token: cfg.token
+      },
+      urls: accessUrls(),
+      running: !!currentRemote,
+      listening: !!server
+    }
+  })
+
+  // 保存配置（enabled / port / host 变化即时生效：需要时重启监听；
+  // token 不经此通道，只能重置；工作空间由手机端发起任务时选择）
+  ipcMain.handle('omnibuddy:remote:save', (_e, patch) => {
+    const p = patch || {}
+    let restart = false
+    if (p.port !== undefined) {
+      const port = Math.floor(Number(p.port))
+      if (port > 0 && port < 65536 && port !== cfg.port) { cfg.port = port; restart = true }
+    }
+    if (p.host === '0.0.0.0' || p.host === '127.0.0.1') {
+      if (cfg.host !== p.host) { cfg.host = p.host; restart = true }
+    }
+    if (p.enabled !== undefined) {
+      const enabled = p.enabled === true
+      if (cfg.enabled !== enabled) {
+        cfg.enabled = enabled
+        restart = true
+      }
+    }
+    persistConfig()
+    if (restart) {
+      stopServer()
+      if (cfg.enabled) startServer()
+    }
+    return { ok: true, urls: accessUrls(), listening: !!server }
+  })
+
+  // 重置配对 token（旧手机立即失效）
+  ipcMain.handle('omnibuddy:remote:regen-token', () => {
+    cfg.token = crypto.randomBytes(16).toString('hex')
+    persistConfig()
+    return { ok: true, token: cfg.token, urls: accessUrls() }
+  })
+}
+
+// ===== 生命周期 =====
+function init(baseDir, deps) {
+  cfgFile = path.join(baseDir, 'remote.json')
+  cfg = readConfig()
+  getWindow = deps.getWindow
+  handlePiEvent = deps.handlePiEvent
+  // 恢复远程会话集合（SSE 过滤 + 历史回放）
+  try {
+    for (const m of sessions.listSessions()) {
+      if (m.remote && m.id) remoteSessions.add(m.id)
+    }
+  } catch (e) { /* 忽略 */ }
+  addEmitListener(onEmit)
+  // SSE 心跳：防隧道空闲断连（15s 注释行）
+  sseHeartbeat = setInterval(() => {
+    for (const res of Array.from(sseClients)) {
+      try { res.write(':ping\n\n') } catch (e) { sseClients.delete(res) }
+    }
+  }, 15 * 1000)
+  sseHeartbeat.unref && sseHeartbeat.unref()
+  persistConfig() // 首次落盘（生成 token）
+  if (cfg.enabled) startServer()
+}
+
+module.exports = {
+  init,
+  registerIpc,
+  runRemoteTask
+}

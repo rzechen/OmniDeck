@@ -125,6 +125,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       update: patch => ipcRenderer.invoke('omnibuddy:notify:update', patch),
       test: channel => ipcRenderer.invoke('omnibuddy:notify:test', channel)
     },
+    // 手机远程任务（内网穿透遥控）：配置 / 保存 / 重置配对 token
+    remote: {
+      config: () => ipcRenderer.invoke('omnibuddy:remote:config'),
+      save: patch => ipcRenderer.invoke('omnibuddy:remote:save', patch),
+      regenToken: () => ipcRenderer.invoke('omnibuddy:remote:regen-token')
+    },
     // MCP 服务管理（pi 内置 MCP，配置落 <agentDir>/mcp.json）
     mcp: {
       list: () => ipcRenderer.invoke('omnibuddy:mcp:list'),

@@ -121,9 +121,24 @@ function runAnchors(chatId) {
   return Array.isArray(a) && a.length ? a.slice() : null
 }
 
+// ===== 同进程事件分流订阅（远程任务 SSE 等非窗口消费方） =====
+// emit 广播窗口的同时回调订阅者；订阅者异常不影响主链路
+const emitListeners = new Set()
+
+function addEmitListener(fn) {
+  if (typeof fn === 'function') emitListeners.add(fn)
+}
+
+function removeEmitListener(fn) {
+  emitListeners.delete(fn)
+}
+
 function emit(getWindow, chatId, payload) {
   // 广播至所有窗口（主窗口 + 快捷面板等）：各窗口按 sessionId 自行过滤
   const data = Object.assign({ sessionId: chatId }, payload)
+  for (const fn of emitListeners) {
+    try { fn(data) } catch (e) { /* 订阅者异常忽略 */ }
+  }
   for (const win of BrowserWindow.getAllWindows()) {
     try {
       if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -165,5 +180,8 @@ module.exports = {
   // 当前轮次分支线路（落盘记录时写入 anchors）
   runAnchors,
   // 事件广播：omnibuddy:event 推送至所有窗口（各窗口按 sessionId 过滤）
-  emit
+  emit,
+  // 同进程事件分流订阅（远程任务 SSE）：emit 广播窗口的同时回调订阅者
+  addEmitListener,
+  removeEmitListener
 }
