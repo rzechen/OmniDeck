@@ -177,8 +177,9 @@ async function loadSkills() {
     const res = api ? await api.listSkills() : []
     const all = Array.isArray(res) ? res : []
     // 多 skill 包折叠：包成员（packageOf 非空）不单独成卡，
-    // 由主卡片（packageMembers）下方子行展示
-    skillList.value = all.filter(s => !s.packageOf)
+    // 由主卡片（packageMembers）下方子行展示；
+    // 系统内置技能（builtin）不在本页展示——仅对话 @ 引用呈现（带「系统」标识）
+    skillList.value = all.filter(s => !s.packageOf && !s.builtin)
     allSkills.value = all
   } catch (e) {
     skillList.value = []
