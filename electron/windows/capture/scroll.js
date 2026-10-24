@@ -4,6 +4,7 @@
 // 对齐）→ 完成后入库 + 复制。
 const path = require('path')
 const { BrowserWindow, nativeImage, clipboard } = require('electron')
+const appProtocol = require('../../app-protocol')
 const { physRectOf } = require('./native')
 const { status, grabDisplay } = require('./screen')
 const { waitPick, isSelecting, closeOverlays } = require('./overlay')
@@ -45,9 +46,7 @@ function openScrollCtrl(display, phys) {
   })
   win.setAlwaysOnTop(true, 'screen-saver')
   const url = '#/capture-scroll-ctrl'
-  const load = process.env.ELECTRON_RENDERER_URL
-    ? win.loadURL(process.env.ELECTRON_RENDERER_URL + url)
-    : win.loadFile(path.join(__dirname, '../../../dist/index.html'), { hash: url })
+  const load = win.loadURL(appProtocol.appUrl(url))
   load.then(() => { if (!win.isDestroyed()) win.show() }).catch(() => {})
   return win
 }

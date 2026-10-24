@@ -93,7 +93,7 @@ function removeLocal(id) {
       break
     }
   }
-  if (store.runningId === id) store.runningId = ''
+  store.runningIds = store.runningIds.filter(x => x !== id)
 }
 
 // 清空分组：二次确认（文案对齐 PC 端清除弹窗）→ 服务端批量删除已结束任务
@@ -148,7 +148,7 @@ function refresh() {
   api('GET', '/api/state').then(r => {
     if (r && r.ok) {
       store.overview = { groups: r.groups || [], current: r.current || null }
-      store.runningId = (r.current && r.current.sessionId) || ''
+      store.runningIds = r.running || []
     }
   }).catch(() => {})
 }

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>OmniDeck 数据迁移（读侧）</title></head>
+<body>
+<script>
+// OmniDeck IndexedDB 迁移·读侧（public/idb-migrate.html）
+//
+// 本页由主进程隐藏窗口加载在【旧 origin】上（http://localhost:5173 或 file://），
+// 读出本源 omnideck 库全部 store 记录 + localStorage，挂到 window.__odMigrateResult
+// 供主进程 executeJavaScript 轮询取走（跨源 postMessage 无接收方，主进程是最可靠桥）。
+//
+// JSON 安全过桥约定（写侧 idb-write.html 按约定还原）：
+//   Blob            → { __odBlob: true, type, data: base64 }
+//   ArrayBuffer     → { __odBuf:  true, data: base64 }
+//   TypedArray 视图 → 同上（按 view.buffer 转换）
+//   Date            → { __odDate: true, t: epochMs }
+(function () {
+  var DB = 'omnideck'
+  var STORES = ['settings', 'captures', 'clips', 'toolHistory', 'favClips']
+
+  function bufToB64(buf) {
+    var bytes = new Uint8Array(buf), s = ''
+    for (var i = 0; i < bytes.length; i += 0x8000) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
+    }
+    return btoa(s)
+  }
+
+  // 值内深度转换（含 { meta, blob } 包装内的 Blob / Date / TypedArray）
+  async function deepConvert(v) {
+    if (v instanceof Blob) {
+      return { __odBlob: true, type: v.type || 'application/octet-stream', data: bufToB64(await v.arrayBuffer()) }
+    }
+    if (Array.isArray(v)) {
+      var arr = []
+      for (var i = 0; i < v.length; i++) arr.push(await deepConvert(v[i]))
+      return arr
+    }
+    if (v instanceof Date) {
+      return { __odDate: true, t: v.getTime() }
+    }
+    if (v instanceof ArrayBuffer) {
+      return { __odBuf: true, data: bufToB64(v) }
+    }
+    if (ArrayBuffer.isView(v)) {
+      return { __odBuf: true, data: bufToB64(v.buffer) }
+    }
+    if (v && typeof v === 'object') {
+      var out = {}
+      var keys = Object.keys(v)
+      for (var j = 0; j < keys.length; j++) out[keys[j]] = await deepConvert(v[keys[j]])
+      return out
+    }
+    return v
+  }
+
+  async function readAll() {
+    var out = { stores: {}, ls: {} }
+    try {
+      // localStorage：odRemoteToken 等持久配置（fund.vue 等页面自管的 key 已迁 IndexedDB，
+      // 一并带走无害——写侧 setItem 覆盖，缺失即跳过）
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i)
+        out.ls[k] = localStorage.getItem(k)
+      }
+    } catch (e) { /* file:// 下异常时忽略，仅迁库 */ }
+    try {
+      var db = await new Promise(function (resolve, reject) {
+        var req = indexedDB.open(DB)
+        req.onsuccess = function (e) { resolve(e.target.result) }
+        req.onerror = function () { reject(req.error) }
+      })
+      var names = Array.from(db.objectStoreNames).filter(function (n) { return STORES.indexOf(n) >= 0 })
+      for (var ni = 0; ni < names.length; ni++) {
+        var name = names[ni]
+        var recs = await new Promise(function (resolve) {
+          var list = []
+          var tx = db.transaction(name, 'readonly')
+          var cur = tx.objectStore(name).openCursor()
+          cur.onsuccess = function (ev) {
+            var c = ev.target.result
+            if (c) { list.push({ k: c.key, v: c.value }); c.continue() } else resolve(list)
+          }
+          cur.onerror = function () { resolve(list) }
+        })
+        // Blob → base64（逐条转换，截图原图可能数 MB）
+        var converted = []
+        for (var ri = 0; ri < recs.length; ri++) {
+          converted.push({ k: recs[ri].k, v: await deepConvert(recs[ri].v) })
+        }
+        out.stores[name] = converted
+      }
+      db.close()
+    } catch (e) { /* 旧库不存在/损坏：返回空，主进程按 0 条处理 */ }
+    return out
+  }
+
+  readAll().then(function (data) {
+    window.__odMigrateResult = data
+  })
+})()
+</script>
+</body>
+</html>

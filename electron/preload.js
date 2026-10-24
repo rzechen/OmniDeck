@@ -279,6 +279,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     hide: () => ipcRenderer.invoke('quick:hide'),
     getShortcut: () => ipcRenderer.invoke('quick:get-shortcut'),
     setShortcut: a => ipcRenderer.invoke('quick:set-shortcut', a),
+    // 关闭按钮行为（'tray' 驻留后台 / 'quit' 直接退出；设置页通用项消费）
+    getCloseAction: () => ipcRenderer.invoke('quick:get-close-action'),
+    setCloseAction: a => ipcRenderer.invoke('quick:set-close-action', a),
     // 托盘快捷菜单（Deck / Buddy 分组自定义项 + 项级系统快捷键）
     getTrayMenu: () => ipcRenderer.invoke('quick:get-tray-menu'),
     setTrayMenu: items => ipcRenderer.invoke('quick:set-tray-menu', items),

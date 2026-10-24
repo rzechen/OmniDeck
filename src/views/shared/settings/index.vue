@@ -46,6 +46,25 @@
               </div>
             </div>
 
+            <!-- 关闭按钮行为：点关闭按钮时驻留后台或直接退出（主进程 quick-settings.json） -->
+            <div v-if="hasQuickApi" class="settings-row">
+              <div class="row-label">
+                <span class="label-text">关闭按钮行为</span>
+                <span class="label-desc">点击窗口关闭按钮时的行为：驻留后台保留进程与全局快捷键（可从托盘或 Dock 重新打开），或直接退出应用</span>
+              </div>
+              <div class="segmented">
+                <div
+                  v-for="opt in closeActionOptions"
+                  :key="opt.value"
+                  class="segmented-item"
+                  :class="{ active: closeAction === opt.value }"
+                  @click="selectCloseAction(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
+            </div>
+
             <!-- 外观模式：分段选择器 -->
             <div class="settings-row">
               <div class="row-label">
@@ -1171,6 +1190,13 @@ const entryViewOptions = [
   { label: 'Deck 视图', value: 'deck' },
   { label: 'Buddy 视图', value: 'buddy' }
 ]
+// ===== 关闭按钮行为（主进程 quick-settings.json，即时生效） =====
+const hasQuickApi = !!(window.electronAPI && window.electronAPI.quick && window.electronAPI.quick.getCloseAction)
+const closeActionOptions = [
+  { label: '驻留后台', value: 'tray' },
+  { label: '直接退出', value: 'quit' }
+]
+const closeAction = ref('tray')
 // 工具卡片每行个数枚举（'auto' 自适应）
 const gridOptions = [
   { label: '自动', value: 'auto' },
@@ -2268,6 +2294,25 @@ function selectSidebarDefault(val) {
   store.commit('SET_SIDEBAR_DEFAULT', val)
   setItem('sidebarDefault', val)
 }
+// ===== 关闭按钮行为 =====
+// 加载主进程配置（非 Electron 环境整行隐藏，不调用）
+async function loadCloseAction() {
+  const quick = window.electronAPI && window.electronAPI.quick
+  if (!quick || !quick.getCloseAction) return
+  const res = await quick.getCloseAction()
+  if (res && res.closeAction) closeAction.value = res.closeAction
+}
+// 切换：写入主进程 quick-settings.json，即时生效
+async function selectCloseAction(val) {
+  if (val === closeAction.value) return
+  const quick = window.electronAPI && window.electronAPI.quick
+  if (!quick || !quick.setCloseAction) return
+  const res = await quick.setCloseAction(val)
+  if (res && res.ok) {
+    closeAction.value = res.closeAction
+    message.success(val === 'quit' ? '已切换为直接退出' : '已切换为驻留后台')
+  }
+}
 // 切换入口视图：二次确认后持久化并重启应用（启动时路由 redirect 消费）
 async function selectEntryView(val) {
   if (val === entryView.value) return
@@ -2819,6 +2864,7 @@ onMounted(() => {
   loadLockState()
   loadShortcuts()
   loadTrayMenu()
+  loadCloseAction()
   loadHistoryState()
   loadClipKeep()
   loadBrowserSettings()

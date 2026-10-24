@@ -4,10 +4,11 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import {
-  ElDrawer, ElSkeleton, ElSkeletonItem, ElEmpty, ElInput, ElButton, ElSelect, ElOption
+  ElDrawer, ElDialog, ElSkeleton, ElSkeletonItem, ElEmpty, ElInput, ElButton, ElSelect, ElOption
 } from 'element-plus'
 import 'element-plus/es/components/base/style/css'
 import 'element-plus/es/components/drawer/style/css'
+import 'element-plus/es/components/dialog/style/css'
 import 'element-plus/es/components/skeleton/style/css'
 import 'element-plus/es/components/empty/style/css'
 import 'element-plus/es/components/input/style/css'
@@ -36,5 +37,5 @@ setupGuard(router)
 
 const app = createApp(App)
 app.use(router)
-;[ElDrawer, ElSkeleton, ElSkeletonItem, ElEmpty, ElInput, ElButton, ElSelect, ElOption].forEach(c => app.use(c))
+;[ElDrawer, ElDialog, ElSkeleton, ElSkeletonItem, ElEmpty, ElInput, ElButton, ElSelect, ElOption].forEach(c => app.use(c))
 app.mount('#app')

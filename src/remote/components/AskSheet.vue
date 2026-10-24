@@ -1,13 +1,14 @@
 <template>
-  <!-- ask_user 问答抽屉（交互对齐 PC AskUserCard）：问题 + 选项 chips +
+  <!-- ask_user 问答弹窗（交互对齐 PC AskUserCard）：问题 + 选项 chips +
        「其它」自由输入。单选点选即提交；多选勾选后统一提交（「；」连接）。
-       抽屉 fixed 相对布局视口，键盘弹出会盖住下半部 → kbGap 底部补偿 -->
-  <el-drawer
+       弹窗 fixed 相对布局视口，键盘弹出会盖住下半部 → kbGap 底部补偿 -->
+  <el-dialog
     v-model="sheet"
-    direction="btt"
-    size="auto"
-    :with-header="false"
-    class="ask-drawer"
+    :show-close="false"
+    align-center
+    append-to-body
+    class="ask-dialog"
+    width="calc(100vw - 40px)"
   >
     <div class="ask-pad" :style="kbGap ? { paddingBottom: kbGap + 'px' } : null">
       <div class="ask-head">
@@ -52,11 +53,11 @@
         </div>
       </div>
     </div>
-  </el-drawer>
+  </el-dialog>
 </template>
 
 <script setup>
-// Agent 中途提问的底部抽屉：回答值经 answer 事件上抛，
+// Agent 中途提问的居中弹窗：回答值经 answer 事件上抛，
 // 提交与队列管理由详情页承接（与 PermissionSheet 同构）
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useKeyboard } from '../composables/useKeyboard'
@@ -73,7 +74,7 @@ const emit = defineEmits(['answer'])
 const sheet = ref(false)
 defineExpose({ sheet })
 
-// 键盘高度补偿：抽屉 fixed 相对布局视口，iOS 键盘悬浮其上会遮住下半部
+// 键盘高度补偿：弹窗 fixed 相对布局视口，iOS 键盘悬浮其上会遮住下半部
 const { kbGap } = useKeyboard()
 
 const multiSelect = computed(() => !!(props.ask && props.ask.multiSelect))
@@ -140,7 +141,7 @@ function submitMulti() {
   emit('answer', parts.join('；'))
 }
 
-// 抽屉开合：冻结/解冻主页面滚动容器（防滚动穿透）
+// 弹窗开合：冻结/解冻主页面滚动容器（防滚动穿透）
 watch(sheet, v => {
   const el = document.getElementById('app')
   if (el) el.classList.toggle('sheet-open', v)
@@ -152,12 +153,15 @@ onUnmounted(() => {
 </script>
 
 <style>
-.ask-drawer { border-radius: 18px 18px 0 0 !important; overflow: hidden; max-width: 100vw; }
-.ask-drawer .el-drawer__body {
-  padding: 0 16px calc(14px + env(safe-area-inset-bottom)) !important;
-  display: flex; flex-direction: column; overflow: visible;
+/* 居中弹窗壳：无默认头、圆角、限宽；内容超出可滚 */
+.ask-dialog { border-radius: 18px !important; overflow: hidden; max-width: 420px; }
+.ask-dialog .el-dialog__header { display: none; }
+.ask-dialog .el-dialog__body {
+  padding: 0 16px 16px !important;
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 120px); overflow-y: auto;
 }
-/* 键盘补偿壳：抽屉本体贴布局视口底部，键盘高度用内边距顶起内容 */
+/* 键盘补偿壳：弹窗居中于整屏，键盘高度用内边距顶起内容 */
 .ask-pad { display: flex; flex-direction: column; min-height: 0; }
 
 .ask-head {

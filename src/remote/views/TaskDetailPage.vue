@@ -109,8 +109,8 @@ const timeline = useTimeline()
 const { kbOpen } = useKeyboard()
 watch(kbOpen, () => scrollBottom())
 
-// 运行态：全局运行中的会话即本任务（remote_state / 终态事件驱动）
-const running = computed(() => !!store.runningId && store.runningId === route.params.id)
+// 运行态：运行集合含本会话即运行中（多任务并发互不干扰；remote_state / 终态事件驱动）
+const running = computed(() => store.runningIds.includes(String(route.params.id)))
 const sending = ref(false)
 
 // 呼吸指示器：运行中且非流式回答阶段（thinking / tool）显示，证明任务仍在执行
@@ -137,7 +137,7 @@ function onSend(text) {
       ElMessage({ message: (r && r.error) || '发送失败', type: 'error', duration: 2500 })
     } else {
       // 乐观置运行态（remote_state 广播随到覆盖），输入框立即禁用
-      store.runningId = String(route.params.id)
+      if (!store.runningIds.includes(String(route.params.id))) store.runningIds.push(String(route.params.id))
       scrollBottom()
     }
   }).catch(() => {
@@ -267,7 +267,7 @@ onMounted(() => {
     timeline.loadItems(r.items || [])
     if (r.workspaceName) workspaceName.value = String(r.workspaceName)
     // 运行态恢复（页面刷新后 store 丢失）：执行中 → 输入框禁用 + 呼吸指示器就位
-    if (r.running) store.runningId = String(route.params.id)
+    if (r.running && !store.runningIds.includes(String(route.params.id))) store.runningIds.push(String(route.params.id))
     if (!title.value) {
       // 无标题参数时从任务行数据兜底（回退为会话 id 短显示）
       title.value = '任务 ' + String(route.params.id).slice(0, 8)

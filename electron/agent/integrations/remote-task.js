@@ -238,9 +238,9 @@ function onEmit(data) {
 // workspaceId 可选：手机端选定的工作空间；缺省回落列表第一个
 // providerId 可选：手机端指定的模型；缺省按 最近对话快照 → 默认模型 回落
 // 返回 { ok, sessionId } / { ok: false, error }
+// 多任务并发：与 PC 端一致（running Map 支持多会话），不设互斥；
+// 挂起审批 / 提问由任务列表徽标 + 详情页按会话隔离承载
 async function runRemoteTask(text, workspaceId, providerId) {
-  if (currentRemote) return { ok: false, error: '已有远程任务在运行中，请等待完成或先停止' }
-
   // 模型：指定 → 最近对话快照 → 默认模型（resolveProvider 公共回落）
   const provider = resolveProvider(providerId)
   if (provider.error) return provider
@@ -342,9 +342,9 @@ async function executeTurn(chatId, provider, wsDir, promptText) {
   currentRemote = chatId
   const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [] }
   running.set(chatId, entry)
-  // 运行态广播：已连接的移动端即时更新 runningId（输入框禁用 / 列表运行徽标）；
-  // 终态由 done/error/interrupted 事件清除
-  try { broadcastSse({ type: 'remote_state', current: { sessionId: chatId } }) } catch (e) { /* 忽略 */ }
+  // 运行态广播：已连接的移动端更新运行集合（输入框禁用 / 列表运行徽标）；
+  // 终态由 done/error/interrupted 事件逐会话清除
+  try { broadcastSse({ type: 'remote_state', current: { sessionId: chatId }, running: Array.from(running.keys()) }) } catch (e) { /* 忽略 */ }
   let interruptedBy = '' // '' 无 / 'manual' 用户停止
   entry.abort = () => { interruptedBy = 'manual'; piRuntime.interruptSession(chatId) }
   let result = { ok: true, sessionId: chatId }
@@ -437,13 +437,22 @@ function sessionView(id) {
 const PAGE_SIZE = 10 // 每页条数（列表首页 & 加载更多共用）
 
 // 任务条目映射（stateView 首页 / /api/tasks 分页共用）；
-// running 直查运行注册表（PC 会话与远程任务同样判定）
+// running 直查运行注册表（PC 会话与远程任务同样判定）；
+// pending = 挂起人工交互（待审批 / 待提问），列表「待确认」徽标用
+function hasPending(id) {
+  for (const e of pendingPermissions.values()) { if (e.chatId === id) return true }
+  for (const e of pendingAsks.values()) { if (e.chatId === id) return true }
+  for (const u of (piRuntime.getPendingUiAsks() || [])) { if (u.sessionId === id) return true }
+  return false
+}
+
 function taskItem(m) {
   return {
     id: m.id,
     title: m.title || '未命名任务',
     updatedAt: m.updatedAt || 0,
-    running: running.has(m.id)
+    running: running.has(m.id),
+    pending: hasPending(m.id)
   }
 }
 
@@ -483,8 +492,10 @@ function stateView() {
   }
   return {
     ok: true,
-    // 当前正在运行的远程任务（空 = 空闲）
+    // 最近发起的远程任务（兼容单任务视角；空 = 空闲）
     current: (currentRemote && running.has(currentRemote)) ? { sessionId: currentRemote } : null,
+    // 全部运行中会话（PC + 手机发起）：移动端多任务运行态集合
+    running: Array.from(running.keys()),
     // 分组仅从会话派生（与 PC 一致：空工作空间不显示组）
     groups: groups.map(paginate)
   }

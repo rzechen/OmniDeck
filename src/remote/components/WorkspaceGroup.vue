@@ -12,10 +12,13 @@
     <div v-show="expanded" class="wgroup-body">
       <div v-if="!group.tasks.length && !group.hasMore" class="group-empty">暂无任务</div>
       <div v-for="t in group.tasks" :key="t.id" class="task" @click="onTap(t)">
-        <span class="t-run" :class="{ on: t.running }"></span>
+        <span class="t-run" :class="{ on: t.running, pend: !t.running && t.pending }"></span>
         <div class="t-info">
-          <div class="t-title">{{ t.title }}</div>
-          <div class="t-time">{{ t.running ? '执行中…' : fmtTime(t.updatedAt) }}</div>
+          <div class="t-title">
+            {{ t.title }}
+            <span v-if="t.pending" class="t-pending">待确认</span>
+          </div>
+          <div class="t-time">{{ t.running ? '执行中…' : t.pending ? '等待你的确认…' : fmtTime(t.updatedAt) }}</div>
         </div>
         <button class="t-del" title="删除" @click.stop="emit('del', t)" v-html="deleteIcon"></button>
         <span class="ico chev" v-html="rightIcon"></span>
@@ -83,8 +86,16 @@ function onTap(t) {
 .task:last-of-type { border-bottom: none; }
 .t-run { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--card2); border: 1px solid var(--line); }
 .t-run.on { background: var(--amber); border-color: var(--amber); animation: pulse 1.2s infinite; }
+/* 挂起人工交互（待审批/待提问）：品牌蓝静态点（与运行中的琥珀呼吸动画区分） */
+.t-run.pend { background: var(--brand); border-color: var(--brand); }
 .t-info { flex: 1; min-width: 0; }
 .t-title { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 「待确认」徽标：跟随标题，点击任务行进详情处理（审批抽屉 / 问答抽屉） */
+.t-pending {
+  margin-left: 6px; font-size: 11px; font-weight: 550; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  border-radius: 999px; padding: 1px 7px; vertical-align: 1px;
+}
 .t-time { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .t-del {
   flex: none; border: none; background: none; padding: 6px; cursor: pointer;

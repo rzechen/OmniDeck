@@ -1,11 +1,12 @@
 <template>
-  <!-- 权限确认抽屉（对齐 PC 权限浮动条）：问题 + 授权内容 + 四档编号选项 -->
-  <el-drawer
+  <!-- 权限确认弹窗（对齐 PC 权限浮动条）：问题 + 授权内容 + 四档编号选项 -->
+  <el-dialog
     v-model="sheet"
-    direction="btt"
-    size="auto"
-    :with-header="false"
-    class="perm-drawer"
+    :show-close="false"
+    align-center
+    append-to-body
+    class="perm-dialog"
+    width="calc(100vw - 40px)"
   >
     <div class="perm-head">
       <span class="ico perm-ico" v-html="lockIcon"></span>
@@ -41,11 +42,11 @@
         <span class="pb-desc">阻止本次操作</span>
       </button>
     </div>
-  </el-drawer>
+  </el-dialog>
 </template>
 
 <script setup>
-// 人工审批底部抽屉：决策经 decide 事件上抛，提交与队列管理由详情页承接
+// 人工审批居中弹窗：决策经 decide 事件上抛，提交与队列管理由详情页承接
 import { ref, computed, watch, onUnmounted } from 'vue'
 import lockIcon from '@/assets/icons/svg/buddy/lock.svg?raw'
 import closeIcon from '@/assets/icons/svg/buddy/close.svg?raw'
@@ -72,7 +73,7 @@ const permQuestion = computed(() => {
   return '是否允许执行此操作？'
 })
 
-// 抽屉开合：冻结/解冻主页面滚动容器（配合 overscroll-behavior 防滚动穿透）
+// 弹窗开合：冻结/解冻主页面滚动容器（配合 overscroll-behavior 防滚动穿透）
 watch(sheet, v => {
   const el = document.getElementById('app')
   if (el) el.classList.toggle('sheet-open', v)
@@ -89,10 +90,12 @@ function decide(action) {
 </script>
 
 <style>
-.perm-drawer { border-radius: 18px 18px 0 0 !important; overflow: hidden; max-width: 100vw; }
-.perm-drawer .el-drawer__body {
-  padding: 0 16px calc(14px + env(safe-area-inset-bottom)) !important;
-  display: flex; flex-direction: column; overflow: visible;
+/* 居中弹窗壳：无默认头、圆角、限宽（内容自适应高度） */
+.perm-dialog { border-radius: 18px !important; overflow: hidden; max-width: 420px; }
+.perm-dialog .el-dialog__header { display: none; }
+.perm-dialog .el-dialog__body {
+  padding: 0 16px 16px !important;
+  display: flex; flex-direction: column;
 }
 .perm-head {
   flex: none; display: flex; align-items: center; gap: 9px;

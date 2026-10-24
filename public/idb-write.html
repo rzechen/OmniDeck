@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>OmniDeck 数据迁移（写侧）</title></head>
+<body>
+<script>
+// OmniDeck IndexedDB 迁移·写侧（public/idb-write.html）
+//
+// 本页由主进程隐藏窗口加载在【app://od 源】上，主进程 executeJavaScript 调用
+// window.__odWriteAll(data) 注入读侧（idb-migrate.html）取出的数据：
+//   - stores: { storeName: [{ k, v }] }，按读侧约定还原后写入本源 omnideck 库
+//   - ls: { key: value }，写入本源 localStorage（odRemoteToken 等）
+// 返回 Promise<number>：成功写入条数（0 = 失败或空，主进程据此决定是否重试）。
+//
+// Blob 过桥约定（读侧转换，此处还原）：
+//   { __odBlob: true, type, data: base64 } → Blob
+//   { __odBuf:  true, data: base64 }       → ArrayBuffer
+//   { __odDate: true, t: epochMs }         → Date
+(function () {
+  var DB = 'omnideck'
+  var DBV = 4
+  var STORES = ['settings', 'captures', 'clips', 'toolHistory', 'favClips']
+
+  function b64ToBytes(b64) {
+    var bin = atob(b64), len = bin.length, out = new Uint8Array(len)
+    for (var i = 0; i < len; i++) out[i] = bin.charCodeAt(i)
+    return out
+  }
+
+  function deepRestore(v) {
+    if (v && typeof v === 'object') {
+      if (v.__odBlob === true && typeof v.data === 'string') {
+        return new Blob([b64ToBytes(v.data)], { type: v.type || 'application/octet-stream' })
+      }
+      if (v.__odBuf === true && typeof v.data === 'string') {
+        return b64ToBytes(v.data).buffer
+      }
+      if (v.__odDate === true && typeof v.t === 'number') {
+        return new Date(v.t)
+      }
+      if (Array.isArray(v)) return v.map(deepRestore)
+      var out = {}
+      Object.keys(v).forEach(function (k) { out[k] = deepRestore(v[k]) })
+      return out
+    }
+    return v
+  }
+
+  window.__odWriteAll = function (data) {
+    return new Promise(function (resolve) {
+      try {
+        var copied = 0
+        var names = Object.keys((data && data.stores) || {})
+          .filter(function (n) { return STORES.indexOf(n) >= 0 })
+
+        // localStorage 与库写入无关，先落（失败不影响库结果计数）
+        function applyLs() {
+          try {
+            var ls = (data && data.ls) || {}
+            Object.keys(ls).forEach(function (k) { localStorage.setItem(k, ls[k]) })
+          } catch (e) { /* localStorage 不可用时忽略 */ }
+        }
+
+        var req = indexedDB.open(DB, DBV)
+        req.onupgradeneeded = function (e) {
+          var db = e.target.result
+          STORES.forEach(function (n) {
+            if (!db.objectStoreNames.contains(n)) db.createObjectStore(n)
+          })
+        }
+        req.onerror = function () { resolve(0) }
+        req.onsuccess = function (e) {
+          var db = e.target.result
+          function finish() {
+            try { db.close() } catch (e2) { /* 忽略 */ }
+            applyLs()
+            resolve(copied)
+          }
+          if (!names.length) { finish(); return }
+          var tx = db.transaction(names, 'readwrite')
+          names.forEach(function (n) {
+            var st = tx.objectStore(n)
+            data.stores[n].forEach(function (r) {
+              st.put(deepRestore(r.v), r.k)
+              copied++
+            })
+          })
+          tx.oncomplete = finish
+          tx.onerror = function () { try { db.close() } catch (e2) {} resolve(-1) }
+          tx.onabort = tx.onerror
+        }
+      } catch (e) { resolve(0) }
+    })
+  }
+})()
+</script>
+</body>
+</html>

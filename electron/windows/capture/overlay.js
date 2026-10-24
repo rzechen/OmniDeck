@@ -6,6 +6,7 @@
 // capture-overlay:done 回传。全程单窗口，零切换零闪烁。
 const path = require('path')
 const { ipcMain, BrowserWindow, screen, nativeImage, clipboard } = require('electron')
+const appProtocol = require('../../app-protocol')
 const { displayOfWindow, physRectOf, nativeWindows, toDisplayWindows } = require('./native')
 const { status, grabDisplay } = require('./screen')
 const { addRecord } = require('./records')
@@ -101,9 +102,7 @@ function openOverlays(mode) {
     overlayWins.push(win)
 
     const qs = 'd=' + d.id + (mode === 'scroll' ? '&m=scroll' : '')
-    const load = process.env.ELECTRON_RENDERER_URL
-      ? win.loadURL(process.env.ELECTRON_RENDERER_URL + '#/capture-overlay?' + qs)
-      : win.loadFile(path.join(__dirname, '../../../dist/index.html'), { hash: '/capture-overlay?' + qs })
+    const load = win.loadURL(appProtocol.appUrl('#/capture-overlay?' + qs))
 
     // 首窗 show 聚焦，其余跟随显示（避免逐个抢焦点）
     load.then(() => {

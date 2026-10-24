@@ -1,12 +1,14 @@
 // OmniDeck 主进程入口：应用生命周期管理、主窗口创建与各子模块装配
 // 承载应用锁定 / 窗口控制 / HTTP 代理 / 站点元信息抓取等主进程侧 IPC
-const { app, BrowserWindow, shell, net, ipcMain, systemPreferences, safeStorage, powerMonitor, session } = require('electron')
+const { app, BrowserWindow, shell, net, ipcMain, systemPreferences, safeStorage, powerMonitor, session, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const { registerOmnibuddyIpc } = require('./agent')
 const { startAgentBridge } = require('./agent-bridge')
 const quickPanel = require('./windows/quick-panel')
+// app:// 应用协议：dev 与打包版统一 origin（IndexedDB/localStorage 互通）
+const appProtocol = require('./app-protocol')
 const capture = require('./windows/capture')
 const browser = require('./windows/browser')
 const updater = require('./core/updater')
@@ -181,13 +183,10 @@ function createWindow() {
   // 首启引导期不最大化——设计尺寸居中展示引导页
   if (!setupMode) mainWindow.maximize()
 
-  // 开发模式加载 dev server，生产模式加载打包文件
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
-  }
+  // dev / 生产统一走 app:// 协议（同一 origin，IndexedDB 互通）
+  // dev：协议代理转发 vite dev server（HMR 正常）；生产：映射本地 dist/
+  mainWindow.loadURL(appProtocol.appUrl())
+  if (process.env.ELECTRON_RENDERER_URL) mainWindow.webContents.openDevTools({ mode: 'detach' })
 
   // 自检：窗口加载完成后输出 electronAPI 实际注入的键（诊断 preload 是否为最新）
   mainWindow.webContents.once('did-finish-load', () => {
@@ -221,13 +220,29 @@ function createWindow() {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
   })
 
-  // 托盘常驻：关闭按钮 = 隐藏到托盘（真正退出走托盘菜单 / Cmd+Q，
-  // before-quit 会置 isQuitting 放行 close）
+  // 托盘常驻：关闭按钮按设置分流（closeAction，quick-settings.json）——
+  // 'tray'（默认）隐藏到托盘驻留后台；'quit' 直接退出。
+  // 真正退出走托盘菜单 / Cmd+Q，before-quit 会置 isQuitting 放行 close
   mainWindow.on('close', (e) => {
-    if (!isQuitting) {
-      e.preventDefault()
-      mainWindow.hide()
+    if (isQuitting) return
+    if (quickPanel.getCloseAction() === 'quit') return // 放行：走正常退出链路（before-quit 握手等）
+    e.preventDefault()
+    mainWindow.hide()
+    // macOS：隐藏 Dock 图标（仅保留菜单栏托盘），下次 show 时恢复
+    if (process.platform === 'darwin') {
+      try { app.dock.hide() } catch (err) { /* 非 mac / 未就绪忽略 */ }
     }
+    // 首次驻留提示（哨兵文件标记，弹过一次不再打扰）
+    const noticeFlag = path.join(app.getPath('userData'), '.tray-notify-shown')
+    try {
+      if (!fs.existsSync(noticeFlag)) {
+        fs.writeFileSync(noticeFlag, String(Date.now()))
+        new Notification({
+          title: 'OmniDeck 仍在后台运行',
+          body: '应用已最小化到托盘，可随时从菜单栏图标或 Dock 重新打开；如需完全退出，请使用托盘菜单中的「退出应用」'
+        }).show()
+      }
+    } catch (err) { /* 通知失败忽略 */ }
   })
 
   mainWindow.on('closed', () => {
@@ -439,6 +454,13 @@ ipcMain.handle('site-meta:fetch', async (_event, rawUrl) => {
 
 // ===== 应用启动装配 =====
 app.whenReady().then(async () => {
+  // app:// 协议注册（registerSchemesAsPrivileged 已在模块加载时同步调用）
+  appProtocol.init({ devUrl: process.env.ELECTRON_RENDERER_URL || '' })
+
+  // 历史数据一次性迁移：file:// 旧安装版 + dev 5173 源 → app://od 统一库
+  // （主窗口未开时执行，避免并发开库；哨兵文件存在即跳过）
+  await appProtocol.migrateLegacy()
+
   // 启动依赖预检：qmd 等必需外部 CLI 缺失时弹窗引导安装，不满足不放行
   if (!await deps.ensureDeps()) return
 
@@ -501,6 +523,10 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     // 托盘常驻后主窗口多为隐藏态：dock 点击恢复而非重建
     if (mainWindow && !mainWindow.isDestroyed()) {
+      // Dock 图标可能在驻留时被隐藏（macOS），恢复显示
+      if (process.platform === 'darwin') {
+        try { app.dock.show() } catch (err) { /* 忽略 */ }
+      }
       mainWindow.show()
       mainWindow.focus()
     } else if (BrowserWindow.getAllWindows().length === 0) {
@@ -509,8 +535,11 @@ app.whenReady().then(async () => {
   })
 })
 
-// 托盘常驻：窗口全关后保留应用（真正退出走托盘菜单「退出」/ Cmd+Q）
-app.on('window-all-closed', () => { /* 不退出 */ })
+// 托盘常驻：窗口全关后按关闭行为分流——'tray'（默认）保留应用等待托盘/Dock 唤起；
+// 'quit'（关闭按钮即退出模式）主窗口关闭后无窗口残留，补发 quit 走完整退出链路
+app.on('window-all-closed', () => {
+  if (quickPanel.getCloseAction() === 'quit') app.quit()
+})
 
 app.on('before-quit', () => {
   isQuitting = true

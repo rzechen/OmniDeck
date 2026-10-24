@@ -6,8 +6,8 @@ import { setApiToken } from './api'
 export const store = reactive({
   token: localStorage.getItem('odRemoteToken') || '',
   connOn: false,
-  // 当前运行中的会话 id（remote_state 推送 / 列表刷新维护；空 = 空闲）
-  runningId: '',
+  // 运行中的会话 id 集合（多任务并发；remote_state 推送 / 终态事件 / 列表刷新维护）
+  runningIds: [],
   // 总览加载中（列表骨架屏依据）
   loading: true,
   overview: { groups: [], current: null }

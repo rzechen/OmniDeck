@@ -12,6 +12,8 @@ const path = require('path')
 const fs = require('fs')
 // 截图模块（同目录独立构建产物，运行时 require）：托盘「快捷截图」项复用其隐藏窗口截图管线
 const capture = require('./capture')
+// app:// 应用协议：面板与主窗口统一 origin
+const appProtocol = require('../app-protocol')
 
 let tray = null
 let panel = null
@@ -25,6 +27,9 @@ const trayItemAccels = new Map() // 菜单项自定义快捷键 → 已注册标
 const DEFAULT_SETTINGS = {
   panelShortcut: 'CommandOrControl+Shift+O',
   trayMenuVer: 2,
+  // 关闭按钮行为：'tray' 驻留后台（默认，点关闭隐藏到托盘，进程/快捷键保留）
+  // / 'quit' 直接退出（main.js close 拦截消费）
+  closeAction: 'tray',
   // 托盘菜单自定义项（按 Deck / Buddy 分组；group: 'deck' | 'buddy'）
   // accelerator：系统级快捷键默认值（⌘⌥ 系列，避开面板 ⌘⇧O 与截图 ⌘⇧S / ⌥⇧S / ⌥⇧3）
   trayMenu: [
@@ -109,9 +114,13 @@ function createTray() {
 
 // ---------- 托盘菜单 ----------
 // 主窗口聚焦并跳转指定路由（渲染侧 App.vue 监听 nav:goto 跳转）
+// mac 驻留时 Dock 图标被隐藏（main.js close 拦截），恢复窗口需同步恢复 Dock
 function gotoRoute(p) {
   const win = getWindow && getWindow()
   if (win && !win.isDestroyed()) {
+    if (process.platform === 'darwin') {
+      try { app.dock.show() } catch (e) { /* 忽略 */ }
+    }
     win.show()
     win.focus()
     win.webContents.send('nav:goto', p)
@@ -282,12 +291,8 @@ function createPanel() {
     panel = null
   })
 
-  // 与主窗口同构：dev 走 dev server，生产加载打包文件（hash 路由 /quick）
-  if (process.env.ELECTRON_RENDERER_URL) {
-    panel.loadURL(process.env.ELECTRON_RENDERER_URL + '#/quick')
-  } else {
-    panel.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/quick' })
-  }
+  // 与主窗口同构：统一走 app:// 协议（dev / 生产同 origin，IndexedDB 互通）
+  panel.loadURL(appProtocol.appUrl('#/quick'))
 }
 
 function showPanel() {
@@ -370,6 +375,13 @@ function registerIpc() {
   // 快捷键设置：读取 / 修改面板唤起快捷键
   ipcMain.handle('quick:get-shortcut', () => ({ accelerator: settings.panelShortcut }))
   ipcMain.handle('quick:set-shortcut', (_e, accelerator) => setPanelShortcut(accelerator))
+  // 关闭按钮行为：读取 / 修改（'tray' 驻留后台 / 'quit' 直接退出）
+  ipcMain.handle('quick:get-close-action', () => ({ closeAction: settings.closeAction }))
+  ipcMain.handle('quick:set-close-action', (_e, action) => {
+    settings.closeAction = action === 'quit' ? 'quit' : 'tray'
+    saveSettings()
+    return { ok: true, closeAction: settings.closeAction }
+  })
   // 托盘快捷菜单：读取 / 保存（保存即重建菜单并重注册快捷键）
   ipcMain.handle('quick:get-tray-menu', () => ({ items: settings.trayMenu }))
   ipcMain.handle('quick:set-tray-menu', (_e, items) => {
@@ -436,5 +448,7 @@ module.exports = {
   // 重建托盘菜单（配置或快捷键变更后刷新）
   rebuildTrayMenu,
   // 取快捷面板窗口引用（未创建时为 null）
-  getPanelWindow: () => panel
+  getPanelWindow: () => panel,
+  // 关闭按钮行为（'tray' 驻留 / 'quit' 直接退出；main.js close 拦截消费）
+  getCloseAction: () => settings.closeAction
 }

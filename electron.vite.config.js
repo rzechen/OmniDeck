@@ -103,6 +103,8 @@ const mainInput = hasCore
       'agent-shim': abs('electron/agent-shim.js'),
       // 登录向导窗口实体（主进程侧；agent-bridge HOST 服务 require('./login-wizard')）
       'login-wizard': abs('electron/login-wizard.js'),
+      // app:// 应用协议（main / quick-panel / capture 相对引用，产物镜像源码结构）
+      'app-protocol': abs('electron/app-protocol.js'),
       ...Object.fromEntries(agentNames.map(name => [`agent/${name}`, abs(`electron/agent/${name}.js`)])),
       'windows/quick-panel': abs('electron/windows/quick-panel.js'),
       // capture 门面（windows/capture/index.js，require('./windows/capture') 目录解析）

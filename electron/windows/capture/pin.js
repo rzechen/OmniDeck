@@ -3,6 +3,7 @@
 // 关闭；同屏可贴多张。帧缓存按 pin 窗 id 传递（capture-pin:frame 拉取）。
 const path = require('path')
 const { ipcMain, BrowserWindow } = require('electron')
+const appProtocol = require('../../app-protocol')
 
 const pinWins = []
 let pinWinSeq = 0
@@ -46,9 +47,7 @@ function pinImage(image, display, rect) {
   pinFrames.set(myId, image)
   pinWinSeq++
   const url = '#/capture-pin?id=' + myId
-  const load = process.env.ELECTRON_RENDERER_URL
-    ? win.loadURL(process.env.ELECTRON_RENDERER_URL + url)
-    : win.loadFile(path.join(__dirname, '../../../dist/index.html'), { hash: url })
+  const load = win.loadURL(appProtocol.appUrl(url))
   load.then(() => { if (!win.isDestroyed()) win.show() }).catch(() => onGone())
   // 窗口关闭即清理对应帧（避免内存滞留）
   win.on('closed', () => pinFrames.delete(myId))

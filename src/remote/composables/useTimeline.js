@@ -86,6 +86,17 @@ export function useTimeline() {
         if (String(ev.content || '').trim()) p.items.push({ type: 'note', text: ev.content })
         const idx = msgs.value.indexOf(a)
         if (idx >= 0) msgs.value.splice(idx, 1)
+      } else {
+        // 单轮多段文本输出（cycle 间无工具调用）时，与前一条定稿 answer
+        // 紧邻（无 user / warn / end 隔断）→ 拼为一段，token 用量取最新 cycle；
+        // 与回放 loadItems 的合并语义一致，避免回答碎成多条 + 用量行穿插
+        const i = msgs.value.indexOf(a)
+        const prev = i > 0 ? msgs.value[i - 1] : null
+        if (prev && prev.kind === 'answer' && !prev.streaming) {
+          prev.text = (prev.text ? prev.text + '\n\n' : '') + a.text
+          prev.usage = a.usage || prev.usage
+          msgs.value.splice(i, 1)
+        }
       }
     } else if (t === 'tool_start') {
       phase.value = 'tool'
