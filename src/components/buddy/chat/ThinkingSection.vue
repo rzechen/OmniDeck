@@ -1,11 +1,10 @@
 <template>
   <!-- 深度思考区（分段时间线）：每个思考段独立折叠（折叠头 = 序号 + 摘要），
-       段内正文与其后续的工具 / Skill / 问答记录随段折叠；过程说明（narration）
-       渲染于所属思考段上方（阅读顺序：说明 → 思考 → 动作，先预告后过程）；
+       段内正文与其后续的过程说明 / 工具 / Skill / 问答记录随段折叠；
        待回答 ask 恒可见 -->
   <div class="ob-think">
     <div class="ob-think-body">
-      <template v-for="(item, i) in displayItems">
+      <template v-for="(item, i) in items">
         <!-- 思考段：流式期间与完成后均默认收起，仅折叠头带动态标识
              （星形脉动 + 呼吸文案）；用户可随时展开收起任意段 -->
         <div
@@ -38,11 +37,11 @@
           </div>
         </div>
 
-        <!-- 过程说明（中途正文归位）：渲染于所属思考段上方（阅读顺序：
-             说明 → 思考 → 动作，动作发起前对用户的预告先行呈现）；
+        <!-- 过程说明（中途正文归位）：缩进进所属思考段内容列，随段展开收起
+             （段展开时位于思考正文与工具之间）；无归属段的游离说明恒平铺。
              正文主色与思考文本（灰色）区分，明确"对用户的发言"而非推理内容 -->
         <div
-          v-else-if="item.type === 'narration'"
+          v-else-if="item.type === 'narration' && itemVisible(item, i)"
           :key="'narration-' + i"
           class="ob-think-text ob-narration"
         >
@@ -374,43 +373,10 @@ const mdCache = new WeakMap()
 // JSON.stringify 全量序列化每次渲染重复执行同样有开销
 const toolKeyCache = new WeakMap()
 
-// ===== 展示序列重排 =====
-// 过程说明（narration）与文字上下互换：items 时序为 思考 → 说明 → 工具
-// （说明紧跟所属思考段之后），渲染重排为 说明 → 思考 → 工具（先预告后过程）。
-// 每条 narration 上移至其紧邻的前置思考段折叠头上方；前面无思考段的
-// 游离 narration（开场即旁白等）保持原位。思考块相对顺序与工具条目
-// 归属段均不变（narration 非工具，折叠归属逻辑不受影响）
-const displayItems = computed(() => {
-  const src = props.items
-  const out = []
-  const narrRun = []
-  let narrAfterSeg = false // 本轮 narration 是否紧随思考段（决定是否上移）
-  const flushNarr = () => {
-    if (!narrRun.length) return
-    if (narrAfterSeg && out.length && out[out.length - 1].type === 'thinking') {
-      // 上移：插到末位思考段之前（narration 紧随其后，末位即其所属段）
-      for (let n = 0; n < narrRun.length; n++) out.splice(out.length - 1, 0, narrRun[n])
-    } else {
-      for (let n = 0; n < narrRun.length; n++) out.push(narrRun[n])
-    }
-    narrRun.length = 0
-    narrAfterSeg = false
-  }
-  for (let k = 0; k < src.length; k++) {
-    const it = src[k]
-    if (it.type === 'narration') {
-      if (!narrRun.length && out.length && out[out.length - 1].type === 'thinking') {
-        narrAfterSeg = true
-      }
-      narrRun.push(it)
-    } else {
-      flushNarr()
-      out.push(it)
-    }
-  }
-  flushNarr()
-  return out
-})
+// ===== 展示序列 =====
+// 保持 items 原始时序（思考 → 说明 → 工具）：过程说明（narration）不再上移，
+// 归位到所属思考段内容列内（思考正文与工具之间），随段展开收起；
+// ownerOpen 向前扫描归属段时 narration 恰落在所属段之后，归属判断天然正确
 
 // ===== 思考段折叠 =====
 // 活动思考段：isThinking 期间 items 中最后一个 thinking 块（该段正在流式累积）。
@@ -428,7 +394,7 @@ const activeThinking = computed(() => {
 function segIndexOf(i) {
   let n = 0
   for (let k = 0; k <= i; k++) {
-    if (displayItems.value[k] && displayItems.value[k].type === 'thinking') n++
+    if (props.items[k] && props.items[k].type === 'thinking') n++
   }
   return n
 }
@@ -465,12 +431,10 @@ function codeFence(item) {
   return '```' + (item.lang || '') + '\n' + (item.code || '') + '\n```'
 }
 
-// 条目归属段（向前最近的思考块）是否展开：工具 / Skill / 问答记录随所属段折叠；
-// 思考块之前的游离条目（开场即工具调用等）无归属，恒平铺。
-// 基于重排后的 displayItems 扫描（narration 上移不影响工具归属判断：
-// 归属扫描只认 thinking 块，narration 位置变化被自然跳过）
+// 条目归属段（向前最近的思考块）是否展开：过程说明 / 工具 / Skill / 问答记录
+// 随所属段折叠；思考块之前的游离条目（开场即工具调用等）无归属，恒平铺
 function ownerOpen(i) {
-  const arr = displayItems.value
+  const arr = props.items
   for (let k = i - 1; k >= 0; k--) {
     if (arr[k].type === 'thinking') return isSegOpen(arr[k])
   }
@@ -481,7 +445,7 @@ function ownerOpen(i) {
 // 有 → 随段折叠（段展开即显示代码）；无（纯正文直答的游离条目）→
 // 自带折叠头默认收起，避免无段可折恒平铺在思考区外
 function hasOwnerSeg(i) {
-  const arr = displayItems.value
+  const arr = props.items
   for (let k = i - 1; k >= 0; k--) {
     if (arr[k].type === 'thinking') return true
   }
@@ -492,7 +456,7 @@ function hasOwnerSeg(i) {
 // 段默认收起时运行中的工具行被折叠隐藏（子代理委派等长任务可能持续数分钟），
 // 折叠头据此显示转圈 + 「执行中」，避免长时间无任何视觉反馈
 function segRunning(i) {
-  const arr = displayItems.value
+  const arr = props.items
   for (let k = i + 1; k < arr.length; k++) {
     const it = arr[k]
     if (it.type === 'thinking') break
@@ -501,10 +465,9 @@ function segRunning(i) {
   return false
 }
 
-// 条目可见性：过程说明恒平铺（收起后与各段摘要构成时间线脉络）；
-// 待回答 ask（独立条目或挂接工具）恒可见——系统在等用户输入，不能折叠隐藏
+// 条目可见性：随所属思考段展开收起；待回答 ask（独立条目或挂接工具）
+// 恒可见——系统在等用户输入，不能折叠隐藏
 function itemVisible(item, i) {
-  if (item.type === 'narration') return true
   if (item.type === 'ask' && !item.answered) return true
   if (item.type === 'tool' && item.ask && !item.ask.answered) return true
   return ownerOpen(i)
@@ -869,13 +832,13 @@ function fcRemoved(fc) {
   }
 }
 
-/* 思考区时间线内容层：工具 / Skill / ask 卡片 / 思考段正文同层级缩进，
-   左侧统一竖线构成"过程内容"一列；思考段折叠头与过程说明在外层平铺
-   （说明渲染于所属思考段上方，靠正文色与段内容区分）；
-   段正文与折叠头另拉开上间距 */
+/* 思考区时间线内容层：过程说明 / 工具 / Skill / ask 卡片 / 思考段正文
+   同层级缩进，左侧统一竖线构成"过程内容"一列，随所属段展开收起；
+   思考段折叠头在外层平铺；段正文与折叠头另拉开上间距 */
 .ob-think-body > .ob-tool,
 .ob-think-body > .ob-skill,
 .ob-think-body > .ob-think-ask,
+.ob-think-body > .ob-narration,
 .ob-think-body > .ob-think-seg .ob-seg-text {
   margin-left: 20px;
   padding-left: 12px;
@@ -1019,9 +982,8 @@ function fcRemoved(fc) {
   }
 }
 
-/* 过程说明（中途正文）：渲染于所属思考段上方（无缩进无竖线，阅读顺序
-   说明 → 思考 → 动作——动作发起前对用户的预告先行呈现）；正文主色与
-   思考文本（灰色）区分，明确"对用户的发言"而非推理内容 */
+/* 过程说明（中途正文）：正文主色与思考文本（灰色）区分，
+   明确"对用户的发言"而非推理内容（缩进竖线已随内容列统一） */
 .ob-narration {
   color: var(--text-primary);
 }
