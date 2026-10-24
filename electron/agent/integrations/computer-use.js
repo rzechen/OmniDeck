@@ -466,9 +466,10 @@ function workerMain() {
     const names = String(combo).split('+').map((s) => s.trim()).filter(Boolean)
     if (!names.length) throw new Error('空按键组合')
     const keys = names.map((n) => resolveKey(nut.Key, n))
-    await nut.keyboard.pressKey.apply(null, keys)
+    // 展开调用保持 this 绑定（apply(null) 会丢失 keyboard 实例 → providerRegistry null）
+    await nut.keyboard.pressKey(...keys)
     await sleep(80)
-    await nut.keyboard.releaseKey.apply(null, keys)
+    await nut.keyboard.releaseKey(...keys)
   }
 
   // 截图像素坐标 → 逻辑坐标（校验数值与边界；click / hover / drag 共用）
