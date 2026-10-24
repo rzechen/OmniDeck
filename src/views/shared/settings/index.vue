@@ -912,6 +912,13 @@
               </div>
               <el-button size="small" round @click="openVisionDialog">{{ computerCfg.vision ? '修改配置' : '配置' }}</el-button>
             </div>
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">拟人移动轨迹</span>
+                <span class="label-desc">{{ computerCfg.humanMove ? '已开启 · 鼠标按贝塞尔弧线移动并带随机停顿，贴近真人操作（网页端反自动化识别更难）；速度略慢' : '已关闭 · 鼠标直接跳转到目标位置（速度快，但无移动轨迹）' }}</span>
+              </div>
+              <el-switch :model-value="computerCfg.humanMove" @change="v => saveComputerHuman(v)" />
+            </div>
           </div>
 
           <div class="settings-group">
@@ -2188,7 +2195,7 @@ async function copyRemoteUrl(url) {
 }
 
 // ===== 电脑控制（截屏观察 + 鼠标键盘模拟；macOS 需辅助功能 + 屏幕录制授权） =====
-const computerCfg = ref({ enabled: false, probe: null, vision: null })
+const computerCfg = ref({ enabled: false, probe: null, vision: null, humanMove: true })
 const computerProbing = ref(false)
 
 function computerApi() {
@@ -2213,6 +2220,7 @@ async function loadComputer() {
     const res = await api.get()
     if (res) {
       computerCfg.value.enabled = !!res.enabled
+      computerCfg.value.humanMove = res.humanMove !== false
       computerCfg.value.vision = res.vision || null
     }
   } catch (e) { /* 忽略加载失败 */ }
@@ -2252,6 +2260,26 @@ async function openComputerPermission(kind) {
   if (!api) return
   try { await api.openPermission(kind) } catch (e) { /* 忽略 */ }
 }
+async function saveComputerHuman(v) {
+  const api = computerApi()
+  if (!api) return
+  const prev = computerCfg.value.humanMove
+  computerCfg.value.humanMove = !!v && v !== false
+  try {
+    const res = await api.setHumanMove(!!v)
+    if (res && res.ok) {
+      computerCfg.value.humanMove = res.humanMove !== false
+      message.success(v ? '拟人移动已开启' : '拟人移动已关闭')
+    } else {
+      computerCfg.value.humanMove = prev
+      message.error('保存失败')
+    }
+  } catch (e) {
+    computerCfg.value.humanMove = prev
+    message.error('保存失败')
+  }
+}
+
 // 视觉模型说明文案（按配置状态动态生成）
 const computerVisionDesc = computed(() => {
   const v = computerCfg.value.vision

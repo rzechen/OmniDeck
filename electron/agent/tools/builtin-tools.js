@@ -529,8 +529,9 @@ function createComputerUseExtension(cwdState) {
       + '坐标必须取自本截图的实际像素位置，禁止凭记忆或推测；报告简洁、只保留决策所需信息。'
   }
 
-  // 调视觉模型解读截图（openai / anthropic 双格式，direct-llm 同模式）
-  async function visionDescribe(vp, shot, question, signal) {
+  // 通用视觉对话（openai / anthropic 双格式，direct-llm 同模式）：
+  // visionDescribe（观察报告）与 computer_wait（YES/NO 判定）共用
+  async function visionChat(vp, shot, system, userText, signal, maxTokens) {
     const url = vp.baseUrl.replace(/\/+$/, '')
     let fetchUrl, headers, body
     if (vp.apiFormat === 'anthropic') {
@@ -542,13 +543,13 @@ function createComputerUseExtension(cwdState) {
       }
       body = {
         model: vp.model,
-        max_tokens: 2048,
-        system: visionPrompt(shot),
+        max_tokens: maxTokens || 2048,
+        system,
         messages: [{
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: shot.b64 } },
-            { type: 'text', text: '观察任务：' + question },
+            { type: 'text', text: userText },
           ],
         }],
       }
@@ -561,11 +562,11 @@ function createComputerUseExtension(cwdState) {
       body = {
         model: vp.model,
         messages: [
-          { role: 'system', content: visionPrompt(shot) },
+          { role: 'system', content: system },
           {
             role: 'user',
             content: [
-              { type: 'text', text: '观察任务：' + question },
+              { type: 'text', text: userText },
               { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + shot.b64 } },
             ],
           },
@@ -601,6 +602,20 @@ function createComputerUseExtension(cwdState) {
     return text
   }
 
+  // 观察报告（GUI grounding）
+  async function visionDescribe(vp, shot, question, signal) {
+    return visionChat(vp, shot, visionPrompt(shot), '观察任务：' + question, signal, 2048)
+  }
+
+  // 截图落盘（.tmp/，前端时间线可查看，也作为动作坐标原始依据）
+  function persistShot(shot) {
+    const dir = path.join(cwdState.dir, '.tmp')
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'screen-' + Date.now() + '.jpg')
+    fs.writeFileSync(file, Buffer.from(shot.b64, 'base64'))
+    return file
+  }
+
   return function (piApi) {
     // 视觉观察工具：仅配置了视觉模型时注册（工厂在会话创建时求值，同开关锁定模式）
     if (computerUse.visionProvider()) {
@@ -627,10 +642,7 @@ function createComputerUseExtension(cwdState) {
           }
           const shot = await call('screenshot')
           // 截图同步落盘：前端会话时间线可直接查看，也作为动作坐标的原始依据
-          const dir = path.join(cwdState.dir, '.tmp')
-          fs.mkdirSync(dir, { recursive: true })
-          const file = path.join(dir, 'screen-' + Date.now() + '.jpg')
-          fs.writeFileSync(file, Buffer.from(shot.b64, 'base64'))
+          const file = persistShot(shot)
           let report
           try {
             report = await visionDescribe(vp, shot, question, signal)
@@ -649,6 +661,69 @@ function createComputerUseExtension(cwdState) {
         }
       })
     }
+
+    // 等待画面（条件观察）：消除「动作后界面还没加载完就观察」的无效循环
+    piApi.registerTool({
+      name: 'computer_wait',
+      label: '等待画面',
+      description: '等待屏幕上出现指定内容（如「登录按钮」「加载完成」）后再继续：轮询截屏（1.2 秒一轮），'
+        + '由视觉模型判定目标是否出现，出现即返回并附当前截图。'
+        + '适合点击/打开后界面需要加载时间的场景，避免对着未加载完成的画面操作。'
+        + '未配置视觉模型时退化为固定等待后截屏，需自行确认。',
+      parameters: {
+        type: 'object',
+        properties: {
+          until: { type: 'string', description: '等待出现的内容描述（视觉模型据此判定）' },
+          timeout_sec: { type: 'number', description: '最长等待秒数（3-60，默认 15）' }
+        },
+        required: ['until']
+      },
+      execute: async (_id, params, signal) => {
+        const until = String((params || {}).until || '').trim()
+        if (!until) return textResult('错误：until 必填')
+        const timeoutSec = Math.max(3, Math.min(60, +(params || {}).timeout_sec || 15))
+        const vp = computerUse.visionProvider()
+        const started = Date.now()
+        const wait = (ms) => new Promise(r => setTimeout(r, ms))
+
+        // 无视觉模型：固定等待（超时一半封顶 5 秒）后截屏，交主模型自行判断
+        if (!vp) {
+          await wait(Math.min(timeoutSec * 500, 5000))
+          const shot = await call('screenshot')
+          const file = persistShot(shot)
+          return textResult('已等待 ' + Math.round((Date.now() - started) / 1000) + ' 秒（未配置视觉模型，无法自动判定），'
+            + '请观察截图确认目标是否出现：' + file)
+        }
+
+        const judgePrompt = '你是屏幕判定助手。判断截图中是否已出现用户描述的内容。'
+          + '只回答 YES 或 NO，不要输出任何其他内容。'
+        let lastFile = ''
+        let lastErr = ''
+        while (Date.now() - started < timeoutSec * 1000) {
+          await wait(1200)
+          if (signal && signal.aborted) return textResult('等待已取消')
+          let shot
+          try { shot = await call('screenshot') } catch (e) { lastErr = e.message; continue }
+          lastFile = persistShot(shot)
+          try {
+            const verdict = (await visionChat(vp, shot, judgePrompt, '判定目标：' + until, signal, 8)).toUpperCase()
+            if (verdict.indexOf('YES') >= 0) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: '目标已出现（等待 ' + ((Date.now() - started) / 1000).toFixed(1) + ' 秒）：' + until
+                    + '\n截图：' + lastFile
+                }],
+                details: { artifacts: [{ path: lastFile, name: path.basename(lastFile) }] }
+              }
+            }
+          } catch (e) { lastErr = e.message }
+        }
+        return textResult('超时（' + timeoutSec + ' 秒）未出现：' + until
+          + (lastErr ? '（判定中断：' + lastErr + '）' : '')
+          + '\n最后画面截图：' + lastFile + '，请观察后决定下一步')
+      }
+    })
 
     piApi.registerTool({
       name: 'computer_screenshot',
@@ -767,6 +842,24 @@ function createComputerUseExtension(cwdState) {
       },
       execute: async (_id, params) => {
         return textResult(await call('open', { app: params.app, url: params.url }) + '\n' + hint)
+      }
+    })
+
+    // 置前应用：目标窗口被遮挡时点击会落到别的窗口——先 activate 再点击
+    piApi.registerTool({
+      name: 'computer_activate',
+      label: '切换前台应用',
+      description: '把指定 macOS 应用带到前台（activate，不新开窗口，与 computer_open 互补）。'
+        + '目标应用窗口被遮挡 / 不在前台时，必须先 activate 再点击，否则点击会落到其他窗口上。',
+      parameters: {
+        type: 'object',
+        properties: {
+          app: { type: 'string', description: 'macOS 应用名，如 "备忘录" / "Safari" / "Finder"' }
+        },
+        required: ['app']
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('activate', { app: params.app }) + '\n' + hint)
       }
     })
   }

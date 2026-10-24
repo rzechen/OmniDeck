@@ -135,6 +135,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     computerUse: {
       get: () => ipcRenderer.invoke('omnibuddy:computer-use:get'),
       set: enabled => ipcRenderer.invoke('omnibuddy:computer-use:set-enabled', enabled),
+      setHumanMove: v => ipcRenderer.invoke('omnibuddy:computer-use:set-human-move', v),
       setVision: vision => ipcRenderer.invoke('omnibuddy:computer-use:set-vision', vision),
       probe: () => ipcRenderer.invoke('omnibuddy:computer-use:probe'),
       openPermission: kind => ipcRenderer.invoke('omnibuddy:computer-use:open-permission', kind)

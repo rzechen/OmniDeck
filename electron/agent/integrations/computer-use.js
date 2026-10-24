@@ -52,6 +52,21 @@ function setEnabled(v) {
   return enabled()
 }
 
+// ---------- 对外接口：拟人移动轨迹开关（默认开；worker 启动时经 env 锁定） ----------
+function humanMove() {
+  const cfg = readConfig()
+  return !(cfg.omnideck && cfg.omnideck.humanMove === false)
+}
+
+function setHumanMove(v) {
+  const cfg = readConfig()
+  cfg.omnideck = Object.assign({}, cfg.omnideck, { humanMove: v !== false })
+  writeConfig(cfg)
+  // 开关在 worker 启动时锁定：变更即回收，下次操作按新配置懒启动
+  dispose()
+  return humanMove()
+}
+
 // ---------- 对外接口：视觉模型（截图解读专用，弹窗表单直存参数） ----------
 // 独立配置（不依赖模型管理）：computer-use.json 的 omnideck.vision =
 // { name, baseUrl, apiKey, model, apiFormat: 'openai' | 'anthropic' }
@@ -134,6 +149,7 @@ function ensureWorker() {
     env: Object.assign({}, process.env, {
       ELECTRON_RUN_AS_NODE: '1',
       NUT_ENTRY: entry,
+      CU_HUMAN: humanMove() ? '1' : '0',
     }),
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -164,7 +180,10 @@ function ensureWorker() {
   c.stderr.on('data', (chunk) => { errTail = (errTail + chunk).slice(-2000) })
 
   c.on('exit', (code) => {
-    if (child === c) child = null
+    // 仅处理「当前 worker」的退出；dispose 后旧 worker 的迟到 exit 不得
+    // 清空共享 pending（此时可能已有新 worker 的在途请求，误杀报"已退出"）
+    if (child !== c) return
+    child = null
     const tail = errTail.trim().split('\n').slice(-2).join(' ').slice(0, 300)
     const err = new Error('电脑控制 worker 已退出 (code ' + code + ')' + (tail ? '：' + tail : ''))
     for (const [, p] of pending) p.reject(err)
@@ -275,13 +294,58 @@ function workerMain() {
   const MAX_DIM = 1920 // 截图最长边，超出则缩放（降低 payload 与推理延迟）
   const SHOT_PATH = path.join(os.tmpdir(), 'omnideck-cu-shot-' + process.pid + '.jpg')
   const IDLE_QUIT_MS = 5 * 60 * 1000
+  // 拟人移动轨迹开关（主进程 spawn 时经 env 注入；worker 启动时锁定）
+  const HUMAN_MOVE = process.env.CU_HUMAN !== '0'
 
-  let nut = null      // 懒加载 { mouse, keyboard, Key, Point, clipboard }
+  let nut = null      // 懒加载 { mouse, keyboard, Key, Point, clipboard, Button }
   let lastShot = null // 最近一次截图 { width, height }（模型坐标基准）
   let logical = null  // 屏幕逻辑分辨率 { w, h }
   let idleTimer = null
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  const rand = (min, max) => min + Math.random() * (max - min)
+
+  // 拟人移动：三次贝塞尔弧线 + ease-out 步距 + 微抖动。
+  // 逐点 move 产生连续 CGEvent 移动流，网页端可见完整 mousemove 序列，
+  // 避免 setPosition 瞬移被反自动化识别；到位后随机停留再交由调用方按压
+  async function moveHuman(m, tx, ty) {
+    const Point = m.Point
+    if (!HUMAN_MOVE) {
+      await m.mouse.setPosition(new Point(tx, ty))
+      await sleep(150)
+      return
+    }
+    const start = await m.mouse.getPosition()
+    const dist = Math.hypot(tx - start.x, ty - start.y)
+    if (dist < 3) { await sleep(rand(60, 130)); return } // 已在目标附近：仅停留
+    const steps = Math.max(8, Math.min(30, Math.round(dist / 45)))
+    // 法向量随机弯曲（人手轨迹不是直线）
+    const nx = (tx - start.x) / dist, ny = (ty - start.y) / dist
+    const bend = rand(-0.25, 0.25) * dist
+    const p1 = { x: start.x + nx * dist * 0.3 - ny * bend, y: start.y + ny * dist * 0.3 + nx * bend }
+    const p2 = { x: start.x + nx * dist * 0.7 - ny * bend, y: start.y + ny * dist * 0.7 + nx * bend }
+    const path = []
+    for (let i = 1; i <= steps; i++) {
+      const t = 1 - Math.pow(1 - i / steps, 2) // ease-out：先快后慢
+      const u = 1 - t
+      const x = u * u * u * start.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * tx
+      const y = u * u * u * start.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * ty
+      const j = i === steps ? 0 : 1.5 // 末点不抖动，精确落位
+      path.push(new Point(Math.round(x + rand(-j, j)), Math.round(y + rand(-j, j))))
+    }
+    path[steps - 1] = new Point(tx, ty)
+    await m.mouse.move(path)
+    await sleep(rand(60, 130)) // hover 停留（hover 展开菜单也依赖此停留）
+  }
+
+  // 拟人按压：按下-抬起间隔随机（替代 leftClick 固定节奏）
+  async function pressHuman(m) {
+    if (!HUMAN_MOVE) { await m.mouse.leftClick(); return }
+    await m.mouse.pressButton(m.Button.LEFT)
+    await sleep(rand(40, 90))
+    await m.mouse.releaseButton(m.Button.LEFT)
+  }
+  // 注：pressHuman 未用 Point；Button 经 m.Button 引用（loadNut 局部解构不可跨作用域）
 
   function bumpIdle() {
     if (idleTimer) clearTimeout(idleTimer)
@@ -304,9 +368,9 @@ function workerMain() {
       throw new Error('nut.js 加载失败：' + ((e && e.message) || e))
     }
     const api = (mod.default && mod.default.mouse && !mod.mouse) ? mod.default : mod
-    const { mouse, keyboard, Key, Point, clipboard } = api
-    if (!mouse || !keyboard || !Key || !Point) throw new Error('nut.js 导出异常')
-    nut = { mouse, keyboard, Key, Point, clipboard }
+    const { mouse, keyboard, Key, Point, clipboard, Button } = api
+    if (!mouse || !keyboard || !Key || !Point || !Button) throw new Error('nut.js 导出异常')
+    nut = { mouse, keyboard, Key, Point, clipboard, Button }
     return nut
   }
 
@@ -427,9 +491,8 @@ function workerMain() {
       if (sx < 0 || sy < 0 || (lg && (sx > lg.w || sy > lg.h))) {
         throw new Error('坐标越界 (' + sx + ',' + sy + ')，逻辑分辨率 ' + (lg ? lg.w + 'x' + lg.h : '未知'))
       }
-      await m.mouse.setPosition(new m.Point(sx, sy))
-      await sleep(150) // 等待系统焦点跟随
-      await m.mouse.leftClick()
+      await moveHuman(m, sx, sy)
+      await pressHuman(m)
       return 'click @ 逻辑坐标(' + sx + ',' + sy + ')'
     },
 
@@ -442,11 +505,17 @@ function workerMain() {
       if (sx < 0 || sy < 0 || (lg && (sx > lg.w || sy > lg.h))) {
         throw new Error('坐标越界 (' + sx + ',' + sy + ')')
       }
-      await m.mouse.setPosition(new m.Point(sx, sy))
-      await sleep(150)
-      try { await m.mouse.doubleClick() } catch (e) {
-        await m.mouse.leftClick()
-        await m.mouse.leftClick()
+      await moveHuman(m, sx, sy)
+      if (HUMAN_MOVE) {
+        // 双击 = 两次拟人按压，间隔随机（模拟人手连点）
+        await pressHuman(m)
+        await sleep(rand(60, 120))
+        await pressHuman(m)
+      } else {
+        try { await m.mouse.doubleClick() } catch (e) {
+          await m.mouse.leftClick()
+          await m.mouse.leftClick()
+        }
       }
       return 'double_click @ 逻辑坐标(' + sx + ',' + sy + ')'
     },
@@ -499,6 +568,17 @@ function workerMain() {
       return 'open ' + params.app
     },
 
+    // 置前应用（osascript activate）：目标窗口被遮挡时点击会落到别的窗口，
+    // 点击类操作前先把目标应用带到前台（不新开窗口，与 open 互补）
+    async activate(params) {
+      if (!IS_MAC) throw new Error('仅支持 macOS')
+      const app = String(params.app || '').replace(/["\\]/g, '').trim()
+      if (!app) throw new Error('app 缺失')
+      execFileSync('osascript', ['-e', 'tell application "' + app + '" to activate'])
+      await sleep(300) // 等待窗口置前与重绘
+      return 'activate ' + app
+    },
+
     async quit() {
       setTimeout(() => process.exit(0), 50)
       return 'bye'
@@ -540,6 +620,8 @@ module.exports = {
   init,
   enabled,
   setEnabled,
+  humanMove,
+  setHumanMove,
   visionProvider,
   setVision,
   call,

@@ -58,7 +58,9 @@ const TOOL_LABELS = {
   computer_type: '键入文字',
   computer_key: '按快捷键',
   computer_scroll: '滚动屏幕',
-  computer_open: '打开应用/链接'
+  computer_open: '打开应用/链接',
+  computer_wait: '等待画面',
+  computer_activate: '切换前台应用'
 }
 
 export function toolLabel(name) {

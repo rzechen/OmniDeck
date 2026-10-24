@@ -362,6 +362,8 @@ const CREDENTIAL_TOOLS = [
 const COMPUTER_TOOLS = [
   { name: 'computer_screenshot', label: '截取屏幕', description: '截取当前主显示器画面（JPEG，最长边 1920）；产物落当前目录 .tmp/ 下，用 read 工具读图查看。', perm: 'allow' },
   { name: 'computer_look', label: '观察屏幕', description: '截屏并交由专用视觉模型解读（GUI grounding），返回前台应用、可交互元素与像素坐标报告；需在设置 → 电脑控制配置视觉模型。', perm: 'allow' },
+  { name: 'computer_wait', label: '等待画面', description: '轮询截屏等待指定内容出现（视觉模型判定），适合界面加载类场景；未配置视觉模型时退化为固定等待。', perm: 'allow' },
+  { name: 'computer_activate', label: '切换前台应用', description: '把指定 macOS 应用带到前台（activate 不新开窗口）；目标窗口被遮挡时先切换再点击。', perm: 'ask' },
   { name: 'computer_click', label: '点击屏幕', description: '在截图像素坐标处模拟鼠标单击（先移动再点击，自动处理 Retina 坐标换算）。', perm: 'ask' },
   { name: 'computer_double_click', label: '双击屏幕', description: '在截图像素坐标处模拟鼠标双击。', perm: 'ask' },
   { name: 'computer_type', label: '键入文字', description: '向前台应用键入文字：纯 ASCII 直接敲键盘，含中文经剪贴板粘贴（cmd+v）。', perm: 'ask' },

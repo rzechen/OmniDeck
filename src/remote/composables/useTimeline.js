@@ -121,7 +121,7 @@ export function useTimeline() {
     } else if (t === 'tool_start') {
       phase.value = 'tool'
       const p = ensureProcess()
-      const item = { type: 'tool', id: ev.toolCallId, toolName: ev.toolName || '', brief: ev.brief || '', state: 'running', open: false }
+      const item = { type: 'tool', id: ev.toolCallId, toolName: ev.toolName || '', brief: ev.brief || '', state: 'running', open: false, artifacts: [] }
       p.items.push(item)
       p.current = toolLabel(ev.toolName) + ' 执行中…'
     } else if (t === 'tool_end') {
@@ -134,6 +134,8 @@ export function useTimeline() {
             it.state = 'done'
             it.isError = !!ev.isError
             it.result = ev.result || ''
+            // 产物清单（含 path）：截图等图片产物由 ProcessGroup 渲染缩略图
+            it.artifacts = Array.isArray(ev.artifacts) ? ev.artifacts : []
             if (ev.artifacts && ev.artifacts.length) {
               const names = ev.artifacts.map(a => a.name)
               it.result = (it.result ? it.result + '\n' : '') + '产出：' + names.join('、')
@@ -235,7 +237,7 @@ export function useTimeline() {
         }
       } else if (it.kind === 'tool') {
         const p = ensureProcess()
-        p.items.push({ type: 'tool', id: '', toolName: it.toolName || '', brief: it.brief || '', state: 'done', isError: !!it.isError, open: false })
+        p.items.push({ type: 'tool', id: '', toolName: it.toolName || '', brief: it.brief || '', state: 'done', isError: !!it.isError, open: false, artifacts: Array.isArray(it.artifacts) ? it.artifacts : [] })
       } else if (it.kind === 'permission') {
         msgs.value.push({ kind: 'warn', ic: 'lock', text: '权限确认：' + (it.surface || '') + (it.brief ? ' · ' + it.brief : ''), sub: it.decided ? '已' + (it.decided === 'deny' ? '拒绝' : '允许') : '' })
       } else if (it.kind === 'ask') {

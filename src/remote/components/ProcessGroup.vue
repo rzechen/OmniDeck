@@ -46,6 +46,17 @@
               <span class="pst" v-if="it.isError">失败</span>
             </div>
             <div v-if="it.brief" class="pbrief-line">{{ it.brief }}</div>
+            <!-- 图片产物缩略图（电脑控制截图等）：点击全屏预览（阻止触发行展开） -->
+            <div v-if="imageArts(it).length" class="pshots">
+              <img
+                v-for="(a, j) in imageArts(it)"
+                :key="j"
+                :src="artifactUrl(a.path)"
+                loading="lazy"
+                alt="屏幕截图"
+                @click.stop="preview = artifactUrl(a.path)"
+              />
+            </div>
             <div v-if="it.open && it.result" class="pcontent presult" v-html="md(String(it.result).slice(0, 400))"></div>
           </div>
 
@@ -72,6 +83,13 @@
       </div>
     </div>
   </el-drawer>
+
+  <!-- 截图全屏预览：点击任意处关闭 -->
+  <transition name="pv-fade">
+    <div v-if="preview" class="shot-preview" @click="preview = ''">
+      <img :src="preview" alt="截图预览" />
+    </div>
+  </transition>
 </template>
 
 <script setup>
@@ -79,6 +97,7 @@
 import { ref, watch, onUnmounted } from 'vue'
 import closeIcon from '@/assets/icons/svg/buddy/close.svg?raw'
 import { md, toolLabel } from '../format'
+import { getApiToken } from '../api'
 
 defineProps({
   group: { type: Object, required: true },
@@ -86,6 +105,16 @@ defineProps({
 })
 
 const sheet = ref(false)
+const preview = ref('')
+
+// 图片产物（电脑控制截图等）：按扩展名过滤，经 /api/artifact 鉴权取流
+const IMG_RE = /\.(jpe?g|png|gif|webp)$/i
+function imageArts(it) {
+  return (it.artifacts || []).filter(a => a && a.path && IMG_RE.test(a.path))
+}
+function artifactUrl(p) {
+  return '/api/artifact?token=' + encodeURIComponent(getApiToken()) + '&path=' + encodeURIComponent(p)
+}
 
 // 抽屉开合：冻结/解冻主页面滚动容器（配合 overscroll-behavior 防滚动穿透）
 watch(sheet, v => {
@@ -175,6 +204,30 @@ function doneCount(it) {
   white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+/* 图片产物缩略图（电脑控制截图等）：横向滚动条带 */
+.pshots {
+  display: flex; gap: 8px; margin: -4px 0 10px 21px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+}
+.pshots img {
+  flex: none; height: 74px; max-width: 46%;
+  object-fit: cover; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--card);
+}
+.pshots img:active { opacity: .8; }
+/* 截图全屏预览 */
+.shot-preview {
+  position: fixed; inset: 0; z-index: 3200;
+  background: rgba(0, 0, 0, .92);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; cursor: zoom-out;
+}
+.shot-preview img {
+  max-width: 96vw; max-height: 92vh;
+  object-fit: contain; border-radius: 4px;
+}
+.pv-fade-enter-active, .pv-fade-leave-active { transition: opacity .16s ease; }
+.pv-fade-enter-from, .pv-fade-leave-to { opacity: 0; }
 .pst { flex: none; font-size: 12px; color: var(--red); margin-left: auto; }
 .ptool.err .pname { color: var(--red); }
 .ptool.err .pi-dot { border-color: var(--red); }

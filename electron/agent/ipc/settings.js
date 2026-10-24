@@ -217,6 +217,7 @@ function registerSettingsIpc() {
     const vp = computerUse.visionProvider()
     return {
       enabled: computerUse.enabled(),
+      humanMove: computerUse.humanMove(),
       // 密钥不下发渲染层：hasApiKey 标记 + 其余参数回显
       vision: vp ? { name: vp.name, baseUrl: vp.baseUrl, model: vp.model, apiFormat: vp.apiFormat, hasApiKey: true } : null
     }
@@ -224,6 +225,10 @@ function registerSettingsIpc() {
   ipcMain.handle('omnibuddy:computer-use:set-enabled', (_e, enabled) => {
     const enabledNow = computerUse.setEnabled(!!enabled)
     return { ok: true, enabled: enabledNow }
+  })
+  // 拟人移动轨迹开关（worker 启动时锁定，变更后下次操作生效）
+  ipcMain.handle('omnibuddy:computer-use:set-human-move', (_e, v) => {
+    return { ok: true, humanMove: computerUse.setHumanMove(v !== false) }
   })
   // 保存视觉模型参数（弹窗表单直存；apiKey 留空 = 沿用已存密钥；null/空对象 = 清除配置）
   ipcMain.handle('omnibuddy:computer-use:set-vision', (_e, vision) => {
