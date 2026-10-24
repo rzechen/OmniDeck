@@ -55,6 +55,9 @@
                 <el-dropdown-item command="agent-add">
                   <svg-icon icon-class="subagent" class="ob-add-menu-icon" />新增专家
                 </el-dropdown-item>
+                <el-dropdown-item command="team-add">
+                  <svg-icon icon-class="team" class="ob-add-menu-icon" />新增专家团
+                </el-dropdown-item>
                 <el-dropdown-item command="mcp-add">
                   <svg-icon icon-class="mcp" class="ob-add-menu-icon" />新增连接器
                 </el-dropdown-item>
@@ -80,11 +83,23 @@
       </div>
     </div>
 
-    <!-- ===== 我的视图：本地已装资源管理（技能 / 专家 / 连接器 复用原管理页组件） ===== -->
+    <!-- ===== 专家团区块（仅专家 tab：呈现于「专家广场 / 我的专家」切换行之下，
+           与两个视图并列常驻，可新建/编辑/管理专家团） ===== -->
+    <teams-section
+      v-if="typeFilter === 'agent'"
+      ref="teamsStripRef"
+      compact
+      class="ob-teams-strip"
+      @edit="openTeamEdit"
+      @add="openTeamAdd"
+    />
+
+    <!-- ===== 我的视图：本地已装资源管理（技能 / 专家 / 专家团 / 连接器 复用原管理页组件） ===== -->
     <div v-if="viewMode === 'mine'" class="ob-mine-view">
       <skills-view v-if="typeFilter === 'skill'" />
       <mcp-view v-else-if="typeFilter === 'connector'" />
-      <agents-view v-else ref="agentsViewRef" @edit="openAgentEdit" @add="openAgentAdd" />
+      <teams-view v-else-if="typeFilter === 'team'" ref="teamsViewRef" @edit="openTeamEdit" @add="openTeamAdd" />
+      <agents-view v-else ref="agentsViewRef" @edit="openAgentEdit" @add="openAgentAdd" @edit-team="openTeamEdit" />
     </div>
 
     <!-- ===== 广场视图：分类 chips + 市场卡片（仅此区域滚动） ===== -->
@@ -229,6 +244,13 @@
       :editing="agentEditing"
       @saved="onAgentSaved"
     />
+
+    <!-- 新增 / 编辑专家团（teams/<id>.json 表单：名称/描述/专家宫格多选） -->
+    <team-form-dialog
+      v-model:visible="teamDialogVisible"
+      :editing="teamEditing"
+      @saved="onTeamSaved"
+    />
   </div>
 </template>
 
@@ -244,6 +266,10 @@ import SkillsView from '@/views/buddy/skills/index.vue'
 import McpView from '@/views/buddy/mcp/index.vue'
 // 我的专家视图（本地 agents 目录管理）
 import AgentsView from './components/AgentsView.vue'
+// 专家团（卡片区块 / 我的专家团视图 / 表单弹窗）
+import TeamsSection from './components/TeamsSection.vue'
+import TeamsView from './components/TeamsView.vue'
+import TeamFormDialog from './components/TeamFormDialog.vue'
 // 添加入口弹窗（创建技能 / 新增连接器，与原管理页同款组件复用）
 import SkillImportDialog from '@/views/buddy/skills/components/SkillImportDialog.vue'
 import McpFormDialog from '@/views/buddy/mcp/components/McpFormDialog.vue'
@@ -262,6 +288,7 @@ const { message } = useFeedback()
 const TYPES = {
   skill: { label: '技能', icon: 'skill', square: '技能广场', mine: '我的技能' },
   agent: { label: '专家', icon: 'subagent', square: '专家广场', mine: '我的专家' },
+  team: { label: '专家团', icon: 'team', square: '专家团广场', mine: '我的专家团' },
   connector: { label: '连接器', icon: 'mcp', square: '连接器广场', mine: '我的连接器' }
 }
 
@@ -286,6 +313,7 @@ const categories = computed(() => {
   const counts = {
     skill: 0,
     agent: 0,
+    team: 0,
     connector: 0
   }
   items.value.forEach(it => {
@@ -296,6 +324,7 @@ const categories = computed(() => {
   return [
     { label: '技能', value: 'skill', count: counts.skill },
     { label: '专家', value: 'agent', count: counts.agent },
+    { label: '专家团', value: 'team', count: counts.team },
     { label: '连接器', value: 'connector', count: counts.connector }
   ]
 })
@@ -423,6 +452,8 @@ function onAddCommand(key) {
     skillDialogVisible.value = true
   } else if (key === 'agent-add') {
     openAgentAdd()
+  } else if (key === 'team-add') {
+    openTeamAdd()
   } else if (key === 'mcp-add') {
     openMcpAdd()
   }
@@ -455,6 +486,36 @@ function openAgentEdit(agent) {
 // 专家保存成功：刷新内嵌视图列表（当前未挂载时忽略，进入视图时 onActivated 自会拉取）
 function onAgentSaved() {
   agentEditing.value = null
+  if (agentsViewRef.value) agentsViewRef.value.reload()
+  // 成员专家可能被删除：专家页团区块的成员摘要同步刷新
+  if (teamsStripRef.value) teamsStripRef.value.reload()
+}
+
+// ===== 专家团（teams 目录）=====
+// 新增 / 编辑专家团弹窗
+const teamDialogVisible = ref(false)
+// 我的专家团视图引用（保存后刷新列表）
+const teamsViewRef = ref(null)
+// 专家 tab 内嵌团区块引用（保存后刷新）
+const teamsStripRef = ref(null)
+// 编辑中的专家团（null 表示新增）
+const teamEditing = ref(null)
+
+function openTeamAdd() {
+  teamEditing.value = null
+  teamDialogVisible.value = true
+}
+
+function openTeamEdit(team) {
+  teamEditing.value = team
+  teamDialogVisible.value = true
+}
+
+// 专家团保存成功：刷新各处团列表（我的专家列表含团卡片、专家页区块、我的专家团视图）
+function onTeamSaved() {
+  teamEditing.value = null
+  if (teamsViewRef.value) teamsViewRef.value.reload()
+  if (teamsStripRef.value) teamsStripRef.value.reload()
   if (agentsViewRef.value) agentsViewRef.value.reload()
 }
 
@@ -787,6 +848,12 @@ onActivated(() => {
   display: flex;
   flex-direction: column;
   margin: -20px -24px;
+}
+
+/* ===== 专家团区块（专家 tab 内嵌，位于视图切换行与内容区之间） ===== */
+.ob-teams-strip {
+  flex-shrink: 0;
+  margin-bottom: 16px;
 }
 
 /* ===== 广场主体：单列滚动区（工具栏 + 分类 chips + 卡片网格） ===== */

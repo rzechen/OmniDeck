@@ -128,8 +128,8 @@
 // # 引用：输入 # 上拉两阶段菜单（#Folder / #File → 条目列表），
 // 选中后以内联 tag（不可编辑原子节点）插入正文，与文字穿插呈现；
 // 序列化为 #Folder:相对路径 / #File:相对路径 token 随草稿落盘，可完整往返
-// @ 引用：输入 @ 上拉两阶段菜单（@Skill / @Expert / @Connector → 条目列表），
-// 与 # 同构，token 为 @Skill:目录名 / @Expert:文件路径 / @Connector:连接器 id
+// @ 引用：输入 @ 上拉两阶段菜单（@Skill / @Expert / @Team / @Connector → 条目列表），
+// 与 # 同构，token 为 @Skill:目录名 / @Expert:文件路径 / @Team:团标识 / @Connector:连接器 id
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { fileIcon, formatSize, FOLDER_ICON } from '@/utils/ui/file-meta'
 import AtFilePopover from '@/components/buddy/chat/AtFilePopover.vue'
@@ -144,7 +144,7 @@ const props = defineProps({
   },
   placeholder: {
     type: String,
-    default: '有问题尽管问（@ 可引用技能 / 专家 / 连接器，# 可引用工作空间文件）'
+    default: '有问题尽管问（@ 可引用技能 / 专家 / 专家团 / 连接器，# 可引用工作空间文件）'
   },
   // 流式生成中：发送按钮切换为停止按钮
   streaming: {
@@ -194,29 +194,30 @@ const fileCards = computed(() => {
 
 // ===== # / @ 引用内联 tag（contenteditable 不可编辑原子节点） =====
 // token 契约：#Folder:相对路径（根目录存 /） / #File:相对路径
-//            @Skill:技能目录名 / @Expert:专家文件路径 / @Connector:连接器 id
+//            @Skill:技能目录名 / @Expert:专家文件路径 / @Team:团标识 / @Connector:连接器 id
 // —— chip 只显示名称 + 类型图标（可见文本与 token 不同长，
 //    光标偏移由 getCaretOffset/setCaretOffset 按 token 长度显式换算）
-const TOKEN_RE = /#(Folder|File):([^\s#@]+)|@(Skill|Expert|Connector):([^\s#@]+)/g
+const TOKEN_RE = /#(Folder|File):([^\s#@]+)|@(Skill|Expert|Team|Connector):([^\s#@]+)/g
 
-// kind → token 前缀（dir/file 为 # 引用，skill/expert/connector 为 @ 引用）
+// kind → token 前缀（dir/file 为 # 引用，skill/expert/team/connector 为 @ 引用）
 const CHIP_TOKEN_PREFIX = {
   dir: '#Folder:',
   file: '#File:',
   skill: '@Skill:',
   expert: '@Expert:',
+  team: '@Team:',
   connector: '@Connector:'
 }
 
 // @ 引用 chip 的 sprite 图标（# 引用用文件类型图标 img）
-const CHIP_SPRITE_ICON = { skill: 'skill', expert: 'user', connector: 'connection' }
+const CHIP_SPRITE_ICON = { skill: 'skill', expert: 'user', team: 'team', connector: 'connection' }
 
 function chipToken(kind, path) {
   return CHIP_TOKEN_PREFIX[kind] + path
 }
 
 // chip 显示名缺省推导：# 类取末级路径名（根目录为「整个工作空间」），
-// @ 类 expert 取文件名去 .md，skill / connector 直接显示标识值
+// @ 类 expert 取文件名去 .md，skill / team / connector 直接显示标识值
 function chipDisplayName(kind, val, name) {
   if (name) return name
   if (kind === 'dir' || kind === 'file') {
@@ -296,7 +297,7 @@ function renderFromText(el, text, root) {
       const abs = wsRoot ? (rel === '/' ? wsRoot : wsRoot + '/' + rel) : ''
       frag.appendChild(makeChip(m[1] === 'Folder' ? 'dir' : 'file', rel, abs))
     } else {
-      // @ 引用：@Skill: / @Expert: / @Connector:
+      // @ 引用：@Skill: / @Expert: / @Team: / @Connector:
       frag.appendChild(makeChip(m[3].toLowerCase(), m[4], ''))
     }
     last = TOKEN_RE.lastIndex
@@ -470,18 +471,18 @@ function onAtBack() {
   atOpen.value = true
 }
 
-// ===== @ 触发检测（技能 / 专家 / 连接器，两阶段状态机，与 # 同构） =====
-// root：@ 后未跟 Skill:/Expert:/Connector: 前缀（入口菜单，打字过滤入口）
-// skill / expert / connector：@Skill: 等前缀后（条目列表，打字过滤）
+// ===== @ 触发检测（技能 / 专家 / 专家团 / 连接器，两阶段状态机，与 # 同构） =====
+// root：@ 后未跟 Skill:/Expert:/Team:/Connector: 前缀（入口菜单，打字过滤入口）
+// skill / expert / team / connector：@Skill: 等前缀后（条目列表，打字过滤）
 const mentionOpen = ref(false)
-const mentionPhase = ref('root') // root | skill | expert | connector
+const mentionPhase = ref('root') // root | skill | expert | team | connector
 const mentionQuery = ref('')
 const mentionStart = ref(-1) // 触发 @ 在序列化文本中的下标
 const mentionPop = ref(null)
 
 // kind ↔ token 前缀词（skill → Skill）
-const MENTION_WORD = { skill: 'Skill', expert: 'Expert', connector: 'Connector' }
-const MENTION_KIND = { Skill: 'skill', Expert: 'expert', Connector: 'connector' }
+const MENTION_WORD = { skill: 'Skill', expert: 'Expert', team: 'Team', connector: 'Connector' }
+const MENTION_KIND = { Skill: 'skill', Expert: 'expert', Team: 'team', Connector: 'connector' }
 
 function syncMention(text, caret) {
   if (typeof caret !== 'number' || caret <= 0) {
@@ -490,7 +491,7 @@ function syncMention(text, caret) {
   }
   const before = text.slice(0, caret)
   // @ 前须行首/空白（防误触），@ 与光标之间无空白/#/@
-  const m = before.match(/(?:^|\s)@((?:Skill|Expert|Connector):)?([^\s#@]*)$/)
+  const m = before.match(/(?:^|\s)@((?:Skill|Expert|Team|Connector):)?([^\s#@]*)$/)
   if (!m) {
     mentionOpen.value = false
     return

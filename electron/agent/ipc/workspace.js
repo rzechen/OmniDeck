@@ -7,6 +7,7 @@ const workspaces = require('../workspace/workspaces')
 const files = require('../workspace/files')
 const skills = require('../knowledge/skills')
 const agents = require('../knowledge/agents')
+const teams = require('../knowledge/teams')
 const attachments = require('../workspace/attachments')
 const rules = require('../knowledge/rules')
 const profile = require('../knowledge/profile')
@@ -114,6 +115,17 @@ function registerWorkspaceIpc(getWindow) {
   ipcMain.handle('omnibuddy:agents:update', (_e, payload) => agents.updateAgent(payload))
 
   ipcMain.handle('omnibuddy:agents:delete', (_e, file) => agents.deleteAgent(file))
+
+  // ===== 专家团管理（teams/<id>.json，本地创建/市场安装共用） =====
+  ipcMain.handle('omnibuddy:teams:list', () => teams.listTeams())
+
+  ipcMain.handle('omnibuddy:teams:create', (_e, team) => teams.createTeam(team || {}))
+
+  ipcMain.handle('omnibuddy:teams:get', (_e, id) => teams.getTeam(id))
+
+  ipcMain.handle('omnibuddy:teams:update', (_e, payload) => teams.updateTeam(payload))
+
+  ipcMain.handle('omnibuddy:teams:remove', (_e, id) => teams.removeTeam(id))
 
   // ===== 工作空间管理（多工作空间，发送前必须选定） =====
   ipcMain.handle('omnibuddy:workspaces:list', () => workspaces.list())

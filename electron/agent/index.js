@@ -20,6 +20,7 @@ const piSetup = require('./pi/setup')
 const sandbox = require('./platform/sandbox')
 const skills = require('./knowledge/skills')
 const agents = require('./knowledge/agents')
+const teams = require('./knowledge/teams')
 const builtin = require('./knowledge/builtin')
 const workspaces = require('./workspace/workspaces')
 const files = require('./workspace/files')
@@ -55,6 +56,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   sandbox.init(path.join(baseDir, 'pi-agent'))
   skills.init(path.join(baseDir, 'pi-agent'))
   agents.init(path.join(baseDir, 'pi-agent'))
+  teams.init(path.join(baseDir, 'pi-agent'))
   // 内置资源同步（技能平铺 + 专家 builtin/ 子目录；幂等，应用升级自动更新，
   // 用户自建同名优先；详见 knowledge/builtin.js）
   builtin.sync(path.join(baseDir, 'pi-agent'))

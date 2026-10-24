@@ -454,13 +454,13 @@ const fileAttachmentList = computed(() => {
 
 // ===== 用户消息正文分段：# / @ 引用 token → 内联 chip =====
 // token 契约与 composer 一致：#Folder:相对路径（根目录 /）/ #File:相对路径；
-// @Skill:目录名 / @Expert:文件路径 / @Connector:连接器 id。
+// @Skill:目录名 / @Expert:文件路径 / @Team:团标识 / @Connector:连接器 id。
 // # chip 的绝对路径从消息级 atRefs 按 rel（旧数据无 rel 时按 kind+name）反查；
 // @ chip 非路径引用，name 由 token 值推导（expert 去扩展名）
-const TOKEN_RE = /#(Folder|File):([^\s#@]+)|@(Skill|Expert|Connector):([^\s#@]+)/g
+const TOKEN_RE = /#(Folder|File):([^\s#@]+)|@(Skill|Expert|Team|Connector):([^\s#@]+)/g
 
 // @ 引用 chip 的 sprite 图标（# 引用用文件类型图标 img）
-const AT_SPRITE_ICON = { skill: 'skill', expert: 'user', connector: 'connection' }
+const AT_SPRITE_ICON = { skill: 'skill', expert: 'user', team: 'team', connector: 'connection' }
 
 // 文件夹图标（目录 chip 用；文件 chip 按扩展名取类型图标）
 const folderIcon = FOLDER_ICON
@@ -485,7 +485,7 @@ const userSegments = computed(() => {
       const abs = ref ? ref.path : ''
       segs.push({ type: 'chip', kind, name, rel, abs, title: abs || rel })
     } else {
-      // @ 引用：@Skill: / @Expert: / @Connector:（非路径，仅展示）
+      // @ 引用：@Skill: / @Expert: / @Team: / @Connector:（非路径，仅展示）
       const kind = m[3].toLowerCase()
       const val = m[4]
       const name = kind === 'expert' ? val.split('/').pop().replace(/\.md$/i, '') : val

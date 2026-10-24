@@ -195,6 +195,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       update: payload => ipcRenderer.invoke('omnibuddy:agents:update', payload),
       remove: file => ipcRenderer.invoke('omnibuddy:agents:delete', file)
     },
+    // 专家团管理：teams 目录扫描/新建/查看/编辑/删除（成员为专家组合）
+    teams: {
+      list: () => ipcRenderer.invoke('omnibuddy:teams:list'),
+      create: team => ipcRenderer.invoke('omnibuddy:teams:create', team),
+      get: id => ipcRenderer.invoke('omnibuddy:teams:get', id),
+      update: payload => ipcRenderer.invoke('omnibuddy:teams:update', payload),
+      remove: id => ipcRenderer.invoke('omnibuddy:teams:remove', id)
+    },
     // 资源市场（N2）：索引浏览 / 一键安装 / 更新 / 卸载 / 已装列表
     market: {
       index: useCache => ipcRenderer.invoke('omnibuddy:market:index', useCache),

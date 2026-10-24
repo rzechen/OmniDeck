@@ -1,8 +1,8 @@
 <template>
-  <!-- @ 引用技能 / 专家 / 连接器浮层（被动展示型：与 # 文件浮层同构，
+  <!-- @ 引用技能 / 专家 / 专家团 / 连接器浮层（被动展示型：与 # 文件浮层同构，
        输入焦点留在主输入框，搜索词由父层从文本中解析后传入；
-       键盘事件由父层转发）。两阶段：root = @Skill / @Expert / @Connector
-       入口（→ 或 Enter 展开），skill / expert / connector = 对应分类条目
+       键盘事件由父层转发）。两阶段：root = @Skill / @Expert / @Team / @Connector
+       入口（→ 或 Enter 展开），skill / expert / team / connector = 对应分类条目
        列表（打字过滤，Enter 确认插入内联 tag） -->
   <div v-if="visible" class="am-pop" @mousedown.prevent>
     <div class="am-list" ref="listEl">
@@ -94,6 +94,7 @@ const listEl = ref(null)
 const KINDS = [
   { kind: 'skill', word: 'Skill', icon: 'skill', desc: '引用技能' },
   { kind: 'expert', word: 'Expert', icon: 'user', desc: '引用专家（子代理）' },
+  { kind: 'team', word: 'Team', icon: 'team', desc: '引用专家团（专家组合）' },
   { kind: 'connector', word: 'Connector', icon: 'connection', desc: '引用连接器（MCP 服务）' }
 ]
 
@@ -128,6 +129,7 @@ const emptyTip = computed(() => {
   if (String(props.query || '').trim()) return '没有匹配的条目'
   if (props.phase === 'skill') return '暂无技能，可先在「技能」页创建或从市场安装'
   if (props.phase === 'expert') return '暂无专家，可先在「市场 · 专家」页创建或安装'
+  if (props.phase === 'team') return '暂无专家团，可先在「市场 · 专家团」页创建或安装'
   if (props.phase === 'connector') return '暂无已连接的连接器，可先在「连接器」页接入'
   return '没有匹配的条目'
 })
@@ -158,6 +160,7 @@ watch(() => [props.query, props.phase], () => {
 // - skill：目录名作 id（token 契约值），包成员（packageOf 非空）折叠不列出；
 //   系统内置技能带 builtin 标识（管理页不展示，仅 @ 引用可见）
 // - expert：相对文件路径作 id（builtin/ 前缀 = 系统内置）
+// - team：团 id 作 id（teams/<id>.json），desc 附成员数
 // - connector：已接入的（mcp.json 已注册）+ 内置常开连接器（builtin: true）
 async function loadList() {
   const api = window.electronAPI && window.electronAPI.omnibuddy
@@ -185,6 +188,14 @@ async function loadList() {
       } else if (kind === 'expert') {
         const all = (await api.agents.list()) || []
         list = all.map(a => ({ id: a.file, name: a.name, desc: a.description || '', builtin: !!a.builtin }))
+      } else if (kind === 'team') {
+        const all = (await api.teams.list()) || []
+        list = all.map(t => ({
+          id: t.id,
+          name: t.name,
+          desc: `${t.description || ''} · ${t.members.length} 位成员`,
+          builtin: false
+        }))
       } else if (kind === 'connector') {
         const all = (await api.connectors.list()) || []
         list = all

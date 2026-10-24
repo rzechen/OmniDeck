@@ -118,11 +118,13 @@ function marketType(it) {
 function typeIcon(type) {
   if (type === 'connector' || type === 'mcp') return 'mcp'
   if (type === 'agent') return 'subagent'
+  if (type === 'team') return 'team'
   return 'skill'
 }
 
 function logoClass(it) {
   const t = marketType(it)
+  if (t === 'team') return 'logo-team'
   return 'logo-' + (t === 'connector' ? 'connector' : t === 'agent' ? 'agent' : 'skill')
 }
 

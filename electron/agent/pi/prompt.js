@@ -6,6 +6,7 @@ const webSearch = require('../integrations/web-search')
 const computerUse = require('../integrations/computer-use')
 const subagents = require('../integrations/subagents')
 const profile = require('../knowledge/profile')
+const teams = require('../knowledge/teams')
 const credentials = require('../integrations/credentials')
 const siteAuth = require('../integrations/site-auth')
 const { state } = require('./state')
@@ -115,6 +116,10 @@ function systemPrompt() {
   } else {
     lines.push('专家委派（subagent 工具）：前台同步执行（阻塞到完成，过程与结果实时可见），一次只能有一个委派在执行；后台异步执行已被禁用。这类子代理在产品中对用户统称为「专家」，与用户交流时一律使用「专家」一词，不要说"子代理"。')
   }
+  // 专家团清单（@Team:标识 引用闭环）：模型不感知 teams 目录，
+  // 团组成（成员专家名）经此注入；团变更后新会话生效
+  const teamBlock = teams.promptBlock()
+  if (teamBlock) lines.push(teamBlock)
   // codemode 脚本约束：脚本被包装为 (async (tools, console) => {...}) 执行，
   // 声明同名变量会直接语法报错（invalid redefinition of parameter name）
   lines.push('编写 codemode 脚本时：脚本以 (tools, console) 参数形式注入环境，不得用 const/let/function 再声明 tools、console 同名变量（会报 invalid redefinition of parameter name）；调用工具写作 await tools.<工具名>({ ...参数 })，查找未列出的工具用 searchTools(关键词)。')

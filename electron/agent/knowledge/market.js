@@ -4,6 +4,8 @@
 // - 安装：下载 zip → 按索引 type 分流：
 //     skill → skills.importZip 落 <agentDir>/skills/<name>/
 //     agent → agents.importAgentZip 落 <agentDir>/agents/<itemId>/（专家集合包）
+//     team  → teams.importTeamZip 团落 <agentDir>/teams/<itemId>.json，
+//             成员专家落 <agentDir>/agents/teams-<itemId>/（专家团包）
 //   两类管线均含 frontmatter / zip-slip 安全校验
 // - 记录：market-installed.json 存已装项来源与版本，供「已安装」状态与更新对比
 // - 429 防护：索引内存缓存（TTL）+ install 优先复用缓存，减少 raw 请求；限流时错误明确提示
@@ -321,9 +323,7 @@ function listInstalled() {
       let missing = false
       if (rec.type === 'team') {
         // 专家团：teamId 定位 teams/<id>.json（文件级丢失检测）
-        try {
-          missing = !rec.teamId || !fs.existsSync(path.join(baseDir, 'pi-agent', 'teams', rec.teamId + '.json'))
-        } catch (e) { missing = true }
+        missing = !rec.teamId || !teams.teamExists(rec.teamId)
       } else if (rec.type === 'agent') {
         if (rec.agentFile) {
           // 裸 md 单专家：文件级丢失检测（deleteAgent 同源的路径解析）

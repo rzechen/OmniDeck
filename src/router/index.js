@@ -822,9 +822,9 @@ router.afterEach((to) => {
     let title = meta.title || to.path
     // 空白对话页显示「新任务」（有会话 id 时标题由 BuddyLayout 按任务名补齐）
     if (side === 'buddy' && to.path === '/omnibuddy' && !to.query.s) title = '新任务'
-    // 资源市场按 类型+视图 显示页签名（技能广场 / 我的技能 / 子代理广场 / …）
+    // 资源市场按 类型+视图 显示页签名（技能广场 / 我的技能 / 专家团广场 / …）
     if (side === 'buddy' && to.path === '/omnibuddy/market') {
-      const t = { skill: '技能', agent: '专家', connector: '连接器' }[to.query.type]
+      const t = { skill: '技能', agent: '专家', team: '专家团', connector: '连接器' }[to.query.type]
       if (t) title = to.query.view === 'mine' ? '我的' + t : t + '广场'
     }
     store.commit('tagsView/ADD_TAB', { side, path: to.path, fullPath: to.fullPath, title })
