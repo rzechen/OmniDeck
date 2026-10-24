@@ -236,8 +236,10 @@ function probe() {
     nut: false,           // nut.js 模块可用
     nutError: '',
   }
-  if (process.platform !== 'darwin') {
-    res.screenNote = '电脑控制目前仅支持 macOS'
+  if (process.platform === 'win32') {
+    // Windows 无 TCC 授权体系：键鼠模拟与截屏无需系统权限，仅验证 nut 引擎
+    res.accessibility = true
+    res.screen = true
     return call('ping', {}, 15000).then(() => {
       res.nut = true
       return res
@@ -245,6 +247,12 @@ function probe() {
       res.nutError = e.message
       return res
     })
+  }
+  if (process.platform !== 'darwin') {
+    res.accessibility = false
+    res.screen = false
+    res.screenNote = '电脑控制目前仅支持 macOS / Windows'
+    return Promise.resolve(res)
   }
   // 辅助功能：System Events 取进程名，未授权时 osascript 直接报错
   try {
@@ -291,6 +299,7 @@ function workerMain() {
   const { pathToFileURL } = require('url')
 
   const IS_MAC = process.platform === 'darwin'
+  const IS_WIN = process.platform === 'win32'
   const MAX_DIM = 1920 // 截图最长边，超出则缩放（降低 payload 与推理延迟）
   const SHOT_PATH = path.join(os.tmpdir(), 'omnideck-cu-shot-' + process.pid + '.jpg')
   const IDLE_QUIT_MS = 5 * 60 * 1000
@@ -379,7 +388,8 @@ function workerMain() {
 
   // 截主显示器为 JPEG 并读取尺寸；返回 { b64, width, height }
   function takeScreenshot() {
-    if (!IS_MAC) throw new Error('电脑控制目前仅支持 macOS')
+    if (IS_WIN) return takeScreenshotWin()
+    if (!IS_MAC) throw new Error('电脑控制目前仅支持 macOS / Windows')
     if (fs.existsSync(SHOT_PATH)) { try { fs.unlinkSync(SHOT_PATH) } catch (e) { /* 忽略 */ } }
     execFileSync('screencapture', ['-x', '-m', '-t', 'jpg', SHOT_PATH], { stdio: 'ignore' })
     if (!fs.existsSync(SHOT_PATH)) throw new Error('截屏失败（请检查「屏幕录制」权限）')
@@ -391,7 +401,34 @@ function workerMain() {
     return { b64: fs.readFileSync(SHOT_PATH).toString('base64'), width: w, height: h }
   }
 
-  // 屏幕逻辑分辨率（Retina 截图像素是逻辑坐标的 2 倍，点击坐标需按比例换算）
+  // Windows 截主屏：PowerShell CopyFromScreen（必须 SetProcessDPIAware 取物理像素，
+  // 否则 DPI 缩放下拿到虚拟化坐标导致点击错位）；超长边 bicubic 缩放后存 JPEG
+  function takeScreenshotWin() {
+    if (fs.existsSync(SHOT_PATH)) { try { fs.unlinkSync(SHOT_PATH) } catch (e) { /* 忽略 */ } }
+    const ps = [
+      "Add-Type -AssemblyName System.Windows.Forms,System.Drawing",
+      "Add-Type 'using System.Runtime.InteropServices; public class DpiHack { [DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware(); }'",
+      '[DpiHack]::SetProcessDPIAware() | Out-Null',
+      '$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds',
+      '$w = $b.Width; $h = $b.Height',
+      '$max = ' + MAX_DIM,
+      "if ($w -gt $max -or $h -gt $max) { $s = [Math]::Min($max / $w, $max / $h); $tw = [int]($w * $s); $th = [int]($h * $s) } else { $tw = $w; $th = $h }",
+      '$bmp = New-Object System.Drawing.Bitmap $w, $h',
+      '$g = [System.Drawing.Graphics]::FromImage($bmp)',
+      '$g.CopyFromScreen($b.X, $b.Y, 0, 0, $b.Size)',
+      "if ($tw -ne $w) { $bmp2 = New-Object System.Drawing.Bitmap $tw, $th; $g2 = [System.Drawing.Graphics]::FromImage($bmp2); $g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic; $g2.DrawImage($bmp, 0, 0, $tw, $th); $bmp.Dispose(); $bmp = $bmp2 }",
+      "$bmp.Save('" + SHOT_PATH.replace(/'/g, "''") + "', [System.Drawing.Imaging.ImageFormat]::Jpeg)",
+      'Write-Output ($bmp.Width.ToString() + \'x\' + $bmp.Height.ToString())',
+    ].join('; ')
+    const out = execFileSync('powershell',
+      ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8' })
+    const m = out.match(/(\d+)\s*x\s*(\d+)/)
+    if (!m || !fs.existsSync(SHOT_PATH)) throw new Error('Windows 截屏失败：' + out.trim().slice(0, 200))
+    return { b64: fs.readFileSync(SHOT_PATH).toString('base64'), width: +m[1], height: +m[2] }
+  }
+
+  // 屏幕逻辑分辨率（Retina 截图像素是逻辑坐标的 2 倍，点击坐标需按比例换算）；
+  // Windows 鼠标/截图同为物理像素基准，返回 null 走 scale=1
   function getLogicalScreenSize() {
     if (IS_MAC) {
       try {
@@ -453,7 +490,10 @@ function workerMain() {
   })()
 
   function resolveKey(Key, name) {
-    const n = String(name).trim().toLowerCase()
+    let n = String(name).trim().toLowerCase()
+    // Windows 下模型常按 macOS 习惯写 cmd+c/v：重定向为 ctrl
+    // （cmd 字面映射 Win 键会误触系统快捷键，如 Win+V 剪贴板历史）
+    if (!IS_MAC && n === 'cmd') n = 'ctrl'
     const candidates = (KEY_ALIASES[n] || [])
       .concat([n, n.toUpperCase(), n[0].toUpperCase() + n.slice(1)])
     for (const c of candidates) {
@@ -583,25 +623,41 @@ function workerMain() {
     async open(params) {
       if (params.url) {
         if (IS_MAC) execFileSync('open', [params.url])
-        else throw new Error('仅支持 macOS')
+        else execFileSync('cmd', ['/c', 'start', '', String(params.url)])
         return 'open ' + params.url
       }
       if (!params.app) throw new Error('open 需要 app 或 url')
-      if (!IS_MAC) throw new Error('仅支持 macOS')
-      try { execFileSync('open', ['-a', params.app]) } catch (e) {
-        execFileSync('open', ['-a', params.app + '.app'])
+      if (IS_MAC) {
+        try { execFileSync('open', ['-a', params.app]) } catch (e) {
+          execFileSync('open', ['-a', params.app + '.app'])
+        }
+        return 'open ' + params.app
       }
+      // Windows：可执行名（PATH 命中，如 notepad / chrome）或完整路径
+      execFileSync('cmd', ['/c', 'start', '', String(params.app)])
       return 'open ' + params.app
     },
 
-    // 置前应用（osascript activate）：目标窗口被遮挡时点击会落到别的窗口，
-    // 点击类操作前先把目标应用带到前台（不新开窗口，与 open 互补）
+    // 置前应用：目标窗口被遮挡时点击会落到别的窗口——先 activate 再点击
     async activate(params) {
-      if (!IS_MAC) throw new Error('仅支持 macOS')
-      const app = String(params.app || '').replace(/["\\]/g, '').trim()
+      let app = String(params.app || '').replace(/["\\]/g, '').trim()
       if (!app) throw new Error('app 缺失')
-      execFileSync('osascript', ['-e', 'tell application "' + app + '" to activate'])
-      await sleep(300) // 等待窗口置前与重绘
+      if (IS_MAC) {
+        execFileSync('osascript', ['-e', 'tell application "' + app + '" to activate'])
+        await sleep(300) // 等待窗口置前与重绘
+        return 'activate ' + app
+      }
+      // Windows：按进程名（Get-Process 名不含 .exe，这里兼容传入）找主窗口 PID → AppActivate
+      app = app.replace(/\.exe$/i, '').replace(/'/g, "''")
+      const ps = "$p = Get-Process -Name '" + app + "' -ErrorAction SilentlyContinue "
+        + "| Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1; "
+        + "if ($p) { (New-Object -ComObject WScript.Shell).AppActivate($p.Id) | Out-Null; 'ok' } else { 'notfound' }"
+      const out = execFileSync('powershell',
+        ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8' }).trim()
+      if (out.indexOf('ok') < 0) {
+        throw new Error('未找到运行中的应用「' + app + '」（Windows 按进程名匹配，如 notepad / chrome；未启动的先用 computer_open）')
+      }
+      await sleep(300)
       return 'activate ' + app
     },
 

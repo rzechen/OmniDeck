@@ -458,6 +458,8 @@ function exportZip(dir) {
 module.exports = {
   // 初始化 skills 根目录
   init,
+  // skills 根目录路径（chat.js @ 引用解析 SKILL.md 绝对路径用）
+  skillsRoot: skillsDir,
   // 扫描技能列表（含多包归属折叠信息）
   listSkills,
   // 本地新建技能

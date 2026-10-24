@@ -824,7 +824,7 @@ function createComputerUseExtension(cwdState) {
     piApi.registerTool({
       name: 'computer_type',
       label: '键入文字',
-      description: '向前台应用键入文字。纯 ASCII 直接敲键盘；含中文自动经剪贴板粘贴（cmd+v，会覆盖用户剪贴板）。'
+      description: '向前台应用键入文字。纯 ASCII 直接敲键盘；含中文自动经剪贴板粘贴（macOS cmd+v / Windows ctrl+v，会覆盖用户剪贴板）。'
         + '输入前须先点击目标输入框使其聚焦。',
       parameters: {
         type: 'object',
@@ -841,7 +841,7 @@ function createComputerUseExtension(cwdState) {
     piApi.registerTool({
       name: 'computer_key',
       label: '按快捷键',
-      description: '向前台应用发送按键组合，如 enter、esc、tab、cmd+v、cmd+tab、alt+f4（macOS 修饰键用 cmd/alt/ctrl/shift）。',
+      description: '向前台应用发送按键组合，如 enter、esc、tab、cmd+v、ctrl+c、alt+f4（macOS 修饰键 cmd/alt/ctrl/shift，Windows 用 ctrl/alt/win；cmd 在 Windows 下自动按 ctrl 处理）。',
       parameters: {
         type: 'object',
         properties: {
@@ -874,12 +874,12 @@ function createComputerUseExtension(cwdState) {
     piApi.registerTool({
       name: 'computer_open',
       label: '打开应用/链接',
-      description: '用系统默认方式打开 macOS 应用（应用名，如 "备忘录" / "Safari" / "Finder"）'
+      description: '用系统默认方式打开应用（macOS 用应用名如 "备忘录" / "Safari"；Windows 用可执行名如 notepad / chrome 或完整路径）'
         + '或 URL（https:// 与 dingtalk:// 等私有协议）。操作后须重新截屏确认结果。',
       parameters: {
         type: 'object',
         properties: {
-          app: { type: 'string', description: 'macOS 应用名（与 url 二选一）' },
+          app: { type: 'string', description: '应用标识：macOS 应用名 / Windows 可执行名或完整路径（与 url 二选一）' },
           url: { type: 'string', description: '要打开的 URL（与 app 二选一）' }
         }
       },
@@ -892,12 +892,13 @@ function createComputerUseExtension(cwdState) {
     piApi.registerTool({
       name: 'computer_activate',
       label: '切换前台应用',
-      description: '把指定 macOS 应用带到前台（activate，不新开窗口，与 computer_open 互补）。'
-        + '目标应用窗口被遮挡 / 不在前台时，必须先 activate 再点击，否则点击会落到其他窗口上。',
+      description: '把指定应用带到前台（activate，不新开窗口，与 computer_open 互补）。'
+        + '目标应用窗口被遮挡 / 不在前台时，必须先 activate 再点击，否则点击会落到其他窗口上。'
+        + '应用标识：macOS 用应用名（如 "备忘录"）；Windows 用进程名（如 notepad / chrome，未启动的应用先用 computer_open）。',
       parameters: {
         type: 'object',
         properties: {
-          app: { type: 'string', description: 'macOS 应用名，如 "备忘录" / "Safari" / "Finder"' }
+          app: { type: 'string', description: 'macOS 应用名 / Windows 进程名（如 notepad / chrome）' }
         },
         required: ['app']
       },

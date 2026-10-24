@@ -88,6 +88,18 @@ function resolveAgentFile(file) {
   return abs
 }
 
+// 解析专家 md 文本（frontmatter + 正文；供 teams 模块校验专家团包成员用）
+function parseAgentText(text) {
+  const { metaText, body } = splitFrontmatter(String(text || ''))
+  const meta = parseMeta(metaText)
+  return {
+    name: String(meta.name || '').trim(),
+    description: String(meta.description || '').trim(),
+    tools: parseTools(meta.tools),
+    content: body
+  }
+}
+
 // ===== 专家 CRUD =====
 // 递归扫描 agents 目录（.chain.md 为编排链文件，不定义专家，跳过）
 function walkAgents(dir, rel, depth, out) {
@@ -363,6 +375,8 @@ module.exports = {
   init,
   // agents 根目录路径（市场模块检查集合目录用）
   agentsRoot: agentsDir,
+  // 解析专家 md 文本（frontmatter + 正文）
+  parseAgentText,
   // 扫描专家列表（frontmatter + 正文）
   listAgents,
   // 本地新建专家（<name>.md）

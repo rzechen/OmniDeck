@@ -2,11 +2,17 @@
 // 纯对话兜底）、steer（运行中插话）、interrupt（中断）、ask-user:reply
 // （ask_user 工具应答）。
 const { ipcMain } = require('electron')
+const path = require('path')
+const fs = require('fs')
 const sessions = require('../sessions/sessions')
 const scheduler = require('../platform/scheduler')
 const workspaces = require('../workspace/workspaces')
 const attachments = require('../workspace/attachments')
 const branchView = require('../sessions/branchView')
+const agents = require('../knowledge/agents')
+const skills = require('../knowledge/skills')
+const connectors = require('../integrations/connectors')
+const mcp = require('../integrations/mcp')
 const { streamChat } = require('../core/llm')
 const piRuntime = require('../pi')
 const { emit, running, sessionAnchorKeys, pendingAsks, pendingPermissions } = require('../core/chat-state')
@@ -39,8 +45,77 @@ function stripRefTokens(text) {
 function rebuildRefsForReplay(msg) {
   const content = String((msg && msg.content) || '')
   // 兼容旧 steer 消息：其落盘 content 已内嵌路径块，不重复前置，仅清洗 token
-  if (content.indexOf('我引用了以下工作空间路径：') === 0) return stripRefTokens(content)
-  return buildRefsBlock(msg && msg.atRefs) + stripRefTokens(content)
+  if (content.indexOf('我引用了以下工作空间路径：') === 0) {
+    return buildMentionsBlock(content) + stripAtTokens(stripRefTokens(content))
+  }
+  return buildRefsBlock(msg && msg.atRefs) + buildMentionsBlock(content) + stripAtTokens(stripRefTokens(content))
+}
+
+// ===== @ 引用 token 处理（send / steer / 回放三处共用） =====
+// 正则与前端 BuddyComposer.vue / MessageBubble.vue 的 TOKEN_RE 契约一致。
+// @ 引用与 # 引用不同：token 值本身即完整寻址键（专家/技能相对安装根目录、
+// 连接器为目录 id），无需随消息落盘元数据——首发与回放均从正文实时解析，
+// 历史消息中的旧 token 也能自动获得正确展开
+const AT_TOKEN_RE = /@(Skill|Expert|Connector):([^\s#@]+)/g
+
+// 相对引用值 → 安装根目录下的绝对路径（防路径穿越，越界返回 null）
+function resolveWithin(rootDir, rel) {
+  const root = path.resolve(rootDir)
+  const abs = path.resolve(root, rel)
+  return abs === root || abs.startsWith(root + path.sep) ? abs : null
+}
+
+// 单条 @ 引用 → 模型可执行信息行。专家/技能解析为安装位下的绝对路径——
+// 10-24 ENOENT 根因：@Expert: 的相对路径被模型按系统提示词拼到
+// <工作空间>/.agents/ 下读取，而专家实际装在 agentDir/agents/；
+// 连接器解析为 MCP server 注册名（工具形如 mcp__connector_<id>__*）
+function atMentionLine(kind, val) {
+  if (kind === 'Expert') {
+    const abs = resolveWithin(agents.agentsRoot(), val)
+    if (!abs) return '- 专家 ' + val + '：路径非法，请告知用户'
+    if (!fs.existsSync(abs)) return '- 专家 ' + val + '：定义文件不存在（可能已卸载），请告知用户'
+    const meta = agents.listAgents().find(a => a.file === val)
+    const name = (meta && meta.name) || val.split('/').pop().replace(/\.md$/i, '')
+    return '- 专家「' + name + '」（' + abs + '）：先用工具读取该定义文件，再以其专长处理本次任务'
+  }
+  if (kind === 'Skill') {
+    const dir = resolveWithin(skills.skillsRoot(), val)
+    const skillFile = dir && path.join(dir, 'SKILL.md')
+    if (!skillFile || !fs.existsSync(skillFile)) {
+      return '- 技能 ' + val + '：未安装（SKILL.md 不存在），请告知用户'
+    }
+    const meta = skills.listSkills().find(s => s.dir === val)
+    return '- 技能「' + ((meta && meta.name) || val) + '」（' + skillFile + '）：如与任务相关，先读取 SKILL.md 并按其指引执行'
+  }
+  const c = connectors.CONNECTORS.find(x => x.id === val)
+  if (!c) return '- 连接器 ' + val + '：未找到（可能已下线），请告知用户'
+  const serverName = 'connector-' + val
+  const connected = mcp.list().some(s => s && s.name === serverName)
+  return connected
+    ? '- 连接器「' + c.name + '」：MCP server ' + serverName + ' 已接入，其工具形如 mcp__connector_' + val + '__*'
+    : '- 连接器「' + c.name + '」：当前未接入（工具不可用），请告知用户先在连接器页接入'
+}
+
+// 拼 @ 引用块：把正文 token 解析为定义/接入信息清单（无 @ 引用返回 ''）
+function buildMentionsBlock(text) {
+  const items = []
+  const seen = Object.create(null)
+  AT_TOKEN_RE.lastIndex = 0
+  let m
+  while ((m = AT_TOKEN_RE.exec(String(text || '')))) {
+    const key = m[1] + ':' + m[2]
+    if (!seen[key]) { seen[key] = 1; items.push([m[1], m[2]]) }
+  }
+  if (!items.length) return ''
+  const lines = items.map(([kind, val]) => atMentionLine(kind, val))
+  return '我引用了以下技能 / 专家 / 连接器：\n' + lines.join('\n') + '\n（信息如上，不要向用户解释引用标记本身）\n\n'
+}
+
+// 清洗正文中的裸 @ token（→ 显示名，与前端 chip 显示规则一致；信息由引用块承载）
+function stripAtTokens(text) {
+  return String(text || '').replace(AT_TOKEN_RE, (_m, kind, val) => {
+    return kind === 'Expert' ? val.split('/').pop().replace(/\.md$/i, '') : val
+  })
 }
 
 // 注册流式对话相关 IPC（getWindow 由 index.js 注入）
@@ -85,9 +160,10 @@ function registerChatIpc(getWindow) {
     }
 
     // 文本/PDF 附件：抽取全文拼入 prompt（<attachment> 引用块）；
-    // # 引用：拼路径块（不做内容抽取，模型按需用工具读取真实路径），
-    // 并清洗正文中的裸 token（→ 纯文件名）；落盘 content 仍保留 token 供气泡渲染 chip
-    let promptText = buildRefsBlock(atRefs) + stripRefTokens(text)
+    // # 引用：拼路径块（不做内容抽取，模型按需用工具读取真实路径）；
+    // @ 引用：拼技能/专家/连接器信息块（专家/技能解析为安装位绝对路径）；
+    // 并清洗正文中的裸 token（→ 纯名称）；落盘 content 仍保留 token 供气泡渲染 chip
+    let promptText = buildRefsBlock(atRefs) + buildMentionsBlock(text) + stripAtTokens(stripRefTokens(text))
     const textBlock = await attachments.buildTextBlock(fileAttachments)
     if (textBlock) {
       promptText = promptText + '\n\n' + textBlock
@@ -301,9 +377,9 @@ function registerChatIpc(getWindow) {
     if (r.mode !== 'pi') return { ok: false, error: '当前会话不支持插话' }
     const body = String(text || '').trim()
     if (!body) return { ok: false, error: '插话内容为空' }
-    // # 引用与 sendMessage 同规则：路径块 + 清洗后的正文只拼给模型，
-    // 落盘 content 保留原始 token（气泡渲染 chip、回放时按 atRefs 重建）
-    const promptText = buildRefsBlock(atRefs) + stripRefTokens(body)
+    // # / @ 引用与 sendMessage 同规则：路径块 + 信息块 + 清洗后的正文只拼给
+    // 模型，落盘 content 保留原始 token（气泡渲染 chip、回放时实时重建）
+    const promptText = buildRefsBlock(atRefs) + buildMentionsBlock(body) + stripAtTokens(stripRefTokens(body))
     const extras = (Array.isArray(r.anchors) && r.anchors.length) ? { anchors: r.anchors.slice() } : {}
     if (Array.isArray(atRefs) && atRefs.length) {
       extras.atRefs = atRefs.map(ref => ({ name: ref.name || '', kind: ref.kind === 'dir' ? 'dir' : 'file', path: ref.path || '', rel: ref.rel || '' }))

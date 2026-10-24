@@ -246,9 +246,12 @@ function registerSettingsIpc() {
   // 权限探测：辅助功能 / 屏幕录制（macOS TCC）+ nut.js 可用性（探测期间懒启动 worker）
   ipcMain.handle('omnibuddy:computer-use:probe', () => computerUse.probe())
 
-  // 直达系统设置对应权限页（kind: 'accessibility' | 'screen'；非 macOS 返回不支持）
+  // 直达系统设置对应权限页（kind: 'accessibility' | 'screen'；仅 macOS 需要，Windows 无需授权）
   ipcMain.handle('omnibuddy:computer-use:open-permission', (_e, kind) => {
-    if (process.platform !== 'darwin') return { ok: false, error: '电脑控制目前仅支持 macOS' }
+    if (process.platform === 'win32') {
+      return { ok: true, note: 'Windows 无需系统授权即可使用电脑控制' }
+    }
+    if (process.platform !== 'darwin') return { ok: false, error: '电脑控制目前仅支持 macOS / Windows' }
     const anchor = kind === 'screen' ? 'Privacy_ScreenCapture' : 'Privacy_Accessibility'
     require('electron').shell.openExternal('x-apple.systempreferences:com.apple.preference.security?' + anchor)
     return { ok: true }

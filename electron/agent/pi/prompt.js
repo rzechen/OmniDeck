@@ -82,6 +82,14 @@ function systemPrompt() {
     '它仅表示用户引用了该路径；对应的绝对路径会在同一条消息前部的"我引用了以下工作空间路径"清单中给出。',
     '该标记是界面对你的引用提示，不是提问对象——不要向用户解释这个标记本身的含义、生成机制或界面实现，直接把它当作用户引用的文件/目录去处理任务即可。'
   ].join(''))
+  // @ 引用 token 契约（10-24 ENOENT 实证：@Expert: 相对路径被拼到工作空间
+  // .agents/ 下读取失败）——与 # 同构：定义/接入信息在消息前部清单给出，
+  // 模型不得自行拼路径
+  lines.push([
+    '消息中形如 @Skill:目录 / @Expert:文件路径 / @Connector:连接器 id 的标记同理，是用户"引用技能/专家/连接器"的序列化产物；',
+    '对应的定义文件绝对路径或接入状态会在同一条消息前部的"我引用了以下技能 / 专家 / 连接器"清单中给出，按清单信息处理任务即可。',
+    '不要自行把标记中的相对路径拼到工作空间目录下（专家/技能装在 agentDir，不在工作空间），也不要向用户解释标记本身。'
+  ].join(''))
   // 临时文件按工作空间划分：统一落 <workspace>/.tmp（会话创建时自动建目录并注入 TMPDIR），
   // 避免模型按通用习惯写系统 /tmp 触发 external_directory 逐次询问
   lines.push('临时文件（脚本、中间产物等）一律写入当前工作空间根目录的 .tmp/ 目录（已自动创建，环境变量 TMPDIR 已指向该处），不要写入系统 /tmp 等工作空间外的路径。')
@@ -89,8 +97,8 @@ function systemPrompt() {
   // 试探目录关系、不再自行推断下划线名与横杠名的等价性（10-09 排障跑偏实证）
   lines.push([
     '环境地图（直接按此对齐，勿再探索目录关系或逆向宿主实现）：',
-    '- 工作空间（当前目录）：业务资产与流水线交付；自定义 agent 定义在 .agents/*.md，场景配置在 .agents/scenarios/。',
-    '- agentDir（环境变量 PI_CODING_AGENT_DIR 指向）：全局配置位——mcp.json（MCP 服务器注册）、settings.json（宿主装配，只读，勿改）、skills/（技能安装位，其 SKILL.md 可读）。',
+    '- 工作空间（当前目录）：业务资产与流水线交付；仅项目级自定义 agent（用户手动放置）在 .agents/*.md、场景配置在 .agents/scenarios/——应用安装的专家与技能不在此处。',
+    '- agentDir（环境变量 PI_CODING_AGENT_DIR 指向）：全局配置位——mcp.json（MCP 服务器注册）、settings.json（宿主装配，只读，勿改）、skills/（技能安装位，其 SKILL.md 可读）、agents/（专家安装位：市场在 agents/market/、内置在 agents/builtin/、自建在 agents/ 根；@Expert: 引用的路径相对 agents/ 目录，绝对路径以消息前部引用清单为准）。',
     '- 产品仓库 node_modules：仅 pi-* 扩展包本体，属宿主实现——任何排障都不读不改；环境装配缺口（工具缺失 / 扩展未装载）一律如实汇报交宿主处理。',
     'MCP 命名规则：工具真实注册名 = mcp__<server 名中非 [A-Za-z0-9_] 字符替换为 _ 后的名>__<工具名>（如 wechat-mcp 的工具形如 mcp__wechat_mcp__xxx）；agent 定义与 tools 白名单用 mcp:<原始 server 名> 选择器语法——两者是同一 server 的两种写法，等价。'
   ].join('\n'))

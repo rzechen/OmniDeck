@@ -13,6 +13,7 @@ const electron = require('electron')
 const { ipcMain, net, shell } = electron
 const skills = require('./skills')
 const agents = require('./agents')
+const teams = require('./teams')
 const remote = require('../../../src/config/remote.cjs')
 
 // ===== 初始化 =====
@@ -235,6 +236,18 @@ async function install(itemId) {
     updatedAt: new Date().toISOString()
   }
 
+  if (item.type === 'team') {
+    // 专家团包：team.json（团定义）+ 专家 .md 集合 → 团落 teams/<itemId>.json，
+    // 成员落 agents/teams-<itemId>/（teams 模块统一校验与落盘）
+    const installed = await teams.importTeamZip(dl.data, item.id)
+    if (!installed.ok) return installed
+    Object.assign(rec, { teamId: installed.teamId, collection: installed.collection, agentCount: installed.count })
+    const list = readInstalled().filter(r => r.id !== itemId)
+    list.push(rec)
+    writeInstalled(list)
+    return { ok: true, skill: installed.skill }
+  }
+
   if (item.type === 'agent') {
     // 按内容魔数分流（比 url 后缀可靠）：ZIP 以 "PK" 开头，否则按裸 md 单专家安装
     const isZip = dl.data.length > 4 && dl.data[0] === 0x50 && dl.data[1] === 0x4b
@@ -271,7 +284,13 @@ async function install(itemId) {
 function uninstall(itemId) {
   const rec = readInstalledRec(itemId)
   if (!rec.id) return { ok: false, error: '未安装该资源' }
-  if (rec.type === 'agent') {
+  if (rec.type === 'team') {
+    // 专家团：删除团定义 json（teams.removeTeam 连带清理成员集合目录）
+    if (rec.teamId) {
+      const del = teams.removeTeam(rec.teamId)
+      if (!del.ok) return del
+    }
+  } else if (rec.type === 'agent') {
     if (rec.agentFile) {
       const del = agents.deleteAgent(rec.agentFile)
       if (!del.ok) return del
@@ -300,7 +319,12 @@ function listInstalled() {
     ok: true,
     items: list.map(rec => {
       let missing = false
-      if (rec.type === 'agent') {
+      if (rec.type === 'team') {
+        // 专家团：teamId 定位 teams/<id>.json（文件级丢失检测）
+        try {
+          missing = !rec.teamId || !fs.existsSync(path.join(baseDir, 'pi-agent', 'teams', rec.teamId + '.json'))
+        } catch (e) { missing = true }
+      } else if (rec.type === 'agent') {
         if (rec.agentFile) {
           // 裸 md 单专家：文件级丢失检测（deleteAgent 同源的路径解析）
           try {

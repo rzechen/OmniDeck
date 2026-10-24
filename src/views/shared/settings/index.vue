@@ -2205,7 +2205,11 @@ function computerApi() {
 const computerProbeText = computed(() => {
   const p = computerCfg.value.probe
   if (!p) return '未检测 · 点击「重新检测」获取当前权限状态'
-  if (p.platform !== 'darwin') return '电脑控制仅支持 macOS'
+  if (p.platform === 'win32') {
+    if (!p.nut) return '权限无需配置（Windows），但执行引擎不可用' + (p.nutError ? '：' + p.nutError : '')
+    return '权限无需配置（Windows 无 TCC 授权）· 可正常使用'
+  }
+  if (p.platform !== 'darwin') return '电脑控制仅支持 macOS / Windows'
   const missing = []
   if (!p.accessibility) missing.push('辅助功能')
   if (!p.screen) missing.push('屏幕录制' + (p.screenNote ? '（' + p.screenNote + '）' : ''))

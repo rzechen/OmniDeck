@@ -368,19 +368,21 @@ const COMPUTER_TOOLS = [
   { name: 'computer_double_click', label: '双击屏幕', description: '在截图像素坐标处模拟鼠标双击。', perm: 'ask' },
   { name: 'computer_hover', label: '悬停屏幕', description: '鼠标移动到截图像素坐标处悬停（250-500ms）：展开 hover 菜单 / 触发 tooltip。', perm: 'allow' },
   { name: 'computer_drag', label: '拖拽屏幕', description: '按住起点拖拽到终点后释放（拟人贝塞尔移动）：滑块验证、文件拖放、窗口移动。', perm: 'ask' },
-  { name: 'computer_type', label: '键入文字', description: '向前台应用键入文字：纯 ASCII 直接敲键盘，含中文经剪贴板粘贴（cmd+v）。', perm: 'ask' },
-  { name: 'computer_key', label: '按快捷键', description: '向前台应用发送按键组合，如 enter、esc、cmd+v、cmd+tab。', perm: 'ask' },
+  { name: 'computer_type', label: '键入文字', description: '向前台应用键入文字：纯 ASCII 直接敲键盘，含中文经剪贴板粘贴（macOS cmd+v / Windows ctrl+v）。', perm: 'ask' },
+  { name: 'computer_key', label: '按快捷键', description: '向前台应用发送按键组合，如 enter、esc、cmd+v、ctrl+c、alt+f4（Windows 下 cmd 自动按 ctrl 处理）。', perm: 'ask' },
   { name: 'computer_scroll', label: '滚动屏幕', description: '在当前位置滚动（up / down / left / right，幅度 1-10 默认 3）。', perm: 'ask' },
-  { name: 'computer_open', label: '打开应用/链接', description: '用系统默认方式打开 macOS 应用（open -a）或 URL（支持 https:// 与私有协议）。', perm: 'ask' }
+  { name: 'computer_open', label: '打开应用/链接', description: '用系统默认方式打开应用（macOS 应用名 / Windows 可执行名或完整路径）或 URL（支持 https:// 与私有协议）。', perm: 'ask' }
 ]
 
 // 按电脑控制开关动态标注（关闭 → 禁用态卡片 + 引导说明，联网开关同模式）；
 // 开关开启但未配置视觉模型时 computer_look 单独禁用（工具未注册）
 function computerTools() {
   if (!computerUse.enabled()) {
+    // 平台化授权提示：macOS 需 TCC 授权，Windows 免授权
+    const permHint = process.platform === 'darwin' ? '，需授予辅助功能与屏幕录制权限' : ''
     return COMPUTER_TOOLS.map(t => Object.assign({}, t, {
       disabled: true,
-      description: '电脑控制开关已关闭（设置 → 电脑控制可开启，需授予辅助功能与屏幕录制权限）。' + t.description
+      description: '电脑控制开关已关闭（设置 → 电脑控制可开启' + permHint + '）。' + t.description
     }))
   }
   if (!computerUse.visionProvider()) {
