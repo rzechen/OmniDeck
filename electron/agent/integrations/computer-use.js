@@ -338,14 +338,17 @@ function workerMain() {
     await sleep(rand(60, 130)) // hover 停留（hover 展开菜单也依赖此停留）
   }
 
-  // 拟人按压：按下-抬起间隔随机（替代 leftClick 固定节奏）
-  async function pressHuman(m) {
-    if (!HUMAN_MOVE) { await m.mouse.leftClick(); return }
-    await m.mouse.pressButton(m.Button.LEFT)
+  // 拟人按压：按下-抬起间隔随机（替代 leftClick 固定节奏）；button 缺省左键
+  async function pressHuman(m, button) {
+    if (!HUMAN_MOVE) {
+      if (button === m.Button.RIGHT) { await m.mouse.rightClick(); return }
+      await m.mouse.leftClick()
+      return
+    }
+    await m.mouse.pressButton(button === undefined ? m.Button.LEFT : button)
     await sleep(rand(40, 90))
-    await m.mouse.releaseButton(m.Button.LEFT)
+    await m.mouse.releaseButton(button === undefined ? m.Button.LEFT : button)
   }
-  // 注：pressHuman 未用 Point；Button 经 m.Button 引用（loadNut 局部解构不可跨作用域）
 
   function bumpIdle() {
     if (idleTimer) clearTimeout(idleTimer)
@@ -468,6 +471,17 @@ function workerMain() {
     await nut.keyboard.releaseKey.apply(null, keys)
   }
 
+  // 截图像素坐标 → 逻辑坐标（校验数值与边界；click / hover / drag 共用）
+  function toLogical(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('x/y 缺失或非法')
+    const { scale, scaleY, logical: lg } = shotScale()
+    const sx = Math.round(x * scale), sy = Math.round(y * scaleY)
+    if (sx < 0 || sy < 0 || (lg && (sx > lg.w || sy > lg.h))) {
+      throw new Error('坐标越界 (' + sx + ',' + sy + ')，逻辑分辨率 ' + (lg ? lg.w + 'x' + lg.h : '未知'))
+    }
+    return [sx, sy]
+  }
+
   // ---------- 动作处理器 ----------
   const handlers = {
     async ping() {
@@ -484,27 +498,15 @@ function workerMain() {
 
     async click(params) {
       const m = await loadNut()
-      const x = +params.x, y = +params.y
-      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('x/y 缺失或非法')
-      const { scale, scaleY, logical: lg } = shotScale()
-      const sx = Math.round(x * scale), sy = Math.round(y * scaleY)
-      if (sx < 0 || sy < 0 || (lg && (sx > lg.w || sy > lg.h))) {
-        throw new Error('坐标越界 (' + sx + ',' + sy + ')，逻辑分辨率 ' + (lg ? lg.w + 'x' + lg.h : '未知'))
-      }
+      const [sx, sy] = toLogical(+params.x, +params.y)
       await moveHuman(m, sx, sy)
-      await pressHuman(m)
-      return 'click @ 逻辑坐标(' + sx + ',' + sy + ')'
+      await pressHuman(m, params.button === 'right' ? m.Button.RIGHT : m.Button.LEFT)
+      return (params.button === 'right' ? 'right-' : '') + 'click @ 逻辑坐标(' + sx + ',' + sy + ')'
     },
 
     async double_click(params) {
       const m = await loadNut()
-      const x = +params.x, y = +params.y
-      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('x/y 缺失或非法')
-      const { scale, scaleY, logical: lg } = shotScale()
-      const sx = Math.round(x * scale), sy = Math.round(y * scaleY)
-      if (sx < 0 || sy < 0 || (lg && (sx > lg.w || sy > lg.h))) {
-        throw new Error('坐标越界 (' + sx + ',' + sy + ')')
-      }
+      const [sx, sy] = toLogical(+params.x, +params.y)
       await moveHuman(m, sx, sy)
       if (HUMAN_MOVE) {
         // 双击 = 两次拟人按压，间隔随机（模拟人手连点）
@@ -518,6 +520,29 @@ function workerMain() {
         }
       }
       return 'double_click @ 逻辑坐标(' + sx + ',' + sy + ')'
+    },
+
+    // 悬停：移动到目标并停留（hover 展开菜单 / 触发 tooltip；停留比点击长）
+    async hover(params) {
+      const m = await loadNut()
+      const [sx, sy] = toLogical(+params.x, +params.y)
+      await moveHuman(m, sx, sy)
+      await sleep(HUMAN_MOVE ? rand(250, 500) : 200) // 等待 hover 菜单/tooltip 展开
+      return 'hover @ 逻辑坐标(' + sx + ',' + sy + ')'
+    },
+
+    // 拖拽：按住起点 → 贝塞尔移动到终点 → 释放（滑块 / 文件拖放 / 窗口移动）
+    async drag(params) {
+      const m = await loadNut()
+      const [s1x, s1y] = toLogical(+params.from_x, +params.from_y)
+      const [s2x, s2y] = toLogical(+params.to_x, +params.to_y)
+      await moveHuman(m, s1x, s1y)
+      await m.mouse.pressButton(m.Button.LEFT)
+      await sleep(rand(80, 150)) // 按住稳定
+      await moveHuman(m, s2x, s2y) // 按住状态沿贝塞尔移动
+      await sleep(rand(60, 120)) // 到位稳定（拖放目标高亮等）
+      await m.mouse.releaseButton(m.Button.LEFT)
+      return 'drag (' + s1x + ',' + s1y + ') → (' + s2x + ',' + s2y + ')'
     },
 
     async type(params) {

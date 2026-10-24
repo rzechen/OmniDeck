@@ -54,7 +54,7 @@ function systemPrompt() {
     if (computerUse.visionProvider()) {
       const vp = computerUse.visionProvider()
       lines.push([
-        '电脑控制（computer_* 工具）：需要操作本机 GUI 应用（点按钮、填表单、发消息等）时使用，工作循环为「computer_look 观察屏幕（专用视觉模型「' + vp.name + '」解读截图并给出可交互元素与像素坐标）→ 决策一个原子动作（computer_click / computer_type / computer_key / computer_scroll / computer_open）→ 重新 computer_look 验证」。规则：',
+        '电脑控制（computer_* 工具）：需要操作本机 GUI 应用（点按钮、填表单、发消息等）时使用，工作循环为「computer_look 观察屏幕（专用视觉模型「' + vp.name + '」解读截图并给出可交互元素与像素坐标）→ 决策一个原子动作（computer_click / computer_double_click / computer_type / computer_key / computer_scroll / computer_open / computer_activate / computer_hover / computer_drag）→ 重新 computer_look 验证」。规则：',
         '- 你看不到屏幕画面，一切画面信息以 computer_look 的观察报告为准，禁止凭空推测屏幕内容或坐标。',
         '- 每步只做一个动作；点击坐标必须取自最近一次 computer_look 报告（每次观察都是新截图，旧坐标可能失效）。',
         '- 键入文字前必须先点击输入框使其聚焦；聊天应用发送消息用 computer_key enter。',
@@ -65,7 +65,7 @@ function systemPrompt() {
       ].join('\n'))
     } else {
       lines.push([
-        '电脑控制（computer_* 工具）：需要操作本机 GUI 应用（点按钮、填表单、发消息等）时使用，工作循环为「computer_screenshot 截屏 → 用 read 工具读图观察 → 决策一个原子动作（computer_click / computer_type / computer_key / computer_scroll / computer_open）→ 重新截屏验证」。规则：',
+        '电脑控制（computer_* 工具）：需要操作本机 GUI 应用（点按钮、填表单、发消息等）时使用，工作循环为「computer_screenshot 截屏 → 用 read 工具读图观察 → 决策一个原子动作（computer_click / computer_double_click / computer_type / computer_key / computer_scroll / computer_open / computer_activate / computer_hover / computer_drag）→ 重新截屏验证」。规则：',
         '- 每步只做一个动作；点击坐标必须取自最近一张截图的像素（不要凭记忆猜坐标）。',
         '- 键入文字前必须先点击输入框使其聚焦；聊天应用发送消息用 computer_key enter。',
         '- 打开/切换应用后界面加载需要时间：用 computer_wait 等待目标内容出现后再继续，不要对着未加载完成的画面操作。',

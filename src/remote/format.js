@@ -60,7 +60,9 @@ const TOOL_LABELS = {
   computer_scroll: '滚动屏幕',
   computer_open: '打开应用/链接',
   computer_wait: '等待画面',
-  computer_activate: '切换前台应用'
+  computer_activate: '切换前台应用',
+  computer_hover: '悬停屏幕',
+  computer_drag: '拖拽屏幕'
 }
 
 export function toolLabel(name) {

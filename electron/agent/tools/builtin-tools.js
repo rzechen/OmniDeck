@@ -747,7 +747,27 @@ function createComputerUseExtension(cwdState) {
       name: 'computer_click',
       label: '点击屏幕',
       description: '在截图像素坐标处模拟鼠标单击（先移动再点击，Retina 坐标自动换算）。'
-        + '坐标必须来自最近一次 computer_screenshot 的截图像素。',
+        + '坐标必须来自最近一次 computer_screenshot / computer_look 的截图像素；'
+        + 'button 传 right 时右键单击（弹出上下文菜单）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          x: { type: 'number', description: '目标元素中心的横坐标（截图像素）' },
+          y: { type: 'number', description: '目标元素中心的纵坐标（截图像素）' },
+          button: { type: 'string', enum: ['left', 'right'], description: '鼠标键（默认 left；right 弹出上下文菜单）' }
+        },
+        required: ['x', 'y']
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('click', { x: params.x, y: params.y, button: params.button }) + '\n' + hint)
+      }
+    })
+
+    piApi.registerTool({
+      name: 'computer_hover',
+      label: '悬停屏幕',
+      description: '把鼠标移动到截图像素坐标处悬停（250-500ms）：展开 hover 菜单 / 触发 tooltip。'
+        + '悬停展开的子菜单需要悬停后重新截屏/观察才能看到子项。',
       parameters: {
         type: 'object',
         properties: {
@@ -757,7 +777,30 @@ function createComputerUseExtension(cwdState) {
         required: ['x', 'y']
       },
       execute: async (_id, params) => {
-        return textResult(await call('click', { x: params.x, y: params.y }) + '\n' + hint)
+        return textResult(await call('hover', { x: params.x, y: params.y }) + '\n' + hint)
+      }
+    })
+
+    piApi.registerTool({
+      name: 'computer_drag',
+      label: '拖拽屏幕',
+      description: '按住起点拖拽到终点后释放（拟人贝塞尔移动）：滑块验证、文件拖放、窗口移动。'
+        + '起止坐标均为截图像素坐标。',
+      parameters: {
+        type: 'object',
+        properties: {
+          from_x: { type: 'number', description: '起点横坐标（截图像素）' },
+          from_y: { type: 'number', description: '起点纵坐标（截图像素）' },
+          to_x: { type: 'number', description: '终点横坐标（截图像素）' },
+          to_y: { type: 'number', description: '终点纵坐标（截图像素）' }
+        },
+        required: ['from_x', 'from_y', 'to_x', 'to_y']
+      },
+      execute: async (_id, params) => {
+        return textResult(await call('drag', {
+          from_x: params.from_x, from_y: params.from_y,
+          to_x: params.to_x, to_y: params.to_y
+        }) + '\n' + hint)
       }
     })
 
