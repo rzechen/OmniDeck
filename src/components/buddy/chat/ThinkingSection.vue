@@ -293,7 +293,16 @@ const TOOL_LABELS = {
   workflow: '编排工作流',
   workflow_control: '控制工作流',
   // 联网伴随读取（pi-web-access）
-  get_search_content: '调取搜索结果'
+  get_search_content: '调取搜索结果',
+  // 电脑控制（builtin-tools.js 注册）
+  computer_screenshot: '截取屏幕',
+  computer_look: '观察屏幕',
+  computer_click: '点击屏幕',
+  computer_double_click: '双击屏幕',
+  computer_type: '键入文字',
+  computer_key: '按快捷键',
+  computer_scroll: '滚动屏幕',
+  computer_open: '打开应用/链接'
 }
 
 defineOptions({ name: 'ThinkingSection' })

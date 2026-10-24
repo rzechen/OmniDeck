@@ -4,20 +4,22 @@
     <div class="bubble" v-html="md(item.text)"></div>
   </div>
 
-  <ProcessGroup v-else-if="item.kind === 'process'" :group="item" :running="running" />
+  <ProcessGroup v-else-if="item.kind === 'process'" :group="item" :running="running && !!item.active" />
 
   <!-- 最终回答：全宽扁平（无气泡），markdown 完整渲染 + 左下复制图标 -->
   <div v-else-if="item.kind === 'answer'" class="msg answer-msg">
     <div class="answer" :class="{ typing: item.streaming }">
       <div class="answer-body" v-html="md(item.text)"></div>
     </div>
-    <div v-if="!item.streaming && item.text" class="answer-meta">
-      <span v-if="item.usage && (item.usage.input || item.usage.output)" class="meta-tokens">
-        输入 {{ fmtTokens(item.usage.input) }} tokens · 输出 {{ fmtTokens(item.usage.output) }} tokens
-      </span>
+    <!-- 元信息行（token 用量 + 复制）：本轮终局后才显示，执行中途不打扰；
+         两端分布——复制按钮贴最左，token 用量贴最右 -->
+    <div v-if="item.final && item.text" class="answer-meta">
       <button class="meta-btn" :class="{ ok: copied }" :title="copied ? '已复制' : '复制'" @click="copy(item.text)">
         <span class="ico" v-html="copied ? checkIcon : copyIcon"></span>
       </button>
+      <span v-if="item.usage && (item.usage.input || item.usage.output)" class="meta-tokens">
+        输入 {{ fmtTokens(item.usage.input) }} tokens · 输出 {{ fmtTokens(item.usage.output) }} tokens
+      </span>
     </div>
   </div>
 
@@ -149,13 +151,11 @@ function copy(text) {
 }
 @keyframes caret { 50% { opacity: 0; } }
 
-/* 回答操作行：token 用量（与 PC 同格式）+ 左下角复制 */
-.answer-meta { display: flex; align-items: center; margin-top: 4px; }
-.meta-tokens { font-size: 12px; color: var(--muted); margin-left: -7px; }
-/* 有 token 文字时复制按钮不再负边距对齐（避免压住文字） */
-.meta-tokens + .meta-btn { margin-left: 2px; }
+/* 回答操作行（两端分布）：复制按钮贴最左，token 用量贴最右 */
+.answer-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.meta-tokens { font-size: 12px; color: var(--muted); }
 .meta-btn {
-  width: auto; height: auto; padding: 6px; margin: 0 0 0 -7px;
+  width: auto; height: auto; padding: 6px;
   background: transparent; color: var(--muted);
   display: flex; align-items: center; justify-content: center;
 }

@@ -291,7 +291,7 @@ async function createSessionInternal(chatId, provider, historyTexts, onEvent, wo
     builtinTools.createExecToolsExtension(cwdState, path.join(cwd, '.tmp'), getSkillEnv),
     builtinTools.createFileToolsExtension(cwdState),
     builtinTools.createTodoReadExtension(() => builtinTools.getTodos(chatId)),
-    // 桌面控制：UI-TARS 原子动作面（开关状态会话创建时锁定，与联网开关同模式；
+    // 电脑控制：UI-TARS 原子动作面（开关状态会话创建时锁定，与联网开关同模式；
     // 关闭时不注册工具 + excludeTools 双保险）
     ...(computerUse.enabled() ? [builtinTools.createComputerUseExtension(cwdState)] : []),
     // 文档导出：markdown → Word / PDF / HTML，产物落 <cwd>/exports/
@@ -376,7 +376,7 @@ async function createSessionInternal(chatId, provider, historyTexts, onEvent, wo
     // 名单从 capabilities.js 统一目录派生（含 get_search_content）。
     // web_enable（懒激活加载器）无论开关状态一律排除：active 集由
     // createWebToolsDirectExtension 校正扩展兜底维护。
-    // 桌面控制开关关闭时同样屏蔽 computer_* 工具（开启时由工具注册兜底，
+    // 电脑控制开关关闭时同样屏蔽 computer_* 工具（开启时由工具注册兜底，
     // 关闭时双保险防绕过）
     ...(webSearch.enabled()
       ? { excludeTools: ['web_enable'].concat(computerUse.enabled() ? [] : capabilities.computerToolNames()) }

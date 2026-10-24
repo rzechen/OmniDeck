@@ -1,4 +1,4 @@
-// 桌面控制执行体（computer use）：
+// 电脑控制执行体（computer use）：
 // - 开关存储：<agentDir>/computer-use.json 的 omnideck.computerUseEnabled（默认关）
 // - 执行链路：主进程（本模块）─ stdin/stdout JSON 行 RPC ─▶ worker 子进程
 //   worker 用 Electron 自带二进制以 ELECTRON_RUN_AS_NODE=1 纯 Node 模式运行，
@@ -38,7 +38,7 @@ function init(dir) {
   agentDir = dir
 }
 
-// 桌面控制开关（默认关闭——涉及真实键鼠注入，需用户显式开启）
+// 电脑控制开关（默认关闭——涉及真实键鼠注入，需用户显式开启）
 function enabled() {
   const cfg = readConfig()
   return !!(cfg.omnideck && cfg.omnideck.computerUseEnabled)
@@ -50,6 +50,51 @@ function setEnabled(v) {
   writeConfig(cfg)
   if (!v) dispose() // 关闭即回收 worker 子进程
   return enabled()
+}
+
+// ---------- 对外接口：视觉模型（截图解读专用，弹窗表单直存参数） ----------
+// 独立配置（不依赖模型管理）：computer-use.json 的 omnideck.vision =
+// { name, baseUrl, apiKey, model, apiFormat: 'openai' | 'anthropic' }
+function visionProvider() {
+  const cfg = readConfig()
+  const v = cfg.omnideck && cfg.omnideck.vision
+  if (!v || !v.baseUrl || !v.model || !v.apiKey) return null
+  return {
+    name: v.name || v.model,
+    model: v.model,
+    baseUrl: v.baseUrl,
+    apiKey: v.apiKey,
+    apiFormat: v.apiFormat === 'anthropic' ? 'anthropic' : 'openai',
+  }
+}
+
+// 保存视觉模型参数：vision 为 null/空 → 清除；apiKey 留空 → 沿用已存密钥
+function setVision(vision) {
+  const cfg = readConfig()
+  const prev = (cfg.omnideck && cfg.omnideck.vision) || {}
+  if (!vision || !vision.baseUrl) {
+    if (cfg.omnideck) {
+      delete cfg.omnideck.vision
+      writeConfig(cfg)
+    }
+    return null
+  }
+  const baseUrl = String(vision.baseUrl || '').trim()
+  const model = String(vision.model || '').trim()
+  if (!/^https?:\/\//i.test(baseUrl)) throw new Error('Base URL 须以 http(s):// 开头')
+  if (!model) throw new Error('模型 ID 不能为空')
+  const apiKey = String(vision.apiKey || '').trim() || prev.apiKey || ''
+  if (!apiKey) throw new Error('API Key 不能为空')
+  const next = {
+    name: String(vision.name || '').trim() || model,
+    baseUrl,
+    model,
+    apiKey,
+    apiFormat: vision.apiFormat === 'anthropic' ? 'anthropic' : 'openai',
+  }
+  cfg.omnideck = Object.assign({}, cfg.omnideck, { vision: next })
+  writeConfig(cfg)
+  return visionProvider()
 }
 
 // ---------- nut.js 入口定位（dev 直用 node_modules；打包后换 asar.unpacked 物理路径）----------
@@ -121,7 +166,7 @@ function ensureWorker() {
   c.on('exit', (code) => {
     if (child === c) child = null
     const tail = errTail.trim().split('\n').slice(-2).join(' ').slice(0, 300)
-    const err = new Error('桌面控制 worker 已退出 (code ' + code + ')' + (tail ? '：' + tail : ''))
+    const err = new Error('电脑控制 worker 已退出 (code ' + code + ')' + (tail ? '：' + tail : ''))
     for (const [, p] of pending) p.reject(err)
     pending.clear()
   })
@@ -136,7 +181,7 @@ function call(action, params, timeoutMs) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id)
-      reject(new Error('桌面控制操作超时：' + action))
+      reject(new Error('电脑控制操作超时：' + action))
     }, timeout)
     pending.set(id, {
       resolve: (v) => { clearTimeout(timer); resolve(v) },
@@ -147,7 +192,7 @@ function call(action, params, timeoutMs) {
     } catch (e) {
       pending.delete(id)
       clearTimeout(timer)
-      reject(new Error('桌面控制 worker 通信失败：' + e.message))
+      reject(new Error('电脑控制 worker 通信失败：' + e.message))
     }
   })
 }
@@ -158,7 +203,7 @@ function dispose() {
     try { child.kill() } catch (e) { /* 忽略 */ }
   }
   child = null
-  for (const [, p] of pending) p.reject(new Error('桌面控制已关闭'))
+  for (const [, p] of pending) p.reject(new Error('电脑控制已关闭'))
   pending.clear()
 }
 
@@ -173,7 +218,7 @@ function probe() {
     nutError: '',
   }
   if (process.platform !== 'darwin') {
-    res.screenNote = '桌面控制目前仅支持 macOS'
+    res.screenNote = '电脑控制目前仅支持 macOS'
     return call('ping', {}, 15000).then(() => {
       res.nut = true
       return res
@@ -267,7 +312,7 @@ function workerMain() {
 
   // 截主显示器为 JPEG 并读取尺寸；返回 { b64, width, height }
   function takeScreenshot() {
-    if (!IS_MAC) throw new Error('桌面控制目前仅支持 macOS')
+    if (!IS_MAC) throw new Error('电脑控制目前仅支持 macOS')
     if (fs.existsSync(SHOT_PATH)) { try { fs.unlinkSync(SHOT_PATH) } catch (e) { /* 忽略 */ } }
     execFileSync('screencapture', ['-x', '-m', '-t', 'jpg', SHOT_PATH], { stdio: 'ignore' })
     if (!fs.existsSync(SHOT_PATH)) throw new Error('截屏失败（请检查「屏幕录制」权限）')
@@ -495,6 +540,8 @@ module.exports = {
   init,
   enabled,
   setEnabled,
+  visionProvider,
+  setVision,
   call,
   probe,
   dispose,

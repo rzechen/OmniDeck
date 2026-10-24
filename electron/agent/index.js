@@ -109,7 +109,7 @@ function registerOmnibuddyIpc(getWindow, userDataPath) {
   app.on('before-quit', (event) => {
     if (quitFinalized) return
     quitFinalized = true
-    // 桌面控制 worker 为独立子进程，同步 kill 即回收，不阻塞记忆摘要与退出
+    // 电脑控制 worker 为独立子进程，同步 kill 即回收，不阻塞记忆摘要与退出
     try { computerUse.dispose() } catch (e) { /* 退出路径忽略回收失败 */ }
     event.preventDefault()
     const ids = piRuntime.listSessionIds()

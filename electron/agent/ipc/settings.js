@@ -15,7 +15,7 @@ const loginWizard = require('../integrations/login-wizard')
 const piRuntime = require('../pi')
 const piSetup = require('../pi/setup')
 const sessions = require('../sessions/sessions')
-const { pendingPermissions } = require('../core/chat-state')
+const { pendingPermissions, emit } = require('../core/chat-state')
 
 // 注册设置与集成相关 IPC（无窗口依赖，纯配置读写与转发）
 function registerSettingsIpc() {
@@ -38,6 +38,8 @@ function registerSettingsIpc() {
       sessions.addMessage(sessionId, Object.assign({ role: 'permission' }, p.info, {
         decided: act
       }, p.anchors && p.anchors.length ? { anchors: p.anchors } : {}))
+      // 广播已决事件：移动端遥控页 / 其他窗口实时移除待审批条（与 remote-task 应答路径对称）
+      emit(null, sessionId, { type: 'permission_done', askId })
       return { ok: true }
     }
     // ui.select 兜底路径（hasUI 权威）：映射回 select 选项并终结等待；
@@ -45,6 +47,7 @@ function registerSettingsIpc() {
     const uiInfo = piRuntime.replyUiAsk(askId, act)
     if (uiInfo) {
       sessions.addMessage(sessionId, Object.assign({ role: 'permission' }, uiInfo, { decided: act }))
+      emit(null, sessionId, { type: 'permission_done', askId })
       return { ok: true }
     }
     return { ok: false }
@@ -208,12 +211,31 @@ function registerSettingsIpc() {
   ipcMain.handle('omnibuddy:web-search:get', () => ({ enabled: webSearch.enabled() }))
   ipcMain.handle('omnibuddy:web-search:set-enabled', (_e, enabled) => webSearch.setEnabled(!!enabled))
 
-  // ===== 桌面控制（UI-TARS 原子动作面）：开关 / 权限探测 / 系统设置直达 =====
-  // 开关变更后新会话生效（会话创建时锁定，与联网开关同模式）
-  ipcMain.handle('omnibuddy:computer-use:get', () => ({ enabled: computerUse.enabled() }))
+  // ===== 电脑控制（UI-TARS 原子动作面）：开关 / 视觉模型 / 权限探测 / 系统设置直达 =====
+  // 开关与视觉模型变更后新会话生效（会话创建时锁定，与联网开关同模式）
+  ipcMain.handle('omnibuddy:computer-use:get', () => {
+    const vp = computerUse.visionProvider()
+    return {
+      enabled: computerUse.enabled(),
+      // 密钥不下发渲染层：hasApiKey 标记 + 其余参数回显
+      vision: vp ? { name: vp.name, baseUrl: vp.baseUrl, model: vp.model, apiFormat: vp.apiFormat, hasApiKey: true } : null
+    }
+  })
   ipcMain.handle('omnibuddy:computer-use:set-enabled', (_e, enabled) => {
     const enabledNow = computerUse.setEnabled(!!enabled)
-    return { enabled: enabledNow }
+    return { ok: true, enabled: enabledNow }
+  })
+  // 保存视觉模型参数（弹窗表单直存；apiKey 留空 = 沿用已存密钥；null/空对象 = 清除配置）
+  ipcMain.handle('omnibuddy:computer-use:set-vision', (_e, vision) => {
+    try {
+      const vp = computerUse.setVision(vision || null)
+      return {
+        ok: true,
+        vision: vp ? { name: vp.name, baseUrl: vp.baseUrl, model: vp.model, apiFormat: vp.apiFormat, hasApiKey: true } : null
+      }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
   })
 
   // 权限探测：辅助功能 / 屏幕录制（macOS TCC）+ nut.js 可用性（探测期间懒启动 worker）
@@ -221,7 +243,7 @@ function registerSettingsIpc() {
 
   // 直达系统设置对应权限页（kind: 'accessibility' | 'screen'；非 macOS 返回不支持）
   ipcMain.handle('omnibuddy:computer-use:open-permission', (_e, kind) => {
-    if (process.platform !== 'darwin') return { ok: false, error: '桌面控制目前仅支持 macOS' }
+    if (process.platform !== 'darwin') return { ok: false, error: '电脑控制目前仅支持 macOS' }
     const anchor = kind === 'screen' ? 'Privacy_ScreenCapture' : 'Privacy_Accessibility'
     require('electron').shell.openExternal('x-apple.systempreferences:com.apple.preference.security?' + anchor)
     return { ok: true }

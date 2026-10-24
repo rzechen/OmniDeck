@@ -97,6 +97,7 @@
             <buddy-task-list
               v-else
               :chats="chats"
+              :workspaces="workspaces"
               :active-chat-id="activeChatId"
               :loading="chatsLoading"
               @select-chat="onSelectChat"
@@ -228,6 +229,8 @@ const menuGroups = [
 ]
 // 会话列表（主进程 JSONL 持久化，按更新时间倒序）
 const chats = ref([])
+// 全部工作空间（空空间也呈现为侧栏分组；仅目录可用项）
+const workspaces = ref([])
 // 会话列表首次加载中，侧栏显示骨架
 const chatsLoading = ref(true)
 // ===== 侧边栏宽度 / 收起 =====
@@ -287,6 +290,12 @@ async function loadChats() {
       return
     }
     chats.value = await api.listSessions()
+    // 工作空间清单随会话一并拉取（空间增删/改名时 workspaces-changed 同步触发本函数）
+    try {
+      workspaces.value = ((await api.listWorkspaces()) || []).filter(w => w.available)
+    } catch (e) {
+      workspaces.value = []
+    }
   } finally {
     chatsLoading.value = false
   }

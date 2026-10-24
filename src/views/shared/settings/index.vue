@@ -879,18 +879,18 @@
           </div>
         </template>
 
-        <!-- 桌面控制（截屏观察 + 鼠标键盘模拟；macOS 需辅助功能 + 屏幕录制授权） -->
+        <!-- 电脑控制（截屏观察 + 鼠标键盘模拟；macOS 需辅助功能 + 屏幕录制授权） -->
         <template v-else-if="activeTab === 'computer'">
           <header class="settings-section-header">
-            <h2 class="section-title">桌面控制</h2>
+            <h2 class="section-title">电脑控制</h2>
             <p class="section-desc">开启后助手可获得截屏观察、鼠标点击、键盘键入、滚动与打开应用等能力，用于操作不具备 API 的本地应用（视觉理解 → 模拟操作 → 再观察循环）；截屏为只读自动放行，点击 / 键入等真实操作默认逐次确认</p>
           </header>
 
           <div class="settings-group">
             <div class="settings-row">
               <div class="row-label">
-                <span class="label-text">启用桌面控制</span>
-                <span class="label-desc">{{ computerCfg.enabled ? '已开启 · 新建会话将挂载桌面控制工具' : '已关闭（默认） · 开启后对新建会话生效，进行中的会话不受影响' }}</span>
+                <span class="label-text">启用电脑控制</span>
+                <span class="label-desc">{{ computerCfg.enabled ? '已开启 · 新建会话将挂载电脑控制工具' : '已关闭（默认） · 开启后对新建会话生效，进行中的会话不受影响' }}</span>
               </div>
               <el-switch :model-value="computerCfg.enabled" @change="v => saveComputer(v)" />
             </div>
@@ -905,13 +905,20 @@
                 <el-button size="small" round type="primary" :loading="computerProbing" @click="probeComputer">重新检测</el-button>
               </div>
             </div>
+            <div class="settings-row">
+              <div class="row-label">
+                <span class="label-text">视觉模型</span>
+                <span class="label-desc">{{ computerVisionDesc }}</span>
+              </div>
+              <el-button size="small" round @click="openVisionDialog">{{ computerCfg.vision ? '修改配置' : '配置' }}</el-button>
+            </div>
           </div>
 
           <div class="settings-group">
             <div class="settings-row">
               <div class="row-label">
                 <span class="label-text">安全说明</span>
-                <span class="label-desc">桌面控制会把截屏画面发送给当前配置的模型用于视觉决策；点击 / 键入 / 打开应用等动作默认在对话中逐次确认（可在「权限策略」页按工具调整为自动放行）。涉及敏感账号操作时请保持人工确认，不用时建议保持关闭</span>
+                <span class="label-desc">电脑控制会把截屏画面发送给当前配置的模型用于视觉决策；点击 / 键入 / 打开应用等动作默认在对话中逐次确认（可在「权限策略」页按工具调整为自动放行）。涉及敏感账号操作时请保持人工确认，不用时建议保持关闭</span>
               </div>
             </div>
           </div>
@@ -974,6 +981,55 @@
           <footer class="sec-dialog-footer">
             <el-button size="small" round @click="pwdDialogVisible = false">取消</el-button>
             <el-button size="small" round type="primary" @click="savePassword">保存</el-button>
+          </footer>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 视觉模型配置弹窗（电脑控制截图解读专用，独立于模型管理） -->
+    <transition name="sec-modal">
+      <div v-if="visionDialogVisible" class="sec-overlay" @click.self="visionDialogVisible = false">
+        <div class="sec-dialog vision-dialog">
+          <header class="sec-dialog-header">
+            <h3 class="sec-dialog-title">配置视觉模型</h3>
+            <svg-icon icon-class="close" class-name="sec-dialog-close" @click="visionDialogVisible = false" />
+          </header>
+          <div class="sec-dialog-body">
+            <div class="sec-field">
+              <label class="sec-field-label">API 格式</label>
+              <el-radio-group v-model="visionForm.apiFormat" size="small">
+                <el-radio-button value="openai">OpenAI 兼容</el-radio-button>
+                <el-radio-button value="anthropic">Anthropic</el-radio-button>
+              </el-radio-group>
+            </div>
+            <div class="sec-field">
+              <label class="sec-field-label">Base URL</label>
+              <el-input v-model="visionForm.baseUrl" size="small" placeholder="如 https://open.bigmodel.cn/api/anthropic" />
+            </div>
+            <div class="sec-field">
+              <label class="sec-field-label">API Key</label>
+              <el-input
+                v-model="visionForm.apiKey"
+                type="password"
+                size="small"
+                show-password
+                :placeholder="visionForm.hasApiKey ? '已配置（留空保持不变）' : '接口密钥'"
+              />
+            </div>
+            <div class="sec-field">
+              <label class="sec-field-label">模型 ID</label>
+              <el-input v-model="visionForm.model" size="small" placeholder="如 glm-4.5v / qwen2.5-vl-72b-instruct" />
+            </div>
+            <div class="sec-field">
+              <label class="sec-field-label">备注名（可选）</label>
+              <el-input v-model="visionForm.name" size="small" placeholder="展示用名称，留空则用模型 ID" />
+            </div>
+          </div>
+          <footer class="sec-dialog-footer vision-dialog-footer">
+            <el-button v-if="computerCfg.vision" size="small" round type="danger" plain @click="saveComputerVision(null)">清除配置</el-button>
+            <span class="vision-footer-spacer" />
+            <el-button size="small" round @click="visionDialogVisible = false">取消</el-button>
+            <el-button size="small" round type="primary" :loading="visionSaving" @click="saveComputerVision(visionForm)">保存</el-button>
           </footer>
         </div>
       </div>
@@ -1168,7 +1224,7 @@ const tabs = [
   { key: 'security', label: '安全项', icon: 'lock' },
   { key: 'notify', label: '通知项', icon: 'chat-dot-round' },
   { key: 'remote', label: '移动端', icon: 'phone' },
-  { key: 'computer', label: '桌面控制', icon: 'monitor' },
+  { key: 'computer', label: '电脑控制', icon: 'monitor' },
   { key: 'runtime', label: '运行时', icon: 'cpu' },
   // 版本 / 反馈为应用级公共页：复用整页组件内嵌渲染（不再单独跳转）
   { key: 'version', label: '版本页', icon: 'info' },
@@ -2131,8 +2187,8 @@ async function copyRemoteUrl(url) {
   } catch (e) { message.error('复制失败') }
 }
 
-// ===== 桌面控制（截屏观察 + 鼠标键盘模拟；macOS 需辅助功能 + 屏幕录制授权） =====
-const computerCfg = ref({ enabled: false, probe: null })
+// ===== 电脑控制（截屏观察 + 鼠标键盘模拟；macOS 需辅助功能 + 屏幕录制授权） =====
+const computerCfg = ref({ enabled: false, probe: null, vision: null })
 const computerProbing = ref(false)
 
 function computerApi() {
@@ -2142,7 +2198,7 @@ function computerApi() {
 const computerProbeText = computed(() => {
   const p = computerCfg.value.probe
   if (!p) return '未检测 · 点击「重新检测」获取当前权限状态'
-  if (p.platform !== 'darwin') return '桌面控制仅支持 macOS'
+  if (p.platform !== 'darwin') return '电脑控制仅支持 macOS'
   const missing = []
   if (!p.accessibility) missing.push('辅助功能')
   if (!p.screen) missing.push('屏幕录制' + (p.screenNote ? '（' + p.screenNote + '）' : ''))
@@ -2155,7 +2211,10 @@ async function loadComputer() {
   if (!api) return
   try {
     const res = await api.get()
-    if (res) computerCfg.value.enabled = !!res.enabled
+    if (res) {
+      computerCfg.value.enabled = !!res.enabled
+      computerCfg.value.vision = res.vision || null
+    }
   } catch (e) { /* 忽略加载失败 */ }
   probeComputer()
 }
@@ -2192,6 +2251,66 @@ async function openComputerPermission(kind) {
   const api = computerApi()
   if (!api) return
   try { await api.openPermission(kind) } catch (e) { /* 忽略 */ }
+}
+// 视觉模型说明文案（按配置状态动态生成）
+const computerVisionDesc = computed(() => {
+  const v = computerCfg.value.vision
+  if (v) {
+    return '已配置「' + (v.name || v.model) + '」(' + v.model + ') · 截图由该模型解读（computer_look 观察工具），主对话模型无需视觉能力；对新建会话生效'
+  }
+  return '未配置 · 截图由主对话模型自行读图（需其支持图像输入）；配置后新增 computer_look 观察工具，截图交由该模型解读'
+})
+
+// ===== 视觉模型配置弹窗（参数直存，独立于模型管理） =====
+const visionDialogVisible = ref(false)
+const visionSaving = ref(false)
+const visionForm = reactive({
+  apiFormat: 'openai',
+  baseUrl: '',
+  apiKey: '',
+  model: '',
+  name: '',
+  hasApiKey: false
+})
+function openVisionDialog() {
+  const v = computerCfg.value.vision
+  visionForm.apiFormat = (v && v.apiFormat) || 'openai'
+  visionForm.baseUrl = (v && v.baseUrl) || ''
+  visionForm.model = (v && v.model) || ''
+  visionForm.name = (v && v.name) || ''
+  visionForm.apiKey = '' // 密钥不回显：留空保存 = 沿用已存密钥
+  visionForm.hasApiKey = !!(v && v.hasApiKey)
+  visionDialogVisible.value = true
+}
+// form = null 清除配置；否则保存表单（apiKey 留空沿用旧值）
+async function saveComputerVision(form) {
+  const api = computerApi()
+  if (!api) return
+  if (form) {
+    if (!/^https?:\/\//i.test(form.baseUrl.trim())) { message.error('Base URL 须以 http(s):// 开头'); return }
+    if (!form.model.trim()) { message.error('模型 ID 不能为空'); return }
+    if (!form.apiKey.trim() && !form.hasApiKey) { message.error('API Key 不能为空'); return }
+  }
+  visionSaving.value = true
+  try {
+    const res = await api.setVision(form ? {
+      apiFormat: form.apiFormat,
+      baseUrl: form.baseUrl.trim(),
+      apiKey: form.apiKey.trim(),
+      model: form.model.trim(),
+      name: form.name.trim()
+    } : null)
+    if (res && res.ok) {
+      computerCfg.value.vision = res.vision || null
+      visionDialogVisible.value = false
+      message.success(form ? '视觉模型已保存，对新建会话生效' : '已清除视觉模型配置')
+    } else {
+      message.error((res && res.error) || '保存失败')
+    }
+  } catch (e) {
+    message.error('保存失败')
+  }
+  visionSaving.value = false
 }
 
 // ===== 通知中心（类型 × 渠道矩阵 + Webhook 配置） =====
@@ -3705,6 +3824,20 @@ html.reduce-motion .kbd-ghost {
   justify-content: flex-end;
   gap: 8px;
   padding: 0 18px 16px;
+}
+
+// 视觉模型弹窗：参数表单较宽（密码弹窗 380px 过窄）
+.vision-dialog {
+  width: 560px;
+}
+
+// 视觉模型弹窗：清除配置靠左，取消/保存靠右
+.vision-dialog-footer {
+  align-items: center;
+}
+
+.vision-footer-spacer {
+  flex: 1;
 }
 
 /* 弹窗过渡 */

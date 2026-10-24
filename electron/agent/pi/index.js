@@ -48,7 +48,7 @@ function init(agentDir) {
   builtinTools.init(agentDir)
   // pi-web-access（web_search / fetch_content）：内置注册 + 配置托管
   webSearch.init(agentDir)
-  // 桌面控制（computer_* 工具执行体）：配置托管（computerUseEnabled 开关）
+  // 电脑控制（computer_* 工具执行体）：配置托管（computerUseEnabled 开关）
   computerUse.init(agentDir)
   // 子代理后台并行（B 方案）：配置托管（asyncEnabled 开关，run 注册表同模块）
   subagentsIntegration.init(agentDir)

@@ -27,7 +27,7 @@
 
 <script setup>
 import logoUrl from '@/assets/logo-sm.png'
-import backIcon from '@/assets/icons/svg/buddy/back.svg?raw'
+import backIcon from '@/assets/icons/svg/buddy/arrow-left.svg?raw'
 import plusIcon from '@/assets/icons/svg/buddy/plus.svg?raw'
 
 defineProps({

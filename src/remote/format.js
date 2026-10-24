@@ -49,7 +49,16 @@ const TOOL_LABELS = {
   subagent: '委派专家',
   workflow: '深度研究',
   todo_write: '任务规划',
-  bg_wait: '等待后台任务'
+  bg_wait: '等待后台任务',
+  // 电脑控制（与 PC capabilities.js 同源 label）
+  computer_screenshot: '截取屏幕',
+  computer_look: '观察屏幕',
+  computer_click: '点击屏幕',
+  computer_double_click: '双击屏幕',
+  computer_type: '键入文字',
+  computer_key: '按快捷键',
+  computer_scroll: '滚动屏幕',
+  computer_open: '打开应用/链接'
 }
 
 export function toolLabel(name) {

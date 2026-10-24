@@ -38,14 +38,14 @@
             </div>
           </div>
 
-          <!-- 工具行：点击展开结果 -->
+          <!-- 工具行：名称一行 + 摘要独立换行（不挤在名称后），点击展开结果 -->
           <div v-else-if="it.type === 'tool'" class="pitem ptool" :class="{ err: it.isError }" @click="it.open = !it.open">
             <div class="prow">
               <span class="pi-dot" :class="{ spin: it.state === 'running' }"></span>
               <span class="pname">{{ toolLabel(it.toolName) }}</span>
-              <span class="pbrief">{{ it.brief }}</span>
               <span class="pst" v-if="it.isError">失败</span>
             </div>
+            <div v-if="it.brief" class="pbrief-line">{{ it.brief }}</div>
             <div v-if="it.open && it.result" class="pcontent presult" v-html="md(String(it.result).slice(0, 400))"></div>
           </div>
 
@@ -168,8 +168,14 @@ function doneCount(it) {
 .ptool .pi-dot.spin { border-color: var(--brand); border-top-color: transparent; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .pname { flex: none; font-weight: 550; font-size: 13.5px; color: var(--text); }
-.pbrief { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--muted); }
-.pst { flex: none; font-size: 12px; color: var(--red); }
+/* 工具摘要：独立换行（名称下方），与过程内容同缩进；长内容限两行 */
+.pbrief-line {
+  margin: 1px 0 10px 21px;
+  font-size: 12.5px; line-height: 1.6; color: var(--muted);
+  white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.pst { flex: none; font-size: 12px; color: var(--red); margin-left: auto; }
 .ptool.err .pname { color: var(--red); }
 .ptool.err .pi-dot { border-color: var(--red); }
 .scount {

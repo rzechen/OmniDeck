@@ -45,17 +45,31 @@ function systemPrompt() {
   } else {
     lines.push('当前未配置 MCP 服务；联网需求直接用 curl 工具发起 HTTP 请求获取公开数据，不要尝试搜索 MCP 工具。')
   }
-  // 桌面控制引导（UI-TARS 观测-决策-动作循环）：仅开关开启时注入。
+  // 电脑控制引导（UI-TARS 观测-决策-动作循环）：仅开关开启时注入。
   // 截屏是唯一的观测通道——每步动作后画面可能已变化，先截屏再决策；
   // 坐标一律按最近一张截图像素给出（worker 内做 Retina 换算）
   if (computerUse.enabled()) {
-    lines.push([
-      '桌面控制（computer_* 工具）：需要操作本机 GUI 应用（点按钮、填表单、发消息等）时使用，工作循环为「computer_screenshot 截屏 → 用 read 工具读图观察 → 决策一个原子动作（computer_click / computer_type / computer_key / computer_scroll / computer_open）→ 重新截屏验证」。规则：',
-      '- 每步只做一个动作；点击坐标必须取自最近一张截图的像素（不要凭记忆猜坐标）。',
-      '- 键入文字前必须先点击输入框使其聚焦；聊天应用发送消息用 computer_key enter。',
-      '- 动作结果与预期不符时，先重新截屏观察再调整，不要盲目重试同一动作。',
-      '- 执行期间用户可能正在使用电脑：仅做任务必需的最少动作，避免移动窗口、关启应用等干扰；任务完成或无法继续时立即停止操作并汇报。'
-    ].join('\n'))
+    // 观察方式按视觉模型配置分支：配置了 → computer_look（视觉模型读图，主模型无需视觉）；
+    // 未配置 → computer_screenshot + read（主模型自行读图，需具备图像输入能力）
+    if (computerUse.visionProvider()) {
+      const vp = computerUse.visionProvider()
+      lines.push([
+        '电脑控制（computer_* 工具）：需要操作本机 GUI 应用（点按钮、填表单、发消息等）时使用，工作循环为「computer_look 观察屏幕（专用视觉模型「' + vp.name + '」解读截图并给出可交互元素与像素坐标）→ 决策一个原子动作（computer_click / computer_type / computer_key / computer_scroll / computer_open）→ 重新 computer_look 验证」。规则：',
+        '- 你看不到屏幕画面，一切画面信息以 computer_look 的观察报告为准，禁止凭空推测屏幕内容或坐标。',
+        '- 每步只做一个动作；点击坐标必须取自最近一次 computer_look 报告（每次观察都是新截图，旧坐标可能失效）。',
+        '- 键入文字前必须先点击输入框使其聚焦；聊天应用发送消息用 computer_key enter。',
+        '- 动作结果与预期不符时，先重新 computer_look 观察再调整，不要盲目重试同一动作。',
+        '- 执行期间用户可能正在使用电脑：仅做任务必需的最少动作，避免移动窗口、关启应用等干扰；任务完成或无法继续时立即停止操作并汇报。'
+      ].join('\n'))
+    } else {
+      lines.push([
+        '电脑控制（computer_* 工具）：需要操作本机 GUI 应用（点按钮、填表单、发消息等）时使用，工作循环为「computer_screenshot 截屏 → 用 read 工具读图观察 → 决策一个原子动作（computer_click / computer_type / computer_key / computer_scroll / computer_open）→ 重新截屏验证」。规则：',
+        '- 每步只做一个动作；点击坐标必须取自最近一张截图的像素（不要凭记忆猜坐标）。',
+        '- 键入文字前必须先点击输入框使其聚焦；聊天应用发送消息用 computer_key enter。',
+        '- 动作结果与预期不符时，先重新截屏观察再调整，不要盲目重试同一动作。',
+        '- 执行期间用户可能正在使用电脑：仅做任务必需的最少动作，避免移动窗口、关启应用等干扰；任务完成或无法继续时立即停止操作并汇报。'
+      ].join('\n'))
+    }
   }
   // # 引用 token 契约（10-11 事故实证：裸 token 进上下文且无解释时，
   // 模型把它当"未知物"向用户讲解内部协议，替代了实际任务）

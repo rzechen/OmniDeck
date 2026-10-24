@@ -505,16 +505,151 @@ function createSiteAuthExtension(onReport) {
   }
 }
 
-// ---------- 桌面控制：UI-TARS 原子动作面（computer-use.js 执行体） ----------
+// ---------- 电脑控制：UI-TARS 原子动作面（computer-use.js 执行体） ----------
 // 截屏 → 模型决策 → 注入鼠标键盘 → 观测回填的循环由主 agent 驱动，
 // 本工厂只注册原子工具（截屏/点击/键入/滚动/打开）。截图产物落
 // <cwd>/.tmp/，引导模型用 pi 内置 read 工具读图查看（支持图片）；
 // 点击坐标一律按「最近一张截图的像素坐标」给出，worker 内做 Retina 换算
+// 视觉模型（computer_look）：设置页「电脑控制 → 视觉模型」配置后额外注册，
+// 截图直接交由该模型解读（GUI grounding），主对话模型无需视觉能力
 function createComputerUseExtension(cwdState) {
   const computerUse = require('../integrations/computer-use')
   const call = (action, params) => computerUse.call(action, params)
   const hint = '如需继续操作，请先重新截屏观察最新画面（每次动作后画面可能已变化）。'
+
+  // 视觉观察提示词：GUI grounding（描述 + 可交互元素 + 像素坐标），供动作决策
+  function visionPrompt(shot) {
+    return '你是桌面视觉观察助手（macOS GUI grounding 专家）。'
+      + '你会收到一张屏幕截图（分辨率 ' + shot.width + 'x' + shot.height + '）与一个观察任务，'
+      + '请输出面向动作决策的结构化观察报告：\n'
+      + '1. 前台应用与当前窗口/场景概述（一句话）。\n'
+      + '2. 与观察任务相关的可交互元素清单（按钮/输入框/链接/菜单项等），'
+      + '每项给出描述与中心像素坐标（以截图左上角为原点，格式 (x,y)）。\n'
+      + '3. 针对观察任务的直接回答：若任务指定了要操作的目标，精确给出其中心像素坐标。\n'
+      + '坐标必须取自本截图的实际像素位置，禁止凭记忆或推测；报告简洁、只保留决策所需信息。'
+  }
+
+  // 调视觉模型解读截图（openai / anthropic 双格式，direct-llm 同模式）
+  async function visionDescribe(vp, shot, question, signal) {
+    const url = vp.baseUrl.replace(/\/+$/, '')
+    let fetchUrl, headers, body
+    if (vp.apiFormat === 'anthropic') {
+      fetchUrl = url + (url.endsWith('/v1') ? '/messages' : '/v1/messages')
+      headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': vp.apiKey,
+        'anthropic-version': '2023-06-01',
+      }
+      body = {
+        model: vp.model,
+        max_tokens: 2048,
+        system: visionPrompt(shot),
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: shot.b64 } },
+            { type: 'text', text: '观察任务：' + question },
+          ],
+        }],
+      }
+    } else {
+      fetchUrl = url + '/chat/completions'
+      headers = {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + vp.apiKey,
+      }
+      body = {
+        model: vp.model,
+        messages: [
+          { role: 'system', content: visionPrompt(shot) },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '观察任务：' + question },
+              { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + shot.b64 } },
+            ],
+          },
+        ],
+      }
+    }
+    let res
+    try {
+      res = await fetch(fetchUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal,
+      })
+    } catch (e) {
+      throw new Error('视觉模型请求失败：' + e.message)
+    }
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '')
+      throw new Error('视觉模型 HTTP ' + res.status + '：' + txt.slice(0, 300))
+    }
+    const j = await res.json().catch(() => null)
+    // anthropic：content 为块数组，可能含 thinking 块（glm 等默认输出）——只取 text 块拼接；
+    // openai：choices[0].message.content 直接是字符串
+    let text = ''
+    if (j && Array.isArray(j.content)) {
+      text = j.content.filter(b => b && b.type === 'text' && b.text)
+        .map(b => b.text).join('\n').trim()
+    } else if (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) {
+      text = String(j.choices[0].message.content).trim()
+    }
+    if (!text) throw new Error('视觉模型响应异常：' + JSON.stringify(j).slice(0, 300))
+    return text
+  }
+
   return function (piApi) {
+    // 视觉观察工具：仅配置了视觉模型时注册（工厂在会话创建时求值，同开关锁定模式）
+    if (computerUse.visionProvider()) {
+      piApi.registerTool({
+        name: 'computer_look',
+        label: '观察屏幕',
+        description: '截取当前屏幕并交由专用视觉模型解读，返回结构化观察报告'
+          + '（前台应用、可交互元素清单及像素坐标、对观察任务的回答）。'
+          + '本工具返回的坐标可直接用于 computer_click；每次动作后应重新调用本工具观察最新画面。',
+        parameters: {
+          type: 'object',
+          properties: {
+            question: { type: 'string', description: '观察任务：要在屏幕上找什么/确认什么（如「找到新建按钮的位置」）' }
+          },
+          required: ['question']
+        },
+        execute: async (_id, params, signal) => {
+          const question = String((params || {}).question || '描述当前屏幕状态与可交互元素').trim()
+          // 配置可能在会话创建后被改动：执行时取最新，条目失效则报错引导
+          const vp = computerUse.visionProvider()
+          if (!vp) {
+            return textResult('错误：视觉模型未配置或已失效，请在「设置 → 电脑控制 → 视觉模型」选择支持图像输入的模型，'
+              + '或改用 computer_screenshot + read 工具自行读图。')
+          }
+          const shot = await call('screenshot')
+          // 截图同步落盘：前端会话时间线可直接查看，也作为动作坐标的原始依据
+          const dir = path.join(cwdState.dir, '.tmp')
+          fs.mkdirSync(dir, { recursive: true })
+          const file = path.join(dir, 'screen-' + Date.now() + '.jpg')
+          fs.writeFileSync(file, Buffer.from(shot.b64, 'base64'))
+          let report
+          try {
+            report = await visionDescribe(vp, shot, question, signal)
+          } catch (e) {
+            return textResult('视觉模型解读失败：' + e.message + '\n截图已保存：' + file
+              + '（可改用 read 工具自行读图观察）')
+          }
+          return {
+            content: [{
+              type: 'text',
+              text: '【视觉观察报告（' + vp.name + '）】任务：' + question + '\n' + report
+                + '\n\n（截图存档：' + file + '；报告坐标基于该截图像素，可直接用于 computer_click）'
+            }],
+            details: { artifacts: [{ path: file, name: path.basename(file) }] }
+          }
+        }
+      })
+    }
+
     piApi.registerTool({
       name: 'computer_screenshot',
       label: '截取屏幕',
@@ -656,6 +791,6 @@ module.exports = {
   createTodoReadExtension,
   // report_site_auth 登录态上报工具工厂
   createSiteAuthExtension,
-  // 桌面控制工具扩展工厂（截屏/点击/键入/滚动/打开）
+  // 电脑控制工具扩展工厂（截屏/点击/键入/滚动/打开）
   createComputerUseExtension
 }

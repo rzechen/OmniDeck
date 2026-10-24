@@ -29,8 +29,8 @@ export const CAPABILITY_CATEGORIES = [
   },
   {
     key: 'computer',
-    label: '桌面控制',
-    desc: '截屏观察与鼠标键盘模拟（需在设置 → 桌面控制开启，并授予辅助功能与屏幕录制权限；仅 macOS）',
+    label: '电脑控制',
+    desc: '截屏观察与鼠标键盘模拟（需在设置 → 电脑控制开启，并授予辅助功能与屏幕录制权限；仅 macOS）',
     icon: 'monitor',
     logo: 'logo-skill'
   },

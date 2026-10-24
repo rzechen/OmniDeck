@@ -39,6 +39,8 @@
 
       <!-- 组内容：收起时整体隐藏（v-show 不支持 template，包一层 div 承载） -->
       <div v-show="!collapsedGroups[g.key]" class="buddy-group-body">
+        <!-- 空工作空间占位（空间可见但尚无任务） -->
+        <div v-if="!g.chats.length" class="buddy-group-empty">暂无任务</div>
         <template v-for="(sec, si) in g.sections">
         <div
           v-for="c in sec.chats"
@@ -123,6 +125,11 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  // 全部工作空间（含无任务的空空间；[{id, name, path}]）——空空间也呈现分组
+  workspaces: {
+    type: Array,
+    default: () => []
+  },
   activeChatId: {
     type: String,
     default: ''
@@ -138,13 +145,20 @@ const emit = defineEmits(['select-chat', 'pin-chat', 'rename-chat', 'delete-chat
 
 const store = useStore()
 
-// 按展示名分组（组间按组内最新会话时间倒序，组内置顶优先再按更新时间倒序）
+// 按展示名分组（组间按组内最新会话时间倒序，组内置顶优先再按更新时间倒序）。
+// 空工作空间也占组（键与会话归组键同源：展示名 || 路径），空组自然沉底
 const groups = computed(() => {
   const map = {}
+  // 全部空间先占位（空空间可见；同名空间只占一组）
+  for (const w of props.workspaces) {
+    const name = (w.name && w.name.trim()) || w.path || ''
+    if (!name || map[name]) continue
+    map[name] = { key: name, name, dir: w.path || '', wsId: w.id || '', chats: [], latest: 0, hasPinned: false }
+  }
   for (const c of props.chats) {
     const name = (c.displayName && c.displayName.trim()) || c.workspaceDir || '未关联目录'
     if (!map[name]) {
-      map[name] = { key: name, name, dir: c.workspaceDir || '', chats: [], latest: 0, hasPinned: false }
+      map[name] = { key: name, name, dir: c.workspaceDir || '', wsId: '', chats: [], latest: 0, hasPinned: false }
     }
     map[name].chats.push(c)
     if (c.updatedAt > map[name].latest) map[name].latest = c.updatedAt
@@ -469,6 +483,14 @@ function onChatLeave(e) {
   to {
     transform: translateX(var(--scroll-x, 0));
   }
+}
+
+/* 空工作空间占位行（组内无任务） */
+.buddy-group-empty {
+  padding: 5px 12px 7px 30px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  opacity: .75;
 }
 
 /* 对话空态：铺满任务列表剩余空间垂直水平居中（不拦截点击） */

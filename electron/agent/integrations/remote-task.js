@@ -162,14 +162,38 @@ function clip(v, max) {
   return s.length > max ? s.slice(0, max) + '…' : s
 }
 
-// 工具参数摘要：常见键直取，其余整体 JSON 截断（工具条一行展示用）
-function briefArgs(args) {
+// 工具参数摘要（人性化展示）：按工具定制 → 委派/描述类键直取 → 常见键
+// 直取 → 键值对紧凑形式兜底（不落原始 JSON）
+function briefArgs(args, toolName) {
   if (!args || typeof args !== 'object') return ''
+  const t = String(toolName || '')
+  const get = (k) => (args[k] != null && String(args[k]).trim() ? String(args[k]).trim() : '')
+  // 任务规划：待办清单 → 「N 项：条目；条目」
+  if (t === 'todo_write' && Array.isArray(args.todos)) {
+    const valid = args.todos.filter(x => x && x.content)
+    if (valid.length) return clip(valid.length + ' 项：' + valid.map(x => x.content).join('；'), 200)
+  }
+  // 委派专家 / 子代理 / 研究类：指令性文本优先
+  for (const k of ['prompt', 'description', 'task', 'instruction']) {
+    const v = get(k)
+    if (v) return clip(v, 200)
+  }
   const keys = ['command', 'url', 'path', 'pattern', 'query', 'file_path', 'filePath', 'expr', 'script', 'content']
   for (const k of keys) {
-    if (args[k]) return clip(args[k], 200)
+    const v = get(k)
+    if (v) return clip(v, 200)
   }
-  try { return clip(JSON.stringify(args), 200) } catch (e) { return '' }
+  // 兜底：前三个键值对「k: v ｜ k: v」紧凑形式
+  const parts = []
+  try {
+    for (const [k, v] of Object.entries(args)) {
+      if (v == null) continue
+      const s = typeof v === 'object' ? JSON.stringify(v) : String(v)
+      if (s) parts.push(k + ': ' + s)
+      if (parts.length >= 3) break
+    }
+  } catch (e) { /* 忽略 */ }
+  return clip(parts.join(' ｜ '), 200)
 }
 
 // 内部机制类工具不进移动端过程流（框架自身的检索/延迟加载与第三方 MCP
@@ -192,14 +216,14 @@ function slimEvent(data) {
   } else if (t === 'tool_start') {
     out.toolCallId = data.toolCallId
     out.toolName = data.toolName
-    out.brief = briefArgs(data.args)
+    out.brief = briefArgs(data.args, data.toolName)
   } else if (t === 'tool_end') {
     out.toolCallId = data.toolCallId
     out.toolName = data.toolName
     out.isError = !!data.isError
     out.result = clip(data.result, SLIM_LENGTH.result)
     out.artifacts = Array.isArray(data.artifacts)
-      ? data.artifacts.slice(0, 5).map(a => ({ name: a && (a.name || a.path || '') })).filter(a => a.name)
+      ? data.artifacts.slice(0, 5).map(a => ({ name: a && (a.name || a.path || '') || '', path: (a && a.path) || '' })).filter(a => a.name || a.path)
       : undefined
   } else if (t === 'todo_update') {
     out.todos = Array.isArray(data.todos) ? data.todos.slice(0, 30) : []
@@ -420,7 +444,16 @@ function sessionView(id) {
     } else if (m.role === 'tool') {
       // 内部机制类工具与实时流同口径过滤
       if (HIDDEN_TOOLS.test(String(m.toolName || ''))) continue
-      items.push({ kind: 'tool', toolName: m.toolName || '', brief: briefArgs(m.args), isError: !!m.isError })
+      items.push({
+        kind: 'tool',
+        toolName: m.toolName || '',
+        brief: briefArgs(m.args, m.toolName),
+        isError: !!m.isError,
+        // 产物清单（含 path）：电脑控制截图等图片产物在移动端可呈现
+        artifacts: Array.isArray(m.artifacts)
+          ? m.artifacts.slice(0, 5).map(a => ({ name: (a && (a.name || a.path || '')) || '', path: (a && a.path) || '' })).filter(a => a.name || a.path)
+          : []
+      })
     } else if (m.role === 'permission') {
       items.push({ kind: 'permission', surface: m.surface || m.toolName || '', decided: m.decided || '' })
     } else if (m.role === 'ask_user') {
@@ -457,15 +490,23 @@ function taskItem(m) {
 }
 
 // 按空间归组——与 PC 侧栏（BuddyTaskList）完全同规则：
-// 分组键 = displayName || workspaceDir || '未关联目录'（定时任务会话
-// displayName 固定为「定时任务」，自然成组）；组顺序按组内最新会话出现序
-// （listSessions 按 updatedAt 倒序遍历，插入序即最新组在前）
+// 全部工作空间先占组（空空间也呈现），分组键 = displayName || workspaceDir
+// || '未关联目录'（定时任务会话 displayName 固定为「定时任务」，自然成组）；
+// 会话归入同键组（兜底组按需创建）；有任务的组在前（最新组在前），
+// 空空间组沉底
 function groupSessions() {
   const map = new Map()
   const groups = []
   const groupKeyOf = (m) => {
     const n = m.displayName && String(m.displayName).trim()
     return n || m.workspaceDir || '未关联目录'
+  }
+  for (const w of workspaces.list()) {
+    const key = (w.name && String(w.name).trim()) || w.path || ''
+    if (!key || map.has(key)) continue
+    const g = { id: key, name: key, wsId: w.id, tasks: [] }
+    map.set(key, g)
+    groups.push(g)
   }
   for (const m of sessions.listSessions()) {
     if (!m.id) continue
@@ -479,6 +520,8 @@ function groupSessions() {
     if (!g.wsId && m.workspaceId) g.wsId = m.workspaceId
     g.tasks.push(m)
   }
+  // 空空间组沉底（稳定排序保持组间相对顺序）
+  groups.sort((a, b) => (b.tasks.length > 0 ? 1 : 0) - (a.tasks.length > 0 ? 1 : 0))
   return { groups }
 }
 
@@ -486,6 +529,8 @@ function stateView() {
   const { groups } = groupSessions()
   const paginate = (g) => {
     g.total = g.tasks.length
+    // 组内任一任务运行中（基于全量任务判定，不受分页截断影响）：组头蓝色呼吸标识
+    g.running = g.tasks.some(m => running.has(m.id))
     g.tasks = g.tasks.slice(0, PAGE_SIZE).map(m => taskItem(m))
     g.hasMore = g.total > g.tasks.length
     return g
@@ -496,7 +541,7 @@ function stateView() {
     current: (currentRemote && running.has(currentRemote)) ? { sessionId: currentRemote } : null,
     // 全部运行中会话（PC + 手机发起）：移动端多任务运行态集合
     running: Array.from(running.keys()),
-    // 分组仅从会话派生（与 PC 一致：空工作空间不显示组）
+    // 分组含全部工作空间（空空间也呈现，与 PC 侧栏一致）
     groups: groups.map(paginate)
   }
 }
@@ -518,6 +563,15 @@ function json(res, code, data) {
   const buf = Buffer.from(JSON.stringify(data))
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': buf.length, 'Cache-Control': 'no-store' })
   res.end(buf)
+}
+
+// 产物图片扩展白名单（/api/artifact）：仅图片，防任意文件读取
+const IMAGE_TYPES = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp'
 }
 
 function readBody(req) {
@@ -563,6 +617,21 @@ async function handleApi(req, res, urlObj) {
   if (p === '/api/workspaces' && req.method === 'GET') {
     // 工作空间清单（手机端任务发起前选择）
     return json(res, 200, { ok: true, workspaces: workspaces.list().map(w => ({ id: w.id, name: w.name })) })
+  }
+
+  // 产物图片（电脑控制截图等）：<img> 标签无法带 header，token 走 query（与 SSE 同模式）；
+  // 仅放行常见图片扩展 + 10MB 上限，避免变成任意文件读取通道
+  if (p === '/api/artifact' && req.method === 'GET') {
+    const file = String(urlObj.searchParams.get('path') || '')
+    const mime = IMAGE_TYPES[path.extname(file).toLowerCase()]
+    if (!file || !mime) return json(res, 400, { ok: false, error: '仅支持图片产物（jpg/png/gif/webp）' })
+    let stat
+    try { stat = fs.statSync(file) } catch (e) { return json(res, 404, { ok: false, error: 'file not found' }) }
+    if (!stat.isFile()) return json(res, 404, { ok: false, error: 'file not found' })
+    if (stat.size > 10 * 1024 * 1024) return json(res, 413, { ok: false, error: '文件过大' })
+    res.writeHead(200, { 'Content-Type': mime, 'Content-Length': stat.size, 'Cache-Control': 'private, max-age=60' })
+    fs.createReadStream(file).pipe(res)
+    return
   }
 
   // 组内任务分页：group = 分组键（displayName || workspaceDir || 未关联目录，

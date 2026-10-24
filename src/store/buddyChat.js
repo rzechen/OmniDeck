@@ -803,6 +803,13 @@ export default {
           // 由布局层弹持续引导（点击跳转），避免隐形挂起
           commit('NOTICE', { sessionId: e.sessionId, kind: 'perm-pending', surface: e.surface || '', value: e.command || e.path || e.value || '' })
           break
+        case 'permission_done':
+          // 该确认已由另一端应答（移动端遥控 / 其他窗口）：同步移除本地确认条，
+          // 防止"任务已结束但确认窗残留"（主进程注册表已清，残留条点击无效）
+          if (e.askId) {
+            s.permQueue = s.permQueue.filter(p => p.askId !== e.askId)
+          }
+          break
         case 'todo_update': {
           // 会话内只保留一张 todo 卡片（新事件替换旧卡片）
           s.messages = s.messages.filter(m => m.role !== 'todo')

@@ -131,10 +131,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       save: patch => ipcRenderer.invoke('omnibuddy:remote:save', patch),
       regenToken: () => ipcRenderer.invoke('omnibuddy:remote:regen-token')
     },
-    // 桌面控制（UI-TARS 原子动作面）：开关 / 权限探测 / 系统设置直达
+    // 电脑控制（UI-TARS 原子动作面）：开关 / 权限探测 / 系统设置直达
     computerUse: {
       get: () => ipcRenderer.invoke('omnibuddy:computer-use:get'),
       set: enabled => ipcRenderer.invoke('omnibuddy:computer-use:set-enabled', enabled),
+      setVision: vision => ipcRenderer.invoke('omnibuddy:computer-use:set-vision', vision),
       probe: () => ipcRenderer.invoke('omnibuddy:computer-use:probe'),
       openPermission: kind => ipcRenderer.invoke('omnibuddy:computer-use:open-permission', kind)
     },

@@ -1,7 +1,7 @@
 <template>
   <!-- 工作空间分组（通栏列表风格：组头 + 任务行 + 分割线，无卡片容器） -->
   <section class="wgroup">
-    <div class="wgroup-head" @click="$emit('toggle')">
+    <div class="wgroup-head" :class="{ running: group.running }" @click="$emit('toggle')">
       <span class="ico folder-ico" v-html="folderIcon"></span>
       <span class="gname">{{ group.name }}</span>
       <span class="gcount" :class="{ zero: !group.total }">{{ group.total }}</span>
@@ -58,6 +58,9 @@ function onTap(t) {
   cursor: pointer; user-select: none;
 }
 .wgroup-head:active { opacity: .7; }
+/* 组内任务运行中：文件夹图标呼吸 + 组名品牌蓝，一眼定位活跃空间 */
+.wgroup-head.running .folder-ico { animation: pulse 1.2s infinite; }
+.wgroup-head.running .gname { color: var(--brand); }
 .folder-ico { color: var(--brand); }
 .folder-ico svg { width: 19px; height: 19px; }
 .gname { flex: 1; min-width: 0; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
