@@ -190,6 +190,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 专家（子代理）管理：agents 目录扫描/新建/查看/编辑/删除
     agents: {
       list: () => ipcRenderer.invoke('omnibuddy:agents:list'),
+      // 全量列表（含团成员目录；成员名反查用，"我的专家"列表用 list）
+      listAll: () => ipcRenderer.invoke('omnibuddy:agents:list-all'),
       create: agent => ipcRenderer.invoke('omnibuddy:agents:create', agent),
       get: file => ipcRenderer.invoke('omnibuddy:agents:get', file),
       update: payload => ipcRenderer.invoke('omnibuddy:agents:update', payload),
@@ -201,6 +203,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       create: team => ipcRenderer.invoke('omnibuddy:teams:create', team),
       get: id => ipcRenderer.invoke('omnibuddy:teams:get', id),
       update: payload => ipcRenderer.invoke('omnibuddy:teams:update', payload),
+      // 保存编排（市场专家安装 + 成员汇总；专家团弹窗统一入口）
+      save: payload => ipcRenderer.invoke('omnibuddy:teams:save', payload),
       remove: id => ipcRenderer.invoke('omnibuddy:teams:remove', id)
     },
     // 资源市场（N2）：索引浏览 / 一键安装 / 更新 / 卸载 / 已装列表

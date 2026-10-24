@@ -16,7 +16,7 @@ const hasCore = fs.existsSync(path.resolve(__dirname, 'electron/main.js'))
 //   core/      对话核心（chat-state / pi-events / direct-llm / llm）
 //   ipc/       IPC 注册层（chat / sessions / settings / workspace / automation）
 //   sessions/  会话数据（sessions / checkpoints / file-changes / branchView / export）
-//   knowledge/ 知识资产（skills / rules / profile / memory / market）
+//   knowledge/ 知识资产（skills / rules / profile / memory / market / agents / builtin / teams）
 //   integrations/ 外部接入（mcp / connectors / credentials / web-search / site-auth /
 //                 login-wizard / notify / workflows / pkg-registry）
 //   workspace/ 空间与文件（workspaces / files / attachments）
@@ -31,7 +31,7 @@ const agentNames = [
   'ipc/chat', 'ipc/sessions', 'ipc/settings', 'ipc/workspace', 'ipc/automation',
   'sessions/sessions', 'sessions/checkpoints', 'sessions/file-changes', 'sessions/exports-diff', 'sessions/branchView', 'sessions/export',
   'knowledge/skills', 'knowledge/rules', 'knowledge/profile', 'knowledge/memory', 'knowledge/market',
-  'knowledge/agents', 'knowledge/builtin',
+  'knowledge/agents', 'knowledge/builtin', 'knowledge/teams',
   'integrations/mcp', 'integrations/connectors', 'integrations/credentials', 'integrations/web-search',
   'integrations/site-auth', 'integrations/login-wizard', 'integrations/notify', 'integrations/workflows',
   'integrations/pkg-registry', 'integrations/subagents',

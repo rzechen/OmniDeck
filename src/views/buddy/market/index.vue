@@ -26,6 +26,14 @@
           :class="{ active: viewMode === 'market' }"
           @click="selectView('market')"
         >{{ typeMeta.square }}</button>
+        <!-- 专家专属中间视图：我的专家团（专家广场之后、我的专家之前；本地团卡片列表，无广场） -->
+        <button
+          v-if="typeFilter === 'agent'"
+          type="button"
+          class="ob-view-item"
+          :class="{ active: viewMode === 'team' }"
+          @click="selectView('team')"
+        >我的专家团</button>
         <button
           type="button"
           class="ob-view-item"
@@ -83,23 +91,16 @@
       </div>
     </div>
 
-    <!-- ===== 专家团区块（仅专家 tab：呈现于「专家广场 / 我的专家」切换行之下，
-           与两个视图并列常驻，可新建/编辑/管理专家团） ===== -->
-    <teams-section
-      v-if="typeFilter === 'agent'"
-      ref="teamsStripRef"
-      compact
-      class="ob-teams-strip"
-      @edit="openTeamEdit"
-      @add="openTeamAdd"
-    />
+    <!-- ===== 专家团视图（专家 tab 专属中间视图：本地团卡片列表管理） ===== -->
+    <div v-if="viewMode === 'team'" class="ob-mine-view">
+      <teams-view ref="teamsViewRef" @edit="openTeamEdit" @add="openTeamAdd" />
+    </div>
 
-    <!-- ===== 我的视图：本地已装资源管理（技能 / 专家 / 专家团 / 连接器 复用原管理页组件） ===== -->
-    <div v-if="viewMode === 'mine'" class="ob-mine-view">
+    <!-- ===== 我的视图：本地已装资源管理（技能 / 专家 / 连接器 复用原管理页组件） ===== -->
+    <div v-else-if="viewMode === 'mine'" class="ob-mine-view">
       <skills-view v-if="typeFilter === 'skill'" />
       <mcp-view v-else-if="typeFilter === 'connector'" />
-      <teams-view v-else-if="typeFilter === 'team'" ref="teamsViewRef" @edit="openTeamEdit" @add="openTeamAdd" />
-      <agents-view v-else ref="agentsViewRef" @edit="openAgentEdit" @add="openAgentAdd" @edit-team="openTeamEdit" />
+      <agents-view v-else ref="agentsViewRef" @edit="openAgentEdit" @add="openAgentAdd" />
     </div>
 
     <!-- ===== 广场视图：分类 chips + 市场卡片（仅此区域滚动） ===== -->
@@ -266,8 +267,7 @@ import SkillsView from '@/views/buddy/skills/index.vue'
 import McpView from '@/views/buddy/mcp/index.vue'
 // 我的专家视图（本地 agents 目录管理）
 import AgentsView from './components/AgentsView.vue'
-// 专家团（卡片区块 / 我的专家团视图 / 表单弹窗）
-import TeamsSection from './components/TeamsSection.vue'
+// 专家团（专家 tab 中间视图 + 表单弹窗）
 import TeamsView from './components/TeamsView.vue'
 import TeamFormDialog from './components/TeamFormDialog.vue'
 // 添加入口弹窗（创建技能 / 新增连接器，与原管理页同款组件复用）
@@ -285,10 +285,10 @@ const store = useStore()
 const { message } = useFeedback()
 
 // 类型定义：tag 展示名 / 图标 / 广场视图名 / 我的视图名（todo = 我的视图暂未提供）
+// 专家团不设一级类型：作为专家 tab 的中间视图（专家广场 → 专家团 → 我的专家）
 const TYPES = {
   skill: { label: '技能', icon: 'skill', square: '技能广场', mine: '我的技能' },
   agent: { label: '专家', icon: 'subagent', square: '专家广场', mine: '我的专家' },
-  team: { label: '专家团', icon: 'team', square: '专家团广场', mine: '我的专家团' },
   connector: { label: '连接器', icon: 'mcp', square: '连接器广场', mine: '我的连接器' }
 }
 
@@ -297,9 +297,10 @@ const error = ref('')
 const items = ref([])           // 市场索引（含已装状态）
 const categoryDefs = ref([])    // 二级主题分类清单（v2 索引下发；v1 旧索引为空 → 隐藏二级筛选）
 const keyword = ref('')         // 公共搜索框（过滤当前广场资源）
-// 类型 / 视图由 query 驱动（?type=xx[&view=mine]，默认技能广场），切页签可恢复
+// 类型 / 视图由 query 驱动（?type=xx[&view=team|mine]，默认技能广场），切页签可恢复
+// view=team 为专家 tab 专属中间视图（专家团卡片列表）
 const typeFilter = ref(TYPES[route.query.type] ? route.query.type : 'skill')
-const viewMode = ref(route.query.view === 'mine' ? 'mine' : 'market')
+const viewMode = ref(['team', 'mine'].includes(route.query.view) ? route.query.view : 'market')
 const categoryFilter = ref('')  // 二级主题分类筛选（空 = 全部主题）
 const busyId = ref('')          // 安装/更新中的项 id（按钮 loading 态）
 const detailVisible = ref(false) // 卡片详情抽屉
@@ -313,7 +314,6 @@ const categories = computed(() => {
   const counts = {
     skill: 0,
     agent: 0,
-    team: 0,
     connector: 0
   }
   items.value.forEach(it => {
@@ -324,7 +324,6 @@ const categories = computed(() => {
   return [
     { label: '技能', value: 'skill', count: counts.skill },
     { label: '专家', value: 'agent', count: counts.agent },
-    { label: '专家团', value: 'team', count: counts.team },
     { label: '连接器', value: 'connector', count: counts.connector }
   ]
 })
@@ -487,17 +486,15 @@ function openAgentEdit(agent) {
 function onAgentSaved() {
   agentEditing.value = null
   if (agentsViewRef.value) agentsViewRef.value.reload()
-  // 成员专家可能被删除：专家页团区块的成员摘要同步刷新
-  if (teamsStripRef.value) teamsStripRef.value.reload()
+  // 成员专家可能被删除：专家团视图的成员摘要同步刷新
+  if (teamsViewRef.value) teamsViewRef.value.reload()
 }
 
-// ===== 专家团（teams 目录）=====
+// ===== 专家团（teams 目录，专家 tab 中间视图）=====
 // 新增 / 编辑专家团弹窗
 const teamDialogVisible = ref(false)
-// 我的专家团视图引用（保存后刷新列表）
+// 专家团视图引用（保存后刷新列表）
 const teamsViewRef = ref(null)
-// 专家 tab 内嵌团区块引用（保存后刷新）
-const teamsStripRef = ref(null)
 // 编辑中的专家团（null 表示新增）
 const teamEditing = ref(null)
 
@@ -511,12 +508,10 @@ function openTeamEdit(team) {
   teamDialogVisible.value = true
 }
 
-// 专家团保存成功：刷新各处团列表（我的专家列表含团卡片、专家页区块、我的专家团视图）
+// 专家团保存成功：刷新团视图（我的专家列表不含团卡片，无需刷新）
 function onTeamSaved() {
   teamEditing.value = null
   if (teamsViewRef.value) teamsViewRef.value.reload()
-  if (teamsStripRef.value) teamsStripRef.value.reload()
-  if (agentsViewRef.value) agentsViewRef.value.reload()
 }
 
 // 导入成功：重拉市场索引同步「已安装」徽标
@@ -537,12 +532,14 @@ async function openMcpAdd() {
   mcpModalVisible.value = true
 }
 
-// ---------- 页内导航（类型 tag / 广场-我的 视图切换） ----------
-// 切换类型：重置主题分类（跨类型残留筛选易空结果）
+// ---------- 页内导航（类型 tag / 广场-专家团-我的 视图切换） ----------
+// 切换类型：重置主题分类（跨类型残留筛选易空结果）；
+// 专家团视图为专家 tab 专属，切走时回退广场视图
 function selectType(value) {
   if (typeFilter.value === value) return
   typeFilter.value = value
   categoryFilter.value = ''
+  if (viewMode.value === 'team') viewMode.value = 'market'
   syncRoute()
 }
 
@@ -557,8 +554,9 @@ function selectCategory(value) {
   categoryFilter.value = value
 }
 
-// 当前视图页签名（技能广场 / 我的技能 / …）
+// 当前视图页签名（技能广场 / 我的技能 / 我的专家团 / …）
 function tabTitle() {
+  if (viewMode.value === 'team') return '我的专家团'
   const t = TYPES[typeFilter.value]
   return viewMode.value === 'mine' ? t.mine : t.square
 }
@@ -566,9 +564,9 @@ function tabTitle() {
 // 导航同步 URL query 与页签（原位重绑不新增页签，页签名跟随视图；
 // 目标视图已有页签时并入既有页签，避免出现两个同 fullPath 页签）
 function syncRoute() {
-  const to = viewMode.value === 'mine'
-    ? `/omnibuddy/market?type=${typeFilter.value}&view=mine`
-    : `/omnibuddy/market?type=${typeFilter.value}`
+  const to = viewMode.value === 'market'
+    ? `/omnibuddy/market?type=${typeFilter.value}`
+    : `/omnibuddy/market?type=${typeFilter.value}&view=${viewMode.value}`
   if (route.fullPath === to) return
   const tabs = store.state.tagsView.buddy || []
   if (tabs.some(t => t.fullPath === to)) {
@@ -850,10 +848,18 @@ onActivated(() => {
   margin: -20px -24px;
 }
 
-/* ===== 专家团区块（专家 tab 内嵌，位于视图切换行与内容区之间） ===== */
-.ob-teams-strip {
+/* 专家团视图切换项与「我的xx」同款纯文字样式 */
+
+/* TODO 占位徽标（「我的子代理」视图） */
+.ob-view-todo {
   flex-shrink: 0;
-  margin-bottom: 16px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.16);
 }
 
 /* ===== 广场主体：单列滚动区（工具栏 + 分类 chips + 卡片网格） ===== */

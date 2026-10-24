@@ -116,6 +116,9 @@ function registerWorkspaceIpc(getWindow) {
 
   ipcMain.handle('omnibuddy:agents:delete', (_e, file) => agents.deleteAgent(file))
 
+  // 全量专家列表（含团成员目录；成员名反查等用途，"我的专家"列表用 agents:list）
+  ipcMain.handle('omnibuddy:agents:list-all', () => agents.listAllAgents())
+
   // ===== 专家团管理（teams/<id>.json，本地创建/市场安装共用） =====
   ipcMain.handle('omnibuddy:teams:list', () => teams.listTeams())
 
@@ -124,6 +127,9 @@ function registerWorkspaceIpc(getWindow) {
   ipcMain.handle('omnibuddy:teams:get', (_e, id) => teams.getTeam(id))
 
   ipcMain.handle('omnibuddy:teams:update', (_e, payload) => teams.updateTeam(payload))
+
+  // 团保存编排（市场专家安装到团目录 + 成员汇总 + 落 json；专家团弹窗统一入口）
+  ipcMain.handle('omnibuddy:teams:save', (_e, payload) => teams.saveTeam(payload || {}))
 
   ipcMain.handle('omnibuddy:teams:remove', (_e, id) => teams.removeTeam(id))
 

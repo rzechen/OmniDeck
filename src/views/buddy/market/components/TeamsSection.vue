@@ -1,27 +1,14 @@
 <template>
-  <!-- 专家团卡片网格（复用组件）：市场页专家 tab 内嵌区块（compact）与
-       「我的专家团」视图共用；自加载 teams + 专家名映射，删除内置处理，
+  <!-- 专家团卡片网格（复用组件）：「专家团」视图（专家 tab 中间视图）内容区；
+       自加载 teams + 专家名映射，删除内置处理，
        编辑/新建上抛（弹窗由市场页统一持有 TeamFormDialog） -->
-  <div class="ob-teams-section" :class="{ compact }">
-    <!-- compact 模式区块标题行（专家页内嵌时呈现，置于专家广场/我的专家切换行下方） -->
-    <div v-if="compact" class="ob-teams-strip-head">
-      <div class="ob-teams-strip-title">
-        <svg-icon icon-class="team" />
-        <span>专家团</span>
-        <span class="ob-teams-strip-count">{{ teamList.length }}</span>
-      </div>
-      <div class="ob-teams-strip-ops">
-        <button type="button" class="ob-teams-manage" @click="emit('add')">+ 新建专家团</button>
-        <button type="button" class="ob-teams-manage ghost" @click="goManage">管理全部</button>
-      </div>
-    </div>
-
+  <div class="ob-teams-section">
     <!-- 加载骨架 -->
     <div v-if="loading" class="ob-sk-wrap">
       <buddy-skeleton type="cards" :count="3" />
     </div>
 
-    <!-- 卡片网格（末位固定"新建"占位卡，非 compact 模式） -->
+    <!-- 卡片网格（末位固定"新建"占位卡） -->
     <div v-else class="ob-cards-grid ob-teams-grid">
       <div
         v-for="t in teamList"
@@ -36,7 +23,7 @@
             <div class="ob-card-name" :title="t.name">
               <span class="ob-name-text">{{ t.name }}</span>
               <span class="ob-kind-badge is-team">团</span>
-              <span v-if="t.collection" class="ob-kind-badge is-market" title="从专家团广场安装">市场</span>
+              <span v-if="t.collection" class="ob-kind-badge is-market" title="市场安装的专家团">市场</span>
             </div>
             <div class="ob-card-meta" :title="t.description">{{ t.description || '（无描述）' }}</div>
           </div>
@@ -61,8 +48,8 @@
         </div>
       </div>
 
-      <!-- 新建占位卡（虚线框；compact 模式标题行已有入口，不再重复） -->
-      <button v-if="!compact" type="button" class="ob-team-add-card" @click="emit('add')">
+      <!-- 新建占位卡（虚线框） -->
+      <button type="button" class="ob-team-add-card" @click="emit('add')">
         <svg-icon icon-class="plus" />
         <span>新建专家团</span>
       </button>
@@ -74,24 +61,14 @@
 // 专家团卡片网格：teams.list + agents.list（成员名反查）；
 // 删除走 teams.remove（市场安装的团连带删除成员集合，confirm 文案区分）
 import { ref, onActivated } from 'vue'
-import { useRouter } from 'vue-router'
 import BuddySkeleton from '@/components/buddy/BuddySkeleton.vue'
 import { buddyApi } from '@/utils/buddy/buddy-api'
 import { useFeedback } from '@/composables/useFeedback'
 
 defineOptions({ name: 'TeamsSection' })
 
-const props = defineProps({
-  // 紧凑模式：市场页专家 tab 内嵌区块（带标题行、无新建占位卡）
-  compact: {
-    type: Boolean,
-    default: false
-  }
-})
-
 const emit = defineEmits(['edit', 'add'])
 
-const router = useRouter()
 const { message, confirm } = useFeedback()
 
 const teamList = ref([])
@@ -103,9 +80,10 @@ async function loadTeams() {
   loading.value = true
   const api = buddyApi()
   try {
+    // agents.listAll：全量专家（含团成员目录 teams/），成员名反查不漏
     const [teams, agentsRes] = await Promise.all([
       api && api.teams ? api.teams.list() : Promise.resolve([]),
-      api && api.agents ? api.agents.list() : Promise.resolve([])
+      api && api.agents && api.agents.listAll ? api.agents.listAll() : Promise.resolve([])
     ])
     teamList.value = Array.isArray(teams) ? teams : []
     const map = {}
@@ -158,11 +136,6 @@ function removeTeam(t) {
   }).catch(() => {})
 }
 
-// compact 模式：跳转「我的专家团」集中管理
-function goManage() {
-  router.push('/omnibuddy/market?type=team&view=mine').catch(() => {})
-}
-
 // created：进入即拉取
 loadTeams()
 
@@ -182,83 +155,9 @@ defineExpose({ reload: loadTeams, teamList })
   padding: 10px 4px;
 }
 
-/* compact 模式：区块标题行（图标 + 标题 + 数量 | 新建/管理入口） */
-.ob-teams-strip-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.ob-teams-strip-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 14px;
-  font-weight: 700;
-  color: $text-primary;
-
-  .svg-icon {
-    font-size: 16px;
-    color: #7C5CDB;
-  }
-}
-
-.ob-teams-strip-count {
-  font-size: 11px;
-  font-weight: 600;
-  color: #7C5CDB;
-  background: rgba(124, 92, 219, 0.1);
-  padding: 0 8px;
-  border-radius: 999px;
-  line-height: 1.7;
-}
-
-.ob-teams-strip-ops {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 文字入口按钮（主题色轻量风） */
-.ob-teams-manage {
-  font-size: 12px;
-  font-family: inherit;
-  font-weight: 600;
-  padding: 3px 12px;
-  border-radius: 999px;
-  color: var(--primary-color);
-  background: rgba(var(--primary-color-rgb), 0.08);
-  border: 1px solid rgba(var(--primary-color-rgb), 0.35);
-  cursor: pointer;
-  transition: all 0.15s ease;
-
-  &:hover {
-    background: rgba(var(--primary-color-rgb), 0.14);
-  }
-
-  &.ghost {
-    color: $text-secondary;
-    background: transparent;
-    border-color: var(--border-color);
-
-    &:hover {
-      color: var(--primary-color);
-      border-color: rgba(var(--primary-color-rgb), 0.45);
-      background: transparent;
-    }
-  }
-}
-
 /* ===== 专家团卡片 ===== */
 .ob-teams-grid {
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-}
-
-/* compact 内嵌区块：卡片稍紧凑 */
-.compact .ob-teams-grid {
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
 }
 
 .ob-team-card {

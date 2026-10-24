@@ -34,16 +34,21 @@ function teamFile(id) {
   return path.join(teamsDir(), i + '.json')
 }
 
-// 团 json 归一（members 过滤为 agents 内 .md 相对路径，统一 / 分隔）
+// 团 json 归一（members 过滤为 agents 内 .md 相对路径，统一 / 分隔；
+// sources = 团组成所选的市场项 [{id, name}]，编辑回填勾选按它还原）
 function normalizeTeam(t) {
   const members = Array.isArray(t.members)
     ? t.members.map(s => String(s).replace(/\\/g, '/')).filter(s => /\.md$/i.test(s) && !s.includes('..'))
+    : []
+  const sources = Array.isArray(t.sources)
+    ? t.sources.map(s => ({ id: String(s && s.id || ''), name: String(s && s.name || '') })).filter(s => s.id)
     : []
   return {
     id: String(t.id || ''),
     name: String(t.name || '').trim() || t.id,
     description: String(t.description || '').trim(),
     members,
+    sources,
     // 市场安装的团记录成员集合目录（agents/ 下），删除团时连带清理
     collection: String(t.collection || ''),
     createdAt: t.createdAt || '',
@@ -130,7 +135,10 @@ function createTeam(payload = {}) {
     const now = new Date().toISOString()
     const team = {
       id: genId(checked.form.name),
-      ...checked.form,
+      name: checked.form.name,
+      description: checked.form.description,
+      members: checked.form.members,
+      sources: normalizeSources(payload.sources),
       collection: '',
       createdAt: now,
       updatedAt: now
@@ -142,7 +150,15 @@ function createTeam(payload = {}) {
   }
 }
 
-// 更新团（id 定位，名称/描述/成员可改；collection 与 createdAt 保留）
+// sources 字段归一（[{id, name}]，id 非空）
+function normalizeSources(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map(s => ({ id: String(s && s.id || '').trim(), name: String(s && s.name || '').trim() }))
+    .filter(s => s.id)
+}
+
+// 更新团（id 定位，名称/描述/成员/sources 可改；collection 与 createdAt 保留）
 function updateTeam(payload = {}) {
   const old = readTeam(payload.id)
   if (!old) return { ok: false, error: '专家团不存在' }
@@ -151,7 +167,10 @@ function updateTeam(payload = {}) {
   try {
     const team = {
       id: old.id,
-      ...checked.form,
+      name: checked.form.name,
+      description: checked.form.description,
+      members: checked.form.members,
+      sources: normalizeSources(payload.sources),
       collection: old.collection,
       createdAt: old.createdAt,
       updatedAt: new Date().toISOString()
@@ -163,17 +182,88 @@ function updateTeam(payload = {}) {
   }
 }
 
-// 删除团：本地团仅删 json；市场安装的团（带 collection）连带删除成员集合目录
+// ===== 团保存编排（专家团弹窗统一入口） =====
+// payload: { id?, name, description, sources: [{id, name}] }
+// - 已安装的市场项：按已装记录复用本地文件（agentFile / collection 前缀匹配）
+// - 未安装的市场项：market.installForTeam 落 agents/teams/<teamId>/（不写已装记录，
+//   「我的专家」不单独展示）
+// - 编辑时保留旧成员中非市场来源的本地自建专家（本团 teams/ 目录成员随勾选重建）
+async function saveTeam(payload = {}) {
+  // 函数内 require：market ↔ teams 互相引用，运行时调用时双方均已初始化
+  const market = require('./market')
+
+  const name = String(payload.name || '').trim()
+  const description = String(payload.description || '').trim()
+  const sources = normalizeSources(payload.sources)
+  if (!name) return { ok: false, error: '团名称不能为空' }
+  if (!description) return { ok: false, error: '团描述不能为空' }
+  if (!sources.length) return { ok: false, error: '团组成不能为空，请至少选择 1 位专家' }
+
+  const old = payload.id ? readTeam(payload.id) : null
+  if (payload.id && !old) return { ok: false, error: '专家团不存在' }
+  const teamId = old ? old.id : genId(name)
+
+  const agentsList = agents.listAllAgents()
+  const recs = market.listInstalledRecs()
+  const recAgentFiles = rec => {
+    if (!rec) return []
+    if (rec.agentFile) return [rec.agentFile]
+    if (rec.collection) {
+      const prefix = rec.collection + '/'
+      return agentsList.filter(a => a.file.startsWith(prefix)).map(a => a.file)
+    }
+    return []
+  }
+
+  const files = []
+  for (const s of sources) {
+    const rec = recs.find(r => r.id === s.id)
+    if (rec && !rec.missing && (rec.agentFile || rec.collection)) {
+      files.push(...recAgentFiles(rec))
+    } else {
+      const r = await market.installForTeam(s.id, teamId)
+      if (!r.ok) return { ok: false, error: `「${s.name || s.id}」安装失败：` + r.error }
+      files.push(...(r.agentFiles || []))
+    }
+  }
+
+  // 保留旧成员中非市场来源的本地自建专家；本团 teams/<teamId>/ 成员随勾选重建不保留
+  let kept = []
+  if (old && old.members.length) {
+    const marketFiles = new Set()
+    for (const rec of recs) recAgentFiles(rec).forEach(f => marketFiles.add(f))
+    const selfPrefix = 'teams/' + teamId + '/'
+    kept = old.members.filter(f => !marketFiles.has(f) && !f.startsWith(selfPrefix))
+  }
+
+  const members = [...new Set([...files, ...kept].filter(Boolean))]
+  if (!members.length) return { ok: false, error: '团组成不能为空：未解析到任何成员专家' }
+
+  return old
+    ? updateTeam({ id: teamId, name, description, members, sources })
+    : createTeam({ name, description, members, sources })
+}
+
+// 删除团：连带清理成员——市场团包集合目录（collection）与本团成员目录（teams/<id>/）；
+// 纯本地自建成员（用户独立的 .md）不受影响
 function removeTeam(id) {
   const team = readTeam(id)
   if (!team) return { ok: false, error: '专家团不存在' }
+  let removedMembers = false
   if (team.collection) {
     const del = agents.deleteCollection(team.collection)
     if (!del.ok) return del
+    removedMembers = true
+  }
+  const membersDir = 'teams/' + team.id
+  if (agents.collectionExists(membersDir)) {
+    const del = agents.deleteCollection(membersDir)
+    if (!del.ok) return del
+    removedMembers = true
   }
   try {
     fs.rmSync(path.join(teamsDir(), team.id + '.json'), { force: true })
-    return { ok: true, removedMembers: !!team.collection }
+    return { ok: true, removedMembers }
   } catch (e) {
     return { ok: false, error: '删除专家团失败：' + e.message }
   }
@@ -285,7 +375,8 @@ function promptBlock() {
   if (!teams.length) return ''
   const nameMap = {}
   try {
-    agents.listAgents().forEach(a => { nameMap[a.file] = a.name })
+    // 全量列表（含团成员目录 teams/）：成员名反查不漏
+    agents.listAllAgents().forEach(a => { nameMap[a.file] = a.name })
   } catch (e) { /* 名称反查失败退化为文件名 */ }
   const memberName = m => nameMap[m] || m.split('/').pop().replace(/\.md$/i, '')
   const lines = [
@@ -315,6 +406,8 @@ module.exports = {
   createTeam,
   // 更新专家团（名称/描述/成员）
   updateTeam,
+  // 团保存编排（专家团弹窗统一入口：市场专家安装 + 成员汇总 + 落 json）
+  saveTeam,
   // 删除专家团（市场团连带删除成员集合）
   removeTeam,
   // 导入专家团 ZIP（市场安装管线）

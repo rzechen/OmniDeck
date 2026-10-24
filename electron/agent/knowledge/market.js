@@ -252,6 +252,7 @@ async function install(itemId) {
 
   if (item.type === 'agent') {
     // 按内容魔数分流（比 url 后缀可靠）：ZIP 以 "PK" 开头，否则按裸 md 单专家安装
+    // agentFiles：安装落位的专家文件相对路径清单（专家团保存编排按此定位成员）
     const isZip = dl.data.length > 4 && dl.data[0] === 0x50 && dl.data[1] === 0x4b
     if (!isZip) {
       const installed = await agents.importAgentFile(dl.data, item.id)
@@ -260,7 +261,7 @@ async function install(itemId) {
       const list = readInstalled().filter(r => r.id !== itemId)
       list.push(rec)
       writeInstalled(list)
-      return { ok: true, skill: installed.skill }
+      return { ok: true, skill: installed.skill, agentFiles: [installed.file] }
     }
     // zip 集合包：落 agents/<itemId>/（集合目录幂等覆盖）
     const installed = await agents.importAgentZip(dl.data, item.id, true)
@@ -269,7 +270,9 @@ async function install(itemId) {
     const list = readInstalled().filter(r => r.id !== itemId)
     list.push(rec)
     writeInstalled(list)
-    return { ok: true, skill: installed.skill }
+    const files = agents.listAgents().map(a => a.file)
+      .filter(f => f.startsWith(installed.collection + '/'))
+    return { ok: true, skill: installed.skill, agentFiles: files }
   }
 
   // 技能类型：复用 skills.js 既有安装管线（frontmatter/zip-slip 校验全都有）
@@ -280,6 +283,44 @@ async function install(itemId) {
   list.push(rec)
   writeInstalled(list)
   return { ok: true, skill: installed.skill }
+}
+
+// ---------- 为专家团安装市场专家（成员专属管线） ----------
+// 与 install() 同源的下载与校验，差异：
+// - 落位 agents/teams/<teamId>/（团成员目录，「我的专家」列表不单独展示）
+// - 不写 market-installed.json（成员随团 json 管理，删团时随目录清理）
+// 返回 { ok, agentFiles }（安装落位的专家文件相对路径清单）
+async function installForTeam(itemId, teamId) {
+  const res = await fetchIndex(true)
+  if (!res.ok) return { ok: false, error: res.error }
+  const item = res.items.find(it => it.id === itemId)
+  if (!item) return { ok: false, error: '市场项不存在或已下架：' + itemId }
+  if (item.type !== 'agent') return { ok: false, error: '该市场项不是专家：' + item.name }
+
+  const dl = await downloadBuffer(item.url)
+  if (!dl.ok) return { ok: false, error: dl.error }
+  const destDir = 'teams/' + teamId
+  const isZip = dl.data.length > 4 && dl.data[0] === 0x50 && dl.data[1] === 0x4b
+  if (!isZip) {
+    const installed = await agents.importAgentFile(dl.data, item.id, destDir)
+    if (!installed.ok) return installed
+    return { ok: true, agentFiles: [installed.file] }
+  }
+  const installed = await agents.importAgentZip(dl.data, destDir, true)
+  if (!installed.ok) return installed
+  const files = agents.listAllAgents().map(a => a.file)
+    .filter(f => f.startsWith(destDir + '/'))
+  return { ok: true, agentFiles: files }
+}
+
+// 已装记录查询（专家团保存编排：已装市场项复用本地文件，不重复下载）
+function getInstalledRec(id) {
+  return readInstalledRec(id)
+}
+
+// 全部已装记录（专家团保存编排：识别本地自建成员用）
+function listInstalledRecs() {
+  return readInstalled()
 }
 
 // ---------- 卸载：按类型与形态删除对应文件/目录 + 移除记录 ----------
@@ -372,5 +413,11 @@ module.exports = {
   // 注册市场 IPC 通道
   registerIpc,
   // 拉取索引并合并已装状态（TTL 缓存）
-  fetchIndex
+  fetchIndex,
+  // 为专家团安装市场专家（成员落 agents/teams/<teamId>/，不写已装记录）
+  installForTeam,
+  // 已装记录查询（专家团保存编排用）
+  getInstalledRec,
+  // 全部已装记录（专家团保存编排用）
+  listInstalledRecs
 }

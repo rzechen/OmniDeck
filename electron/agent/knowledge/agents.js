@@ -136,8 +136,10 @@ function walkAgents(dir, rel, depth, out) {
 
 // 预留子目录（不进「我的专家」列表，但 pi 递归发现照常装载）：
 //   pipeline/ — 技能流水线专员（由技能体系维护，用户在技能页管理）
+//   teams/    — 专家团成员专家（经专家团加入自动安装，随团管理，不单独展示）
 //   market/   — 市场安装的专家（列表正常显示，子目录仅为卸载定位）
 const HIDDEN_DIRS = ['pipeline']
+const TEAM_MEMBERS_DIR = 'teams'
 
 // 内置专家目录（builtin.js 启动时随包部署，列表展示带「系统」标识、只读）
 const BUILTIN_DIR = 'builtin'
@@ -146,12 +148,27 @@ function isBuiltinAgentFile(file) {
   return String(file || '').replace(/\\/g, '/').startsWith(BUILTIN_DIR + '/')
 }
 
+function isTeamMemberFile(file) {
+  return String(file || '').replace(/\\/g, '/').startsWith(TEAM_MEMBERS_DIR + '/')
+}
+
+// 面向「我的专家」列表：过滤隐藏目录与团成员（团成员随团呈现，不单独展示）
 function listAgents() {
   const out = []
   walkAgents(agentsDir(), '', 0, out)
   return out
-    .filter(a => !HIDDEN_DIRS.some(d => a.file.startsWith(d + '/')))
+    .filter(a => !HIDDEN_DIRS.some(d => a.file.startsWith(d + '/'))
+      && !isTeamMemberFile(a.file))
     // 内置专家标记（UI 隐藏编辑/删除，仅允许查看详情；后端 update/delete 另有拒绝兜底）
+    .map(a => ({ ...a, builtin: isBuiltinAgentFile(a.file) }))
+}
+
+// 全量专家列表（含团成员目录；供专家团成员名反查等内部用途）
+function listAllAgents() {
+  const out = []
+  walkAgents(agentsDir(), '', 0, out)
+  return out
+    .filter(a => !HIDDEN_DIRS.some(d => a.file.startsWith(d + '/')))
     .map(a => ({ ...a, builtin: isBuiltinAgentFile(a.file) }))
 }
 
@@ -285,9 +302,10 @@ function validateAgentEntries(files, prefix) {
   return { ok: true, agents: out }
 }
 
-// 导入单个专家 md（市场裸 md 直链安装）：校验 frontmatter 后落 agents/market/<slug>.md。
+// 导入单个专家 md（市场裸 md 直链安装）：校验 frontmatter 后落盘。
+// destDir 为 agents 内目标子目录（默认 market；专家团安装传 teams/<teamId>），
 // slug 取自市场项 id（agent-zh-<domain>-<slug> 尾段或整体），防穿越同集合校验
-function importAgentFile(data, itemId) {
+function importAgentFile(data, itemId, destDir) {
   const text = Buffer.from(data).toString('utf-8')
   let meta = {}
   try {
@@ -300,11 +318,18 @@ function importAgentFile(data, itemId) {
 
   const slug = String(itemId || '').trim().replace(/^agent-zh-/, '').replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64)
   if (!validName(slug)) return { ok: false, error: '专家标识无效：' + slug }
-  const dir = path.join(agentsDir(), 'market')
+  const dir = path.join(agentsDir(), validCollection(destDir) ? destDir : 'market')
   fs.mkdirSync(dir, { recursive: true })
   const dest = path.join(dir, slug + '.md')
   fs.writeFileSync(dest, text, 'utf-8')
-  return { ok: true, file: 'market/' + slug + '.md', skill: { name, description: desc } }
+  const relDir = validCollection(destDir) ? destDir : 'market'
+  return { ok: true, file: relDir + '/' + slug + '.md', skill: { name, description: desc } }
+}
+
+// 集合目录名校验（支持多级：每段均须合法 slug；专家团成员目录形如 teams/<teamId>）
+function validCollection(col) {
+  const parts = String(col || '').trim().split('/').filter(Boolean)
+  return parts.length > 0 && parts.every(p => validName(p))
 }
 
 // 导入专家包 ZIP：解压到 agents/<collection>/（zip-slip 防护同 skills）。
@@ -312,7 +337,7 @@ function importAgentFile(data, itemId) {
 function importAgentZip(data, collection, overwrite) {
   const col = String(collection || '').trim()
   if (col === BUILTIN_DIR) return { ok: false, error: '不可使用系统内置目录名：' + col }
-  if (!validName(col)) return { ok: false, error: '集合名称无效：' + (col || '(空)') }
+  if (!validCollection(col)) return { ok: false, error: '集合名称无效：' + (col || '(空)') }
   const parsed = parseAgentZip(data)
   if (parsed.error) return { ok: false, error: parsed.error }
   const checked = validateAgentEntries(parsed.files, parsed.prefix)
@@ -348,12 +373,12 @@ function importAgentZip(data, collection, overwrite) {
   }
 }
 
-// 删除整个专家集合目录（市场卸载用；仅允许集合目录名，防穿越）
+// 删除整个专家集合目录（市场卸载/专家团成员清理用；支持多级目录，防穿越）
 // 内置专家目录（builtin/）只读，拒绝删除
 function deleteCollection(collection) {
   const col = String(collection || '').trim()
   if (col === BUILTIN_DIR) return { ok: false, error: '系统内置专家集合不可删除' }
-  if (!validName(col)) return { ok: false, error: '集合名称无效' }
+  if (!validCollection(col)) return { ok: false, error: '集合名称无效' }
   const dir = path.join(agentsDir(), col)
   if (!fs.existsSync(dir)) return { ok: false, error: '专家集合不存在' }
   try {
@@ -364,10 +389,10 @@ function deleteCollection(collection) {
   }
 }
 
-// 集合目录是否已存在（重名提示用）
+// 集合目录是否已存在（重名提示用；支持多级）
 function collectionExists(collection) {
   const col = String(collection || '').trim()
-  return !!col && validName(col) && fs.existsSync(path.join(agentsDir(), col))
+  return !!col && validCollection(col) && fs.existsSync(path.join(agentsDir(), col))
 }
 
 module.exports = {
@@ -377,8 +402,10 @@ module.exports = {
   agentsRoot: agentsDir,
   // 解析专家 md 文本（frontmatter + 正文）
   parseAgentText,
-  // 扫描专家列表（frontmatter + 正文）
+  // 扫描专家列表（frontmatter + 正文；不含团成员目录与隐藏目录）
   listAgents,
+  // 全量专家列表（含团成员目录；供专家团成员名反查等内部用途）
+  listAllAgents,
   // 本地新建专家（<name>.md）
   createAgent,
   // 读取单个专家
