@@ -1308,7 +1308,13 @@ function fcRemoved(fc) {
   :deep(p:last-child) { margin-bottom: 0; }
   :deep(ul), :deep(ol) { padding-left: 18px; margin: 4px 0; }
   :deep(li) { margin: 2px 0; }
-  :deep(a) { color: var(--primary-color); }
+  /* 有 href 的真链接（web 工具结果 Source 行）着色，无 href 降级链接按普通文本 */
+  :deep(a[href]) {
+    color: var(--primary-color);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(var(--primary-color-rgb), 0.35);
+  }
+  :deep(a) { color: inherit; }
 }
 
 /* 流式光标 */

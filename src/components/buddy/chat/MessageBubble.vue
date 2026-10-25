@@ -132,6 +132,30 @@
       </div>
       <span v-if="showCursor" class="ob-cursor"></span>
 
+      <!-- 助手：参考来源卡片（联网工具实际命中的来源清单，与模型正文是否写引文解耦；
+           正文末尾、深度研究进度卡片上方；数据随消息 items 持久化恢复） -->
+      <div v-if="message.role === 'assistant' && !message.streaming && sources.length" class="ob-sources">
+        <div class="ob-sources-head">
+          <svg-icon icon-class="link" class="ob-sources-ico" />
+          <span class="ob-sources-title">参考来源</span>
+          <span class="ob-sources-count">{{ sources.length }}</span>
+        </div>
+        <a
+          v-for="(s, i) in sources"
+          :key="s.url"
+          :href="s.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="ob-source-item"
+          :title="s.url"
+          @click.prevent="openSource(s.url)"
+        >
+          <span class="ob-source-idx">{{ i + 1 }}</span>
+          <span class="ob-source-name">{{ s.title }}</span>
+          <span class="ob-source-host">{{ s.host }}</span>
+        </a>
+      </div>
+
       <!-- 助手：深度研究任务进度卡片：workflow 工具启动的多代理运行实时状态；
            后台运行跨回合，进度由 store 直接写入 item.workflow.progress，卡片天然响应 -->
       <workflow-panel
@@ -522,6 +546,32 @@ const artifacts = computed(() => {
     .filter(it => it.type === 'tool' && Array.isArray(it.artifacts))
     .reduce((acc, it) => acc.concat(it.artifacts), [])
 })
+
+// 参考来源：本轮 web 工具（web_search / fetch_content / source_check /
+// get_search_content）实际命中的来源清单，跨工具按 URL 去重、上限 10 条
+const sources = computed(() => {
+  if (props.message.role !== 'assistant' || !Array.isArray(props.message.items)) return []
+  const out = []
+  const seen = new Set()
+  for (const it of props.message.items) {
+    if (it.type !== 'tool' || !Array.isArray(it.sources)) continue
+    for (const s of it.sources) {
+      if (!s || typeof s.url !== 'string' || !/^https?:\/\//i.test(s.url) || seen.has(s.url)) continue
+      seen.add(s.url)
+      let host = ''
+      try { host = new URL(s.url).hostname } catch (e) { /* 保留空 */ }
+      out.push({ title: s.title || host || s.url, url: s.url, host })
+      if (out.length >= 10) return out
+    }
+  }
+  return out
+})
+
+// 来源点击：window.open → 主进程 setWindowOpenHandler 转 shell.openExternal
+//（与 onMdClick 链接拦截同管线，系统浏览器打开）
+function openSource(url) {
+  window.open(url, '_blank')
+}
 
 // Markdown 区点击委托：链接拦截 + 代码块复制/放大按钮（v-html 内容不归 Vue 管，走事件委托）
 function onMdClick(e) {
@@ -1324,6 +1374,15 @@ async function exportAs(format) {
   :deep(p) { margin: 0 0 8px; }
   :deep(p:last-child) { margin-bottom: 0; }
 
+  /* 正文内联引文链接（模型 [标题](URL) 显式链接；仅 http(s) 有 href 可点，
+     点击经 onMdClick → window.open → 主进程转系统浏览器） */
+  :deep(a[href]) {
+    color: var(--primary-color);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(var(--primary-color-rgb), 0.35);
+    &:hover { border-bottom-color: var(--primary-color); }
+  }
+
   /* 代码块容器内 pre 复位（工具条/边框/圆角由全局 .ob-code 承载；
      本组件旧 pre 样式特异性更高，需在此覆盖） */
   :deep(.ob-code pre) {
@@ -1376,12 +1435,91 @@ async function exportAs(format) {
   }
 
   :deep(a) {
-    color: var(--primary-color);
+    /* 无 href 的降级链接（linkify 伪链接 / 非 http 协议）按普通文本呈现 */
+    color: inherit;
   }
 
   :deep(h1), :deep(h2), :deep(h3), :deep(h4) {
     margin: 12px 0 6px;
     font-weight: 700;
   }
+}
+
+/* ===== 参考来源卡片（联网引文） ===== */
+.ob-sources {
+  margin: 10px 0 2px;
+  padding: 8px 10px;
+  background: rgba(var(--primary-color-rgb), 0.045);
+  border: 1px solid rgba(var(--primary-color-rgb), 0.14);
+  border-radius: 10px;
+}
+
+.ob-sources-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ob-sources-ico {
+  width: 13px;
+  height: 13px;
+}
+
+.ob-sources-title {
+  font-weight: 600;
+}
+
+.ob-sources-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(var(--primary-color-rgb), 0.12);
+  color: var(--primary-color);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.ob-source-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: 6px;
+
+  &:hover {
+    background: rgba(var(--primary-color-rgb), 0.07);
+  }
+}
+
+.ob-source-idx {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(var(--primary-color-rgb), 0.12);
+  color: var(--primary-color);
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.ob-source-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ob-source-host {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 11.5px;
 }
 </style>

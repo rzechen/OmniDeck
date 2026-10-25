@@ -4,18 +4,23 @@ import { buddyApiSection } from '@/utils/buddy/buddy-api'
 import { bus } from '@/utils/ui/bus'
 
 export const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-// 链接降级为纯文本：<a> 渲染为无属性 <span>（保留链接文字、去掉 href）。
-// 对话气泡 / 思考区 / 详情弹窗 / 规则预览共用本渲染器，统一不出现可点击
-// 链接（应用内点击外链会拉起系统浏览器，且伪链接曾致窗口白屏）
+// 链接渲染：显式 Markdown 链接 [text](url) 与自动链接 <url> 恢复为可点击 <a>
+//（target=_blank → 主进程 setWindowOpenHandler 转 shell.openExternal 在系统浏览器打开；
+//  无 target 的漏网导航由 main.js will-navigate 兜底拦截，不会再白屏）。
+// 安全边界（防伪链接，历史白屏事故根因）：
+// - 仅放行 http(s) 协议，file: / javascript: 等一律剥掉 href（<a> 无 href 即不可点击的纯文本）
+// - linkify 自动识别的裸文本（token.markup === 'linkify'）保持纯文本——linkify 会把
+//   `entries.md` 这类普通词识别成 http://entries.md 伪链接，而模型手写引文是显式
+//   Markdown 链接不受影响
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
-  token.tag = 'span'
-  token.attrs = []
-  return self.renderToken(tokens, idx, options)
-}
-
-md.renderer.rules.link_close = (tokens, idx, options, env, self) => {
-  tokens[idx].tag = 'span'
+  const href = token.attrGet('href') || ''
+  if (!/^https?:\/\//i.test(href) || token.markup === 'linkify') {
+    token.attrs = []
+  } else {
+    token.attrSet('target', '_blank')
+    token.attrSet('rel', 'noopener noreferrer')
+  }
   return self.renderToken(tokens, idx, options)
 }
 

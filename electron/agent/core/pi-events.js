@@ -308,7 +308,8 @@ function handlePiEvent(getWindow, e) {
         isError: e.isError,
         fileChange: fileChange || undefined,
         artifacts: artifacts || undefined,
-        workflow: e.workflow || undefined
+        workflow: e.workflow || undefined,
+        sources: e.sources || undefined
       }, toolAnchors ? { anchors: toolAnchors } : {}))
       emit(getWindow, chatId, {
         type: 'tool_end',
@@ -319,7 +320,8 @@ function handlePiEvent(getWindow, e) {
         fileChange: fileChange || undefined,
         artifacts: artifacts || undefined,
         workflow: e.workflow || undefined,
-        subagentRun: e.subagentRun || undefined
+        subagentRun: e.subagentRun || undefined,
+        sources: e.sources || undefined
       })
       // 深度研究：后台 workflow 启动即返回 runId → 轮询落盘状态驱动前端进度卡片
       if (e.workflow && e.workflow.runId && e.workflow.background && e.workflow.kind !== 'subagent') {

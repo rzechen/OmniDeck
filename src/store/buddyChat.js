@@ -107,7 +107,9 @@ function normalizeHistory(list) {
           fileChange: m.fileChange || null,
           artifacts: m.artifacts || null,
           // 深度研究：workflow 运行标识（后台 runId；前台含最终快照）
-          workflow: m.workflow || null
+          workflow: m.workflow || null,
+          // 联网引文：web 工具实际命中的来源清单（参考来源卡片）
+          sources: m.sources || null
         }
         lastAssistant.items.push(item)
         // ask_user 工具记录到达：挂接暂存的问答（落盘顺序问答在前、工具在后）
@@ -679,6 +681,8 @@ export default {
             t.isError = !!e.isError
             t.fileChange = e.fileChange || null
             t.artifacts = e.artifacts || null
+            // 联网引文：web 工具来源清单随工具完成回填
+            t.sources = e.sources || null
             // 深度研究：workflow 工具返回 runId（后台）或最终快照（前台）
             if (e.workflow) {
               t.workflow = e.workflow

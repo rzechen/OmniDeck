@@ -197,8 +197,8 @@ function addMessage(id, msg) {
     content: msg.content || '',
     createdAt: Date.now()
   }
-  // 附加字段白名单（工具调用 / 回问记录 / 思考过程 / 供应商错误 / token 用量 / 图片附件 / 上下文压缩摘要 / 文件附件 / 模型名 / 文件变更 diff / 会话内分支 / 导出产物清单 / @ 引用路径 / 中途正文标记）
-  const extras = ['toolName', 'args', 'result', 'isError', 'fileChange', 'artifacts', 'question', 'options', 'answer', 'todos', 'thinking', 'error', 'usage', 'images', 'compaction', 'fileAttachments', 'model', 'editOf', 'anchors', 'atRefs', 'mid']
+  // 附加字段白名单（工具调用 / 回问记录 / 思考过程 / 供应商错误 / token 用量 / 图片附件 / 上下文压缩摘要 / 文件附件 / 模型名 / 文件变更 diff / 会话内分支 / 导出产物清单 / @ 引用路径 / 中途正文标记 / 联网引文来源）
+  const extras = ['toolName', 'args', 'result', 'isError', 'fileChange', 'artifacts', 'question', 'options', 'answer', 'todos', 'thinking', 'error', 'usage', 'images', 'compaction', 'fileAttachments', 'model', 'editOf', 'anchors', 'atRefs', 'mid', 'sources']
   for (const key of extras) {
     if (msg[key] !== undefined) record[key] = msg[key]
   }

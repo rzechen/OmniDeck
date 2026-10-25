@@ -3,6 +3,38 @@
 // 工具参数缓存。纯事件翻译层，不持有会话状态。
 // 模型用 read 工具读取 SKILL.md 时视为 skill 被激活（pi skills 渐进加载机制），
 // 取上级目录名作为 skill 名称下发前端渲染。
+
+// ===== 联网引文：web 类工具来源提取 =====
+// web 工具集与前端 ThinkingSection isWebTool 白名单对齐（+ get_search_content
+// 调取历史搜索结果，同样为 Source 行格式）
+const WEB_SOURCE_TOOLS = new Set(['web_search', 'fetch_content', 'source_check', 'get_search_content'])
+// pi-web-access 全部 provider 统一以 "Source: 标题 (URL)" 行标注来源
+// （formatSearchResultsAsAnswer），按行提取；标题限长防异常长文撑爆事件
+const SOURCE_LINE_RE = /Source:\s*([^\n()]{1,200}?)\s*\((https?:\/\/[^\s)]+)\)/g
+const MAX_SOURCES = 10
+
+function extractWebSources(toolName, args, resultText) {
+  const out = []
+  const seen = new Set()
+  const push = (title, url) => {
+    if (!url || seen.has(url) || out.length >= MAX_SOURCES) return
+    seen.add(url)
+    out.push({ title: (title || '').trim() || url, url })
+  }
+  if (typeof resultText === 'string') {
+    let m
+    while ((m = SOURCE_LINE_RE.exec(resultText))) push(m[1], m[2])
+  }
+  // fetch_content 结果为页面正文（无 Source 行），来源即抓取目标 URL（标题取域名）
+  if (toolName === 'fetch_content' && args) {
+    const u = args.url || args.link
+    if (typeof u === 'string' && /^https?:\/\//i.test(u)) {
+      try { push(new URL(u).hostname, u) } catch (e) { /* 非法 URL 忽略 */ }
+    }
+  }
+  return out.length ? out : null
+}
+
 function skillNameFromTool(toolName, args) {
   if (toolName !== 'read' || !args) return ''
   const p = args.file_path || args.path || args.filePath || ''
@@ -167,6 +199,12 @@ function subscribeSessionEvents(session, chatId, onEvent, onSkillActivated) {
           }
           const args = toolArgsById.get(event.toolCallId)
           toolArgsById.delete(event.toolCallId)
+          // 联网引文：web 类工具结果提取结构化来源清单 → 前端「参考来源」卡片
+          //（与模型正文是否写引文解耦；失败工具结果不含来源）
+          let sources = null
+          if (!event.isError && WEB_SOURCE_TOOLS.has(event.toolName)) {
+            try { sources = extractWebSources(event.toolName, args, resultText) } catch (e) { /* 提取失败按无来源处理 */ }
+          }
           // 子代理后台并行：async 启动的 subagent 工具返回 details.asyncId（=runId），
           // 提取最小字段（agent 名取自 args）→ 主进程 run 注册表 + 状态轮询。
           // 同时以 workflow 形态带 kind:'subagent' 下发：前端工具卡片挂进度面板
@@ -197,7 +235,8 @@ function subscribeSessionEvents(session, chatId, onEvent, onSkillActivated) {
             result: resultText.slice(0, 4000),
             ...(artifacts ? { artifacts } : {}),
             ...(workflow ? { workflow } : {}),
-            ...(subagentRun ? { subagentRun } : {})
+            ...(subagentRun ? { subagentRun } : {}),
+            ...(sources ? { sources } : {})
           })
           break
         }
