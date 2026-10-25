@@ -1,7 +1,7 @@
 <template>
   <!-- 深度思考区（分段时间线）：每个思考段独立折叠（折叠头 = 序号 + 摘要），
        段内正文与其后续的过程说明 / 工具 / Skill / 问答记录随段折叠；
-       待回答 ask 恒可见 -->
+       待回答 ask 恒可见且平铺（不随段折叠，不入缩进内容列） -->
   <div class="ob-think">
     <div class="ob-think-body">
       <template v-for="(item, i) in items">
@@ -92,12 +92,14 @@
           </div>
         </div>
 
-        <!-- ask_user 提问卡片（归位于思考区内，与工具条目同级）：挂起待答恒可见，
-             已答问答记录随所属思考段折叠 -->
+        <!-- ask_user 提问卡片（归位于思考区内，与工具条目同级）：挂起待答恒可见
+             且平铺不缩进（不随段折叠，不入缩进内容列）；
+             已答问答记录随所属思考段折叠（缩进入列） -->
         <ask-user-card
           v-else-if="item.type === 'ask' && itemVisible(item, i)"
           :key="'ask-' + i"
           class="ob-think-ask"
+          :class="{ answered: !!item.answered }"
           :message="item"
           @answer="(msg, value) => emit('ask-answer', msg, value)"
         />
@@ -832,12 +834,13 @@ function fcRemoved(fc) {
   }
 }
 
-/* 思考区时间线内容层：过程说明 / 工具 / Skill / ask 卡片 / 思考段正文
+/* 思考区时间线内容层：过程说明 / 工具 / Skill / 已答问答记录 / 思考段正文
    同层级缩进，左侧统一竖线构成"过程内容"一列，随所属段展开收起；
+   待答 ask 恒可见不随段折叠，平铺不入此列；
    思考段折叠头在外层平铺；段正文与折叠头另拉开上间距 */
 .ob-think-body > .ob-tool,
 .ob-think-body > .ob-skill,
-.ob-think-body > .ob-think-ask,
+.ob-think-body > .ob-think-ask.answered,
 .ob-think-body > .ob-narration,
 .ob-think-body > .ob-think-seg .ob-seg-text {
   margin-left: 20px;
@@ -887,8 +890,8 @@ function fcRemoved(fc) {
   }
 }
 
-/* 思考区内的 ask_user 卡片：清除独立消息态的左移避让（思考区已有缩进）；
-   挂接态（工具条目内）与头部摘要行拉开间距 */
+/* 思考区内的 ask_user 卡片：清除独立消息态的左移避让（缩进仅由 answered
+   状态的内容列规则控制，待答平铺）；挂接态（工具条目内）与头部摘要行拉开间距 */
 .ob-think-ask {
   margin-top: 5px;
 
