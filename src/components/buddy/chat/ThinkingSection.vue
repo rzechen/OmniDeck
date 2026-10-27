@@ -2,8 +2,8 @@
   <!-- 深度思考区（思考组折叠单元模型）：
        流式输出中：顶部「已处理 Ns」+ 一行执行摘要，各组默认收起；
        完成后：顶部「✓ 已完成 · Ns ⌄」，默认全部收起，点击顶部统一展开；
-       每个思考组头部：小图标 +「深度思考」+（收起时）摘要 + 箭头，只控制
-       本组思考正文，互不影响；工具 / 技能卡片不随组收起（仅随顶部统一收起） -->
+       每个思考组头部：小图标 +「深度思考」+（收起时）摘要 + 箭头，控制
+       本组全部内容（思考正文 + 工具 / 技能卡片），各组互不影响 -->
   <div class="thinking-section">
     <!-- 区块总状态行（流式中：已处理时长 + 摘要；完成后：已完成 + 耗时，点击统一折叠 / 展开） -->
     <div
@@ -50,13 +50,12 @@
         >{{ groupExcerpt(group) }}</span>
         <svg-icon icon-class="arrow-down" class="uh-chevron" :class="{ 'is-collapsed': isGroupCollapsed(group, gi) }" />
       </div>
-      <div class="unit-body">
+      <!-- 组内容（思考正文 + 工具 / 技能 / 代码 / 问答卡片）：跟随本组折叠 -->
+      <div class="unit-body" v-show="!isGroupCollapsed(group, gi)">
         <template v-for="(item, ii) in group.items">
-          <!-- A. 思考正文：完整渲染（markdown），仅随本组折叠；
-               工具 / 技能卡片不受组折叠影响，始终可见 -->
+          <!-- A. 思考正文：完整渲染（markdown），随本组折叠 -->
           <div
             v-if="isTextItem(item) && String(item.content || '').trim()"
-            v-show="!isGroupCollapsed(group, gi)"
             :key="'t' + ii"
             class="think-text think-md"
             v-html="renderedCached(item, item.content)"
@@ -506,12 +505,14 @@ function groupKey(group, gi) {
   return 'g:' + gi
 }
 
-// 组思考正文折叠态：仅由本组手动切换决定。
-// 默认态：完成后收起（展开区块只显示「深度思考 + 摘要」，点本组才展开正文）；
+// 组折叠态：仅由本组手动切换决定。
+// 默认态：完成后收起（展开区块只显示「深度思考 + 摘要」，点本组才展开内容）；
 // 流式中默认展开（实时内容可见）。
+// 无组头部（thinkingNo 未编号）的纯执行组无法点击展开，保持可见。
 // 注意：必须用 !== undefined 读取（get trap 会收集依赖）；hasOwnProperty
 // 走 [[GetOwnProperty]]，Vue 3 未实现该 trap，新增 key 不会触发重渲染
 function isGroupCollapsed(group, gi) {
+  if (!group.thinkingNo) return false
   const key = groupKey(group, gi)
   const manual = groupToggled.value[key]
   return manual !== undefined ? manual : !props.isStreaming

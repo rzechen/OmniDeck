@@ -169,6 +169,16 @@ function writeModelTiers(p) {
 }
 
 // ===== 运行时构建 =====
+// 会话是否仍有执行中的回合：pi Agent 在整个回合（LLM 流式 + 工具执行全程）
+// 置 isStreaming=true，runWithLifecycle 结束（含 abort）后回落 false
+function isSessionBusy(entry) {
+  try {
+    return !!(entry && entry.session && entry.session.agent && entry.session.agent.state.isStreaming)
+  } catch (e) {
+    return false // 状态不可读时按空闲处理（不阻塞重建）
+  }
+}
+
 async function ensureRuntime(provider) {
   const key = providerKeyOf(provider)
   // provider 快照无论如何都刷新（轻量直调取最新配置；重建运行时仍按 key 判定）
@@ -224,13 +234,21 @@ async function ensureRuntime(provider) {
   writeModelsJson(provider)
   writeModelTiers(provider)
 
-  // provider 变化：丢弃旧会话（各会话持有旧 model 引用）
+  // provider 变化：丢弃旧会话（各会话持有旧 model 引用）。
+  // 运行中回合豁免：会话创建时已捕获自己的 modelRuntime/model 引用，可自洽
+  // 跑完当前回合；此处仅标记 stale，待回合结束后由 settleStaleSession 延迟销毁
+  // （否则在途 LLM 请求被 dispose→abort 连坐，表现为任务被另一会话"挤掉"）
   if (state.sessions.size) {
-    for (const s of state.sessions.values()) {
+    for (const [id, s] of state.sessions) {
+      if (isSessionBusy(s)) {
+        s.stale = true
+        console.log('[omnibuddy:pi] 会话在运行中，豁免重建清场（延迟销毁）：', id)
+        continue
+      }
       try { s.unsubscribe() } catch (e) { /* 忽略 */ }
       try { s.session.dispose() } catch (e) { /* 忽略 */ }
+      state.sessions.delete(id)
     }
-    state.sessions.clear()
   }
   state.modelRuntime = runtime
   state.model = model
@@ -264,6 +282,8 @@ module.exports = {
   modelConfig,
   // 确保模型运行时就绪（配置指纹变化时重建并清空旧会话）
   ensureRuntime,
+  // 会话是否仍有执行中的回合（清场豁免判定）
+  isSessionBusy,
   // provider 配置指纹（会话缓存比对：模型/密钥/高级配置变化需重建会话）
   providerKeyOf,
   // 当前 provider 配置快照（含 imageConfigured 能力判定）

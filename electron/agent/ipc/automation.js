@@ -259,6 +259,9 @@ function createAutomation({ getWindow, handlePiEvent }) {
     running.delete(chatId)
     automationTurnErrors.delete(chatId)
     automationHeartbeats.delete(chatId)
+    // stale 收尾：清场豁免（provider 重建/扩展安装时任务仍在跑）的会话在
+    // 任务结束后延迟销毁，下次运行按新配置重建（幂等，非 stale 为空操作）
+    try { await piRuntime.settleStaleSession(chatId) } catch (e) { /* 忽略 */ }
     // 无头标记与被拒操作收割：deniedOps 随 result 带出（写入运行历史 +
     // 通知提示），用户据此决定是否在权限管理为对应面预配置允许
     unmarkHeadlessRun(chatId)

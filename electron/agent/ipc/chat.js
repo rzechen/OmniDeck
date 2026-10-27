@@ -365,6 +365,9 @@ function registerChatIpc(getWindow) {
       emit(getWindow, id, { type: 'error', error: err.message })
       return { ok: false, error: err.message }
     } finally {
+      // stale 收尾兜底：中断/异常路径不经正常收尾点，finally 统一补一次
+      // （幂等：非 stale 会话为空操作）
+      try { await piRuntime.settleStaleSession(id) } catch (e) { /* 忽略 */ }
       running.delete(id)
     }
   })

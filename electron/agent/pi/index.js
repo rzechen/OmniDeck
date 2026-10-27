@@ -103,8 +103,10 @@ module.exports = {
   getOrCreateSession: piSession.getOrCreateSession,
   // 销毁单个会话（退订事件 + dispose + 拒绝未决权限确认）
   disposeSession: piSession.disposeSession,
-  // 全量销毁运行中会话（扩展安装后调用，新会话装载新扩展）
+  // 全量销毁运行中会话（扩展安装后调用，新会话装载新扩展；运行中回合豁免）
   disposeAllSessions: piSession.disposeAllSessions,
+  // 回合结束后收尾 stale 会话（清场豁免者的延迟销毁）
+  settleStaleSession: piSession.settleStaleSession,
   // 上下文作废（分支线路变化 / 删除会话）：销毁内存会话 + 删除落盘转录（防 resume 复活）
   invalidateSessionFiles: piSession.invalidateSessionFiles,
   // 原生分支切换（内存会话直接操作，无会话记 pending 待 resume 应用）

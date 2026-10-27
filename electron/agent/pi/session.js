@@ -16,7 +16,7 @@ const docExport = require('../tools/doc-export')
 const imageGen = require('../tools/image-gen')
 const rules = require('../knowledge/rules')
 const { state, loadPi } = require('./state')
-const { ensureRuntime, thinkingLevelOf, providerKeyOf } = require('./provider')
+const { ensureRuntime, thinkingLevelOf, providerKeyOf, isSessionBusy } = require('./provider')
 const { createAskUserExtension, createCredentialGetExtension, createTodoExtension } = require('./extensions')
 const { systemPrompt } = require('./prompt')
 const { createUiContext, rejectUiAsks } = require('./ui-context')
@@ -109,7 +109,13 @@ async function getOrCreateSession(chatId, provider, historyTexts, onEvent, works
   if (cached) {
     const policyNow = resolveMemoryPolicy(workspaceDir).policy
     const keyNow = providerKeyOf(provider)
-    if (cached.workspaceDir === workspaceDir && cached.memoryPolicy === policyNow && cached.providerKey === keyNow) return cached.session
+    if (cached.workspaceDir === workspaceDir && cached.memoryPolicy === policyNow && cached.providerKey === keyNow) {
+      // stale（清场豁免标记）且已空闲：不复用——按延迟等价的原全量销毁语义
+      // 重建，装载新扩展/规则；仍在跑则返回本体（prompt 经 followUp 排队，
+      // 回合连续性优先，结束后再由 settleStaleSession 收尾）
+      if (!cached.stale || isSessionBusy(cached)) return cached.session
+      console.log('[omnibuddy:pi] 会话缓存丢弃（stale 空闲，重建装载新配置）：', chatId)
+    }
     // 工作空间 / 记忆策略 / 模型配置变化：丢弃旧会话（含旧转录），下面按新配置重建
     // （原生 resume 保留上下文，provider 变化由 pi 以 model_change 条目衔接）
     if (cached.providerKey !== keyNow) {
@@ -473,13 +479,30 @@ function getSessionMemoryInfo(chatId) {
   return null
 }
 
-// 全量销毁运行中的 pi 会话（安装 MCP 适配器等扩展后调用，新会话重建时装载新扩展）
+// 全量销毁运行中的 pi 会话（安装 MCP 适配器等扩展后调用，新会话重建时装载新扩展）。
+// 运行中回合豁免（同 ensureRuntime 重建清场）：标记 stale 延迟销毁，
+// 防止扩展安装/全局设置保存把在跑任务连坐中止
 async function disposeAllSessions() {
-  const ids = Array.from(state.sessions.keys())
-  for (const id of ids) {
+  for (const id of Array.from(state.sessions.keys())) {
+    const entry = state.sessions.get(id)
+    if (entry && isSessionBusy(entry)) {
+      entry.stale = true
+      console.log('[omnibuddy:pi] 会话在运行中，豁免全量销毁（延迟销毁）：', id)
+      continue
+    }
     await disposeSession(id)
   }
-  state.sessions.clear()
+}
+
+// 回合结束后的 stale 收尾：豁免清场的会话（provider 重建 / 扩展安装时仍在
+// 执行）在其回合结束后由此销毁，下次使用时按新配置重建。
+// 非幂等安全：无 stale 会话时为空操作；销毁失败不抛错（下次收尾重试）
+async function settleStaleSession(chatId) {
+  const entry = state.sessions.get(chatId)
+  if (!entry || !entry.stale) return
+  if (isSessionBusy(entry)) return // 新回合又开跑：保持豁免，待其结束再收尾
+  await disposeSession(chatId)
+  console.log('[omnibuddy:pi] stale 会话已延迟销毁（新会话将按新配置重建）：', chatId)
 }
 
 async function interruptSession(chatId) {
@@ -510,8 +533,10 @@ module.exports = {
   getOrCreateSession,
   // 销毁单个会话（退订事件 + dispose + 拒绝未决权限确认）
   disposeSession,
-  // 全量销毁运行中会话（扩展安装后调用，新会话装载新扩展）
+  // 全量销毁运行中会话（扩展安装后调用，新会话装载新扩展；运行中回合豁免）
   disposeAllSessions,
+  // 回合结束后收尾 stale 会话（清场豁免者的延迟销毁）
+  settleStaleSession,
   // 销毁前触发 pi-memory 退出摘要（reload → session_shutdown → daily 落盘）
   finalizeSession,
   // 内存会话 id 清单
