@@ -215,7 +215,7 @@ function registerChatIpc(getWindow) {
       emit(getWindow, id, { type: 'user_message', message: record })
     }
 
-    const entry = { abort: null, mode: 'pi', model: provider.model, anchors: anchorsArr, assistantIds: [] }
+    const entry = { abort: null, mode: 'pi', model: provider.model, anchors: anchorsArr, assistantIds: [], startedAt: Date.now() }
     running.set(id, entry)
 
     // 历史回放（pi 会话重建时）：排除刚落盘的本条消息（它经 prompt 发送，

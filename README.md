@@ -10,7 +10,7 @@
 ![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)
 ![Tools](https://img.shields.io/badge/tools-70%2B%20offline-green)
-![License](https://img.shields.io/badge/license-PolyForm--NC%201.0.0%20(source--available)-orange)
+![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 
 | **OmniBuddy · AI 编程助手** | **OmniDeck · 开发者工具箱** |
 | :---: | :---: |
@@ -130,32 +130,32 @@
 
 > 安装包已内置 python / node / playwright 运行时，安装后即可使用全部功能，无需预装任何环境。
 
-### 方式二：从源码运行（仅 UI 预览）
+### 方式二：从源码构建运行
 
-> [!IMPORTANT]
-> OmniDeck 采用 **源码可用（source-available）** 模式：本仓库包含界面层与工具箱源码，**Agent 引擎等核心部分不在此仓库**（Electron 主进程 `electron/` 缺失）。因此从本仓库源码只能启动**纯 UI 预览**（无 Electron 壳与 AI 能力），完整功能请使用方式一的官方安装包。
+> [!NOTE]
+> 本仓库即**全量源码**（含 Electron 主进程 `electron/` 与 Agent 引擎接入层），克隆后即可构建出与官方安装包功能一致的完整应用。Agent 运行时组件（python / node / playwright）首启时由引导页在线装配，`dev` 启动若命中本地 `runtime/` 内置根则不触发引导。
 
 ```bash
 # 环境要求：Node.js ≥ 18、npm
 npm install
 
-# ① 纯 UI 预览（浏览器访问 Vite dev server，无 Electron 主进程）
+# ① 开发模式（Electron 全功能，热更新）
 npm run dev
 
-# ② 打包（需核心部分，本仓库不含，无法产出完整安装包）
+# ② 打包
 npm run build:mac   # macOS DMG
 npm run build:win   # Windows NSIS 安装包（x64）
 
-# ③ 发版（维护者流程：自动镜像公开仓 → 打包 → 上传 Release）
-npm run release -- v0.3.0 mac   # 第二参数为 mac | win | all
+# ③ 发版（维护者流程：镜像公开仓 → 打包 → 上传 Release）
+npm run release -- v0.4.0 mac   # 第二参数为 mac | win | all
 npm run release -- local mac    # 仅本地打包，不上传
 ```
 
 <details>
 <summary><b>源码分发机制（维护者参考）</b></summary>
 
-- 完整开发在一处进行：开发仓持有全部源码（含 `electron/` 与 `src/config/remote.cjs`），日常开发、提交、发版均在单仓完成
-- `scripts/mirror-public.sh` 将开发仓**剥离核心路径后全历史镜像**到本公开仓（`git filter-repo` 剥离，commit hash 确定性稳定），`scripts/release-upload.sh` 发版时自动调用，无需手动同步
+- 本项目已**彻底开源**：仓库持有全部源码（含 `electron/` 与 `src/config/remote.cjs`），按 AGPL-3.0 授权
+- `scripts/mirror-public.sh` 将本仓**全量镜像**到公开仓（gitcode / github 双远端），commit hash 与本仓直接对应
 - 公开仓为只读镜像：Issue / PR 欢迎提交，但 main 分支不接受直接推送
 
 </details>
@@ -201,13 +201,14 @@ OmniDeck/
 ├── native/                 # NAPI 插件（windows.cpp：窗口枚举，截图 hover 拾取用）
 ├── runtime/                # 运行时装配产物（install 生成，仅本地开发用，不打包）
 ├── scripts/                # 构建脚本：运行时装配 / 组件发布 / 发版上传 / afterPack 钩子
+├── electron/               # 主进程（Agent 引擎接入、窗口体系、截图 / 翻译 / 更新等）
 ├── src/                    # 渲染进程（Vue 3）
 │   ├── layout/             # 双视图布局（index.vue=Deck，BuddyLayout.vue=Buddy）
 │   ├── views/              # 页面：buddy/（chat/workspace/mcp/…）deck/（tools/* finance…）
 │   ├── components/         # 共享组件，按域划分：buddy/ deck/ common/ tool/
 │   ├── config/             # 工具注册表（tools.js）、应用与基金 API 配置
 │   └── utils/              # 工具函数：buddy-api（IPC 桥）/ db / markdown / theme…
-└── （electron/ 为主进程，位于开发仓，公开仓不含，见「源码分发机制」）
+└── builtin/                # 内置技能（随 extraResources 打包）
 ```
 
 > 构建产物（`dist/` `dist-electron/`）、装配产物（`runtime/` `release/`）与 `node_modules/` 均已 gitignore，不入库。
@@ -239,7 +240,7 @@ OmniDeck/
 欢迎通过 Issue 反馈问题与功能建议，或直接提交 Pull Request。
 
 > [!NOTE]
-> 提交 PR 即表示你同意将贡献内容按本仓库 [LICENSE](LICENSE)（PolyForm Noncommercial 1.0.0）授权给本项目。
+> 提交 PR 即表示你同意将贡献内容按本仓库 [LICENSE](LICENSE)（GNU AGPL-3.0-or-later）授权给本项目。
 
 ## 关注公众号
 
@@ -255,13 +256,13 @@ OmniDeck/
 
 ## 许可证
 
-OmniDeck 是**源码可用（source-available）**项目，不是 OSI 意义上的开源项目：
+OmniDeck 是**彻底开源**项目，全部源码（含 Electron 主进程与 Agent 引擎接入层）按 **[GNU Affero General Public License v3.0 或任意后续版本](https://www.gnu.org/licenses/agpl-3.0.html)** 授权，完整条款见 [LICENSE](LICENSE)：
 
-- **源代码**：按 [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) 授权——允许个人学习、研究、修改、非商业使用与分发，**禁止商业使用**。完整条款及中文说明见 [LICENSE](LICENSE)。
-- **官方安装包**：任何人（含商业组织）均可免费下载、安装、使用本仓库 Releases 页面发布的官方二进制制品，详见 [LICENSE 第二部分「官方发布制品附加授权」](LICENSE)。
-- **核心闭源**：Agent 引擎等核心部分不在本仓库分发，禁止通过反编译等手段获取或再实现。
+- **自由使用与分发**：任何人可免费使用、学习、修改和分发本软件（含商业环境下的使用）
+- **强 Copyleft**：基于本软件的修改版在分发时必须以 AGPL-3.0 开源；第 13 条「网络交互」进一步要求以网络服务形式向公众提供修改版时，也必须向用户提供修改后对应的源代码
+- **官方安装包**：Releases 页面发布的官方二进制制品同样遵循 AGPL-3.0（对应源码即本仓库）
 
-商业授权需求请通过 Issue 联系作者。
+本项目未设商业授权入口，也不接受「开源版 + 付费闭源版」的双授权合作。
 
 <div align="center">
 

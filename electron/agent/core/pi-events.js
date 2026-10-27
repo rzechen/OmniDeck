@@ -180,29 +180,31 @@ function handlePiEvent(getWindow, e) {
       break
     case 'assistant_end':
       // 回复日志：若供应商返回“积分不足”类文案，会在此原样呈现
-      // 临时诊断（mid 拆分问题定位）：mid、running 表状态、chatId 全打印后移除
-      console.log('[omnibuddy][diag] assistant_end mid=', !!e.mid,
-        'running=', running.has(chatId), 'chatId=', chatId,
-        'content=', JSON.stringify(String(e.content || '').slice(0, 80)))
       // model 记入消息（用量看板按模型聚合）；usage 复制一份避免同引用；
       // mid（中途正文：本轮流式以工具调用收尾）随记录落盘，重开会话按过程说明归位
-      const runModel = (running.get(chatId) || {}).model || ''
+      const runEntry = running.get(chatId)
+      const runModel = (runEntry || {}).model || ''
       const turnAnchors = runAnchors(chatId)
       const assistantRecord = { role: 'assistant', content: e.content, thinking: e.thinking, usage: e.usage, model: runModel }
       if (e.mid) assistantRecord.mid = true
+      // 本轮耗时（秒）：running 条目记录回合开始时间，仅收尾正文（非 mid）时计算，
+      // 随记录落盘 —— 重开会话 / 历史回放也能展示「已完成 · Ns」
+      const seconds = (!e.mid && runEntry && runEntry.startedAt)
+        ? Math.max(1, Math.round((Date.now() - runEntry.startedAt) / 1000))
+        : 0
+      if (seconds) assistantRecord.seconds = seconds
       const saved = sessions.addMessage(chatId, Object.assign(
         assistantRecord,
         turnAnchors ? { anchors: turnAnchors } : {}
       ))
       // 本回合 assistant 记录 id 收集（syncPiEntryMapAfterTurn 对齐用；
       // 幽灵回合（running 无条目）不收集，其映射缺失时分支切换走兜底回放）
-      const runEntry = running.get(chatId)
       if (runEntry && Array.isArray(runEntry.assistantIds)) runEntry.assistantIds.push(saved.record.id)
       // 用量独立账本：与消息落盘同点记一笔（删除会话/解绑空间不影响历史用量）；
       // 标题快照随流水落账（会话删除后 TOP5 仍能显示任务名）
       usage.record(chatId, runModel, e.usage, saved.meta && saved.meta.title)
       // messageId：本轮首条落盘记录 id（前端回填到聚合消息，点赞/分支据此定位）
-      emit(getWindow, chatId, { type: 'assistant_end', content: e.content, thinking: e.thinking, mid: !!e.mid, usage: e.usage, messageId: saved.record.id })
+      emit(getWindow, chatId, { type: 'assistant_end', content: e.content, thinking: e.thinking, mid: !!e.mid, usage: e.usage, messageId: saved.record.id, seconds })
       // 自发回合（深度研究）：后台 workflow 结果回注触发的回合无 session:send
       // 流程（不在 running 表），回合收尾（非工具循环）时补发 done 释放前端流式态
       if (!e.mid && !running.has(chatId)) {

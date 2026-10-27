@@ -1,13 +1,7 @@
 import { defineConfig } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
 import { builtinModules } from 'module'
-import fs from 'fs'
 import path from 'path'
-
-// 主进程构建开关：本仓完整开发仓，electron/ 缺省在位；
-// 检测失败时（目录被误删等）改用占位入口，仅保证渲染层可构建，避免构建报错中断。
-// 公开仓镜像不含 electron/（见 scripts/mirror-public.sh），克隆公开仓即处于该降级形态。
-const hasCore = fs.existsSync(path.resolve(__dirname, 'electron/main.js'))
 
 // agent 模块清单：CJS require 互相引用，产物镜像源码目录（dist-electron/agent/），
 // 相对 require 不内联，运行时解析。目录按领域划分：
@@ -92,51 +86,49 @@ const isMainExternal = id =>
 const abs = p => path.resolve(__dirname, p)
 
 // 主进程多入口：key 即产物相对路径（dist-electron/ 下镜像 electron/ 目录结构）
-const mainInput = hasCore
-  ? {
-      main: abs('electron/main.js'),
-      // agent 子进程宿主、electron 仿真层与主进程桥：产物在 dist-electron 根级
-      // （agent-host 内 require('./agent')、resolveFilename 重定向 './agent-shim.js' 均为同根相对引用；
-      //   main.js require('./agent-bridge') 同理）
-      'agent-bridge': abs('electron/agent-bridge.js'),
-      'agent-host': abs('electron/agent-host.js'),
-      'agent-shim': abs('electron/agent-shim.js'),
-      // 登录向导窗口实体（主进程侧；agent-bridge HOST 服务 require('./login-wizard')）
-      'login-wizard': abs('electron/login-wizard.js'),
-      // app:// 应用协议（main / quick-panel / capture 相对引用，产物镜像源码结构）
-      'app-protocol': abs('electron/app-protocol.js'),
-      ...Object.fromEntries(agentNames.map(name => [`agent/${name}`, abs(`electron/agent/${name}.js`)])),
-      'windows/quick-panel': abs('electron/windows/quick-panel.js'),
-      // capture 门面（windows/capture/index.js，require('./windows/capture') 目录解析）
-      // + 子模块（同目录镜像产物，相对 require 运行时解析）
-      'windows/capture/index': abs('electron/windows/capture/index.js'),
-      'windows/capture/settings': abs('electron/windows/capture/settings.js'),
-      'windows/capture/native': abs('electron/windows/capture/native.js'),
-      'windows/capture/utils': abs('electron/windows/capture/utils.js'),
-      'windows/capture/persist': abs('electron/windows/capture/persist.js'),
-      'windows/capture/records': abs('electron/windows/capture/records.js'),
-      'windows/capture/clips': abs('electron/windows/capture/clips.js'),
-      'windows/capture/screen': abs('electron/windows/capture/screen.js'),
-      'windows/capture/overlay': abs('electron/windows/capture/overlay.js'),
-      'windows/capture/pin': abs('electron/windows/capture/pin.js'),
-      'windows/capture/scroll': abs('electron/windows/capture/scroll.js'),
-      'windows/capture/favs': abs('electron/windows/capture/favs.js'),
-      'windows/capture/shortcuts': abs('electron/windows/capture/shortcuts.js'),
-      'windows/capture/ipc': abs('electron/windows/capture/ipc.js'),
-      'windows/browser': abs('electron/windows/browser.js'),
-      // 翻译浏览器：控制器 / 引擎层 / 注入脚本（main.js 与 browser.js 相对引用，产物镜像源码结构）
-      'translate/controller': abs('electron/translate/controller.js'),
-      'translate/engines': abs('electron/translate/engines.js'),
-      'translate/inject': abs('electron/translate/inject.js'),
-      'core/updater': abs('electron/core/updater.js'),
-      'core/deps': abs('electron/core/deps.js'),
-      // 运行时组件在线装配（main.js require；产物镜像源码结构，运行时解析）
-      'core/runtime-downloader': abs('electron/core/runtime-downloader.js'),
-      // 首启引导装配检查（require runtime-downloader；引导页经 IPC 查询必需组件就绪态）
-      'core/setup': abs('electron/core/setup.js'),
-      'services/wallpaper-fetch': abs('electron/services/wallpaper-fetch.js')
-    }
-  : { main: abs('scripts/stub-main.js') }
+const mainInput = {
+  main: abs('electron/main.js'),
+  // agent 子进程宿主、electron 仿真层与主进程桥：产物在 dist-electron 根级
+  // （agent-host 内 require('./agent')、resolveFilename 重定向 './agent-shim.js' 均为同根相对引用；
+  //   main.js require('./agent-bridge') 同理）
+  'agent-bridge': abs('electron/agent-bridge.js'),
+  'agent-host': abs('electron/agent-host.js'),
+  'agent-shim': abs('electron/agent-shim.js'),
+  // 登录向导窗口实体（主进程侧；agent-bridge HOST 服务 require('./login-wizard')）
+  'login-wizard': abs('electron/login-wizard.js'),
+  // app:// 应用协议（main / quick-panel / capture 相对引用，产物镜像源码结构）
+  'app-protocol': abs('electron/app-protocol.js'),
+  ...Object.fromEntries(agentNames.map(name => [`agent/${name}`, abs(`electron/agent/${name}.js`)])),
+  'windows/quick-panel': abs('electron/windows/quick-panel.js'),
+  // capture 门面（windows/capture/index.js，require('./windows/capture') 目录解析）
+  // + 子模块（同目录镜像产物，相对 require 运行时解析）
+  'windows/capture/index': abs('electron/windows/capture/index.js'),
+  'windows/capture/settings': abs('electron/windows/capture/settings.js'),
+  'windows/capture/native': abs('electron/windows/capture/native.js'),
+  'windows/capture/utils': abs('electron/windows/capture/utils.js'),
+  'windows/capture/persist': abs('electron/windows/capture/persist.js'),
+  'windows/capture/records': abs('electron/windows/capture/records.js'),
+  'windows/capture/clips': abs('electron/windows/capture/clips.js'),
+  'windows/capture/screen': abs('electron/windows/capture/screen.js'),
+  'windows/capture/overlay': abs('electron/windows/capture/overlay.js'),
+  'windows/capture/pin': abs('electron/windows/capture/pin.js'),
+  'windows/capture/scroll': abs('electron/windows/capture/scroll.js'),
+  'windows/capture/favs': abs('electron/windows/capture/favs.js'),
+  'windows/capture/shortcuts': abs('electron/windows/capture/shortcuts.js'),
+  'windows/capture/ipc': abs('electron/windows/capture/ipc.js'),
+  'windows/browser': abs('electron/windows/browser.js'),
+  // 翻译浏览器：控制器 / 引擎层 / 注入脚本（main.js 与 browser.js 相对引用，产物镜像源码结构）
+  'translate/controller': abs('electron/translate/controller.js'),
+  'translate/engines': abs('electron/translate/engines.js'),
+  'translate/inject': abs('electron/translate/inject.js'),
+  'core/updater': abs('electron/core/updater.js'),
+  'core/deps': abs('electron/core/deps.js'),
+  // 运行时组件在线装配（main.js require；产物镜像源码结构，运行时解析）
+  'core/runtime-downloader': abs('electron/core/runtime-downloader.js'),
+  // 首启引导装配检查（require runtime-downloader；引导页经 IPC 查询必需组件就绪态）
+  'core/setup': abs('electron/core/setup.js'),
+  'services/wallpaper-fetch': abs('electron/services/wallpaper-fetch.js')
+}
 
 export default defineConfig({
   main: {
@@ -160,8 +152,8 @@ export default defineConfig({
       rollupOptions: {
         // 双入口：主 preload + 浏览器容器 WebContentsView 通用 preload（browser/view-preload.js）
         input: {
-          preload: hasCore ? abs('electron/preload.js') : abs('scripts/stub-main.js'),
-          ...(hasCore ? { 'browser/view-preload': abs('electron/browser/view-preload.js') } : {})
+          preload: abs('electron/preload.js'),
+          'browser/view-preload': abs('electron/browser/view-preload.js')
         },
         output: {
           format: 'cjs',

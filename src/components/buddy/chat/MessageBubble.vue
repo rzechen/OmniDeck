@@ -18,12 +18,14 @@
         </div>
       </div>
 
-      <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP + ask_user 提问 + 正文代码块） -->
+      <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP + ask_user 提问 + 正文代码块）；
+           流式期间即使尚无内容块也挂载，用于展示「已处理 Ns」进度行 -->
       <thinking-section
-        v-if="hasSection"
+        v-if="hasSection || (message.role === 'assistant' && !!message.streaming)"
         :items="sectionItems"
         :is-thinking="!!message.isThinking"
         :is-streaming="!!message.streaming"
+        :seconds="message.seconds || 0"
         :perm-pending="permPending"
         @ask-answer="(msg, value) => emit('ask-answer', msg, value)"
       />
@@ -34,20 +36,25 @@
         <div class="ob-msg-error-text">{{ message.error }}</div>
       </div>
 
-      <!-- 助手：等待首个内容块的思考占位（转圈 + 秒计时；ask_user 待回答期间持续显示） -->
-      <div v-if="showThinkingPlaceholder" class="ob-thinking">
-        <svg-icon icon-class="loading" class="ob-think-spin" />
-        <span>思考中</span><span class="ob-thinking-sec">{{ message.seconds }}s</span>
-      </div>
       <!-- 助手：正文 Markdown（click 委托承接代码块复制按钮；压缩摘要收起时不渲染，展开时以缩进+背景突出）；
            代码块已拆出收入思考区，此处仅渲染文字部分（displayContent 为拆分后文本） -->
       <div
-        v-else-if="message.role === 'assistant' && displayContent && (!message.compaction || compactionOpen)"
+        v-if="message.role === 'assistant' && displayContent && (!message.compaction || compactionOpen)"
         class="ob-md"
         :class="{ 'ob-md-compaction': message.compaction }"
         v-html="rendered"
         @click="onMdClick"
       ></div>
+
+      <!-- 助手：流式生成提示（极淡灰「思考中 ｜ 轮换文案」，无转圈、无秒数；
+           起始阶段仅「思考中」，稍后补上轮换文案） -->
+      <div v-if="showThinkingIndicator" class="ob-thinking">
+        <span class="ob-think-label">思考中</span>
+        <template v-if="showThinkTip">
+          <span class="ob-think-sep">｜</span>
+          <span :key="thinkTipIndex" class="ob-think-tip">{{ thinkTip }}</span>
+        </template>
+      </div>
       <!-- 用户：图片附件缩略图（截图提问；编辑态隐藏 —— 编辑重问仅发送文本） -->
       <div v-if="message.role === 'user' && !editing && message.images && message.images.length" class="ob-msg-images">
         <img
@@ -96,7 +103,7 @@
            @Skill:目录名 / @Expert:文件路径 / @Connector:连接器 id）
            以内联 chip 呈现（与输入框内联 tag 同构、可穿插文字）；file 类 chip 点击
            唤起右栏产物预览（同代码块放大）；无 token 时整段纯文本直出 -->
-      <template v-else-if="message.role === 'user' && userSegments.length">
+      <template v-if="message.role === 'user' && userSegments.length">
         <template v-for="(seg, i) in userSegments">
           <span v-if="seg.type === 'text'" :key="'t' + i">{{ seg.text }}</span>
           <span
@@ -417,11 +424,46 @@ const hasSection = computed(() => {
     !!sectionItems.value.length
 })
 
-// 尚无任何内容块时，退回「思考中 Ns」占位
-const showThinkingPlaceholder = computed(() => {
-  return props.message.role === 'assistant' &&
-    !!props.message.thinking && !props.message.content && !hasSection.value
+// 流式生成中：正文末尾展示「思考中 ｜ 轮换文案」提示（与思考区是否已有内容无关）
+const showThinkingIndicator = computed(() => {
+  return props.message.role === 'assistant' && !!props.message.streaming
 })
+
+// 起始阶段（前 2 秒）仅显示「思考中」，随后才补上「｜ 轮换文案」
+const showThinkTip = computed(() => {
+  return showThinkingIndicator.value && (props.message.seconds || 0) >= 3
+})
+
+// 流式生成期间的轮换俏皮文案（不转圈、不计秒）
+const THINK_TIPS = [
+  '正在把灵感从被窝里拽起来',
+  '正在翻箱倒柜找答案',
+  '正在给思路拧上发条',
+  '正在把线索串成一条线',
+  '正在逐字推敲',
+  '正在把想法摁进草稿纸'
+]
+const thinkTipIndex = ref(0)
+const thinkTip = computed(() => THINK_TIPS[thinkTipIndex.value])
+let thinkTipTimer = null
+
+function stopThinkTip() {
+  if (thinkTipTimer) {
+    clearInterval(thinkTipTimer)
+    thinkTipTimer = null
+  }
+}
+
+watch(showThinkingIndicator, (show) => {
+  stopThinkTip()
+  if (!show) return
+  thinkTipIndex.value = 0
+  thinkTipTimer = setInterval(() => {
+    thinkTipIndex.value = (thinkTipIndex.value + 1) % THINK_TIPS.length
+  }, 3500)
+}, { immediate: true })
+
+onBeforeUnmount(stopThinkTip)
 
 // 正文流式光标（思考中由深度思考区自己渲染）
 const showCursor = computed(() => {
@@ -1073,37 +1115,36 @@ async function exportAs(format) {
   user-select: text;
 }
 
-/* 思考中占位文案 */
+/* 流式生成提示：极淡灰，无转圈、无秒数 */
 .ob-thinking {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 3px;
+  min-height: 20px;
+  margin-top: 8px;
   font-size: 13px;
-  color: var(--text-secondary);
+  color: #C9CDD4;
   user-select: none;
-
-  /* 主色转圈：等待模型首个内容块（含 ask_user 待回答期间） */
-  .ob-think-spin {
-    font-size: 13px;
-    margin-right: 3px;
-    color: var(--primary-color);
-    animation: ob-think-rotate 0.9s linear infinite;
-  }
 }
 
-@keyframes ob-think-rotate {
+.ob-think-sep {
+  margin: 0 4px;
+}
+
+.ob-think-tip {
+  color: #C9CDD4;
+  animation: ob-think-tip-in 0.45s ease;
+}
+
+@keyframes ob-think-tip-in {
   from {
-    transform: rotate(0deg);
+    opacity: 0;
+    transform: translateY(2px);
   }
 
   to {
-    transform: rotate(360deg);
+    opacity: 1;
+    transform: translateY(0);
   }
-}
-
-.ob-thinking-sec {
-  font-variant-numeric: tabular-nums;
-  min-width: 24px;
 }
 
 /* 流式光标 */

@@ -262,7 +262,7 @@ async function send() {
   store.commit('buddyChat/PUSH_MSG', { id: sid, msg: placeholder })
   store.commit('buddyChat/PATCH', {
     id: sid,
-    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, atBottom: true }
+    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, atBottom: true }
   })
   scrollToBottom()
 

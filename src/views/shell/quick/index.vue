@@ -537,7 +537,7 @@ function finishTurn() {
 function startThinkTimer() {
   stopThinkTimer()
   thinkTimer = setInterval(() => {
-    if (turnMsg.value && turnMsg.value.thinking) turnMsg.value.seconds++
+    if (turnMsg.value && turnMsg.value.streaming) turnMsg.value.seconds++
   }, 1000)
 }
 
@@ -577,7 +577,6 @@ function onAgentEvent(e) {
     case 'delta': {
       const msg = ensureTurnMessage()
       if (msg.isThinking) msg.isThinking = false
-      stopThinkTimer()
       msg.content = cycleBase + (e.text || '')
       scrollToBottom()
       break
@@ -594,7 +593,6 @@ function onAgentEvent(e) {
           output: prev.output + (e.usage.output || 0)
         }
       }
-      stopThinkTimer()
       break
     }
     case 'skill': {

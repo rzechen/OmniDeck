@@ -134,7 +134,7 @@ function createAutomation({ getWindow, handlePiEvent }) {
     emit(getWindow, chatId, { type: 'user_message', message: record })
     emit(getWindow, chatId, { type: 'automation:run', taskId: task.id, taskName: task.name })
 
-    const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [] }
+    const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [], startedAt: Date.now() }
     running.set(chatId, entry)
     // interruptedBy 覆盖外部 abort（session:interrupt / 前端停止）与看门狗中断——
     // pi 的 abort 让 prompt() 正常 resolve 而非抛错，须显式查出防止

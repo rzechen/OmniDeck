@@ -1,236 +1,238 @@
 <template>
-  <!-- 深度思考区（分段时间线）：每个思考段独立折叠（折叠头 = 序号 + 摘要），
-       段内正文与其后续的过程说明 / 工具 / Skill / 问答记录随段折叠；
-       待回答 ask 恒可见且平铺（不随段折叠，不入缩进内容列） -->
-  <div class="ob-think">
-    <div class="ob-think-body">
-      <template v-for="(item, i) in items">
-        <!-- 思考段：流式期间与完成后均默认收起，仅折叠头带动态标识
-             （星形脉动 + 呼吸文案）；用户可随时展开收起任意段 -->
-        <div
-          v-if="item.type === 'thinking'"
-          :key="'thinking-' + i"
-          class="ob-think-seg"
-        >
+  <!-- 深度思考区（思考组折叠单元模型）：
+       流式输出中：顶部「已处理 Ns」+ 一行执行摘要，各组默认收起；
+       完成后：顶部「✓ 已完成 · Ns ⌄」，默认全部收起，点击顶部统一展开；
+       每个思考组头部：小图标 +「深度思考」+（收起时）摘要 + 箭头，只控制
+       本组思考正文，互不影响；工具 / 技能卡片不随组收起（仅随顶部统一收起） -->
+  <div class="thinking-section">
+    <!-- 区块总状态行（流式中：已处理时长 + 摘要；完成后：已完成 + 耗时，点击统一折叠 / 展开） -->
+    <div
+      v-if="isStreaming || groups.length"
+      class="section-head"
+      :class="{
+        'is-streaming': isStreaming,
+        'has-summary': isStreaming && !!sectionExcerpt,
+        'is-collapsed': !isStreaming && sectionCollapsed
+      }"
+      @click="onSectionHeadClick"
+    >
+      <template v-if="isStreaming">
+        <span class="sh-done">已处理 {{ seconds }}s</span>
+        <span v-if="sectionExcerpt" class="sh-summary">
+          <svg-icon icon-class="memory" class="sh-summary-ico" />
+          <span class="sh-summary-text">{{ sectionExcerpt }}</span>
+        </span>
+      </template>
+      <template v-else>
+        <svg-icon icon-class="circle-check" class="sh-ico" />
+        <span class="sh-status">已完成</span>
+        <span v-if="seconds" class="sh-sec">· {{ seconds }}s</span>
+        <svg-icon icon-class="arrow-down" class="sh-arrow" :class="{ 'is-collapsed': sectionCollapsed }" />
+      </template>
+    </div>
+
+    <!-- 思考组明细：流式中默认整体收起（仅顶部「已处理 Ns」+ 摘要），
+         点击顶部状态行可临时展开；完成后默认全部收起，点击顶部统一展开 -->
+    <div
+      v-for="(group, gi) in groups"
+      v-show="groupsVisible"
+      :key="groupKey(group, gi)"
+      class="think-unit"
+      :class="'group-type-' + group.groupType"
+    >
+      <div v-if="group.thinkingNo" class="unit-header" @click="toggleGroup(gi)">
+        <svg-icon icon-class="memory" class="uh-icon" :class="{ pulsing: isGroupActive(group) }" />
+        <span class="uh-label">深度思考</span>
+        <span
+          v-if="isGroupCollapsed(group, gi)"
+          class="uh-excerpt"
+          :class="{ pulsing: isGroupActive(group) }"
+        >{{ groupExcerpt(group) }}</span>
+        <svg-icon icon-class="arrow-down" class="uh-chevron" :class="{ 'is-collapsed': isGroupCollapsed(group, gi) }" />
+      </div>
+      <div class="unit-body">
+        <template v-for="(item, ii) in group.items">
+          <!-- A. 思考正文：完整渲染（markdown），仅随本组折叠；
+               工具 / 技能卡片不受组折叠影响，始终可见 -->
           <div
-            class="ob-seg-head"
-            :class="{ thinking: item === activeThinking }"
-            @click="toggleSeg(item)"
-          >
-            <svg-icon icon-class="sparkle" class="ob-seg-ico" />
-            <span class="ob-seg-idx">思考 {{ segIndexOf(i) }}</span>
-            <span class="ob-seg-title">{{ segTitle(item) }}</span>
-            <!-- 段内工具运行中标识：段默认收起，运行中的工具行（子代理委派等
-                 长任务）被折叠隐藏，折叠头补转圈 + 执行中文案，保证折叠期间
-                 仍可感知执行状态 -->
-            <svg-icon v-if="segRunning(i)" icon-class="loading" class="ob-seg-run" />
-            <span v-if="segRunning(i)" class="ob-seg-run-label">执行中</span>
-            <svg-icon
-              icon-class="arrow-down"
-              class="ob-seg-arrow"
-              :class="{ collapsed: !isSegOpen(item) }"
-            />
-          </div>
-          <div v-if="isSegOpen(item)" class="ob-think-text ob-seg-text">
-            <div class="ob-think-md" v-html="renderedCached(item, item.content)" @click="onMdClick"></div>
-            <span v-if="item === activeThinking" class="ob-cursor"></span>
-          </div>
-        </div>
+            v-if="isTextItem(item) && String(item.content || '').trim()"
+            v-show="!isGroupCollapsed(group, gi)"
+            :key="'t' + ii"
+            class="think-text think-md"
+            v-html="renderedCached(item, item.content)"
+            @click="onMdClick"
+          ></div>
 
-        <!-- 过程说明（中途正文归位）：缩进进所属思考段内容列，随段展开收起
-             （段展开时位于思考正文与工具之间）；无归属段的游离说明恒平铺。
-             正文主色与思考文本（灰色）区分，明确"对用户的发言"而非推理内容 -->
-        <div
-          v-else-if="item.type === 'narration' && itemVisible(item, i)"
-          :key="'narration-' + i"
-          class="ob-think-text ob-narration"
-        >
-          <div class="ob-think-md" v-html="renderedCached(item, item.content)" @click="onMdClick"></div>
-        </div>
-
-        <!-- Skill 激活（随所属思考段折叠） -->
-        <div v-else-if="item.type === 'skill' && itemVisible(item, i)" :key="'skill-' + i" class="ob-skill">
-          <svg-icon icon-class="magic-stick" class="ob-skill-ico" />
-          <span class="ob-skill-label">SKILL</span>
-          <span class="ob-skill-name">{{ item.skillName }}</span>
-        </div>
-
-        <!-- 正文代码块（MessageBubble 从助手正文拆出收入）：
-             有归属思考段 → 随段折叠（段展开时直接显示代码）；
-             无归属段（纯正文直答等游离条目）→ 自带折叠头，默认收起，
-             点击切换（否则无段可折叠，代码块恒平铺在外）。
-             markdown 渲染（代码复制 / 放大按钮可用） -->
-        <div
-          v-else-if="item.type === 'code' && itemVisible(item, i)"
-          :key="'code-' + i"
-          class="ob-code-item"
-        >
-          <!-- 游离代码块的自带折叠头（默认收起） -->
-          <div
-            v-if="!hasOwnerSeg(i)"
-            class="ob-seg-head ob-code-free-head"
-            @click="toggleSeg(item)"
-          >
-            <svg-icon icon-class="code" class="ob-seg-ico" />
-            <span class="ob-seg-idx">正文代码</span>
-            <span class="ob-seg-title">{{ (item.lang || '代码块') + ' · ' + item.lines + ' 行' }}</span>
-            <svg-icon
-              icon-class="arrow-down"
-              class="ob-seg-arrow"
-              :class="{ collapsed: !isSegOpen(item) }"
-            />
-          </div>
-          <!-- 代码内容：有归属段随段显隐；游离条目按自带折叠头显隐 -->
-          <div v-if="hasOwnerSeg(i) || isSegOpen(item)">
-            <div class="ob-code-item-head">
-              <svg-icon icon-class="code" class="ob-code-item-ico" />
-              <span class="ob-code-item-label">代码块</span>
-              <span v-if="item.lang" class="ob-tool-tag">{{ item.lang }}</span>
-              <span class="ob-code-item-lines">{{ item.lines }} 行</span>
+          <!-- B. Skill 激活（全宽浅灰卡片：✓ 加载技能 + 技能名） -->
+          <div v-else-if="item.type === 'skill'" :key="'s' + ii" class="tool-item">
+            <div class="tool-summary-line is-static">
+              <svg-icon icon-class="circle-check" class="tool-status-icon success" />
+              <span class="tool-name">加载技能</span>
+              <span class="tool-name-tag">{{ item.skillName }}</span>
             </div>
-            <div class="ob-think-md" v-html="renderedCached(item, codeFence(item))" @click="onMdClick"></div>
-          </div>
-        </div>
-
-        <!-- ask_user 提问卡片（归位于思考区内，与工具条目同级）：挂起待答恒可见
-             且平铺不缩进（不随段折叠，不入缩进内容列）；
-             已答问答记录随所属思考段折叠（缩进入列） -->
-        <ask-user-card
-          v-else-if="item.type === 'ask' && itemVisible(item, i)"
-          :key="'ask-' + i"
-          class="ob-think-ask"
-          :class="{ answered: !!item.answered }"
-          :message="item"
-          @answer="(msg, value) => emit('ask-answer', msg, value)"
-        />
-
-        <!-- 工具调用（含 MCP 工具）：随所属思考段折叠；
-             挂有待答 ask 的工具条目恒可见（系统在等用户输入） -->
-        <div
-          v-else-if="item.type === 'tool' && itemVisible(item, i)"
-          :key="toolKey(item)"
-          class="ob-tool"
-        >
-          <!-- 摘要行：状态图标三态（运行中 / 错误 / 完成）+ MCP 服务名 + 中文名 + 原始名 tag -->
-          <div class="ob-tool-head" :class="{ error: item.isError }" @click="toggleTool(item)">
-            <svg-icon
-              :icon-class="toolIcon(item)"
-              class="ob-tool-ico"
-              :class="{ spin: item.status === 'running' }"
-            />
-            <span v-if="isMcp(item)" class="ob-tool-server">{{ mcpServerLabel(item) }}</span>
-            <span class="ob-tool-name">{{ friendlyToolName(item) }}</span>
-            <!-- subagent 委派目标专员名：并行多卡片时一眼区分各 agent -->
-            <span v-if="subagentAgent(item)" class="ob-tool-tag ob-tool-agent">{{ subagentAgent(item) }}</span>
-            <span v-if="rawToolTag(item)" class="ob-tool-tag">{{ rawToolTag(item) }}</span>
-            <!-- 等待授权徽标：该工具正在等权限确认（确认条在输入框上方），醒目提示防隐形挂起 -->
-            <span
-              v-if="item.status === 'running' && matchesPerm(item)"
-              class="ob-tool-perm-wait"
-              title="等待权限确认：请在输入框上方的确认条中处理"
-            >等待授权</span>
-            <!-- 后台子代理徽标已移除：宿主强制前台同步委派，子代理过程实时流式可见 -->
-            <!-- 文件变更摘要：目标文件 + 类型徽章 + 增删行数 -->
-            <template v-if="item.fileChange">
-              <span class="ob-fc-file" :title="item.fileChange.file">{{ fcFileShort(item.fileChange) }}</span>
-              <span class="ob-fc-type" :class="item.fileChange.type">{{ fcTypeLabel(item.fileChange.type) }}</span>
-              <span v-if="fcAdded(item.fileChange) !== null" class="ob-fc-add">+{{ fcAdded(item.fileChange) }}</span>
-              <span v-if="fcRemoved(item.fileChange) !== null" class="ob-fc-del">-{{ fcRemoved(item.fileChange) }}</span>
-            </template>
-            <svg-icon
-              v-if="hasDetails(item)"
-              icon-class="arrow-down"
-              class="ob-tool-arrow"
-              :class="{ open: isToolOpen(item) }"
-            />
           </div>
 
-          <!-- 站点登录引导：撞登录墙上报后内嵌一键入口（应用内直达登录向导小窗，
-               不依赖系统通知；向导开/关由 login_wizard 广播实时翻转；
-               logged_in 广播翻转已登录终态：文案更新 + 按钮收起 + 整行弱化 -->
-          <div v-if="item.siteLogin" class="ob-tool-login" :class="{ 'is-logged': item.siteLogin.loggedIn }">
-            <svg-icon icon-class="browser" class="ob-tool-login-ico" />
-            <span class="ob-tool-login-text">
-              {{ item.siteLogin.loggedIn ? '「' + item.siteLogin.host + '」已登录' : '「' + item.siteLogin.host + '」需要登录' }}
-            </span>
-            <el-button
-              v-if="!item.siteLogin.loggedIn"
-              size="small"
-              round
-              type="primary"
-              :plain="!isWizardOpen(item.siteLogin.host)"
-              class="ob-tool-login-btn"
-              @click="openLoginWizard(item)"
-            >{{ isWizardOpen(item.siteLogin.host) ? '登录中…' : '打开登录向导' }}</el-button>
+          <!-- C. 正文代码块（OmniDeck 特有：MessageBubble 从助手正文拆出收入）：
+               随所属思考组折叠，markdown 渲染（代码复制 / 放大按钮可用） -->
+          <div v-else-if="item.type === 'code'" :key="'c' + ii" class="code-item">
+            <div class="think-md" v-html="renderedCached(item, codeFence(item))" @click="onMdClick"></div>
           </div>
 
-          <!-- ask_user 提问卡片：挂接在「询问用户」工具条目上（挂起中可交互，已答显示答案） -->
+          <!-- D. 已答 ask_user 问答记录：随所属思考组折叠
+               （待答的在区块末尾恒可见，不随组折叠） -->
           <ask-user-card
-            v-if="item.ask"
+            v-else-if="item.type === 'ask' && item.answered"
+            :key="'a' + ii"
             class="ob-think-ask"
-            :message="item.ask"
+            :message="item"
             @answer="(msg, value) => emit('ask-answer', msg, value)"
           />
 
-          <!-- workflow / subagent 后台运行进度：紧凑卡片内嵌（与消息级面板同源
-               item.workflow 对象，进度写入双处响应；后台跨回合时消息级卡片
-               承接常驻展示，此处随思考区折叠） -->
-          <workflow-panel
-            v-if="item.workflow"
-            class="ob-think-wf"
-            :workflows="[item.workflow]"
-            compact
-          />
+          <!-- E. 工具调用（单行摘要，点击展开详情） -->
+          <div v-else-if="item.type === 'tool'" :key="'k' + toolKey(item)" class="tool-item">
+            <div class="tool-summary" @click="toggleTool(item)">
+              <div class="tool-summary-line">
+                <!-- 专家徽标（与 SKILL / MCP 对称的类别标识） -->
+                <span v-if="isDelegateTool(item)" class="tool-badge agent">
+                  <span class="badge-label">AGENT</span>
+                </span>
+                <svg-icon
+                  v-if="isToolStreaming(item)"
+                  icon-class="loading"
+                  class="tool-status-icon executing spin"
+                />
+                <svg-icon
+                  v-else
+                  :icon-class="item.isError ? 'circle-close' : 'circle-check'"
+                  :class="['tool-status-icon', item.isError ? 'failed' : 'success']"
+                />
 
-          <!-- 详情：参数区 + 结果区（左侧竖线缩进）；文件变更的双列对比移至消息末尾的
-               文件变更汇总面板（点击文件列表弹窗查看，不在思考过程中展开） -->
-          <div v-if="isToolOpen(item)" class="ob-tool-detail">
-            <!-- 参数区 -->
-            <div v-if="hasArgs(item)" class="ob-tool-args">
-              <div class="ob-tool-label">参数</div>
-              <!-- content 参数单独成块，其余参数渲染为 chips -->
-              <template v-if="hasContentArg(item)">
-                <div v-if="chipEntries(item).length" class="ob-arg-chips">
-                  <span v-for="(e, ci) in chipEntries(item)" :key="ci" class="ob-arg-chip">
-                    <span class="ob-arg-key">{{ e.key }}</span>: <span class="ob-arg-val">{{ truncateVal(e.val, 80) }}</span>
-                  </span>
-                </div>
-                <pre class="ob-arg-content">{{ item.args.content }}</pre>
-              </template>
-              <!-- 无 content 参数：逐参数行展示 -->
-              <template v-else>
-                <div v-for="(e, ci) in argEntries(item)" :key="ci" class="ob-arg-row">
-                  <span class="ob-arg-key">{{ e.key }}</span>
-                  <span class="ob-arg-val">{{ truncateVal(e.val, 200) }}</span>
-                </div>
-              </template>
+                <!-- MCP 徽标（与 SKILL 行标识对称：图标 + MCP + 服务名） -->
+                <span v-if="isMcp(item)" class="tool-badge mcp">
+                  <svg-icon icon-class="mcp" class="badge-ico" />
+                  <span class="badge-label">MCP</span>
+                  <span class="badge-name">{{ mcpServerLabel(item) }}</span>
+                </span>
+                <span class="tool-name" :class="{ executing: isToolStreaming(item) }">{{ friendlyToolName(item) }}</span>
+                <!-- subagent 委派目标专员名：并行多卡片时一眼区分各 agent -->
+                <span v-if="subagentAgent(item)" class="tool-name-tag tool-agent-tag">{{ subagentAgent(item) }}</span>
+                <span v-if="rawToolTag(item)" class="tool-name-tag">{{ rawToolTag(item) }}</span>
+
+                <!-- 等待授权徽标（OmniDeck 专属）：该工具正在等权限确认（确认条在输入框上方） -->
+                <span
+                  v-if="isToolStreaming(item) && matchesPerm(item)"
+                  class="ob-tool-perm-wait"
+                  title="等待权限确认：请在输入框上方的确认条中处理"
+                >等待授权</span>
+                <!-- 文件变更摘要（OmniDeck 专属）：目标文件 + 类型徽章 + 增删行数 -->
+                <template v-if="item.fileChange">
+                  <span class="ob-fc-file" :title="item.fileChange.file">{{ fcFileShort(item.fileChange) }}</span>
+                  <span class="ob-fc-type" :class="item.fileChange.type">{{ fcTypeLabel(item.fileChange.type) }}</span>
+                  <span v-if="fcAdded(item.fileChange) !== null" class="ob-fc-add">+{{ fcAdded(item.fileChange) }}</span>
+                  <span v-if="fcRemoved(item.fileChange) !== null" class="ob-fc-del">-{{ fcRemoved(item.fileChange) }}</span>
+                </template>
+
+                <svg-icon
+                  v-if="hasToolDetails(item)"
+                  icon-class="arrow-right"
+                  class="tool-chevron"
+                  :class="{ 'is-open': isToolOpen(item) }"
+                />
+              </div>
             </div>
 
-            <!-- 结果区：优先展示流式 partial，运行中尾部带光标；错误态红底红字 -->
-            <div v-if="hasResult(item)" class="ob-tool-result-block">
-              <div class="ob-tool-label" :class="{ error: item.isError }">{{ item.isError ? '错误' : '结果' }}</div>
-              <!-- web 工具结果按 Markdown 渲染（搜索结果为链接列表，链接交系统浏览器） -->
-              <div
-                v-if="isWebTool(item)"
-                class="ob-tool-result ob-tool-result-md"
-                :class="{ error: item.isError }"
-                v-html="renderedCached(item, truncatedResult(item))"
-                @click="onMdClick"
-              ></div>
-              <div v-else class="ob-tool-result" :class="{ error: item.isError }">
-                {{ truncatedResult(item) }}<span v-if="isResultStreaming(item)" class="ob-cursor"></span>
+            <!-- 站点登录引导（OmniDeck 专属）：撞登录墙上报后内嵌一键入口 -->
+            <div v-if="item.siteLogin" class="ob-tool-login" :class="{ 'is-logged': item.siteLogin.loggedIn }">
+              <svg-icon icon-class="browser" class="ob-tool-login-ico" />
+              <span class="ob-tool-login-text">
+                {{ item.siteLogin.loggedIn ? '「' + item.siteLogin.host + '」已登录' : '「' + item.siteLogin.host + '」需要登录' }}
+              </span>
+              <el-button
+                v-if="!item.siteLogin.loggedIn"
+                size="small"
+                round
+                type="primary"
+                :plain="!isWizardOpen(item.siteLogin.host)"
+                class="ob-tool-login-btn"
+                @click="openLoginWizard(item)"
+              >{{ isWizardOpen(item.siteLogin.host) ? '登录中…' : '打开登录向导' }}</el-button>
+            </div>
+
+            <!-- 已答 ask_user 问答记录（挂接在「询问用户」工具条目上；待答的在区块末尾） -->
+            <ask-user-card
+              v-if="item.ask && item.ask.answered"
+              class="ob-think-ask"
+              :message="item.ask"
+              @answer="(msg, value) => emit('ask-answer', msg, value)"
+            />
+
+            <!-- workflow 后台运行进度（OmniDeck 专属）：紧凑卡片内嵌，随思考组折叠 -->
+            <workflow-panel
+              v-if="item.workflow"
+              class="ob-think-wf"
+              :workflows="[item.workflow]"
+              compact
+            />
+
+            <!-- 工具详情（在摘要行基础上进一步缩进，体现层级） -->
+            <div v-if="isToolOpen(item)" class="tool-details">
+              <!-- 参数 -->
+              <div v-if="hasArgs(item)" class="tool-block args-block">
+                <div class="block-label">参数</div>
+                <template v-if="hasContentArg(item)">
+                  <div v-if="Object.keys(nonContentArgs(item.args)).length" class="arg-chips">
+                    <span v-for="(v, k) in nonContentArgs(item.args)" :key="k" class="arg-chip">
+                      <span class="chip-key">{{ k }}</span>: <span class="chip-val">{{ truncate(v, 80) }}</span>
+                    </span>
+                  </div>
+                  <div class="content-preview">
+                    <pre class="content-pre">{{ item.args.content }}</pre>
+                  </div>
+                </template>
+                <template v-else>
+                  <div v-for="(v, k) in item.args" :key="k" class="arg-row">
+                    <span class="arg-key">{{ k }}</span>
+                    <span class="arg-val">{{ truncate(v, 200) }}</span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- 结果 -->
+              <div v-if="hasResult(item)" class="tool-block result-block" :class="{ error: item.isError }">
+                <div class="block-label">结果</div>
+                <!-- 含 Markdown 表格的结果按富文本渲染（卡片工具条 + 表头样式）；
+                     错误态保持纯文本红字 -->
+                <div
+                  v-if="!item.isError && hasMdTable(resultText(item))"
+                  class="result-text think-md"
+                  v-html="renderedCached(item, resultText(item))"
+                  @click="onMdClick"
+                ></div>
+                <div v-else class="result-text">
+                  {{ truncatedResult(item) }}<span v-if="isResultStreaming(item)" class="cursor-blink"></span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </template>
+        </template>
+      </div>
     </div>
+
+    <!-- 待答 ask_user 提问卡片：恒可见（系统在等用户输入，不随组折叠） -->
+    <ask-user-card
+      v-for="(pa, pi) in pendingAsks"
+      :key="'pa-' + pi"
+      class="ob-think-ask ob-think-ask-pending"
+      :message="pa"
+      @answer="(msg, value) => emit('ask-answer', msg, value)"
+    />
   </div>
 </template>
 
 <script setup>
-// OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) / ask_user 提问 的聚合渲染
-import { ref, computed, onBeforeUnmount } from 'vue'
+// OmniBuddy 深度思考区：思考过程 / Skill 激活 / 工具(含 MCP) / ask_user 提问 / 正文代码块
+// 的聚合渲染。分组折叠单元模型与样式交互复刻自 autonomous-agent 项目 ThinkingSection。
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { renderMarkdown, handleCodeCopy, handleTableCsv } from '@/utils/ui/markdown'
 import { buddyApi } from '@/utils/buddy/buddy-api'
 import { bus } from '@/utils/ui/bus'
@@ -313,7 +315,7 @@ const TOOL_LABELS = {
 defineOptions({ name: 'ThinkingSection' })
 
 const props = defineProps({
-  // 有序内容块：{ type: 'thinking' | 'skill' | 'tool' | 'ask', ... }
+  // 有序内容块：{ type: 'thinking' | 'narration' | 'skill' | 'tool' | 'ask' | 'code', ... }
   items: {
     type: Array,
     default: () => []
@@ -333,6 +335,11 @@ const props = defineProps({
   permPending: {
     type: Object,
     default: null
+  },
+  // 本轮耗时（秒）：区块总状态行「已完成 · Ns」/「已处理 Ns」展示
+  seconds: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -340,18 +347,13 @@ const emit = defineEmits(['ask-answer'])
 
 const { message } = useFeedback()
 
-// ===== 分段折叠状态 =====
-// 用户手动开合覆盖表（条目对象 → true/false，WeakMap 键即条目本身，
-// 跨消息切换天然隔离、条目回收不泄漏）。所有段默认收起（含流式期间），
-// 仅手动操作过的段以 override 为准。Vue2 下 WeakMap 变更不触发重渲染，
-// 由 segOpenTick 计数器驱动
-const segOpenOverrides = new WeakMap()
-const segOpenTick = ref(0)
-// 登录向导当前打开的站点集合（host → true）：login_wizard 广播驱动，
-// 工具卡片「打开登录向导」按钮据此翻转「登录中…」态
-const wizardHosts = ref({})
-// 工具二级折叠的用户开合覆盖表（条目对象 → true/false）
+// ===== 折叠状态 =====
+// 各思考组的用户手动折叠态（组稳定键 → bool）；未手动切换的组跟随自动态
+const groupToggled = ref({})
+// 工具详情的用户开合覆盖表（默认全部收起，运行中与完成后一致）
 const toolOpenOverrides = ref({})
+// 登录向导当前打开的站点集合（host → true）：login_wizard 广播驱动
+const wizardHosts = ref({})
 
 // 订阅登录向导开关广播（主进程 loginWizard 直发）：翻转向导打开态
 let unsubWizard = null
@@ -365,25 +367,23 @@ if (wizardApi && wizardApi.onEvent) {
     wizardHosts.value = next
   })
 }
+
 // Markdown 渲染缓存（非响应式，WeakMap 不阻止条目回收）：
 // v-html 绑定的是方法，组件每次重渲染都会对全部条目重新执行 markdown 解析；
-// 流式期间 items 每个 tick 都变更，点击展开/收起也会触发整组件重渲染，
-// 全量重解析导致明显卡顿。按「条目对象 + 文本内容」缓存后，
-// 内容未变化的条目直接复用渲染结果，仅当前增长的条目重新渲染
+// 按「条目对象 + 文本内容」缓存后，内容未变化的条目直接复用渲染结果
 const mdCache = new WeakMap()
 // 无 toolCallId 条目的 key 缓存：args 可能极大（如 write 的 content），
 // JSON.stringify 全量序列化每次渲染重复执行同样有开销
 const toolKeyCache = new WeakMap()
 
-// ===== 展示序列 =====
-// 保持 items 原始时序（思考 → 说明 → 工具）：过程说明（narration）不再上移，
-// 归位到所属思考段内容列内（思考正文与工具之间），随段展开收起；
-// ownerOpen 向前扫描归属段时 narration 恰落在所属段之后，归属判断天然正确
+// ===== 条目分类 =====
+// 思考文本类条目：thinking（推理段）与 narration（中途正文，源项目同样归档进
+// 思考文本由摘要承载），二者均计入分组编号与头部摘要
+function isTextItem(item) {
+  return item.type === 'thinking' || item.type === 'narration'
+}
 
-// ===== 思考段折叠 =====
-// 活动思考段：isThinking 期间 items 中最后一个 thinking 块（该段正在流式累积）。
-// 仅用于折叠头动态标识（脉动 + 进行中文案 + 流式光标位），不改变默认收起：
-// 流式期间与完成后各段一律默认收起，用户点开才展开
+// 活动思考段：isThinking 期间 items 中最后一个 thinking 块（该段正在流式累积）
 const activeThinking = computed(() => {
   if (!props.isThinking) return null
   for (let i = props.items.length - 1; i >= 0; i--) {
@@ -392,92 +392,196 @@ const activeThinking = computed(() => {
   return null
 })
 
-// 段序号（1-based）：该块是时间线中的第几个思考段
-function segIndexOf(i) {
-  let n = 0
-  for (let k = 0; k <= i; k++) {
-    if (props.items[k] && props.items[k].type === 'thinking') n++
-  }
-  return n
-}
-
-// 折叠头标题：模型摘要（后台补写）优先，无则取内容首行截断兜底；
-// 活动段且暂无内容时显示进行中文案。首行提取按「条目 + 内容」缓存，
-// 避免流式每 tick 对全部段全量 split
-const segTitleCache = new WeakMap()
-function segTitle(item) {
-  if (item.summary) return item.summary
-  let first = ''
-  const cached = segTitleCache.get(item)
-  if (cached && cached.content === item.content) {
-    first = cached.first
-  } else {
-    first = (item.content || '').split('\n').map(t => t.trim()).filter(Boolean)[0] || ''
-    segTitleCache.set(item, { content: item.content, first })
-  }
-  const plain = first.replace(/[#*`>_~[\]]/g, '').trim()
-  if (!plain) return item === activeThinking.value ? '深度思考中…' : '思考过程'
-  return plain.length > 20 ? plain.slice(0, 20) + '…' : plain
-}
-
-// 段是否展开：用户手动操作过以 override 为准；否则一律默认收起
-// （流式期间与完成后一致，活动段仅折叠头有动态标识）
-function isSegOpen(item) {
-  void segOpenTick.value // 依赖 tick：手动开合后触发重渲染（WeakMap 本身非响应式）
-  if (segOpenOverrides.has(item)) return segOpenOverrides.get(item)
+// 条目是否流式中（组活动判定依据）：工具运行中 / 思考段正在累积
+function isItemStreaming(item) {
+  if (item.type === 'tool') return item.status === 'running'
+  if (item.type === 'thinking') return item === activeThinking.value
   return false
 }
 
-// code 条目回拼 fence 供 markdown 渲染（复用正文代码块的复制 / 放大交互）
-function codeFence(item) {
-  return '```' + (item.lang || '') + '\n' + (item.code || '') + '\n```'
-}
+// ===== 分组模型（折叠单元的来源） =====
+// 1. skill 项开启 skill 组；工具/代码/问答归属当前组或新建组；
+// 2. 纯执行组（无思考文本）倒序级联并入前一个思考组（明细不游离在思考过程之外），
+//    首组即纯执行时保留独立（无编号"执行过程"头部）；
+// 3. 组类型升级：含委派工具 → subagent，MCP 工具 → mcp；
+// 4. 思考段编号：含思考文本的组按出现顺序编号（思考过程1/2/…）
+const groups = computed(() => {
+  const items = props.items
+  if (!items || items.length === 0) return []
 
-// 条目归属段（向前最近的思考块）是否展开：过程说明 / 工具 / Skill / 问答记录
-// 随所属段折叠；思考块之前的游离条目（开场即工具调用等）无归属，恒平铺
-function ownerOpen(i) {
-  const arr = props.items
-  for (let k = i - 1; k >= 0; k--) {
-    if (arr[k].type === 'thinking') return isSegOpen(arr[k])
+  const groups = []
+  let currentGroup = null
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.type === 'skill') {
+      const lastGroup = groups.length > 0 ? groups[groups.length - 1] : null
+      if (lastGroup && !lastGroup.hasSkill && lastGroup.items.every(j => isTextItem(j))) {
+        lastGroup.items.push(item)
+        lastGroup.hasSkill = true
+        lastGroup.groupType = 'skill'
+        currentGroup = lastGroup
+        continue
+      }
+      currentGroup = { items: [item], hasSkill: true, groupType: 'skill' }
+      groups.push(currentGroup)
+    } else if (currentGroup && currentGroup.hasSkill) {
+      currentGroup.items.push(item)
+    } else {
+      if (item.type === 'tool' || item.type === 'code' || item.type === 'ask') {
+        const lastGroup = groups.length > 0 ? groups[groups.length - 1] : null
+        if (lastGroup && !lastGroup.hasSkill && lastGroup.items.every(j => isTextItem(j))) {
+          lastGroup.items.push(item)
+          currentGroup = lastGroup
+          continue
+        }
+      }
+      currentGroup = { items: [item], hasSkill: false, groupType: 'tool' }
+      groups.push(currentGroup)
+    }
   }
-  return true
-}
 
-// code 条目是否有归属思考段（向前最近 thinking，narration 等跳过）：
-// 有 → 随段折叠（段展开即显示代码）；无（纯正文直答的游离条目）→
-// 自带折叠头默认收起，避免无段可折恒平铺在思考区外
-function hasOwnerSeg(i) {
-  const arr = props.items
-  for (let k = i - 1; k >= 0; k--) {
-    if (arr[k].type === 'thinking') return true
+  // 纯工具组（无思考文本）并入前一个思考组；倒序遍历保证连续纯工具组级联合并
+  for (let g = groups.length - 1; g > 0; g--) {
+    if (!groups[g].items.some(i => isTextItem(i))) {
+      groups[g - 1].items.push(...groups[g].items)
+      groups.splice(g, 1)
+    }
   }
-  return false
-}
 
-// 段内是否有运行中工具：扫描该思考段到下一段之间的条目（即归属本段的工具行）。
-// 段默认收起时运行中的工具行被折叠隐藏（子代理委派等长任务可能持续数分钟），
-// 折叠头据此显示转圈 + 「执行中」，避免长时间无任何视觉反馈
-function segRunning(i) {
-  const arr = props.items
-  for (let k = i + 1; k < arr.length; k++) {
-    const it = arr[k]
-    if (it.type === 'thinking') break
-    if (it.type === 'tool' && it.status === 'running') return true
+  for (let g = 0; g < groups.length; g++) {
+    const group = groups[g]
+    if (group.hasSkill) continue
+    const toolItem = group.items.find(t => t.type === 'tool')
+    if (toolItem) {
+      if (isDelegateTool(toolItem)) group.groupType = 'subagent'
+      else if (isMcp(toolItem)) group.groupType = 'mcp'
+    }
   }
-  return false
+  // 思考段编号：含思考文本的组按出现顺序编号（深度思考1/2/…）；无思考文本的
+  // 组不显示组头部，只保留其工具 / 技能卡片
+  let thinkingSeq = 0
+  for (const group of groups) {
+    if (group.items.some(i => isTextItem(i))) {
+      thinkingSeq += 1
+      group.thinkingNo = thinkingSeq
+    }
+  }
+  return groups
+})
+
+// 待答 ask 提问卡片（独立条目 + 挂接在工具条目上的）：恒可见，渲染在区块末尾
+const pendingAsks = computed(() => {
+  const out = []
+  for (const it of props.items) {
+    if (it.type === 'ask' && !it.answered) out.push(it)
+    else if (it.type === 'tool' && it.ask && !it.ask.answered) out.push(it.ask)
+  }
+  return out
+})
+
+// ===== 折叠状态（区块级 / 组级解耦） =====
+// 流式中手动展开思考组明细（默认收起，仅顶部「已处理 Ns」+ 摘要）
+const streamExpanded = ref(false)
+
+// 区块级折叠：控制全部思考明细（思考正文 + 工具 / 技能卡片）的显隐；
+// 与组级折叠完全解耦。完成后默认收起，新回答完成即自动收起全部
+const sectionCollapsed = ref(!props.isStreaming)
+
+// 思考组是否渲染：流式中仅手动展开时展示；完成后由区块级折叠控制（默认收起）
+const groupsVisible = computed(() => props.isStreaming ? streamExpanded.value : !sectionCollapsed.value)
+
+// 组是否活动中（组内仍有流式项）：呼吸动效 + 默认展开依据
+function isGroupActive(group) {
+  return group.items.some(i => isItemStreaming(i))
 }
 
-// 条目可见性：随所属思考段展开收起；待回答 ask（独立条目或挂接工具）
-// 恒可见——系统在等用户输入，不能折叠隐藏
-function itemVisible(item, i) {
-  if (item.type === 'ask' && !item.answered) return true
-  if (item.type === 'tool' && item.ask && !item.ask.answered) return true
-  return ownerOpen(i)
+// 组稳定键：首个工具/技能的 toolCallId；纯思考组用首段内容前缀兜底。
+// 数组下标随流式期间组增删/合并不稳定，用下标会导致手动展开态错位到别的组
+function groupKey(group, gi) {
+  const first = group.items.find(i => i.type === 'tool' || i.type === 'skill')
+  if (first && first.toolCallId) return 'k:' + first.toolCallId
+  const text = group.items.find(i => isTextItem(i))
+  if (text) return 't:' + String(text.content || '').slice(0, 40)
+  return 'g:' + gi
 }
 
-function toggleSeg(item) {
-  segOpenOverrides.set(item, !isSegOpen(item))
-  segOpenTick.value++
+// 组思考正文折叠态：仅由本组手动切换决定。
+// 默认态：完成后收起（展开区块只显示「深度思考 + 摘要」，点本组才展开正文）；
+// 流式中默认展开（实时内容可见）。
+// 注意：必须用 !== undefined 读取（get trap 会收集依赖）；hasOwnProperty
+// 走 [[GetOwnProperty]]，Vue 3 未实现该 trap，新增 key 不会触发重渲染
+function isGroupCollapsed(group, gi) {
+  const key = groupKey(group, gi)
+  const manual = groupToggled.value[key]
+  return manual !== undefined ? manual : !props.isStreaming
+}
+
+function toggleGroup(gi) {
+  const group = groups.value[gi]
+  const key = groupKey(group, gi)
+  groupToggled.value[key] = !isGroupCollapsed(group, gi)
+}
+
+// ===== 区块级状态（顶部总状态行） =====
+// 折叠态摘要：全部思考文本拼接后单行截断；无思考文本时回退首个工具/技能名
+const sectionExcerpt = computed(() => {
+  const texts = props.items
+    .filter(i => isTextItem(i))
+    .map(i => String(i.content || '').trim())
+    .filter(Boolean)
+  if (!texts.length) {
+    const first = props.items.find(i => i.type === 'tool' || i.type === 'skill')
+    if (!first) return ''
+    return truncate(first.type === 'skill' ? first.skillName : friendlyToolName(first), 80)
+  }
+  const plain = texts.join('')
+    .replace(/[#>*`~[\]()!]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return plain.length > 80 ? plain.slice(0, 80) + '…' : plain
+})
+
+// 顶部总状态行点击：流式中切换明细展开；完成后只切换区块级展开 / 收起。
+// 不重置组级手动态：组折叠与区块折叠各管各的，互不影响
+function onSectionHeadClick() {
+  if (props.isStreaming) {
+    streamExpanded.value = !streamExpanded.value
+    return
+  }
+  sectionCollapsed.value = !sectionCollapsed.value
+}
+
+// 回答完成（流式结束）：自动收起全部思考内容（区块级收起），并清空组级手动态
+watch(() => props.isStreaming, (v) => {
+  streamExpanded.value = false
+  if (v) {
+    sectionCollapsed.value = false
+    return
+  }
+  sectionCollapsed.value = true
+  groupToggled.value = {}
+})
+
+// 组头部行内摘要：组内全部思考文本拼接后剥 markdown 标记、单行截断
+// （仅收起态展示；展开态正文在 unit-body 内完整渲染）；
+// 无思考文本（execOnly 组）回退首个工具/技能展示名
+function groupExcerpt(group) {
+  const texts = group.items
+    .filter(i => isTextItem(i))
+    .map(i => String(i.content || '').trim())
+    .filter(Boolean)
+  if (!texts.length) {
+    const first = group.items.find(i => i.type === 'tool' || i.type === 'skill')
+    if (!first) return ''
+    const name = first.type === 'skill' ? first.skillName : friendlyToolName(first)
+    return truncate(name, 60)
+  }
+  const plain = texts.join(' ')
+    .replace(/[#>*`~[\]()!]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return plain.length > 60 ? plain.slice(0, 60) + '…' : plain
 }
 
 onBeforeUnmount(() => {
@@ -488,7 +592,8 @@ onBeforeUnmount(() => {
   }
 })
 
-// Markdown 区点击委托：链接拦截 + 代码块复制按钮（v-html 内容不归 Vue 管，走事件委托）
+// ===== Markdown 渲染与点击委托 =====
+// Markdown 区点击委托：链接拦截 + 代码块复制/放大按钮（v-html 内容不归 Vue 管，走事件委托）
 function onMdClick(e) {
   // 链接不导航应用窗口（伪链接如 http://entries.md 会白屏）：合法外链交系统浏览器
   const anchor = e.target.closest && e.target.closest('a')
@@ -532,6 +637,12 @@ function renderedCached(item, text) {
   return html
 }
 
+// code 条目回拼 fence 供 markdown 渲染（复用正文代码块的复制 / 放大交互）
+function codeFence(item) {
+  return '```' + (item.lang || '') + '\n' + (item.code || '') + '\n```'
+}
+
+// ===== 工具命名（数据适配层） =====
 function isMcp(item) {
   const name = item.toolName
   if (!name) return false
@@ -567,7 +678,7 @@ function mcpToolName(item) {
   return ''
 }
 
-// 原始工具名 tag（与主标题相同时不显示）
+// 原始工具名 tag（小号灰字，与主标题同行；与主标题相同时不显示）
 function rawToolTag(item) {
   const name = item.toolName
   if (!name) return ''
@@ -595,11 +706,10 @@ function friendlyToolName(item) {
   return TOOL_LABELS[name] || name
 }
 
-// 摘要行状态图标：运行中 loading / 错误 warning-outline / 完成 check
-function toolIcon(item) {
-  if (item.status === 'running') return 'loading'
-  if (item.isError) return 'warning-outline'
-  return 'check'
+// 专家委派工具（AGENT 徽标 + 组类型升级依据）
+function isDelegateTool(item) {
+  const name = item && item.toolName
+  return name === 'delegate_agent' || name === 'delegate_agents' || name === 'subagent'
 }
 
 // subagent 委派目标专员（args.agent）：并行委派多卡片时的区分标识
@@ -607,6 +717,111 @@ function subagentAgent(item) {
   if (item.toolName !== 'subagent' || !item.args) return ''
   const a = item.args.agent || item.args.agentId
   return typeof a === 'string' ? a.replace(/^wechat-/, '') : ''
+}
+
+// ===== 工具详情折叠 =====
+function toolKey(item) {
+  if (item.toolCallId) return item.toolCallId
+  // 兜底 key：按条目缓存（args 引用不变即复用），避免每次渲染重复全量序列化
+  const cached = toolKeyCache.get(item)
+  if (cached && cached.args === item.args) return cached.key
+  const key = item.toolName + '::' + (item.args ? JSON.stringify(item.args).slice(0, 40) : '')
+  toolKeyCache.set(item, { args: item.args, key })
+  return key
+}
+
+function isToolOpen(item) {
+  // 默认收起（运行中与完成后一致）；用户手动展开/收起后以 override 为准
+  // （同样用 !== undefined 读取，保证新增 key 能触发重渲染）
+  const key = toolKey(item)
+  const manual = toolOpenOverrides.value[key]
+  return manual !== undefined ? manual : false
+}
+
+function toggleTool(item) {
+  toolOpenOverrides.value[toolKey(item)] = !isToolOpen(item)
+}
+
+function hasToolDetails(item) {
+  return !!(hasArgs(item) || hasResult(item))
+}
+
+// 工具执行中（运行中工具：名称主色 + 呼吸，行首 loading 同步）
+function isToolStreaming(item) {
+  return item.status === 'running'
+}
+
+// ===== 参数区 =====
+function hasArgs(item) {
+  return !!(item.args && typeof item.args === 'object' && Object.keys(item.args).length)
+}
+
+// args.content 为非空字符串：content 单独成块，其余参数走 chips
+function hasContentArg(item) {
+  return !!(item.args && typeof item.args.content === 'string' && item.args.content.length)
+}
+
+// 排除 content 键的参数对象
+function nonContentArgs(args) {
+  if (!args || typeof args !== 'object') return {}
+  const result = {}
+  Object.keys(args).forEach(k => { if (k !== 'content') result[k] = args[k] })
+  return result
+}
+
+// 参数值截断：对象先序列化，超长截断加省略号
+function truncate(value, maxLen) {
+  if (value === null || value === undefined) return ''
+  const s = typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return s.length > maxLen ? s.slice(0, maxLen) + '...' : s
+}
+
+// ===== 结果区 =====
+// 是否有可展示的结果（流式 partial 优先）
+function hasResult(item) {
+  return !!(item.partial || item.result)
+}
+
+// 结果文本（流式 partial 优先；结构化结果序列化展示兜底）
+function resultText(item) {
+  const raw = item.partial || item.result || ''
+  return typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2)
+}
+
+// 结果文本超 500 字截断加省略号
+function truncatedResult(item) {
+  const s = resultText(item)
+  return s.length > 500 ? s.slice(0, 500) + '...' : s
+}
+
+// 结果仍在流式输出（运行中且有 partial）：尾部显示光标
+function isResultStreaming(item) {
+  return item.status === 'running' && !!item.partial
+}
+
+// 结果文本是否包含 Markdown 表格（行内含 | 分隔 + 表头分隔行）：
+// 命中则走富文本渲染，否则维持等宽纯文本（避免普通结果被误当 Markdown）
+function hasMdTable(content) {
+  if (!content || typeof content !== 'string') return false
+  const lines = content.split('\n')
+  for (let i = 0; i < lines.length - 1; i++) {
+    // 当前行为 |a|b| 形态，且下一行为 |---|---| 分隔行
+    if (/\|[^|\n]+\|/.test(lines[i]) && /^\s*\|?[\s:-]*-{2,}[\s:|-]*\|?\s*$/.test(lines[i + 1])) return true
+  }
+  return false
+}
+
+// ===== 权限等待匹配 =====
+// 运行中的工具是否即当前待确认权限的目标：bash 类按 command、文件类按 path 匹配，
+// 其余按工具名兜底（并发工具时区分"在执行"与"在等授权"）
+function matchesPerm(item) {
+  const p = props.permPending
+  if (!p) return false
+  const args = item.args || {}
+  if (p.command && args.command === p.command) return true
+  if (p.path && (args.file_path === p.path || args.path === p.path)) return true
+  if (p.toolName && item.name === p.toolName) return true
+  return false
 }
 
 // ===== 站点登录向导（撞墙工具卡片内嵌入口） =====
@@ -629,105 +844,6 @@ function openLoginWizard(item) {
   }).catch(() => {
     message.error('打开登录窗口失败')
   })
-}
-
-// 运行中的工具是否即当前待确认权限的目标：bash 类按 command、文件类按 path 匹配，
-// 其余按工具名兜底（并发工具时区分"在执行"与"在等授权"）
-function matchesPerm(item) {
-  const p = props.permPending
-  if (!p) return false
-  const args = item.args || {}
-  if (p.command && args.command === p.command) return true
-  if (p.path && (args.file_path === p.path || args.path === p.path)) return true
-  if (p.toolName && item.name === p.toolName) return true
-  return false
-}
-
-function hasArgs(item) {
-  return !!(item.args && typeof item.args === 'object' && Object.keys(item.args).length)
-}
-
-// args.content 为非空字符串：content 单独成块，其余参数走 chips
-function hasContentArg(item) {
-  return !!(item.args && typeof item.args.content === 'string' && item.args.content.length)
-}
-
-// 参数键值对列表（skipContent：跳过 content 键）
-function argEntries(item, skipContent) {
-  const args = item.args
-  if (!args || typeof args !== 'object') return []
-  return Object.keys(args)
-    .filter(k => !(skipContent && k === 'content'))
-    .map(k => ({ key: k, val: args[k] }))
-}
-
-// chips 参数（hasContentArg 时排除 content）
-function chipEntries(item) {
-  return argEntries(item, true)
-}
-
-// 参数值截断：对象先序列化，超长截断加省略号
-function truncateVal(v, max) {
-  let s = v
-  if (s !== null && typeof s === 'object') {
-    try {
-      s = JSON.stringify(s)
-    } catch (e) {
-      s = String(s)
-    }
-  }
-  s = String(s)
-  return s.length > max ? s.slice(0, max) + '…' : s
-}
-
-// 是否有可展示的结果（流式 partial 优先）
-function hasResult(item) {
-  return !!(item.partial || item.result)
-}
-
-// 联网工具（pi-web-access）：结果为 Markdown（链接列表/网页摘要），按富文本渲染
-function isWebTool(item) {
-  return ['web_search', 'fetch_content', 'source_check'].indexOf(item.toolName) >= 0
-}
-
-// 结果文本：超 500 字截断加省略号
-function truncatedResult(item) {
-  const raw = item.partial || item.result || ''
-  // 兜底：结构化结果序列化展示（正常已由主进程规整为字符串）
-  const s = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2)
-  return s.length > 500 ? s.slice(0, 500) + '…' : s
-}
-
-// 结果仍在流式输出（运行中且有 partial）：尾部显示光标
-function isResultStreaming(item) {
-  return item.status === 'running' && !!item.partial
-}
-
-function hasDetails(item) {
-  return hasArgs(item) || hasResult(item) || !!item.fileChange
-}
-
-function toolKey(item) {
-  if (item.toolCallId) return item.toolCallId
-  // 兜底 key：按条目缓存（args 引用不变即复用），避免每次渲染重复全量序列化
-  const cached = toolKeyCache.get(item)
-  if (cached && cached.args === item.args) return cached.key
-  const key = item.toolName + '::' + (item.args ? JSON.stringify(item.args).slice(0, 40) : '')
-  toolKeyCache.set(item, { args: item.args, key })
-  return key
-}
-
-function isToolOpen(item) {
-  // 默认收起（错误时默认展开）；用户手动操作后以 override 为准
-  const key = toolKey(item)
-  if (Object.prototype.hasOwnProperty.call(toolOpenOverrides.value, key)) {
-    return toolOpenOverrides.value[key]
-  }
-  return !!item.isError
-}
-
-function toggleTool(item) {
-  toolOpenOverrides.value[toolKey(item)] = !isToolOpen(item)
 }
 
 // ===== 文件变更记录 =====
@@ -753,591 +869,419 @@ function fcRemoved(fc) {
 }
 </script>
 
-<style lang="scss" scoped>
-.ob-think {
-  margin-bottom: 8px;
+<style scoped>
+/* 核心容器 */
+.thinking-section {
+  width: 100%;
+  margin: 6px 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* ===== 思考段折叠头 ===== */
-.ob-seg-head {
+/* ============ 区块总状态行（✓ 已完成 · Ns ⌄ / 已处理 Ns + 摘要） ============ */
+.thinking-section > * + * {
+  margin-top: 10px;
+}
+
+.section-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
-  margin-left: -8px;
+  padding: 2px 6px;
+  margin: 0 -6px;
   border-radius: 6px;
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 14px;
+  color: #4E5969;
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s ease;
-
-  &:hover {
-    background: var(--search-bg-hover, rgba(0, 0, 0, 0.04));
-  }
-
-  .ob-seg-ico {
-    font-size: 12px;
-    color: var(--text-secondary);
-    flex-shrink: 0;
-  }
-
-  /* 活动段（生成中）：星形主色 + 脉动 + 摘要呼吸 */
-  &.thinking {
-    .ob-seg-ico {
-      color: var(--primary-color);
-      animation: ob-think-pulse 1.2s ease-in-out infinite;
-    }
-
-    .ob-seg-title {
-      animation: ob-think-breath 1.2s ease-in-out infinite;
-    }
-  }
-
-  .ob-seg-idx {
-    flex-shrink: 0;
-    font-weight: 500;
-  }
-
-  .ob-seg-title {
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-weight: 500;
-  }
-
-  /* 段内工具运行中：折叠头尾部转圈 + 主色文案（与工具行运行态同构） */
-  .ob-seg-run {
-    flex-shrink: 0;
-    font-size: 12px;
-    color: var(--primary-color);
-    animation: ob-tool-rotate 0.9s linear infinite;
-  }
-
-  .ob-seg-run-label {
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--primary-color);
-    animation: ob-think-breath 1.2s ease-in-out infinite;
-  }
-
-  .ob-seg-arrow {
-    font-size: 10px;
-    color: var(--text-secondary);
-    flex-shrink: 0;
-    transition: transform 0.2s ease;
-
-    &.collapsed {
-      transform: rotate(-90deg);
-    }
-  }
 }
 
-/* 思考区时间线内容层：过程说明 / 工具 / Skill / 已答问答记录 / 思考段正文
-   同层级缩进，左侧统一竖线构成"过程内容"一列，随所属段展开收起；
-   待答 ask 恒可见不随段折叠，平铺不入此列；
-   思考段折叠头在外层平铺；段正文与折叠头另拉开上间距 */
-.ob-think-body > .ob-tool,
-.ob-think-body > .ob-skill,
-.ob-think-body > .ob-think-ask.answered,
-.ob-think-body > .ob-narration,
-.ob-think-body > .ob-think-seg .ob-seg-text {
-  margin-left: 20px;
-  padding-left: 12px;
-  border-left: 2px solid var(--border-color);
+/* 流式态：两行（已处理 Ns / 图标 + 摘要） */
+.section-head.is-streaming {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 2px 6px;
 }
 
-.ob-think-seg .ob-seg-text {
-  margin-top: 4px;
+/* 流式态无摘要：单行「已处理 Ns」，不占额外高度 */
+.section-head.is-streaming:not(.has-summary) {
+  gap: 0;
 }
 
-/* ===== 内容主体 ===== */
-.ob-think-body {
-  margin-top: 4px;
+.sh-done {
+  font-size: 14px;
+  color: #4E5969;
+}
+
+.sh-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.sh-summary-ico {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #A9AEB8;
+}
+
+.sh-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #86909C;
+}
+
+.sh-ico {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #A9AEB8;
+}
+
+.sh-status {
+  color: #4E5969;
+}
+
+.sh-sec {
+  color: #A9AEB8;
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-arrow {
+  flex-shrink: 0;
+  margin-left: 2px;
+  font-size: 10px;
+  color: #A9AEB8;
+  transition: transform 0.2s ease;
+}
+
+.sh-arrow.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.think-unit {
   display: flex;
   flex-direction: column;
-  gap: 4px;
 }
 
-/* 工具运行中图标旋转 */
-@keyframes ob-tool-rotate {
+/* 头部行：小图标 + 灰色标签 +（收起时）摘要 + 箭头，点击整行切换 */
+.unit-header {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 2px 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  color: #86909C;
+}
+
+.unit-header > * + * {
+  margin-left: 5px;
+}
+
+.uh-icon {
+  font-size: 12px;
+  color: #A9AEB8;
+  flex-shrink: 0;
+}
+
+.uh-label {
+  font-size: 13px;
+  font-weight: 400;
+  color: #86909C;
+  flex-shrink: 0;
+}
+
+/* 摘要不主动撑满：箭头紧贴摘要文字尾部（长摘要收缩截断） */
+.uh-excerpt {
+  min-width: 0;
+  font-size: 13px;
+  color: #A9AEB8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 组活动中（组内仍有流式项）：图标/摘要呼吸明暗 */
+.unit-header .pulsing {
+  animation: think-breath 1.2s ease-in-out infinite;
+}
+
+.uh-chevron {
+  font-size: 10px;
+  color: #A9AEB8;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.uh-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+/* 展开内容：思考正文 + 工具 / 技能卡片 */
+.unit-body {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}
+
+.unit-body > * + * {
+  margin-top: 8px;
+}
+
+/* 呼吸动画（执行中 tool-name / 组头部流式呼吸共用） */
+@keyframes think-breath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unit-header .pulsing,
+  .tool-details,
+  .tool-name.executing {
+    animation: none !important;
+  }
+}
+
+/* 思考正文：完整展示，引用式排版（左侧竖线 + 缩进 + 灰色文字） */
+.think-text {
+  margin-left: 2px;
+  padding-left: 12px;
+  border-left: 2px solid #E5E6EB;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #86909C;
+  word-break: break-word;
+}
+
+/* 思考区 Markdown 容器（v-html 渲染，deep 穿透） */
+.think-md :deep(p) { margin: 0 0 4px; }
+.think-md :deep(p:last-child) { margin-bottom: 0; }
+
+.think-md :deep(ul), .think-md :deep(ol) {
+  padding-left: 18px;
+  margin: 4px 0;
+}
+
+.think-md :deep(li) { margin: 2px 0; }
+
+/* 行内代码：浅底胶囊 */
+.think-md :deep(:not(pre) > code) {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: #4E5969;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* 引用块：正文外层已有竖线，此处仅保留浅底与内边距，避免双层竖线 */
+.think-md :deep(blockquote) {
+  margin: 4px 0;
+  padding: 2px 10px;
+  background: #F7F8FA;
+  border-radius: 4px;
+  color: #86909C;
+}
+
+.think-md :deep(blockquote p) { margin: 2px 0; }
+
+/* 思考文本内的表格/代码块卡片（.ob-table / .ob-code 全局样式承载基础外观，
+   此处做思考区专属微调：小一号、底色更淡，与整体层级协调） */
+.think-md :deep(.ob-table),
+.think-md :deep(.ob-code) {
+  margin: 6px 0;
+  border-color: #EDEEF2;
+}
+
+.think-md :deep(.ob-table th),
+.think-md :deep(.ob-table td) {
+  font-size: 12px;
+  padding: 5px 9px;
+}
+
+.think-md :deep(.ob-table tbody tr:nth-child(even)) {
+  background: rgba(0, 0, 0, 0.022);
+}
+
+.think-md :deep(.ob-table thead th) {
+  background: rgba(0, 0, 0, 0.04);
+  color: #4E5969;
+}
+
+.think-md :deep(.ob-code pre) {
+  padding: 7px 10px;
+}
+
+.think-md :deep(.ob-code pre code) {
+  font-size: 11.5px;
+  line-height: 1.55;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* 正文代码块条目（OmniDeck 特有：随组折叠，markdown 渲染） */
+.code-item {
+  padding-left: 0;
+}
+
+/* 工具 / 技能条目（全宽浅灰圆角卡片） */
+.tool-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.tool-summary {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-summary-line {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  background: #F7F8FA;
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+
+.tool-summary-line:hover {
+  background: #F2F3F5;
+}
+
+/* 无详情卡片（技能加载）：不响应点击 */
+.tool-summary-line.is-static {
+  cursor: default;
+}
+
+.tool-summary-line.is-static:hover {
+  background: #F7F8FA;
+}
+
+.tool-summary-line > * + * {
+  margin-left: 8px;
+}
+
+.tool-status-icon { font-size: 13px; flex-shrink: 0; }
+.tool-status-icon.success { color: #10B981; }
+.tool-status-icon.failed { color: #EF4444; }
+.tool-status-icon.executing { color: #3366FF; }
+.tool-status-icon.spin { animation: think-spin 0.9s linear infinite; }
+
+@keyframes think-spin {
   to { transform: rotate(360deg); }
 }
 
-/* 思考中呼吸动画：星形脉动 / 标题明暗（标识生成未结束） */
-@keyframes ob-think-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-
-  50% {
-    transform: scale(1.22);
-    opacity: 0.55;
-  }
-}
-
-@keyframes ob-think-breath {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.55;
-  }
-}
-
-/* 思考区内的 ask_user 卡片：清除独立消息态的左移避让（缩进仅由 answered
-   状态的内容列规则控制，待答平铺）；挂接态（工具条目内）与头部摘要行拉开间距 */
-.ob-think-ask {
-  margin-top: 5px;
-
-  :deep(.ob-ask-card){
-    margin-left: 0;
-  }
-}
-
-/* 工具条目内嵌的 workflow 紧凑进度卡片：与摘要行对齐拉开间距，
-   并将卡片内边距收紧适配思考区密度 */
-.ob-think-wf {
-  margin-top: 4px;
-
-  :deep(.ob-wf-card) {
-    padding: 6px 10px;
-    gap: 5px;
-  }
-}
-
-/* 思考文本 */
-.ob-think-text {
-  font-size: 13px;
-  line-height: 1.65;
-  color: var(--text-secondary);
-  .ob-think-md {
-    :deep(p) { margin: 0 0 4px; }
-    :deep(p:last-child) { margin-bottom: 0; }
-
-    /* 有序/无序列表：与正文 .ob-md 同款缩进（浏览器默认 40px 过大，
-       编号会凸出思考文本对齐线，视觉上脱离思考区） */
-    :deep(ul), :deep(ol) {
-      padding-left: 18px;
-      margin: 4px 0;
-
-      li { margin: 2px 0; }
-    }
-
-    /* 代码块（与正文 .ob-code 同构，思考区整体小一号、底色更淡） */
-    :deep(.ob-code) {
-      margin: 6px 0;
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      overflow: hidden;
-      background: rgba(0, 0, 0, 0.025);
-    }
-
-    :deep(.ob-code-head) {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 2px 4px 2px 10px;
-      background: rgba(0, 0, 0, 0.04);
-      border-bottom: 1px solid var(--border-color);
-      user-select: none;
-    }
-
-    :deep(.ob-code-lang) {
-      font-size: 10.5px;
-      color: var(--text-secondary);
-      font-family: 'SF Mono', Menlo, Consolas, monospace;
-    }
-
-    :deep(.ob-code-copy) {
-      font-size: 11px;
-      color: var(--text-secondary);
-      cursor: pointer;
-      padding: 1px 7px;
-      border-radius: 5px;
-      transition: all 0.12s ease;
-
-      &:hover {
-        color: var(--primary-color);
-        background: rgba(var(--primary-color-rgb), 0.09);
-      }
-    }
-
-    :deep(.ob-code pre) {
-      margin: 0;
-      padding: 7px 10px;
-      border-radius: 0;
-      background: transparent;
-      font-size: 11.5px;
-      line-height: 1.55;
-
-      code {
-        background: transparent;
-        padding: 0;
-        font-family: 'SF Mono', Menlo, Consolas, monospace;
-      }
-    }
-  }
-}
-
-/* 过程说明（中途正文）：正文主色与思考文本（灰色）区分，
-   明确"对用户的发言"而非推理内容（缩进竖线已随内容列统一） */
-.ob-narration {
-  color: var(--text-primary);
-}
-
-/* Skill 行 */
-.ob-skill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-
-  .ob-skill-ico {
-    font-size: 12px;
-    color: #8B5CF6;
-  }
-
-  .ob-skill-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    color: #8B5CF6;
-  }
-
-  .ob-skill-name {
-    font-size: 13px;
-    font-weight: 500;
-    color: #7C3AED;
-  }
-}
-
-/* 正文代码块条目（助手正文拆出收入思考区）：摘要行 + markdown 代码体 */
-.ob-code-item {
-  display: flex;
-  flex-direction: column;
-}
-
-/* 游离代码块自带折叠头（复用思考段头样式，顶部留间距与段头对齐） */
-.ob-code-free-head {
-  margin-top: 2px;
-}
-
-.ob-code-item-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 22px;
-  padding: 2px 0;
-  user-select: none;
-
-  .ob-code-item-ico {
-    font-size: 13px;
-    flex-shrink: 0;
-    color: var(--text-secondary);
-  }
-
-  .ob-code-item-label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-    white-space: nowrap;
-  }
-
-  .ob-code-item-lines {
-    font-size: 10.5px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
-  }
-}
-
-/* 工具卡片 */
-.ob-tool {
-  display: flex;
-  flex-direction: column;
-}
-
-/* 摘要行 */
-.ob-tool-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 22px;
-  padding: 2px 0;
-  cursor: pointer;
-  user-select: none;
-
-  .ob-tool-ico {
-    font-size: 13px;
-    flex-shrink: 0;
-    color: var(--success-color);
-
-    /* 运行中：loading 图标持续旋转（与正文思考占位 ob-think-spin 同构） */
-    &.spin {
-      color: var(--primary-color);
-      animation: ob-tool-rotate 0.9s linear infinite;
-    }
-  }
-
-  &.error .ob-tool-ico { color: var(--danger-color); }
-
-  /* MCP 服务名前缀 */
-  .ob-tool-server {
-    font-size: 11.5px;
-    color: #0D9488;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .ob-tool-name {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .ob-tool-tag {
-    font-size: 10.5px;
-    color: var(--text-secondary);
-    background: rgba(0, 0, 0, 0.05);
-    border-radius: 4px;
-    padding: 1px 6px;
-    white-space: nowrap;
-    flex-shrink: 0;
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
-  }
-  .ob-tool-agent {
-    color: var(--el-color-primary, #409eff);
-    background: rgba(64, 158, 255, 0.1);
-  }
-
-  /* 等待授权徽标：琥珀色 pill + 呼吸动画，提示回合卡在权限确认而非命令执行 */
-  .ob-tool-perm-wait {
-    font-size: 10.5px;
-    color: #b45309;
-    background: rgba(245, 158, 11, 0.14);
-    border: 1px solid rgba(245, 158, 11, 0.35);
-    border-radius: 4px;
-    padding: 0 6px;
-    white-space: nowrap;
-    flex-shrink: 0;
-    line-height: 16px;
-    cursor: help;
-    animation: ob-perm-wait-pulse 1.6s ease-in-out infinite;
-  }
-
-  @keyframes ob-perm-wait-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.55; }
-  }
-
-  .ob-tool-arrow {
-    font-size: 10px;
-    color: var(--text-secondary);
-    transition: transform 0.2s ease;
-
-    &.open { transform: rotate(180deg); }
-  }
-}
-
-/* 站点登录引导行（撞墙工具卡片内嵌）：提示语 + 一键打开登录向导
-   （工具卡片已在时间线内容列内，缩进减半避免双重嵌套） */
-.ob-tool-login {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 3px 0 4px 8px;
-  padding: 5px 10px;
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  border-radius: 8px;
-  background: rgba(245, 158, 11, 0.08);
-
-  /* 已登录终态：登录墙提示转成功态（绿色系弱化） */
-  &.is-logged {
-    border-color: rgba(15, 220, 120, 0.35);
-    background: rgba(15, 220, 120, 0.08);
-
-    .ob-tool-login-ico,
-    .ob-tool-login-text {
-      color: #0f7a4a;
-    }
-  }
-
-  .ob-tool-login-ico {
-    font-size: 13px;
-    color: #b45309;
-    flex-shrink: 0;
-  }
-
-  .ob-tool-login-text {
-    flex: 1;
-    min-width: 0;
-    font-size: 12.5px;
-    color: #b45309;
-    word-break: break-all;
-  }
-
-  .ob-tool-login-btn {
-    flex-shrink: 0;
-  }
-}
-
-/* 详情容器（左侧 2px 竖线缩进；工具卡片已在时间线内容列内，
-   摘要行自带 padding-left: 12px，详情再退 20px 与其拉开层级） */
-.ob-tool-detail {
-  margin: 2px 0 4px 8px;
-  padding-left: 12px;
-  border-left: 2px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* 区块标签（参数 / 结果 / 错误） */
-.ob-tool-label {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-
-  &.error { color: var(--danger-color); }
-}
-
-/* ===== 参数区 ===== */
-.ob-tool-args {
-  display: flex;
-  flex-direction: column;
-}
-
-/* chips 行（content 单独成块时，其余参数以 chips 展示） */
-.ob-arg-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.ob-arg-chip {
+/* ============ 类别徽标（MCP / AGENT，与 SKILL 行标识对称） ============ */
+.tool-badge {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  max-width: 100%;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.tool-badge > * + * {
+  margin-left: 3px;
+}
+
+.tool-badge .badge-ico {
+  font-size: 11px;
+}
+
+.tool-badge .badge-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.tool-badge .badge-name {
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* MCP：青色系（延续原服务名色，与 SKILL 紫区分） */
+.tool-badge.mcp .badge-ico,
+.tool-badge.mcp .badge-label,
+.tool-badge.mcp .badge-name {
+  color: #0D9488;
+}
+
+/* AGENT：靛紫色系（专家委派） */
+.tool-badge.agent .badge-label {
+  color: #6366F1;
+}
+
+.tool-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #1F2329;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 执行中工具：名称主色 + 呼吸明暗（与行首 loading 图标同步，标识当前正在执行） */
+.tool-name.executing {
+  color: #3366FF;
+  animation: think-breath 1.2s ease-in-out infinite;
+}
+
+.tool-name-tag {
+  font-size: 12px;
+  color: #A9AEB8;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+/* subagent 委派目标专员名 tag：靛紫系（与 AGENT 徽标同色系） */
+.tool-name-tag.tool-agent-tag {
+  color: #6366F1;
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.tool-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 10px;
+  color: #A9AEB8;
+  transition: transform 0.2s ease;
+}
+
+.tool-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* 等待授权徽标（OmniDeck 专属）：琥珀色 pill + 呼吸动画，提示回合卡在权限确认 */
+.ob-tool-perm-wait {
   font-size: 10.5px;
-  line-height: 1.5;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  color: var(--text-primary);
-  word-break: break-all;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 4px;
+  padding: 0 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 16px;
+  cursor: help;
+  animation: perm-wait-pulse 1.6s ease-in-out infinite;
 }
 
-/* content 参数块（可滚动） */
-.ob-arg-content {
-  margin: 6px 0 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.04);
-  font-size: 11.5px;
-  line-height: 1.55;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 300px;
-  overflow-y: auto;
-  color: var(--text-primary);
+@keyframes perm-wait-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
-/* 逐参数行（无 content 参数时） */
-.ob-arg-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 11.5px;
-  line-height: 1.6;
-  padding: 1px 0;
-
-  .ob-arg-key {
-    flex-shrink: 0;
-    width: 72px;
-    color: #0284C7;
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
-    word-break: break-all;
-  }
-
-  .ob-arg-val {
-    flex: 1;
-    min-width: 0;
-    color: var(--text-primary);
-    word-break: break-all;
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
-  }
-}
-
-/* ===== 结果区 ===== */
-.ob-tool-result {
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.04);
-  font-size: 11.5px;
-  line-height: 1.55;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 160px;
-  overflow-y: auto;
-  color: var(--text-primary);
-
-  /* 错误态：红底红字 */
-  &.error {
-    background: rgba(var(--danger-color-rgb),  0.08);
-    color: var(--danger-color);
-  }
-}
-
-/* 联网工具结果：正文体（Markdown 渲染），放宽高度展示链接列表 */
-.ob-tool-result-md {
-  font-family: inherit;
-  white-space: normal;
-  max-height: 260px;
-
-  :deep(p) { margin: 0 0 5px; }
-  :deep(p:last-child) { margin-bottom: 0; }
-  :deep(ul), :deep(ol) { padding-left: 18px; margin: 4px 0; }
-  :deep(li) { margin: 2px 0; }
-  /* 有 href 的真链接（web 工具结果 Source 行）着色，无 href 降级链接按普通文本 */
-  :deep(a[href]) {
-    color: var(--primary-color);
-    text-decoration: none;
-    border-bottom: 1px solid rgba(var(--primary-color-rgb), 0.35);
-  }
-  :deep(a) { color: inherit; }
-}
-
-/* 流式光标 */
-.ob-cursor {
-  display: inline-block;
-  width: 6px;
-  height: 13px;
-  margin-left: 2px;
-  vertical-align: -2px;
-  border-radius: 2px;
-  background: var(--primary-color);
-  animation: ob-think-blink 0.9s steps(2) infinite;
-}
-
-@keyframes ob-think-blink {
-  50% { opacity: 0; }
-}
-
-/* ===== 文件变更记录 ===== */
-/* 摘要行：文件名 + 类型徽章 + 增删行数 */
+/* ===== 文件变更徽章（OmniDeck 专属，摘要行内联） ===== */
 .ob-fc-file {
   min-width: 0;
   max-width: 180px;
@@ -1345,7 +1289,7 @@ function fcRemoved(fc) {
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 11.5px;
-  color: var(--text-secondary);
+  color: #4E5969;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
@@ -1355,21 +1299,22 @@ function fcRemoved(fc) {
   font-weight: 600;
   padding: 1px 7px;
   border-radius: 4px;
+}
 
-  &.created, &.mkdir {
-    color: var(--success-color);
-    background: rgba(var(--success-color-rgb),  0.12);
-  }
+.ob-fc-type.created,
+.ob-fc-type.mkdir {
+  color: #10B981;
+  background: rgba(16, 185, 129, 0.12);
+}
 
-  &.modified {
-    color: #0284C7;
-    background: rgba(2, 132, 199, 0.12);
-  }
+.ob-fc-type.modified {
+  color: #0284C7;
+  background: rgba(2, 132, 199, 0.12);
+}
 
-  &.deleted {
-    color: var(--danger-color);
-    background: rgba(var(--danger-color-rgb),  0.12);
-  }
+.ob-fc-type.deleted {
+  color: #EF4444;
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .ob-fc-add,
@@ -1380,6 +1325,220 @@ function fcRemoved(fc) {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
-.ob-fc-add { color: var(--success-color); }
-.ob-fc-del { color: var(--danger-color); }
+.ob-fc-add { color: #10B981; }
+.ob-fc-del { color: #EF4444; }
+
+/* 站点登录引导行（OmniDeck 专属）：提示语 + 一键打开登录向导 */
+.ob-tool-login {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0 4px 8px;
+  padding: 5px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.ob-tool-login.is-logged {
+  border-color: rgba(15, 220, 120, 0.35);
+  background: rgba(15, 220, 120, 0.08);
+}
+
+.ob-tool-login.is-logged .ob-tool-login-ico,
+.ob-tool-login.is-logged .ob-tool-login-text {
+  color: #0f7a4a;
+}
+
+.ob-tool-login-ico {
+  font-size: 13px;
+  color: #b45309;
+  flex-shrink: 0;
+}
+
+.ob-tool-login-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: #b45309;
+  word-break: break-all;
+}
+
+.ob-tool-login-btn {
+  flex-shrink: 0;
+}
+
+/* ============ 工具详情（进一步缩进，左侧竖线） ============ */
+.tool-details {
+  margin: 6px 0 2px;
+  padding-left: 12px;
+  border-left: 2px solid #E5E6EB;
+  display: flex;
+  flex-direction: column;
+  animation: detail-fade 0.18s ease;
+}
+
+@keyframes detail-fade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tool-details > * + * {
+  margin-top: 8px;
+}
+
+.tool-block {
+  background: #F7F8FA;
+  border: 1px solid #F0F1F4;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* 区块标签：小写间距标签 + 细分隔 */
+.block-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  color: #86909C;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 5px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  text-transform: uppercase;
+}
+
+.block-label::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #C9CDD4;
+  margin-right: 5px;
+}
+
+.result-block .block-label::before { background: #10B981; }
+.args-block .block-label::before { background: #3366FF; }
+.result-block.error .block-label::before { background: #EF4444; }
+
+.arg-row {
+  display: flex;
+  line-height: 1.5;
+}
+
+.arg-row > * + * {
+  margin-left: 6px;
+}
+
+.arg-key { color: #0284C7; font-weight: 500; }
+.arg-val { color: #4E5969; word-break: break-all; }
+
+.arg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.arg-chips > * + * {
+  margin-left: 4px;
+}
+
+/* 参数 chips：等宽字体胶囊 */
+.arg-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #FFFFFF;
+  border: 1px solid #E5E6EB;
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.chip-key { color: #0284C7; font-weight: 500; }
+.chip-val { color: #86909C; word-break: break-all; }
+
+.content-pre {
+  margin: 0;
+  color: #4E5969;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.55;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.result-text {
+  color: #4E5969;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.55;
+  font-size: 11.5px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* 富文本结果（含表格）：取消等宽纯文本排版，交给 think-md 深度样式
+   （不能 inherit：.tool-block 为等宽字体栈） */
+.result-text.think-md {
+  white-space: normal;
+  word-break: break-word;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* 错误结果块：红底 + 左侧红竖线 */
+.result-block.error {
+  background: #FEF2F2;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.result-block.error .block-label { color: #DC2626; }
+.result-block.error .result-text { color: #B91C1C; }
+
+/* 思考区内嵌的 ask_user 卡片（OmniDeck 专属）：清除独立消息态的左移避让，
+   与摘要行拉开间距 */
+.ob-think-ask {
+  margin-top: 5px;
+}
+
+.ob-think-ask :deep(.ob-ask-card) {
+  margin-left: 0;
+}
+
+/* 待答 ask 恒可见（渲染在区块末尾） */
+.ob-think-ask-pending {
+  margin-top: 6px;
+}
+
+/* 工具条目内嵌的 workflow 紧凑进度卡片（OmniDeck 专属） */
+.ob-think-wf {
+  margin-top: 4px;
+}
+
+.ob-think-wf :deep(.ob-wf-card) {
+  padding: 6px 10px;
+  gap: 5px;
+}
+
+/* 光标：圆角矩形 + steps 闪烁 */
+.cursor-blink {
+  display: inline-block;
+  width: 5px;
+  height: 13px;
+  background-color: #3366FF;
+  margin-left: 2px;
+  vertical-align: -2px;
+  border-radius: 2px;
+  animation: blink 0.9s steps(2) infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
 </style>

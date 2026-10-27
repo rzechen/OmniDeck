@@ -364,7 +364,7 @@ function resolveProvider(providerId) {
 // 回合执行核心（新建 / 追问共用）：running 注册 → pi 会话 prompt → 终态广播
 async function executeTurn(chatId, provider, wsDir, promptText) {
   currentRemote = chatId
-  const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [] }
+  const entry = { abort: null, mode: 'pi', model: provider.model, anchors: [], startedAt: Date.now() }
   running.set(chatId, entry)
   // 运行态广播：已连接的移动端更新运行集合（输入框禁用 / 列表运行徽标）；
   // 终态由 done/error/interrupted 事件逐会话清除

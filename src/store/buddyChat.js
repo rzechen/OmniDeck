@@ -20,7 +20,6 @@ function blankSession() {
     turnMsg: null,         // 本轮助手消息（跨工具调用持续复用同一条）
     cycleBase: '',         // 本轮正文基线（工具调用后模型续写需拼接在前段之后）
     thinkingItem: null,    // 当前累积中的思考内容块
-    thinkTicking: false,   // 思考秒计时开关（全局 tick 按开关递增 seconds，切走期间照常累计）
     permQueue: [],         // 待确认权限队列（浮动条数据源）
     draft: '',             // 输入框草稿
     fileAttachments: [],   // 待发送文件附件
@@ -65,7 +64,12 @@ function normalizeHistory(list) {
   let sawTool = false
   for (let i = list.length - 1; i >= 0; i--) {
     const r = list[i].role
-    if (r === 'tool') { sawTool = true; continue }
+    if (r === 'tool') {
+      // ask_user 为回合交互终点（等待用户选择），其前正文仍属最终答复，
+      // 不计入“以工具调用收尾”判定
+      if (list[i].toolName !== 'ask_user') sawTool = true
+      continue
+    }
     if (r === 'user' || r === 'assistant') {
       followedByTool[i] = sawTool
       sawTool = false
@@ -165,6 +169,8 @@ function normalizeHistory(list) {
             lastAssistant.usage.contextWindow = m.usage.contextWindow
           }
         }
+        // 本轮耗时：归并的多条记录取最大值（仅收尾正文带值，mid 记录为 0）
+        if (m.seconds) lastAssistant.seconds = Math.max(lastAssistant.seconds || 0, m.seconds)
         // 供应商错误记录：归并后仍保留展示
         if (m.error) lastAssistant.error = m.error
         continue
@@ -189,6 +195,23 @@ function normalizeHistory(list) {
   }
   // 末轮问答无后续 user：挂接残留
   attachAsk()
+  // 兜底：正文为空、思考区末尾留着正文段（历史误判 mid 的存量记录，例如最终
+  // 答复后仅跟随 ask_user 询问）：把最后一段 narration 提回正文，避免答案
+  // 只出现在思考区。其后的 ask 卡片不算工具动作，不影响提升。
+  for (const msg of out) {
+    if (msg.role !== 'assistant' || (msg.content || '').trim()) continue
+    const items = msg.items || []
+    let idx = -1
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]
+      if (it.type === 'narration') { idx = i; break }
+      const askLike = it.type === 'ask' || (it.type === 'tool' && it.toolName === 'ask_user')
+      if (!askLike) break
+    }
+    if (idx < 0) continue
+    msg.content = items[idx].content
+    items.splice(idx, 1)
+  }
   return out
 }
 
@@ -239,7 +262,6 @@ function finishTurn(s) {
   s.turnMsg = null
   s.thinkingItem = null
   s.cycleBase = ''
-  s.thinkTicking = false
 }
 
 // 按 toolCallId 定位本轮工具内容块
@@ -368,11 +390,11 @@ export default {
         }).catch(() => {})
       }
     },
-    // 思考计时：为「计时中」的轮次每秒递增秒数（组件切走期间照常累计）
+    // 思考计时：本轮流式期间每秒递增整轮耗时（组件切走期间照常累计）
     tick({ state }) {
       for (const id in state.sessions) {
         const s = state.sessions[id]
-        if (s.thinkTicking && s.turnMsg && s.turnMsg.thinking) s.turnMsg.seconds++
+        if (s.turnMsg && s.turnMsg.streaming) s.turnMsg.seconds++
       }
     },
     // 拉取会话历史入池（已拉取过、或流式进行中时跳过 —— 重拉会覆盖实时聚合态；
@@ -403,7 +425,6 @@ export default {
       const last = cur && cur.messages[cur.messages.length - 1]
       if (live && cur && !cur.streaming && last && last.role === 'user') {
         cur.streaming = true
-        cur.thinkTicking = true
         ensureTurnMessage(cur).thinking = true
       }
       // 子代理后台 run 恢复：主进程注册表为状态源（刷新/重开重建任务列表
@@ -519,7 +540,6 @@ export default {
         case 'automation:run': {
           if (s.streaming) break
           s.streaming = true
-          s.thinkTicking = true
           ensureTurnMessage(s).thinking = true
           break
         }
@@ -559,7 +579,6 @@ export default {
         case 'delta': {
           const msg = ensureTurnMessage(s)
           if (msg.isThinking) msg.isThinking = false
-          s.thinkTicking = false
           msg.content = s.cycleBase + (e.text || '')
           break
         }
@@ -578,6 +597,9 @@ export default {
           // 回填本轮首条落盘记录 id（仅首次）：实时聚合消息与重开归并消息
           // 指向同一条记录，点赞/点踩持久化与分支据此定位
           if (!msg.id && e.messageId) msg.id = e.messageId
+          // 本轮耗时（主进程按回合开始时间计算）：与本地 tick 计时取最大值，
+          // 保证完成态「已完成 · Ns」在实时与回放场景都准确
+          if (e.seconds) msg.seconds = Math.max(msg.seconds || 0, e.seconds)
           // 摘要映射登记：本轮落盘记录 id → 当前思考块（s.thinkingItem 即本轮
           // 累积的思考块，一轮模型调用内所有 thinking 事件写同一块；
           // thinking_summary 异步到达时据此写入 summary 字段）
@@ -595,7 +617,6 @@ export default {
               contextWindow: e.usage.contextWindow
             }
           }
-          s.thinkTicking = false
           break
         }
         case 'thinking_summary': {
@@ -637,8 +658,9 @@ export default {
           const msg = ensureTurnMessage(s)
           // 兜底封存：assistant_end 未带 mid 标记时（供应商 stopReason 缺失等），
           // 工具开始执行即视为此前正文为中途旁白（正常路径已在 assistant_end 封存，
-          // 此处 content 为空直接跳过，幂等）
-          if ((msg.content || '').trim()) {
+          // 此处 content 为空直接跳过，幂等）。ask_user 除外：它是回合交互终点，
+          // 其前正文就是最终答复，须留在正文气泡
+          if (e.toolName !== 'ask_user' && (msg.content || '').trim()) {
             msg.items.push({ type: 'narration', content: msg.content })
             msg.content = ''
             s.cycleBase = ''

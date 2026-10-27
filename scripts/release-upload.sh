@@ -7,14 +7,14 @@
 #     上传目标缺省 gitcode（现有 feed 链路）；github 发布到 github.com/rzechen/OmniDeck
 #
 # 流程：
-#   1. tag 模式：先跑 scripts/mirror-public.sh 剥离核心路径推公开仓（剥离 electron/ 与
-#      src/config/remote.cjs 后镜像，公开仓可下载使用制品但拿不到核心源码）
+#   1. tag 模式：先跑 scripts/mirror-public.sh 全量镜像推公开仓（彻底开源，
+#      公开仓与本仓完全一致，含 electron/ 与 src/config/remote.cjs）
 #   2. native 插件兜底编译（windows.node 缺失时才编译；截图 hover 拾取窗口用）
 #   3. vite build + electron-builder 打包（afterPack 拷运行时 + mac ad-hoc 签名）
 #   4. 上传 release/ 产物到 GitCode / GitHub Release（release 不存在时自动创建）
 #
 # GitCode 上传：GET upload_url 预签名 PUT；GitHub 上传：Releases API（草稿→传→发布）
-# 依赖：git 凭证存储中有对应平台 token（git credential fill）；git-filter-repo（镜像用）
+# 依赖：git 凭证存储中有对应平台 token（git credential fill）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,9 +48,9 @@ case "$DEST" in
   *) echo "错误: 上传目标须为 gitcode / github / all" >&2; exit 1 ;;
 esac
 
-# 1) tag 模式：先镜像公开仓（剥离核心路径全历史，见 scripts/mirror-public.sh）
+# 1) tag 模式：先全量镜像公开仓（见 scripts/mirror-public.sh）
 if [ "$UPLOAD" -eq 1 ]; then
-  echo "==> 镜像公开仓（剥离 electron/ 与 src/config/remote.cjs）"
+  echo "==> 镜像公开仓（全量源码，无剥离）"
   bash "$ROOT/scripts/mirror-public.sh" "$TAG"
 fi
 

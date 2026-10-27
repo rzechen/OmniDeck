@@ -967,7 +967,7 @@ async function send(text, atRefs) {
   store.commit('buddyChat/PUSH_MSG', { id: sessId, msg: placeholder })
   store.commit('buddyChat/PATCH', {
     id: sessId,
-    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, atBottom: true }
+    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, atBottom: true }
   })
   scrollToBottom()
 
@@ -1258,7 +1258,7 @@ async function editResend({ message: msg, text }) {
   store.commit('buddyChat/PUSH_MSG', { id: sid.value, msg: placeholder })
   store.commit('buddyChat/PATCH', {
     id: sid.value,
-    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, thinkTicking: true, turnAnchors: anchors, atBottom: true }
+    patch: { streaming: true, turnMsg: placeholder, cycleBase: '', thinkingItem: null, turnAnchors: anchors, atBottom: true }
   })
   scrollToBottom()
 

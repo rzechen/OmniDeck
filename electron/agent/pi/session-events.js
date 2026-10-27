@@ -35,6 +35,13 @@ function extractWebSources(toolName, args, resultText) {
   return out.length ? out : null
 }
 
+// 本段回复是否仅以 ask_user 收尾：ask_user 是回合交互终点（等待用户选择），
+// 其前的正文属于给用户看的最终答复，不应判为工具循环中的过程说明
+function isAskOnlyToolCalls(blocks) {
+  const calls = (blocks || []).filter(c => c && c.type === 'toolCall')
+  return calls.length > 0 && calls.every(c => c.name === 'ask_user')
+}
+
 function skillNameFromTool(toolName, args) {
   if (toolName !== 'read' || !args) return ''
   const p = args.file_path || args.path || args.filePath || ''
@@ -75,10 +82,8 @@ function subscribeSessionEvents(session, chatId, onEvent, onSkillActivated) {
         }
         case 'message_end':
           if (event.message && event.message.role === 'assistant') {
-            // 临时诊断（mid 拆分问题定位）：打印 stopReason 与内容块类型后移除
-            console.log('[omnibuddy:pi][diag] message_end stopReason=', event.message.stopReason,
-              'blocks=', (event.message.content || []).map(c => c && c.type).join(','))
-            const text = (event.message.content || [])
+            const blocks = event.message.content || []
+            const text = blocks
               .filter(c => c.type === 'text')
               .map(c => c.text)
               .join('')
@@ -98,10 +103,12 @@ function subscribeSessionEvents(session, chatId, onEvent, onSkillActivated) {
               // 判定以内容块为准（stopReason 兜底）：部分第三方 OpenAI 兼容端点在
               // 带 tool_calls 的回复上返回 finish_reason=stop（pi-ai 对 google 端点
               // 有同款改写，openai-completions 没有），仅看 stopReason 会把工具循环
-              // 中段误判为回合终点，导致思考过程被拆成多条消息
-              mid: !!(text || currentText) && (
+              // 中段误判为回合终点，导致思考过程被拆成多条消息。
+              // ask_user 收尾的回复除外：其正文即最终答复（如“先给完整简报，再让
+              // 用户选择要写哪条”），归入正文气泡而非思考区
+              mid: !!(text || currentText) && !isAskOnlyToolCalls(blocks) && (
                 event.message.stopReason === 'toolUse' ||
-                (event.message.content || []).some(c => c && c.type === 'toolCall')
+                blocks.some(c => c && c.type === 'toolCall')
               ),
               usage: {
                 input: u.input || u.inputTokens || 0,
