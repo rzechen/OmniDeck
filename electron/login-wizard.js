@@ -466,7 +466,7 @@ function killProfileLockers() {
   return new Promise(resolve => {
     if (process.platform === 'win32') {
       try {
-        const wmic = spawn('wmic', ['process', 'where', 'CommandLine like "%' + profileDir + '%"', 'get', 'ProcessId'], { stdio: 'ignore' })
+        const wmic = spawn('wmic', ['process', 'where', 'CommandLine like "%' + profileDir + '%"', 'get', 'ProcessId'], { stdio: 'ignore', windowsHide: true })
         // wmic 输出解析繁琐，Windows 侧以 taskkill /IM 兜底由后续 launch 报错兜住
         wmic.on('error', () => {})
         wmic.on('close', () => resolve())

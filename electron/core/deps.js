@@ -69,6 +69,7 @@ function writeShim() {
     'const child = cp.spawn(bin, [entry].concat(process.argv.slice(2)), {',
     '  env: Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: \'1\' }),',
     '  stdio: [\'inherit\', \'inherit\', \'inherit\'],',
+    '  windowsHide: true,',
     '  detached: process.platform !== \'win32\'',
     '})',
     'const t = setTimeout(() => {',

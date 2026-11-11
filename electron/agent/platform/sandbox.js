@@ -242,6 +242,8 @@ function createSandboxedBashOps(SandboxManager, runtimeConfigRef) {
           const child = spawn('bash', ['-c', wrappedCommand], {
             cwd,
             detached: true,
+            // Windows 上 bash（git-bash）为控制台程序：隐藏控制台防黑窗
+            windowsHide: true,
             // TMPDIR/TMP/TEMP 指向私有目录（wrapper 的 env 前缀会把 TMPDIR 固化为同值）；
             // env 为技能凭据（spawnHook 注入），放最后合并（同名键以技能凭证为准）
             env: Object.assign({}, process.env, { TMPDIR: tmpDir, TMP: tmpDir, TEMP: tmpDir }, env || {}),

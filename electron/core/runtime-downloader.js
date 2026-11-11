@@ -293,7 +293,7 @@ function sha256File(p) {
 function extractTarGz(archive, destDir) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(destDir, { recursive: true })
-    const p = spawn('tar', ['-xzf', archive, '-C', destDir, '--strip-components', '1'])
+    const p = spawn('tar', ['-xzf', archive, '-C', destDir, '--strip-components', '1'], { windowsHide: true })
     let err = ''
     p.stderr.on('data', d => { err += d.toString() })
     p.on('close', code => {
