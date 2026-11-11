@@ -19,7 +19,7 @@
       </div>
 
       <!-- 助手：深度思考区（思考过程 + Skill + 工具/MCP + ask_user 提问 + 正文代码块）；
-           流式期间即使尚无内容块也挂载，用于展示「已处理 Ns」进度行 -->
+           流式期间即使尚无内容块也挂载，用于展示「已执行 时长」进度行 -->
       <thinking-section
         v-if="hasSection || (message.role === 'assistant' && !!message.streaming)"
         :items="sectionItems"
@@ -1124,6 +1124,22 @@ async function exportAs(format) {
   font-size: 13px;
   color: #C9CDD4;
   user-select: none;
+}
+
+/* 「思考中」标签呼吸（轮换文案自带入场动画，行内只动标签避免闪烁过密） */
+.ob-think-label {
+  animation: ob-think-breath 1.2s ease-in-out infinite;
+}
+
+@keyframes ob-think-breath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-think-label {
+    animation: none;
+  }
 }
 
 .ob-think-sep {

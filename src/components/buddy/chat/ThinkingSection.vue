@@ -1,11 +1,11 @@
 <template>
   <!-- 深度思考区（思考组折叠单元模型）：
-       流式输出中：顶部「已处理 Ns」+ 一行执行摘要，各组默认收起；
-       完成后：顶部「✓ 已完成 · Ns ⌄」，默认全部收起，点击顶部统一展开；
-       每个思考组头部：小图标 +「深度思考」+（收起时）摘要 + 箭头，控制
+       流式输出中：顶部「已执行 N 秒/N 分 N 秒」+ 一行执行摘要，各组默认收起；
+       完成后：顶部「✓ 已完成 · 人性化时长 ⌄」，默认全部收起，点击顶部统一展开；
+       每个思考组头部：小图标 + 摘要（收起时）/「思考过程」（展开时，位置不动）+ 箭头，控制
        本组全部内容（思考正文 + 工具 / 技能卡片），各组互不影响 -->
   <div class="thinking-section">
-    <!-- 区块总状态行（流式中：已处理时长 + 摘要；完成后：已完成 + 耗时，点击统一折叠 / 展开） -->
+    <!-- 区块总状态行（流式中：已执行时长 + 摘要；完成后：已完成 + 耗时，点击统一折叠 / 展开） -->
     <div
       v-if="isStreaming || groups.length"
       class="section-head"
@@ -17,7 +17,11 @@
       @click="onSectionHeadClick"
     >
       <template v-if="isStreaming">
-        <span class="sh-done">已处理 {{ seconds }}s</span>
+        <span class="sh-done">已执行 {{ fmtDuration(seconds) }}<svg-icon
+          icon-class="arrow-down"
+          class="sh-arrow"
+          :class="{ 'is-collapsed': !streamExpanded }"
+        /></span>
         <span v-if="sectionExcerpt" class="sh-summary">
           <svg-icon icon-class="memory" class="sh-summary-ico" />
           <span class="sh-summary-text">{{ sectionExcerpt }}</span>
@@ -26,12 +30,12 @@
       <template v-else>
         <svg-icon icon-class="circle-check" class="sh-ico" />
         <span class="sh-status">已完成</span>
-        <span v-if="seconds" class="sh-sec">· {{ seconds }}s</span>
+        <span v-if="seconds" class="sh-sec">· {{ fmtDuration(seconds) }}</span>
         <svg-icon icon-class="arrow-down" class="sh-arrow" :class="{ 'is-collapsed': sectionCollapsed }" />
       </template>
     </div>
 
-    <!-- 思考组明细：流式中默认整体收起（仅顶部「已处理 Ns」+ 摘要），
+    <!-- 思考组明细：流式中默认整体收起（仅顶部「已执行 时长」+ 摘要），
          点击顶部状态行可临时展开；完成后默认全部收起，点击顶部统一展开 -->
     <div
       v-for="(group, gi) in groups"
@@ -42,12 +46,10 @@
     >
       <div v-if="group.thinkingNo" class="unit-header" @click="toggleGroup(gi)">
         <svg-icon icon-class="memory" class="uh-icon" :class="{ pulsing: isGroupActive(group) }" />
-        <span class="uh-label">深度思考</span>
         <span
-          v-if="isGroupCollapsed(group, gi)"
           class="uh-excerpt"
           :class="{ pulsing: isGroupActive(group) }"
-        >{{ groupExcerpt(group) }}</span>
+        >{{ isGroupCollapsed(group, gi) ? groupExcerpt(group) : '思考过程' }}</span>
         <svg-icon icon-class="arrow-down" class="uh-chevron" :class="{ 'is-collapsed': isGroupCollapsed(group, gi) }" />
       </div>
       <!-- 组内容（思考正文 + 工具 / 技能 / 代码 / 问答卡片）：跟随本组折叠 -->
@@ -335,7 +337,7 @@ const props = defineProps({
     type: Object,
     default: null
   },
-  // 本轮耗时（秒）：区块总状态行「已完成 · Ns」/「已处理 Ns」展示
+  // 本轮耗时（秒）：区块总状态行「已完成 · 时长」/「已执行 时长」展示（fmtDuration 人性化换算）
   seconds: {
     type: Number,
     default: 0
@@ -345,6 +347,19 @@ const props = defineProps({
 const emit = defineEmits(['ask-answer'])
 
 const { message } = useFeedback()
+
+// 耗时人性化换算（与 WorkflowPanel.fmtDuration 同风格）：
+// <1 分钟 → N 秒；<1 小时 → N 分 N 秒；≥1 小时 → N 小时 N 分（尾部零单位省略）
+function fmtDuration(sec) {
+  const v = Math.max(0, Math.round(sec || 0))
+  if (v < 60) return v + ' 秒'
+  const m = Math.floor(v / 60)
+  const s = v % 60
+  if (m < 60) return s ? m + ' 分 ' + s + ' 秒' : m + ' 分钟'
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  return mm ? h + ' 小时 ' + mm + ' 分' : h + ' 小时'
+}
 
 // ===== 折叠状态 =====
 // 各思考组的用户手动折叠态（组稳定键 → bool）；未手动切换的组跟随自动态
@@ -480,7 +495,7 @@ const pendingAsks = computed(() => {
 })
 
 // ===== 折叠状态（区块级 / 组级解耦） =====
-// 流式中手动展开思考组明细（默认收起，仅顶部「已处理 Ns」+ 摘要）
+// 流式中手动展开思考组明细（默认收起，仅顶部「已执行 时长」+ 摘要）
 const streamExpanded = ref(false)
 
 // 区块级折叠：控制全部思考明细（思考正文 + 工具 / 技能卡片）的显隐；
@@ -506,7 +521,7 @@ function groupKey(group, gi) {
 }
 
 // 组折叠态：仅由本组手动切换决定。
-// 默认态：完成后收起（展开区块只显示「深度思考 + 摘要」，点本组才展开内容）；
+// 默认态：完成后收起（展开区块只显示「图标 + 摘要」，点本组才展开内容）；
 // 流式中默认展开（实时内容可见）。
 // 无组头部（thinkingNo 未编号）的纯执行组无法点击展开，保持可见。
 // 注意：必须用 !== undefined 读取（get trap 会收集依赖）；hasOwnProperty
@@ -878,7 +893,7 @@ function fcRemoved(fc) {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* ============ 区块总状态行（✓ 已完成 · Ns ⌄ / 已处理 Ns + 摘要） ============ */
+/* ============ 区块总状态行（✓ 已完成 · 时长 ⌄ / 已执行 时长 + 摘要） ============ */
 .thinking-section > * + * {
   margin-top: 10px;
 }
@@ -896,7 +911,7 @@ function fcRemoved(fc) {
   user-select: none;
 }
 
-/* 流式态：两行（已处理 Ns / 图标 + 摘要） */
+/* 流式态：两行（已执行 时长 / 图标 + 摘要） */
 .section-head.is-streaming {
   flex-direction: column;
   align-items: flex-start;
@@ -904,7 +919,7 @@ function fcRemoved(fc) {
   padding: 2px 6px;
 }
 
-/* 流式态无摘要：单行「已处理 Ns」，不占额外高度 */
+/* 流式态无摘要：单行「已执行 时长」，不占额外高度 */
 .section-head.is-streaming:not(.has-summary) {
   gap: 0;
 }
@@ -912,6 +927,12 @@ function fcRemoved(fc) {
 .sh-done {
   font-size: 14px;
   color: #4E5969;
+
+  /* 行内箭头（展开收起）：与文字基线对齐，随 streamExpanded 翻转 */
+  .sh-arrow {
+    margin-left: 3px;
+    vertical-align: -1px;
+  }
 }
 
 .sh-summary {
@@ -969,7 +990,7 @@ function fcRemoved(fc) {
   flex-direction: column;
 }
 
-/* 头部行：小图标 + 灰色标签 +（收起时）摘要 + 箭头，点击整行切换 */
+/* 头部行：小图标 + 摘要（收起时）/「思考过程」（展开时）+ 箭头，点击整行切换 */
 .unit-header {
   display: flex;
   align-items: center;
@@ -989,13 +1010,6 @@ function fcRemoved(fc) {
 .uh-icon {
   font-size: 12px;
   color: #A9AEB8;
-  flex-shrink: 0;
-}
-
-.uh-label {
-  font-size: 13px;
-  font-weight: 400;
-  color: #86909C;
   flex-shrink: 0;
 }
 

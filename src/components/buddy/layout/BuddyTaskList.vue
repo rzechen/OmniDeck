@@ -41,7 +41,7 @@
       <div v-show="!collapsedGroups[g.key]" class="buddy-group-body">
         <!-- 空工作空间占位（空间可见但尚无任务） -->
         <div v-if="!g.chats.length" class="buddy-group-empty">暂无任务</div>
-        <template v-for="(sec, si) in g.sections">
+        <template v-for="(sec, si) in visibleSections(g)">
         <div
           v-for="c in sec.chats"
           :key="c.id"
@@ -104,6 +104,12 @@
           </span>
         </div>
         </template>
+        <!-- 超出预览条数：查看更多（x = 隐藏条数），点击展开组内全部任务 -->
+        <div
+          v-if="!expandedGroups[g.key] && g.chats.length > PREVIEW_COUNT"
+          class="buddy-group-more"
+          @click="expandedGroups[g.key] = true"
+        >查看更多（{{ g.chats.length - visibleCount(g) }}）</div>
       </div>
     </div>
   </div>
@@ -201,6 +207,30 @@ const collapsedGroups = reactive(getItem(COLLAPSED_KEY, {}))
 function toggleGroup(key) {
   collapsedGroups[key] = !collapsedGroups[key]
   setItem(COLLAPSED_KEY, collapsedGroups)
+  // 收起组时复位「查看更多」展开态：再次展开组恢复前 5 条预览
+  if (collapsedGroups[key]) delete expandedGroups[key]
+}
+
+// ===== 组内任务预览截断 =====
+// 每组默认只展示前 PREVIEW_COUNT 条（置顶段优先占预算，普通段吃剩余额度），
+// 超出部分以「查看更多（x）」展开；展开态为会话级内存态（不持久化）
+const PREVIEW_COUNT = 5
+const expandedGroups = reactive({})
+// 截断后的 sections（预算内逐段截取）；已展开或总数未超限时原样返回
+function visibleSections(g) {
+  if (expandedGroups[g.key] || g.chats.length <= PREVIEW_COUNT) return g.sections
+  let budget = PREVIEW_COUNT
+  return g.sections
+    .map(sec => {
+      const take = sec.chats.slice(0, budget)
+      budget -= take.length
+      return { pinned: sec.pinned, chats: take }
+    })
+    .filter(sec => sec.chats.length)
+}
+// 当前实际展示条数（「查看更多（x）」的 x = 总数 - 已展示）
+function visibleCount(g) {
+  return visibleSections(g).reduce((n, sec) => n + sec.chats.length, 0)
 }
 
 // 会话实时状态（store 会话池快照）：streaming = 流式输出中 / pending = 待权限确认 /
@@ -482,6 +512,19 @@ function onChatLeave(e) {
 @keyframes ob-name-scroll {
   to {
     transform: translateX(var(--scroll-x, 0));
+  }
+}
+
+/* 查看更多：对齐任务行缩进，弱化小字，hover 主色提示可点 */
+.buddy-group-more {
+  padding: 4px 10px 5px 26px;
+  font-size: 11px;
+  color: $text-secondary;
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    color: var(--primary-color);
   }
 }
 

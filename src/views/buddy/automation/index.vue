@@ -53,11 +53,8 @@
                 <span
                   v-if="runsCount(t) > 1"
                   class="ob-auto-runs-toggle"
-                  @click="toggleRuns(t)"
-                >
-                  {{ expandedRuns[t.id] ? '收起历史' : '历史 ' + runsCount(t) + ' 次' }}
-                  <svg-icon :icon-class="expandedRuns[t.id] ? 'arrow-up' : 'arrow-down'" />
-                </span>
+                  @click="openRuns(t)"
+                >历史 {{ runsCount(t) }} 次</span>
               </div>
               <!-- 失败原因直接可见（单行截断，hover 看全文） -->
               <div
@@ -68,27 +65,7 @@
                 <svg-icon icon-class="warning-outline" />
                 {{ t.lastRun.error }}
               </div>
-              <!-- 运行历史（append-only runs，最近 20 条；单条运行时省略） -->
-              <div v-if="expandedRuns[t.id] && runsCount(t) > 1" class="ob-auto-runs">
-                <div
-                  v-for="(r, i) in runsOf(t)"
-                  :key="(r.at || i) + '-' + i"
-                  class="ob-auto-run-row"
-                  :class="{ ok: r.ok, fail: !r.ok, deleted: r.sessionDeleted }"
-                  :title="runTitle(r)"
-                  @click="openSession(r.sessionId)"
-                >
-                  <span class="ob-auto-run-dot" />
-                  <span class="ob-auto-run-time">{{ timeShort(r.at) }}</span>
-                  <span class="ob-auto-run-reason">{{ r.reason === 'manual' ? '手动' : '计划' }}</span>
-                  <span class="ob-auto-run-state">{{ r.ok ? '成功' : '失败' }}</span>
-                  <span v-if="r.deniedOps && r.deniedOps.length" class="ob-auto-run-denied">
-                    无头拦截 {{ r.deniedOps.length }} 项写操作
-                  </span>
-                  <span v-if="!r.ok && r.error" class="ob-auto-run-err">{{ r.error }}</span>
-                  <span v-if="r.sessionDeleted" class="ob-auto-run-deleted-tag">会话已删</span>
-                </div>
-              </div>
+              <!-- 运行历史改弹窗查看（见页尾 auto-runs-dialog）；卡片内不再展开 -->
             </div>
             <div class="ob-auto-actions">
               <el-switch
@@ -286,6 +263,39 @@
         </div>
       </div>
     </transition>
+
+    <!-- 运行历史弹窗（居中小弹窗，append-only runs 最近 20 条，点击行直达会话；
+         跳转后本页卸载弹窗随之关闭，会话已删时留在弹窗内提示） -->
+    <transition name="ob-modal">
+      <div v-if="runsDialog.task" class="ob-overlay" @click.self="runsDialog.task = null">
+        <div class="ob-dialog auto-runs-dialog">
+          <header class="ob-dialog-header">
+            <h3 class="ob-dialog-title">运行历史 · {{ runsDialog.task.name }}</h3>
+            <svg-icon icon-class="close" class="ob-dialog-close" @click="runsDialog.task = null" />
+          </header>
+          <div class="ob-dialog-body auto-runs-body">
+            <div
+              v-for="(r, i) in runsOf(runsDialog.task)"
+              :key="(r.at || i) + '-' + i"
+              class="ob-auto-run-row"
+              :class="{ ok: r.ok, fail: !r.ok, deleted: r.sessionDeleted }"
+              :title="runTitle(r)"
+              @click="openSession(r.sessionId)"
+            >
+              <span class="ob-auto-run-dot" />
+              <span class="ob-auto-run-time">{{ timeShort(r.at) }}</span>
+              <span class="ob-auto-run-reason">{{ r.reason === 'manual' ? '手动' : '计划' }}</span>
+              <span class="ob-auto-run-state">{{ r.ok ? '成功' : '失败' }}</span>
+              <span v-if="r.deniedOps && r.deniedOps.length" class="ob-auto-run-denied">
+                无头拦截 {{ r.deniedOps.length }} 项写操作
+              </span>
+              <span v-if="!r.ok && r.error" class="ob-auto-run-err">{{ r.error }}</span>
+              <span v-if="r.sessionDeleted" class="ob-auto-run-deleted-tag">会话已删</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -293,7 +303,7 @@
 // OmniBuddy 自动化（定时任务）：任务列表 + 三步新建向导（场景 → 内容 → 时间）
 // 数据源：主进程 scheduler（tasks.json 持久化）；执行结果落系统会话（「自动化」分组），
 // 运行/结束经 omnibuddy:event（automation:run / automation:done）实时刷新。
-// 运行历史（t.runs，主进程 append-only 保留最近 20 条）在本页展开查看
+// 运行历史（t.runs，主进程 append-only 保留最近 20 条）弹窗查看
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { buddyApi, buddyApiSection } from '@/utils/buddy/buddy-api'
@@ -363,8 +373,8 @@ const tasks = ref([])
 const workspaces = ref([])
 const providers = ref([])
 const scenarios = SCENARIOS
-// 运行历史展开状态：taskId -> bool
-const expandedRuns = ref({})
+// 运行历史弹窗：task = 当前查看的任务（null 关闭）
+const runsDialog = reactive({ task: null })
 
 // 新建 / 编辑向导
 const wizard = reactive({
@@ -541,8 +551,8 @@ function runsCount(t) {
   return runsOf(t).length
 }
 
-function toggleRuns(t) {
-  expandedRuns.value[t.id] = !expandedRuns.value[t.id]
+function openRuns(t) {
+  runsDialog.task = t
 }
 
 // 历史行 hover 详情：失败原因 + 无头拦截明细（surface + 操作摘要）
@@ -996,7 +1006,7 @@ onBeforeUnmount(() => {
   }
 }
 
-// 运行历史展开入口（meta 行内轻量链接）
+// 运行历史弹窗入口（meta 行内轻量链接）
 .ob-auto-runs-toggle {
   cursor: pointer;
   display: inline-flex;
@@ -1031,15 +1041,18 @@ onBeforeUnmount(() => {
   }
 }
 
-// 运行历史列表（最近 20 条 append-only 记录，点击直达会话）
-.ob-auto-runs {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
+// 运行历史弹窗：中等宽度居中弹窗（不套供应商弹窗的 4:3 比例），高度自适应上限内滚动
+.auto-runs-dialog {
+  width: min(500px, calc(100vw - 48px));
+  aspect-ratio: auto;
+  height: auto;
+  max-height: min(520px, calc(100vh - 48px));
+}
+
+// 历史行紧凑排列（覆盖 ob-dialog-body 默认 13px 间距）
+.auto-runs-body {
   gap: 2px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.025);
+  padding: 10px 14px 14px;
 }
 
 .ob-auto-run-row {
