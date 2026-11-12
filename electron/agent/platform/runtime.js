@@ -1,8 +1,8 @@
 // OmniDeck 内置运行时定位（python / node / playwright 浏览器 / npx 缓存）
 // 由 scripts/provision-runtime.sh 装配到 <root>/runtime/<plat>/，
 // afterPack 打进安装包 Resources/runtime/<plat>（开箱即用，不依赖宿主环境）。
-// 瘦身版另支持在线装配：runtime-downloader 按需下载解压到
-// <userData>/omnibuddy/runtime/<plat>/（与内置包同构布局）。
+// 瘦身版另支持在线装配（历史机制，现已全量内置；该机制移除后 userData
+// 装配根保留兼容旧版本用户已下载的组件）：
 // 解析优先级：内置运行时 → 在线装配（userData）→ 系统（PATH）；未装配时走系统回退。
 // 布局差异：POSIX（python/bin/python3、node/bin/、node/lib/node_modules）
 // vs Windows（python\python.exe、node\ 根级 node.exe、node\node_modules\）
@@ -50,7 +50,7 @@ function userDataDir() {
 }
 
 // 在线装配运行时根目录：<userData>/omnibuddy/runtime/<plat>
-// （runtime-downloader 主进程模块解压落位，与内置包同构布局；未装配返回 ''）
+// （历史在线装配解压落位，与内置包同构布局；未装配返回 ''）
 function downloadedRootDir() {
   const plat = platKey()
   if (!plat) return ''
@@ -107,7 +107,7 @@ function npxCli() {
   return hit ? hit.path : ''
 }
 
-// 应用侧 node 预装库目录（provision / runtime-downloader 的 node-tools 组件装配，
+// 应用侧 node 预装库目录（provision 装配的 node-tools 组件，
 // 沙箱增强集 sharp/docx/pptxgenjs 等；require 不搜全局路径，须 NODE_PATH 注入）
 function nodeGlobalModulesDir() {
   const hit = locate(isWin() ? 'node/node_modules' : 'node/lib/node_modules')

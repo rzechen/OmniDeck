@@ -8,6 +8,7 @@
 const { app, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const runtime = require('../agent/platform/runtime')
 
 // ===== qmd 预检与 PATH 注入 =====
 // 内置 qmd 包根目录：dev 与打包两种布局
@@ -162,23 +163,14 @@ function probeGit(bin) {
   })
 }
 
-// 装配的 git 可执行目录（按平台布局探测；命中返回目录，未装配返回 ''）
+// 便携 git 可执行目录（内置 Resources/runtime 优先，经 runtime.gitBin 双根解析；
+// 另兼容老版本解压目录 <userData>/omnibuddy/git；命中返回目录，未命中返回 ''）
 function assembledGitDir() {
-  const base = path.join(app.getPath('userData'), 'omnibuddy')
-  const plat = process.platform === 'win32' ? 'win-x86_64'
-    : (process.platform === 'darwin'
-      ? (process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x86_64')
-      : (process.arch === 'arm64' ? 'linux-aarch64' : 'linux-x86_64'))
-  const candidates = process.platform === 'win32'
-    ? [
-        // 在线装配根（cmd/git.exe）+ 老版本解压目录（升级兼容）
-        path.join(base, 'runtime', plat, 'git', 'cmd'),
-        path.join(base, 'git', 'cmd')
-      ]
-    : [path.join(base, 'runtime', plat, 'git', 'bin')]
-  for (const dir of candidates) {
-    const exe = path.join(dir, process.platform === 'win32' ? 'git.exe' : 'git')
-    if (fs.existsSync(exe)) return dir
+  const bin = runtime.gitBin()
+  if (bin) return path.dirname(bin)
+  if (process.platform === 'win32') {
+    const legacy = path.join(app.getPath('userData'), 'omnibuddy', 'git', 'cmd')
+    if (fs.existsSync(path.join(legacy, 'git.exe'))) return legacy
   }
   return ''
 }
@@ -210,7 +202,7 @@ async function ensureGit() {
         type: 'info',
         title: '未检测到 git',
         message: '会话检查点将使用 zip 快照，工作空间中的 git 命令不可用。',
-        detail: '可在「设置 → 运行时」在线装配 Git 工具，或从 https://git-scm.com/downloads 安装后重启应用。',
+        detail: '请从 https://git-scm.com/downloads 安装后重启应用。',
         buttons: ['知道了']
       })
       try {

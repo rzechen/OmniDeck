@@ -931,16 +931,6 @@
           </div>
         </template>
 
-        <!-- 运行时组件（按需在线装配：瘦身版安装包的 python-env / node 等大组件） -->
-        <template v-else-if="activeTab === 'runtime'">
-          <header class="settings-section-header">
-            <h2 class="section-title">运行时</h2>
-            <p class="section-desc">Python / Node.js 等运行时按需装配：从官方发布仓库在线下载（sha256 校验后解压到用户数据目录），未装配时工具自动回退系统环境</p>
-          </header>
-
-          <runtime-manager />
-        </template>
-
         <!-- 版本页（复用 Deck /version 整页组件，内嵌渲染保留左侧设置导航） -->
         <template v-else-if="activeTab === 'version'">
           <header class="settings-section-header">
@@ -1171,7 +1161,6 @@ import {
 } from '@/utils/wallpaper/wallpaper-market'
 import * as toolHistory from '@/utils/storage/tool-history'
 import { toolCategories } from '@/config/tools'
-import RuntimeManager from '@/components/buddy/RuntimeManager.vue'
 import VersionPage from '@/views/deck/version/index.vue'
 import FeedbackPage from '@/views/deck/feedback/index.vue'
 
@@ -1232,7 +1221,6 @@ const tabs = [
   { key: 'notify', label: '通知项', icon: 'chat-dot-round' },
   { key: 'remote', label: '移动端', icon: 'phone' },
   { key: 'computer', label: '电脑控制', icon: 'monitor' },
-  { key: 'runtime', label: '运行时', icon: 'cpu' },
   // 版本 / 反馈为应用级公共页：复用整页组件内嵌渲染（不再单独跳转）
   { key: 'version', label: '版本页', icon: 'info' },
   { key: 'feedback', label: '反馈页', icon: 'chat-line-round' }

@@ -14,8 +14,8 @@
         </div>
       </div>
 
-      <!-- 首启后台装配进度横幅：引导页「先进入」后续装展示（installing 才出现） -->
-      <setup-progress-banner />
+      <!-- 首启运行时自解压横幅（解压完成即收起） -->
+      <runtime-init-banner />
 
       <!-- 内容区：仅 keep-alive 缓存，不加 transition 过渡 -->
       <!-- out-in 过渡 + keep-alive 在快速连续切换页签时会与 activate/deactivate
@@ -51,7 +51,7 @@ import { bus } from '@/utils/ui/bus'
 import Sidebar from './components/Sidebar.vue'
 import TagsBar from '@/components/common/TagsBar.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
-import SetupProgressBanner from '@/components/common/SetupProgressBanner.vue'
+import RuntimeInitBanner from '@/components/common/RuntimeInitBanner.vue'
 import { getShortcut, matchesShortcut } from '@/utils/ui/shortcuts'
 
 defineOptions({ name: 'Layout' })

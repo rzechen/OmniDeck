@@ -146,20 +146,8 @@
         <div v-if="isWindows" class="buddy-winbar">
           <global-topbar-actions win-only />
         </div>
-        <!-- 首启后台装配进度横幅：与 rt-tip 同位，装配中优先展示（完成即收起） -->
-        <setup-progress-banner />
-        <!-- 启动检查：核心运行时（python-env）既无内置也未装配 → 横幅引导在线装配
-             （瘦身版安装包场景；完整版/开发环境有内置运行时不打扰） -->
-        <div v-if="runtimeTipVisible" class="buddy-rt-tip">
-          <svg-icon icon-class="tool" class="buddy-rt-tip-ico" />
-          <span class="buddy-rt-tip-text">
-            部分能力（数据分析 / 代码执行等）依赖的 Python 运行时未装配，相关工具当前不可用
-          </span>
-          <el-button size="small" round type="primary" class="buddy-rt-tip-btn" @click="goRuntimeSettings">去装配</el-button>
-          <span class="buddy-rt-tip-close" title="暂不提示" @click="runtimeTipClosed = true">
-            <svg-icon icon-class="close" />
-          </span>
-        </div>
+        <!-- 首启运行时自解压横幅（解压完成即收起） -->
+        <runtime-init-banner />
         <div class="buddy-main">
           <router-view v-slot="{ Component }">
             <keep-alive :max="10">
@@ -182,7 +170,7 @@ import { bus } from '@/utils/ui/bus'
 import { useFeedback } from '@/composables/useFeedback'
 import BuddyTaskList from '@/components/buddy/layout/BuddyTaskList.vue'
 import GlobalTopbarActions from '@/components/common/GlobalTopbarActions.vue'
-import SetupProgressBanner from '@/components/common/SetupProgressBanner.vue'
+import RuntimeInitBanner from '@/components/common/RuntimeInitBanner.vue'
 import { getItem, setItem } from '@/utils/storage/db'
 
 defineOptions({ name: 'BuddyLayout' })
@@ -244,22 +232,11 @@ const collapsed = ref(getItem('omnibuddy:sidebar-collapsed', false))
 let sidebarHold = false
 // 拖拽中（宽度跟随鼠标，禁用过渡）
 const dragging = ref(false)
-// ===== 启动检查：运行时组件 =====
-// 核心组件（python-env）缺失（无内置且未装配）——瘦身版安装包场景提示装配
-const runtimeTipMissing = ref(false)
-// 本次会话内用户手动关闭横幅（不持久化，重启后若仍缺失会再提示）
-const runtimeTipClosed = ref(false)
-// 首启后台装配会话快照（null = 无会话）：进行中隐藏 rt-tip，横幅只显示装配进度
-const setupSession = ref(null)
 
-let _unsubSetup = null
 let _unsubTitle = null
 let _resizeX = 0
 let _resizeW = 0
 let _holdBefore = null
-
-// 横幅可见：检查到缺失 且 未被手动关闭；装配进行中让位给装配进度横幅
-const runtimeTipVisible = computed(() => runtimeTipMissing.value && !runtimeTipClosed.value && !(setupSession.value && setupSession.value.state === 'installing'))
 
 // 当前激活会话 id（由对话页路由 query.s 驱动）
 const activeChatId = computed(() => route.query.s || '')
@@ -504,43 +481,6 @@ function goSettings() {
   }
 }
 
-// 启动检查：python-env 既无内置也未装配 → 横幅提示（主进程合并组件规则与发布清单）
-// 首启后台装配快照：进入视图时同步既有会话，并订阅广播驱动 rt-tip 让位
-function bindSetupSession() {
-  const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
-  if (!api) return
-  if (api.onSetupProgress) {
-    _unsubSetup = api.onSetupProgress(s => {
-      if (s && s.items) setupSession.value = s
-    })
-  }
-  if (api.setupSnapshot) {
-    api.setupSnapshot().then(s => {
-      if (s && s.items) setupSession.value = s
-    }).catch(() => {})
-  }
-}
-
-async function checkRuntime() {
-  const api = (window.electronAPI && window.electronAPI.omnibuddy) || null
-  if (!api || !api.runtimeStatus) return
-  try {
-    const res = await api.runtimeStatus()
-    if (!res || !res.ok) return
-    const py = (res.components || []).find(c => c.name === 'python-env')
-    if (py && !py.builtin && !py.installed) {
-      runtimeTipMissing.value = true
-    }
-  } catch (e) {
-    // 检查失败静默（不打扰启动）
-  }
-}
-
-// 横幅「去装配」：直达设置-运行时分区
-function goRuntimeSettings() {
-  router.push({ name: 'OmniBuddySettings', query: { tab: 'runtime' } }).catch(() => {})
-}
-
 // 返回进入 OmniBuddy 前所在的 deck 页面（无记录时回首页）
 function goMain() {
   const target = router.lastDeckPath || '/home'
@@ -564,10 +504,6 @@ function onSelectChat(id) {
 
 // created：初始化
 loadChats()
-// 启动检查：核心运行时组件装配状态（异步静默；完整版/开发环境有内置运行时不提示）
-checkRuntime()
-// 首启后台装配快照：同步既有会话 + 订阅广播（进行中隐藏 rt-tip，横幅只显示进度）
-bindSetupSession()
 // 对话页创建/更新会话后刷新列表
 bus.on('omnibuddy:sessions-changed', loadChats)
 // 工作空间重命名（级联更新了会话 displayName）后刷新分组
@@ -624,10 +560,6 @@ onBeforeUnmount(() => {
   bus.off('omnibuddy:sessions-changed', loadChats)
   bus.off('omnibuddy:workspaces-changed', loadChats)
   bus.off('buddy:sidebar-hold', onSidebarHold)
-  if (_unsubSetup) {
-    _unsubSetup()
-    _unsubSetup = null
-  }
   if (_unsubTitle) {
     _unsubTitle()
     _unsubTitle = null
@@ -1225,56 +1157,6 @@ $buddy-sidebar-w: 260px;
 }
 
 /* ===== 主区 ===== */
-/* ===== 启动检查横幅：核心运行时缺失时引导在线装配（可关闭，不持久化） ===== */
-.buddy-rt-tip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 14px 0;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: rgba(var(--primary-color-rgb), 0.07);
-  border: 1px solid rgba(var(--primary-color-rgb), 0.18);
-}
-
-.buddy-rt-tip-ico {
-  flex-shrink: 0;
-  font-size: 15px;
-  color: var(--primary-color);
-}
-
-.buddy-rt-tip-text {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-primary, #303133);
-}
-
-.buddy-rt-tip-btn {
-  flex-shrink: 0;
-  padding: 5px 12px;
-  font-size: 11px;
-}
-
-.buddy-rt-tip-close {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--text-secondary, #909399);
-  cursor: pointer;
-  transition: background 0.15s ease;
-
-  &:hover {
-    background: rgba(0, 0, 0, 0.06);
-  }
-}
-
 .buddy-main {
   flex: 1;
   min-width: 0;

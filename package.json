@@ -123,13 +123,44 @@
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "identity": null
+      "identity": null,
+      "extraResources": [
+        {
+          "from": "lib/darwin-arm64",
+          "to": "runtime-pkgs/darwin-arm64",
+          "filter": [
+            "*.zip",
+            "*.tar.gz"
+          ]
+        },
+        {
+          "from": "runtime/darwin-arm64/npx-cache",
+          "to": "runtime/darwin-arm64/npx-cache",
+          "filter": [
+            "**/*",
+            "!**/.DS_Store"
+          ]
+        }
+      ]
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "lib/windows-x86_64",
+          "to": "runtime-pkgs/windows-x86_64",
+          "filter": [
+            "*.zip"
+          ]
+        },
+        {
+          "from": "runtime/windows-x86_64/npx-cache",
+          "to": "runtime/win-x86_64/npx-cache"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

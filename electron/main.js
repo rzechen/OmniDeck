@@ -13,8 +13,7 @@ const capture = require('./windows/capture')
 const browser = require('./windows/browser')
 const updater = require('./core/updater')
 const deps = require('./core/deps')
-const runtimeDownloader = require('./core/runtime-downloader')
-const setup = require('./core/setup')
+const runtimeBundle = require('./core/runtime-bundle')
 const wallpaperFetch = require('./services/wallpaper-fetch')
 
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true'
@@ -115,18 +114,14 @@ ipcMain.handle('app:relaunch', () => {
 // ===== 主窗口创建 =====
 function createWindow() {
   const isMac = process.platform === 'darwin'
-  // 首启引导期用设计尺寸居中展示（不最大化）；正常启动保持最大化
-  const setupMode = setup.isSetupNeeded()
   mainWindow = new BrowserWindow({
-    width: setupMode ? 1180 : 1280,
-    height: setupMode ? 840 : 840,
+    width: 1280,
+    height: 840,
     minWidth: 960,
     minHeight: 640,
     backgroundColor: '#F0F0F2',
     show: false,
     center: true,
-    // 引导期禁拖拉调整大小（固定设计尺寸展示斜分视图），完成后恢复
-    resizable: !setupMode,
     // 平台差异：mac 用红绿灯 + 毛玻璃；Windows 无边框，由 Topbar 自绘窗口控制按钮
     ...(isMac
       ? {
@@ -179,9 +174,8 @@ function createWindow() {
   mainWindow.on('maximize', () => sendMax(true))
   mainWindow.on('unmaximize', () => sendMax(false))
 
-  // 启动默认最大化（双保险：部分环境 show 前的设置会在显示时被还原，ready-to-show 再补一次）；
-  // 首启引导期不最大化——设计尺寸居中展示引导页
-  if (!setupMode) mainWindow.maximize()
+  // 启动默认最大化（双保险：部分环境 show 前的设置会在显示时被还原，ready-to-show 再补一次）
+  mainWindow.maximize()
 
   // dev / 生产统一走 app:// 协议（同一 origin，IndexedDB 互通）
   // dev：协议代理转发 vite dev server（HMR 正常）；生产：映射本地 dist/
@@ -197,9 +191,8 @@ function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
-    // 部分环境下 show 前的 maximize 会在窗口显示时被还原，显示时再补一次确保最大化；
-    // 首启引导期跳过（保持设计尺寸居中）
-    if (!setupMode && !mainWindow.isMaximized()) mainWindow.maximize()
+    // 部分环境下 show 前的 maximize 会在窗口显示时被还原，显示时再补一次确保最大化
+    if (!mainWindow.isMaximized()) mainWindow.maximize()
     mainWindow.show()
   })
 
@@ -477,15 +470,9 @@ app.whenReady().then(async () => {
     startAgentBridge(() => mainWindow, omnibuddyDir)
   }
 
-  // 运行时组件在线装配（主进程直挂 IPC，不经 agent 桥——大文件流式下载与进度推送
-  // 依赖主进程 net 的系统代理语义；装配后 runtime.js 双根解析链即时生效）
-  runtimeDownloader.init(omnibuddyDir)
-  runtimeDownloader.registerIpc()
-
-  // 首启引导装配：/setup 引导页查询必需组件就绪态、完成后写放行标记并恢复主窗（可拖拉 + 最大化）
-  setup.registerIpc(() => mainWindow)
-  // 启动续装：完成标记在但组件仍有缺失（上次装配中断 / 被卸载）→ 后台静默续装不拦截
-  setup.maybeAutoResume()
+  // 运行时压缩包首启自解压：后台解压到 userData（不阻塞主功能），状态供横幅展示
+  runtimeBundle.init(() => mainWindow)
+  runtimeBundle.registerIpc()
 
   // 屏幕截取（iShot 风格截图工具）：内存记录池（无落盘），IPC 注册；
   // getWindows：快捷键截图时需隐藏的应用窗口（主窗 + 快捷面板）
@@ -523,12 +510,18 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     // 托盘常驻后主窗口多为隐藏态：dock 点击恢复而非重建
     if (mainWindow && !mainWindow.isDestroyed()) {
+      // 仅「从隐藏态恢复」（关闭按钮驻留后重开）时回到入口视图；
+      // 窗口可见时点 Dock 只聚焦，不打断当前页面。
+      // 入口视图经 '/' redirect 分流（设置-通用「入口视图」），与冷启动一致：
+      // Windows 关闭后点快捷方式 = 新进程冷启动，天然走同一 redirect
+      const wasHidden = !mainWindow.isVisible()
       // Dock 图标可能在驻留时被隐藏（macOS），恢复显示
       if (process.platform === 'darwin') {
         try { app.dock.show() } catch (err) { /* 忽略 */ }
       }
       mainWindow.show()
       mainWindow.focus()
+      if (wasHidden) mainWindow.webContents.send('nav:goto', '/')
     } else if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
     }

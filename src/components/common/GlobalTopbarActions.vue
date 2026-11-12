@@ -154,11 +154,8 @@ function winClose() {
 .wc-close:hover {
   background: #E5484D;
 
-  .wc-glyph {
-    background: #fff;
-    border-color: #fff;
-  }
-
+  /* × 由伪元素细线绘制：只染线色，勿给 .wc-glyph 本身设 background
+     （11×11 的 span 会成实心白方块盖住 ×） */
   .wc-glyph::before,
   .wc-glyph::after {
     background: #fff;

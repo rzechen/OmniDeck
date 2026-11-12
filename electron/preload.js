@@ -64,24 +64,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pendingPermissions: () => ipcRenderer.invoke('omnibuddy:permission:pending'),
     // 能力中心（工具分类清单 + 权限策略可选对象）
     capabilityList: () => ipcRenderer.invoke('omnibuddy:capability:list'),
-    // 运行时组件在线装配（瘦身版按需下载 python-env / node / node-tools / pandoc）
-    runtimeStatus: () => ipcRenderer.invoke('omnibuddy:runtime:status'),
-    runtimeInstall: name => ipcRenderer.invoke('omnibuddy:runtime:install', name),
-    runtimeUninstall: name => ipcRenderer.invoke('omnibuddy:runtime:uninstall', name),
-    onRuntimeProgress: handler => {
-      ipcRenderer.on('omnibuddy:runtime:progress', handler)
-      return () => ipcRenderer.removeListener('omnibuddy:runtime:progress', handler)
-    },
-    // 首启引导装配：必需组件就绪检查 + 完成放行（安装动作复用 runtimeInstall）
-    setupStatus: () => ipcRenderer.invoke('omnibuddy:setup:status'),
-    setupComplete: () => ipcRenderer.invoke('omnibuddy:setup:complete'),
-    // 后台批量装配（主进程串行驱动，页面切走不中断）：触发 / 快照 / 进度推送
-    setupStartInstall: () => ipcRenderer.invoke('omnibuddy:setup:start-install'),
-    setupSnapshot: () => ipcRenderer.invoke('omnibuddy:setup:install-snapshot'),
-    onSetupProgress: handler => {
+    // 运行时压缩包首启自解压：状态查询 + 三态广播（extracting/done/error）
+    runtimeBundleStatus: () => ipcRenderer.invoke('omnibuddy:runtime-bundle:status'),
+    onRuntimeBundle: handler => {
       const wrapped = (_e, s) => handler(s)
-      ipcRenderer.on('omnibuddy:setup:progress', wrapped)
-      return () => ipcRenderer.removeListener('omnibuddy:setup:progress', wrapped)
+      ipcRenderer.on('omnibuddy:runtime-bundle', wrapped)
+      return () => ipcRenderer.removeListener('omnibuddy:runtime-bundle', wrapped)
     },
     // 权限模式（输入框常驻选择器，即时生效）
     getPermissionMode: () => ipcRenderer.invoke('omnibuddy:permission:get-mode'),

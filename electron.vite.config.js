@@ -123,10 +123,8 @@ const mainInput = {
   'translate/inject': abs('electron/translate/inject.js'),
   'core/updater': abs('electron/core/updater.js'),
   'core/deps': abs('electron/core/deps.js'),
-  // 运行时组件在线装配（main.js require；产物镜像源码结构，运行时解析）
-  'core/runtime-downloader': abs('electron/core/runtime-downloader.js'),
-  // 首启引导装配检查（require runtime-downloader；引导页经 IPC 查询必需组件就绪态）
-  'core/setup': abs('electron/core/setup.js'),
+  // 运行时压缩包首启自解压（main.js require；产物镜像源码结构，运行时解析）
+  'core/runtime-bundle': abs('electron/core/runtime-bundle.js'),
   'services/wallpaper-fetch': abs('electron/services/wallpaper-fetch.js')
 }
 
